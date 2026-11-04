@@ -473,6 +473,10 @@ test("failed host room reinitializes with the same seat and keeps that seat", as
 
   await page.getByTestId("stream-start").click();
   await expect.poll(() => bodies.length).toBe(1);
+  // The request can precede SDK listener installation; fail an established room.
+  await expect(
+    page.getByText("The stream started successfully. You are live!"),
+  ).toBeVisible();
   await page.evaluate(() => window.hostTest.endRoom("failed"));
   await expect.poll(() => bodies.length).toBe(2);
   expect(bodies[1]).toMatchObject({

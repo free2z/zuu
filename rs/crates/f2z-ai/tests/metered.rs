@@ -68,6 +68,7 @@ struct Memory {
     lose_hold_replies: usize,
     lose_settle_reply: bool,
     available: u64,
+    cap_remaining: Option<u64>,
     slow_completion: bool,
     /// Mimic a ledger before `ledger.0006_call_features`: its
     /// `gateway_metadata_valid` refuses any key it does not name, so
@@ -79,7 +80,7 @@ struct Memory {
 }
 impl Memory {
     fn context(&self) -> Value {
-        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":null,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
+        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":self.cap_remaining,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
     }
     fn record(&self) -> Value {
         let status = match self.terminal {
@@ -1256,6 +1257,77 @@ async fn an_anthropic_stream_cut_after_message_start_settles_on_its_reported_inp
     }
     mock.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_anthropic_tool_cut_settles_its_name_and_argument_fragments_in_both_relay_modes() {
+    let mut value = serde_json::to_value(adapter_support::catalog(10_000).catalog()).unwrap();
+    for model in value["models"].as_array_mut().unwrap() {
+        if model["id"] == "m-anthropic" {
+            model["capabilities"] = json!({"tools": true});
+        }
+    }
+    let catalog =
+        f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap())
+            .unwrap();
+    let fixture = include_str!("fixtures/anthropic/tool_use_cut_after_2_arguments.sse");
+    let generated = "lookup{\"query\":\"harbor\"";
+    let raw = f2z_ai::estimate::Encoding::O200kBase.count(generated);
+    let calculated_output = raw + raw.div_ceil(10);
+    assert_eq!(calculated_output, 8);
+
+    for (stream, relay_mode) in [(true, "stream"), (false, "nonstream")] {
+        for output_cap in [100, 5] {
+            let expected_output = calculated_output.min(output_cap);
+            assert_eq!(expected_output, if output_cap == 100 { 8 } else { 5 });
+            let db = Arc::new(Database::new());
+            let (r, mock) = launch_catalog(
+                db.clone(),
+                Scenario::default().with_replay(fixture),
+                None,
+                catalog.clone(),
+            )
+            .await;
+            let mut body = request();
+            body["model"] = json!("m-anthropic");
+            body["stream"] = json!(stream);
+            body["max_output_tokens"] = json!(output_cap);
+            body["tools"] = json!([{"name":"lookup","parameters":{"type":"object"}}]);
+            let mut req = support::chat_request(body.to_string());
+            req.headers_mut().insert(
+                "idempotency-key",
+                format!("anthropic-tool-{relay_mode}-{output_cap}")
+                    .parse()
+                    .unwrap(),
+            );
+            let text = support::text(support::send(r.public, req).await).await;
+            if stream {
+                assert!(text.contains("event: tool_call_delta"), "{text}");
+                assert!(!text.contains("event: tool_call\n"), "{text}");
+                assert!(text.contains("\"source\":\"estimated\""), "{text}");
+            } else {
+                assert!(!text.contains("tool_call_delta"), "{text}");
+            }
+            assert!(text.contains("\"settlement\":\"settled\""), "{text}");
+            final_state(&db).await;
+            {
+                let state = db.0.lock().unwrap();
+                assert_eq!(state.charges, 1, "{relay_mode}, cap={output_cap}");
+                assert_eq!(state.settle_requests, 1, "{relay_mode}, cap={output_cap}");
+                assert_eq!(
+                    state.settled_usage["output_tokens"], expected_output,
+                    "{relay_mode}, cap={output_cap}"
+                );
+                assert_eq!(state.settled_usage["tool_calls"], 0);
+                assert_eq!(
+                    state.record()["status"],
+                    if stream { "settled_partial" } else { "settled" }
+                );
+                assert_eq!(state.completion["usage_source"], "estimated");
+            }
+            mock.shutdown().await;
+        }
+    }
+}
 // The same drain on an Anthropic stream that had sent `message_start`:
 // its exact input counts (a mostly cached prompt) settle the call, not the
 // byte bound the hold was sized with — the parser's knowledge is taken
@@ -1971,6 +2043,67 @@ async fn strict_output_limit_is_refused_before_any_hold_charge_or_provider_reque
     assert_eq!(mock.request_count(), 0);
     mock.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn strict_cap_refusal_pins_supported_details_and_has_no_paid_work() {
+    let db = Arc::new(Database::new());
+    {
+        let mut state = db.0.lock().unwrap();
+        state.available = 10_000_000;
+        state.cap_remaining = Some(5_000);
+    }
+    let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, priced_catalog()).await;
+
+    // The estimate and real call use the same ledger snapshot. Pin the
+    // request-specific required amount without duplicating the pricing math.
+    let (status, estimate) = post(&r, "/v1/chat/estimate", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{estimate}");
+    let expected_required = estimate["error"]["details"]["required_2z"]
+        .as_u64()
+        .unwrap();
+
+    let (status, refused) = post(&r, "/v1/chat", &aha_request(true)).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{refused}");
+    assert_eq!(refused["error"]["code"], "cap_exceeded");
+    let details = refused["error"]["details"].as_object().unwrap();
+    let keys: std::collections::BTreeSet<_> = details.keys().map(String::as_str).collect();
+    assert_eq!(
+        keys,
+        [
+            "available_milli_2z",
+            "cap_remaining_milli_2z",
+            "max_output_tokens",
+            "min_charge_2z",
+            "reason",
+            "required_2z",
+        ]
+        .into_iter()
+        .collect()
+    );
+    assert_eq!(details["reason"], "max_output_tokens_strict");
+    assert_eq!(details["max_output_tokens"], 1800);
+    assert_eq!(details["required_2z"], expected_required);
+    assert_eq!(details["available_milli_2z"], 10_000_000);
+    assert_eq!(details["min_charge_2z"], 1);
+    assert_eq!(details["cap_remaining_milli_2z"], 5_000);
+    for unsupported in ["cap_2z", "cap_period", "resets_at"] {
+        assert!(
+            !details.contains_key(unsupported),
+            "the ledger context has no {unsupported} metadata: {details:?}"
+        );
+    }
+
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert!(state.hold.is_none(), "no hold was taken");
+        assert_eq!(state.charges, 0);
+        assert_eq!(state.terminal, Some("released"));
+    }
+    assert_eq!(mock.request_count(), 0, "the provider was never called");
+    mock.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn without_strict_the_same_request_is_clamped_held_and_charged() {
     // Negative control for the test above: identical balance and request,

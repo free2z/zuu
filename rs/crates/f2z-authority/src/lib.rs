@@ -1,14 +1,12 @@
 //! Handle-ownership assertions for the free2z key-transparency log.
 //!
 //! **The current v1 assertion wire format is ratified as-implemented.**
-//! [`HandleAssertionTBS`], [`HandleAssertion`], and
-//! [`AssertionBindingTBS`] are specified in `KT.md` §4.5, including their
-//! encoding, signing transcripts, and admission rules. That ratification binds
-//! the current v1 wire shape; it does not make a change to where these bytes
-//! are carried a source-compatible refactor. The existing shape is frozen in
-//! two implementations, and [issue #649] proposes a coordinated wire change to
-//! make first-entry authorization client-verifiable. That issue remains open;
-//! its proposed move and the additional encoding decisions are not ratified.
+//! [`HandleAssertionTBS`], [`HandleAssertion`], and [`AssertionBindingTBS`]
+//! are specified in `KT.md` §4.5. That ratification binds the current v1 wire
+//! shape. The additional `InitialBindBindingTBS` used to commit first-entry
+//! evidence into `DirectoryEntry` is a #649 future-wire proposal for maintainer
+//! review and is not yet ratified. The no-authority behavior remains the
+//! existing implementation contract.
 //!
 //! The crate checks only the assertion layer, not the complete directory
 //! authorization described by `KT.md` §4.4. In particular, its
@@ -210,7 +208,9 @@ pub mod labels;
 pub mod nonce;
 pub mod types;
 
-pub use assertion::{AssertionBindingTBS, HandleAssertion, HandleAssertionTBS};
+pub use assertion::{
+    AssertionBindingTBS, HandleAssertion, HandleAssertionTBS, InitialBindBindingTBS,
+};
 pub use authority::{
     ACCOUNT_EPOCH_CEILING, AssertionLayerCheck, AuthorityConfig, AuthorityKey, AuthoritySet,
     DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_VALIDITY_MS, EntryKind, MAX_ACCOUNT_EPOCH_STEP, Submission,

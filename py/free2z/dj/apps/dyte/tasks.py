@@ -38,6 +38,171 @@ from .models import RecordingDelivery
 logger = logging.getLogger(__name__)
 
 
+@app.task(name="dyte.retire_host_evictions", queue="default")
+def retire_host_evictions(creator_id: int, meeting_id: int):
+    """Retire queued host participants without holding a database lock.
+
+    The queue row is inserted in the same transaction as the eviction state,
+    so a request or process exit cannot lose the handoff. Provider work runs
+    between short reads/writes; compare-and-update keeps a stale job from
+    overwriting newer evictions.
+    """
+    from django.db import transaction
+    from procrastinate.exceptions import AlreadyEnqueued
+
+    from .models import CreatorMeeting
+    from .views import (
+        HOST_EVICTION_MAX_ATTEMPTS, HOST_START_CLAIM_TTL, _lock_host_seat,
+    )
+
+    cm = CreatorMeeting.objects.filter(
+        pk=meeting_id, creator_id=creator_id,
+    ).first()
+    if cm is None or not cm.host_evictions:
+        return
+
+    snapshot = [entry for entry in cm.host_evictions
+                if entry.get('state') != 'manual_review']
+    if not snapshot:
+        return
+    # A start claim is written before provider I/O. A released claim waits out
+    # the bounded provider request timeout before retirement; an abandoned
+    # claim expires and is reclaimed so a killed worker cannot hold the seat.
+    claim = cm.host_start_claim
+    claim_at = cm.host_start_claim_at or cm.host_session_seen_at
+    now_epoch = timezone.now().timestamp()
+    claim_live = bool(
+        claim and claim_at is not None
+        and claim_at + HOST_START_CLAIM_TTL > timezone.now()
+    )
+    active = [entry for entry in snapshot if (
+        claim_live
+        and entry.get('state') == 'start_pending'
+        and entry.get('claim_id') == str(claim)
+    )]
+    waiting = [entry for entry in snapshot if (
+        entry.get('state') == 'start_pending'
+        and entry.get('retry_after', 0) > now_epoch
+    )]
+    if waiting:
+        try:
+            with transaction.atomic():
+                retire_host_evictions.configure(
+                    queueing_lock=f"dyte-host-evictions-{meeting_id}",
+                    schedule_at=timezone.datetime.fromtimestamp(
+                        min(entry['retry_after'] for entry in waiting),
+                        tz=timezone.get_current_timezone()),
+                ).defer(creator_id=creator_id, meeting_id=meeting_id)
+        except AlreadyEnqueued:
+            pass
+    expired = [entry for entry in snapshot if (
+        entry.get('state') == 'start_pending'
+        and entry not in active and entry not in waiting
+    )]
+    if expired:
+        with transaction.atomic():
+            _lock_host_seat(cm.creator)
+            current = CreatorMeeting.objects.select_for_update().filter(
+                pk=meeting_id, creator_id=creator_id,
+            ).first()
+            if current is None:
+                return
+            entries = list(current.host_evictions or [])
+            for expired_entry in expired:
+                for index, entry in enumerate(entries):
+                    if entry == expired_entry:
+                        if not entry.get('meeting_id'):
+                            # A room create that died before its provider ID
+                            # was persisted cannot yet have reached participant
+                            # minting. The room intent is separately visible
+                            # for operator reconciliation.
+                            entries.pop(index)
+                        else:
+                            entries[index] = {
+                                **entry, 'state': 'pending', 'claim_id': None,
+                            }
+                        break
+            if (current.host_start_claim == claim and claim
+                    and not claim_live):
+                current.host_start_claim = None
+                current.host_start_claim_at = None
+                current.host_session_id = None
+                current.host_session_seen_at = None
+            current.host_evictions = entries
+            current.save(update_fields=[
+                'host_evictions', 'host_start_claim', 'host_start_claim_at',
+                'host_session_id', 'host_session_seen_at',
+            ])
+            cm = current
+            snapshot = [entry for entry in entries
+                        if entry.get('state') != 'manual_review']
+    snapshot = [entry for entry in snapshot if entry not in active and entry not in waiting]
+    if not snapshot:
+        return
+    from .client import DyteClient
+    dc = DyteClient(settings.DYTE_ORG)
+    outcomes = []
+    for entry in snapshot:
+        meeting = entry.get('meeting_id')
+        participant = entry.get('participant_id')
+        if not meeting or not participant:
+            outcomes.append((entry, None))
+            continue
+        try:
+            retired = dc.retire_participant(meeting, participant)
+        except Exception:
+            logger.exception("Could not retire queued host participant creator=%s", creator_id)
+            retired = False
+        outcomes.append((entry, retired))
+
+    with transaction.atomic():
+        creator = cm.creator
+        _lock_host_seat(creator)
+        current = CreatorMeeting.objects.filter(
+            pk=meeting_id, creator_id=creator_id,
+        ).first()
+        if current is None:
+            return
+        current_entries = list(current.host_evictions or [])
+        for entry, retired in outcomes:
+            if entry not in current_entries:
+                continue
+            current_entries.remove(entry)
+            if retired is not True:
+                attempts = int(entry.get('attempts') or 0) + 1
+                if attempts >= HOST_EVICTION_MAX_ATTEMPTS:
+                    logger.error(
+                        "host seat handoff: previous host NOT retired after %s attempts creator=%s meeting=%s participant=%s; obligation retained for manual cleanup",
+                        attempts, creator_id, entry.get('meeting_id'), entry.get('participant_id'),
+                    )
+                current_entries.append({
+                    **entry,
+                    'state': ('manual_review' if attempts >= HOST_EVICTION_MAX_ATTEMPTS
+                              else 'pending'),
+                    'claim_id': None,
+                    'attempts': attempts,
+                })
+        current.host_evictions = current_entries
+        current.save(update_fields=['host_evictions'])
+        if any(entry.get('state') != 'manual_review'
+               for entry in current_entries):
+            # Retry outside this transaction, but retain the durable queue
+            # handoff if this worker dies after committing the updated state.
+            attempts = max(int(entry.get('attempts') or 0)
+                           for entry in current_entries)
+            delay = min(15 * (2 ** min(attempts, 6)), 15 * 60)
+            try:
+                with transaction.atomic():
+                    retire_host_evictions.configure(
+                        queueing_lock=f"dyte-host-evictions-{meeting_id}",
+                        schedule_at=timezone.now() + timedelta(seconds=delay),
+                    ).defer(creator_id=creator_id, meeting_id=meeting_id)
+            except AlreadyEnqueued:
+                # A heartbeat may have queued this meeting while the provider
+                # call was in flight. That job will observe the updated state.
+                pass
+
+
 # Registered, deliberately NOT periodic ( review). Every worker lane
 # runs procrastinate's periodic deferrer for every @app.periodic task it
 # knows, and bin/bazel-apply.sh rolls ledger-worker, outbox-worker and five

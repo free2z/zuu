@@ -1,7 +1,7 @@
 anthropic==1.13.0
 apng==0.3.4
 # Remove the compromised emSign trust anchor (GHSA-6q48-6c7w-9gw2).
-certifi==2026.10.19
+certifi==2026.10.23
 # PyAV: video poster-frame extraction for VideoObject structured data.
 # The manylinux wheel STATICALLY BUNDLES FFmpeg's shared libraries, so this is
 # a pure requirements addition -- `docker/py3base/Dockerfile` installs no apt
@@ -22,7 +22,7 @@ certifi==2026.10.19
 # So the real mitigation is not the pin -- it is
 # `uploads.video_utils.ALLOWED_VIDEO_CODECS`, which refuses to hand a frame to
 # any of FFmpeg's ~200 decoders except the handful a browser can play.
-av==19.0.1
+av==19.0.2
 Django==5.2.18
 # channels/channels_redis must be upgraded together. channels 4.2.1 renamed
 # BaseChannelLayer.valid_channel_name/valid_group_name -> require_valid_*
@@ -58,7 +58,7 @@ cryptography==50.0.2
 daphne==4.2.3
 # Patched WebSocket compression bounds (GHSA-pjh6-c8mg-3x7m).
 # Pin Daphne's transitive protocol dependency so lock regeneration retains the fix.
-autobahn==26.10.1
+autobahn==26.10.2
 # Explicit patched prerelease: the five October 2026 Twisted advisories affect 26.4.0.
 # Keep this exact until a stable patched release is verified.
 twisted[tls]==26.10.0rc1
@@ -133,7 +133,7 @@ jsonlines==4.0.0
 # bin/gen-language-names.py and committed as f2z/language_names.py instead.
 langcodes==3.5.1
 markdown2==2.5.5
-openai==3.29.0
+openai==3.38.0
 pdfrw==0.4
 pgvector==0.5.1
 procrastinate[django]==3.10.0

@@ -81,6 +81,7 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/shared/src/diagnostics/record.ts",
           "wallet/zuuli/scripts/status-freshness.mjs",
           "wallet/zuuli/src-tauri/unknown-input.bin",
+          "z/openmls/openmls",
         ],
       },
       {
@@ -92,6 +93,7 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/Cargo.toml",
           "docs/free2z/messaging/CLIENT-CONTRACT.md",
           "docs/free2z/messaging/WIRE.md",
+          "z/openmls/openmls",
           // The markdown-only guard must exclude prose and nothing else: source
           // under the same two prefixes still selects the full gate.
           "wallet/free2z/src/App.tsx",
@@ -122,6 +124,7 @@ const RUST_ROOT_CONTRACTS = [
         additionalProbePaths: [
           "wallet/free2z/src/App.tsx",
           "wallet/e2e2z/src/App.tsx",
+          "z/openmls/openmls",
           ".github/workflows/e2e2z-release.yml",
           ".github/workflows/free2z-release.yml",
         ],

@@ -1,14 +1,12 @@
 //! The two signed structures: what an authority says, and what the identity
 //! key it names says back.
 //!
-//! These structures are the ratified `KT.md` v1 wire format (§4.5): their
-//! fields, encoding, and signing transcripts are frozen for the current v1
-//! shape. [Issue #649] proposes moving first-entry authorization into
-//! `EntryAuthorization` so clients can verify it, but that coordinated wire
-//! change remains open and its additional encoding decisions are not ratified.
-//! The vectors in this module pin the current encoding.
-//!
-//! [Issue #649]: https://github.com/free2z/zuu/issues/649
+//! `HandleAssertion` and `AssertionBindingTBS` are the ratified `KT.md` v1
+//! wire format (§4.5) and Contract C: their fields, encoding, and signing
+//! transcripts are frozen. The vectors in this module pin that encoding.
+//! `InitialBindBindingTBS` is the additional #649 future-wire proposal, kept
+//! separate so it does not alter the v1 binding or its `AkdValue` meaning.
+//! That proposal is not ratified.
 //!
 //! ```text
 //! struct {
@@ -81,7 +79,10 @@ use tls_codec::{TlsDeserializeBytes, TlsSerializeBytes, TlsSize};
 
 use crate::error::{AuthorityError, Result};
 use crate::key::SigningKey;
-use crate::labels::{LABEL_ASSERTION_BINDING_TBS, LABEL_ASSERTION_DIGEST, LABEL_ASSERTION_TBS};
+use crate::labels::{
+    LABEL_ASSERTION_BINDING_TBS, LABEL_ASSERTION_DIGEST, LABEL_ASSERTION_TBS,
+    LABEL_INITIAL_BINDING_TBS,
+};
 use crate::types::{AssertionNonce, AuthorityId, Handle, HandleId, Intent, LogId, authority_id};
 
 /// What an authority signs.
@@ -314,6 +315,56 @@ impl AssertionBindingTBS {
     /// # Errors
     ///
     /// [`AuthorityError::Malformed`] if the structure cannot be encoded.
+    pub fn sign(&self, key: &SigningKey) -> Result<Signature> {
+        Ok(key.sign(&self.signing_bytes()?))
+    }
+}
+
+/// Proposed commitment used only by the committed `InitialBind` entry case.
+/// The existing v1 [`AssertionBindingTBS`] contract continues to bind the
+/// submission's complete `AkdValue`; this separate transcript avoids changing
+/// that ratified binding while closing the first-entry transparency gap.
+#[derive(Clone, Debug, PartialEq, Eq, TlsSize, TlsSerializeBytes, TlsDeserializeBytes)]
+pub struct InitialBindBindingTBS {
+    /// Exactly [`LABEL_INITIAL_BINDING_TBS`].
+    pub label: ShortBytes,
+    /// The log this registration is for.
+    pub log_id: LogId,
+    /// The claimed handle.
+    pub handle: Handle,
+    /// The identity key doing the claiming.
+    pub identity_pk: PublicKey,
+    /// Digest of the exact signed assertion, or zero for no-authority mode.
+    pub assertion_digest: Digest,
+    /// `H("free2z/kt/v1/initial-entry-digest", tls_codec(DirectoryEntryTBS))`.
+    pub entry_tbs_digest: Digest,
+}
+
+impl InitialBindBindingTBS {
+    /// Build the binding for a first-entry authorization.
+    pub fn new(
+        log_id: LogId,
+        handle: Handle,
+        identity_pk: PublicKey,
+        assertion_digest: Digest,
+        entry_tbs_digest: Digest,
+    ) -> Result<Self> {
+        Ok(Self {
+            label: ShortBytes::new(LABEL_INITIAL_BINDING_TBS).map_err(AuthorityError::from)?,
+            log_id,
+            handle,
+            identity_pk,
+            assertion_digest,
+            entry_tbs_digest,
+        })
+    }
+
+    /// Exact bytes the identity key signs.
+    pub fn signing_bytes(&self) -> Result<Vec<u8>> {
+        Ok(self.encode_canonical()?)
+    }
+
+    /// Sign the binding with the named identity key.
     pub fn sign(&self, key: &SigningKey) -> Result<Signature> {
         Ok(key.sign(&self.signing_bytes()?))
     }

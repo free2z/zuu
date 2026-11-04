@@ -1,6 +1,11 @@
 from django.contrib import admin
 
-from .models import CreatorMeeting, RecordingDelivery, WebhookDelivery
+from .models import (
+    CreatorMeeting,
+    ProviderRoomCleanup,
+    RecordingDelivery,
+    WebhookDelivery,
+)
 
 
 @admin.register(CreatorMeeting)
@@ -25,6 +30,35 @@ class WebhookDeliveryAdmin(admin.ModelAdmin):
     readonly_fields = (
         'provider_event_id', 'event_type', 'endpoint', 'payload_sha256',
         'business_event_key', 'processed_at',
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(ProviderRoomCleanup)
+class ProviderRoomCleanupAdmin(admin.ModelAdmin):
+    list_display = (
+        'provider_meeting_id', 'provider_title', 'creator', 'meeting_type',
+        'start_id', 'status',
+        'last_error', 'created_at',
+    )
+    list_filter = ('status', 'meeting_type')
+    search_fields = (
+        'provider_meeting_id', 'provider_title', 'creator__username',
+        'last_error',
+    )
+    readonly_fields = (
+        'id', 'creator_meeting', 'creator', 'meeting_type', 'provider_title',
+        'price_per_minute', 'provider_meeting_id', 'provider_session_id',
+        'start_id', 'status', 'attempts', 'next_attempt_at', 'lease_until',
+        'lease_token', 'last_error', 'completed_at', 'created_at',
     )
 
     def has_add_permission(self, request):
