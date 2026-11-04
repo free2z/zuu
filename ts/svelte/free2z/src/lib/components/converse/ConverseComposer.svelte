@@ -84,6 +84,7 @@
     compact?: boolean;
     /** Flat mobile presentation for the top-level creation drawer only. */
     mobileDrawer?: boolean;
+    initialContent?: string;
   }
 
   let {
@@ -93,6 +94,7 @@
     threadAccessOwnerId = undefined,
     compact = false,
     mobileDrawer = false,
+    initialContent = "",
   }: Props = $props();
 
   const drawerPresentation = $derived(mobileDrawer && !parent && !compact);
@@ -244,7 +246,7 @@
   // state — for exactly as long as the navbar beside it still shows a
   // placeholder. Wait for the same answer the navbar waits for.
 
-  let content = $state("");
+  let content = $state(initialContent);
   let tuzis = $state(1);
   let preview = $state(false);
   let previewButtonRef = $state<HTMLButtonElement | null>(null);
