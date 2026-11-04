@@ -11,7 +11,7 @@ open** — see [§6](#6-device_kem_pk-is-not-resolved-here) ·
 [ADR 0002](./0002-multi-device.md), [ADR 0006](./0006-zcash-coupling.md),
 [ADR 0015](./0015-key-package-publication.md) ·
 **Constrains:** [`../../intent-bridge/PROTOCOL.md` §3.3](../../intent-bridge/PROTOCOL.md#33-family-payloads),
-[`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-proposed) ·
+[`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-implemented-in-f2z-msg-identity) ·
 **Implemented.** This document was written before the code and changed none of
 it; [#937](https://github.com/free2z/zuu/issues/937) then built §3's custody
 layer, and [#928](https://github.com/free2z/zuu/issues/928) wired §3's sealing,
@@ -20,7 +20,7 @@ design — `device_kem_pk` is unresolved, so a completed round trip still does n
 mean enrollment works.
 
 > **Invented here.**
-> [`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-proposed) says
+> [`../ARCHITECTURE.md` §4.2](../ARCHITECTURE.md#42-derivation-implemented-in-f2z-msg-identity) says
 > what `BackupWrapKey` is for — *"Wraps local encrypted history so it survives
 > reinstall on the same seed"* (`../ARCHITECTURE.md:287`) — and says device keys
 > are *"generated on-device from the OS CSPRNG, never seed-derived, never

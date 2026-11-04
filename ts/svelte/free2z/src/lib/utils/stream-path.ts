@@ -16,3 +16,13 @@ export function streamWatchPath(username: string, type: StreamType): string {
 
   return `/${encodedUsername}/${encodeURIComponent(type)}`;
 }
+
+/** Startup locale negotiation must not reload an active live session. */
+export function isLiveStreamPath(pathname: string): boolean {
+  return (
+    /^\/live\/[^/]+\/?$/.test(pathname) ||
+    /^\/[^/]+\/(?:broadcast|ppv|subscribers-only)\/?$/.test(pathname) ||
+    /^\/[^/]+\/private\/[^/]+\/?$/.test(pathname) ||
+    /^\/[^/]+\/dashboard\/stream\/?$/.test(pathname)
+  );
+}

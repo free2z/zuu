@@ -1,0 +1,17 @@
+{
+  "protocol": "plonk",
+  "curve": "bn128",
+  "compiler": "circom 2.2.2 (circom2 0.2.22)",
+  "snarkjs": "0.7.6",
+  "circomlib": "2.0.5",
+  "source": "https://circom.info/powersOfTau28_hez_final_12.ptau",
+  "powersOfTauBlake2b512": "ded2694169b7b08e898f736d5de95af87c3f1a64594013351b1a796dbee393bd825f88f9468c84505ddd11eb0b1465ac9b43b9064aa8ec97f2b73e04758b8a4a",
+  "mpcVerification": "Full snarkjs 0.7.6 source verifier passed (exit 0); native BLAKE2b-512 initial-hash adapter only",
+  "circuitSha256": "2004f0fe5962cfc793d247038932ac7db247c5d2758ca9aec9bc976f864231c7",
+  "files": {
+    "threshold.wasm": "c29939a1bfb560b07e9e182ebbcf384b82b7c99ce6d7d7190fc669fa568b30f8",
+    "threshold.zkey": "7364f5c1e4268ebe4df58954d0318dd0d13d0e297d75d7b5a55742198e39c77b",
+    "verification-key.json": "ffa582e24916b43dec2b43dc60907296969734c6b62ef89aed69d1a6357da68c"
+  },
+  "verifierUtilitySha256": "a2cf75004f68ed70fbce610521715150da9e82d68f6aed3fb6f091855cb5098d"
+}

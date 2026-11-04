@@ -11,7 +11,7 @@
   import TagSuggestions from "$lib/components/TagSuggestions.svelte";
   import { tStore as t } from "$lib/i18n";
   import { restrictedMediaPaths } from "$lib/components/media/mediaAccess";
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, type Snippet } from "svelte";
   import {
     focusFirstInvalidField,
     setCanonicalDisclosureExpanded,
@@ -74,6 +74,10 @@
     onCancelSchedule: () => Promise<boolean>;
     onUnpublish: () => Promise<boolean>;
     onSaveSettings: () => Promise<boolean>;
+    /** Optional extension used only by the browser-local campaign prototype. */
+    campaignSettings?: Snippet;
+    localOnly?: boolean;
+    localError?: string;
   }
 
   let {
@@ -103,6 +107,9 @@
     onCancelSchedule,
     onUnpublish,
     onSaveSettings,
+    campaignSettings,
+    localOnly = false,
+    localError = "",
   }: Props = $props();
 
   const descriptionTooLong = $derived(
@@ -146,6 +153,7 @@
   let lastResetKey = $state("");
   let scrollRegion = $state<HTMLDivElement>();
   let canonicalInput = $state<HTMLInputElement>();
+  let localErrorElement = $state<HTMLParagraphElement>();
   let canonicalExpanded = $state(shouldExpandCanonicalDisclosure(canonicalUrl));
   let scheduleMin = $state("");
   let localTimeZone = $state("local time");
@@ -209,6 +217,7 @@
         await tick();
       }
       focusFirstInvalidField(scrollRegion);
+      if (localOnly && localError) localErrorElement?.focus();
     }
     return succeeded;
   }
@@ -244,24 +253,41 @@
       <Sheet.Title
         class="flex items-center gap-2 text-2xl font-black tracking-tight"
       >
-        {isPublished
-          ? $t("editor.articleSettings", "Article Settings")
-          : $t("editor.readyToPublish", "Ready to publish?")}
+        {localOnly
+          ? $t("editor.localPublish.title", "Publish in this browser")
+          : isPublished
+            ? $t("editor.articleSettings", "Article Settings")
+            : $t("editor.readyToPublish", "Ready to publish?")}
       </Sheet.Title>
       <Sheet.Description>
-        {isPublished
+        {localOnly
           ? $t(
-              "editor.settingsDescription",
-              "Update how your article appears and who can read it. Changes apply immediately.",
+              "editor.localPublish.description",
+              "Confirm your local post's details. It won't be sent to Free2Z or receive real payments.",
             )
-          : $t(
-              "editor.publishDescription",
-              "Add the finishing touches before your article goes live. Everything here is optional.",
-            )}
+          : isPublished
+            ? $t(
+                "editor.settingsDescription",
+                "Update how your article appears and who can read it. Changes apply immediately.",
+              )
+            : $t(
+                "editor.publishDescription",
+                "Add the finishing touches before your article goes live. Everything here is optional.",
+              )}
       </Sheet.Description>
     </Sheet.Header>
 
     <div bind:this={scrollRegion} class="flex-1 space-y-6 overflow-y-auto p-4">
+      {#if localOnly && localError}
+        <p
+          bind:this={localErrorElement}
+          tabindex="-1"
+          role="alert"
+          class="rounded-md border border-destructive/40 p-3 text-sm text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          {localError}
+        </p>
+      {/if}
       <div class="space-y-2">
         <Label for="publish-description" class="text-sm font-semibold">
           {$t("editor.subtitleLabel", "Subtitle / Description")}
@@ -269,6 +295,7 @@
         <Textarea
           id="publish-description"
           bind:value={description}
+          maxlength={localOnly ? 500 : undefined}
           rows={3}
           placeholder={$t(
             "editor.subtitlePlaceholder",
@@ -283,12 +310,19 @@
           oninput={() => onChange?.()}
         />
         <p
+          id={localOnly ? "local-description-limit" : undefined}
+          aria-live={localOnly ? "polite" : undefined}
           class="text-xs {descriptionTooLong
             ? 'text-red-500'
             : 'text-muted-foreground'}"
         >
           {description.trim().length}/{DESCRIPTION_MAX_LENGTH}
-          {#if !descriptionTooLong}
+          {#if localOnly}
+            · {$t(
+              "editor.localPublish.descriptionLimit",
+              "Up to 250 characters to publish. Your full text is kept; you can adjust it here.",
+            )}
+          {:else if !descriptionTooLong}
             <!-- The mechanism this describes, precisely, because it used to say
                  "we'll create a clean excerpt" and that named nothing:
                  leaving this blank publishes with an EMPTY description, and the
@@ -329,167 +363,171 @@
         </p>
       </div>
 
-      <div class="rounded-lg border border-border/60 p-3 text-sm">
-        <p class="font-semibold">
-          {$t("editor.mentionNotifications", "Mention notifications")}
-        </p>
-        <p class="mt-1 text-xs text-muted-foreground" aria-live="polite">
-          {$t(
-            "editor.mentionNotificationsHint",
-            "About {count} unique people are mentioned in the body. The server validates the final title, description, and body, then applies eligibility and notification limits when first published.",
-            { count: mentionCount },
-          )}
-        </p>
-        {#if mentionCount > 5}
-          <p class="mt-1 text-xs text-yellow-600">
+      {#if !localOnly}
+        <div class="rounded-lg border border-border/60 p-3 text-sm">
+          <p class="font-semibold">
+            {$t("editor.mentionNotifications", "Mention notifications")}
+          </p>
+          <p class="mt-1 text-xs text-muted-foreground" aria-live="polite">
             {$t(
-              "editor.mentionNotificationsOverLimit",
-              "This approximate body-only preview can include more than the five eligible recipients notified per page; extra mentions remain in your page.",
+              "editor.mentionNotificationsHint",
+              "About {count} unique people are mentioned in the body. The server validates the final title, description, and body, then applies eligibility and notification limits when first published.",
+              { count: mentionCount },
             )}
           </p>
-        {/if}
-      </div>
-
-      <div class="space-y-2">
-        <Label for="vanity" class="text-sm font-semibold">
-          {$t("editor.vanityLabel", "Vanity URL")}
-        </Label>
-        <Input
-          id="vanity"
-          type="text"
-          bind:value={vanity}
-          placeholder={$t("editor.vanityPlaceholder", "custom-url-slug")}
-          class={validationErrors.vanity ? "border-red-500" : ""}
-          aria-invalid={Boolean(validationErrors.vanity)}
-          oninput={() => {
-            onVanityChange?.();
-            onChange?.();
-          }}
-        />
-        {#if validationErrors.vanity}
-          <p class="mt-1 text-xs text-red-500">{validationErrors.vanity}</p>
-        {:else if currentUser}
-          <p class="mt-1 text-xs text-muted-foreground">
-            free2z.cash{publicPathPreview}
-            {#if !vanity.trim()}
-              <br />
-              <span class="text-yellow-600">
-                {$t(
-                  "editor.vanityBlankWarning",
-                  "If left blank, your page will not appear on your profile or in search.",
-                )}
-              </span>
-            {/if}
-          </p>
-        {/if}
-      </div>
-
-      <div class="space-y-3 rounded-lg border border-border/60 p-3">
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 space-y-1">
-            <p class="text-sm font-semibold">
+          {#if mentionCount > 5}
+            <p class="mt-1 text-xs text-yellow-600">
               {$t(
-                "editor.canonicalUrlQuestion",
-                "Originally published elsewhere?",
+                "editor.mentionNotificationsOverLimit",
+                "This approximate body-only preview can include more than the five eligible recipients notified per page; extra mentions remain in your page.",
               )}
             </p>
-            {#if !canonicalExpanded}
-              <p class="text-xs text-muted-foreground">
-                {canonicalUrl.trim()
-                  ? $t(
-                      "editor.canonicalUrlAdded",
-                      "An original article URL is saved with this article.",
-                    )
-                  : $t(
-                      "editor.canonicalUrlBlankHint",
-                      "Leave this blank when the article was first published on Free2Z.",
-                    )}
-              </p>
-            {/if}
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            class="h-auto shrink-0 px-2 py-1 text-xs"
-            aria-expanded={canonicalExpanded}
-            aria-controls="canonical-url-fields"
-            onclick={() => setCanonicalExpanded(!canonicalExpanded)}
-          >
-            {canonicalExpanded
-              ? $t("editor.canonicalUrlHide", "Hide")
-              : canonicalUrl.trim()
-                ? $t("editor.canonicalUrlEdit", "Edit original URL")
-                : $t("editor.canonicalUrlAdd", "Add the original article URL")}
-          </Button>
+          {/if}
         </div>
 
-        {#if canonicalExpanded}
-          <div id="canonical-url-fields" class="space-y-2">
-            <div class="flex items-center justify-between gap-3">
-              <Label for="canonical-url" class="text-sm font-semibold">
-                {$t("editor.canonicalUrlLabel", "Original article URL")}
-              </Label>
-              {#if canonicalUrl}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  class="h-auto px-2 py-1 text-xs text-muted-foreground"
-                  onclick={() => {
-                    notifyCanonicalChange("");
-                    canonicalInput?.focus();
-                  }}
-                >
-                  {$t("editor.canonicalUrlClear", "Clear URL")}
-                </Button>
+        <div class="space-y-2">
+          <Label for="vanity" class="text-sm font-semibold">
+            {$t("editor.vanityLabel", "Vanity URL")}
+          </Label>
+          <Input
+            id="vanity"
+            type="text"
+            bind:value={vanity}
+            placeholder={$t("editor.vanityPlaceholder", "custom-url-slug")}
+            class={validationErrors.vanity ? "border-red-500" : ""}
+            aria-invalid={Boolean(validationErrors.vanity)}
+            oninput={() => {
+              onVanityChange?.();
+              onChange?.();
+            }}
+          />
+          {#if validationErrors.vanity}
+            <p class="mt-1 text-xs text-red-500">{validationErrors.vanity}</p>
+          {:else if currentUser}
+            <p class="mt-1 text-xs text-muted-foreground">
+              free2z.cash{publicPathPreview}
+              {#if !vanity.trim()}
+                <br />
+                <span class="text-yellow-600">
+                  {$t(
+                    "editor.vanityBlankWarning",
+                    "If left blank, your page will not appear on your profile or in search.",
+                  )}
+                </span>
+              {/if}
+            </p>
+          {/if}
+        </div>
+
+        <div class="space-y-3 rounded-lg border border-border/60 p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0 space-y-1">
+              <p class="text-sm font-semibold">
+                {$t(
+                  "editor.canonicalUrlQuestion",
+                  "Originally published elsewhere?",
+                )}
+              </p>
+              {#if !canonicalExpanded}
+                <p class="text-xs text-muted-foreground">
+                  {canonicalUrl.trim()
+                    ? $t(
+                        "editor.canonicalUrlAdded",
+                        "An original article URL is saved with this article.",
+                      )
+                    : $t(
+                        "editor.canonicalUrlBlankHint",
+                        "Leave this blank when the article was first published on Free2Z.",
+                      )}
+                </p>
               {/if}
             </div>
-            <Input
-              bind:ref={canonicalInput}
-              id="canonical-url"
-              type="url"
-              bind:value={canonicalUrl}
-              placeholder={$t(
-                "editor.canonicalUrlPlaceholder",
-                "https://your-blog.example/original-article",
-              )}
-              spellcheck={false}
-              autocapitalize="none"
-              autocomplete="url"
-              maxlength={CANONICAL_URL_MAX_LENGTH}
-              aria-invalid={Boolean(validationErrors.canonical_url)}
-              aria-describedby={canonicalFeedbackId}
-              aria-errormessage={validationErrors.canonical_url
-                ? canonicalFeedbackId
-                : undefined}
-              class={validationErrors.canonical_url ? "border-red-500" : ""}
-              oninput={(event) =>
-                notifyCanonicalChange(event.currentTarget.value)}
-              onblur={(event) => onCanonicalBlur?.(event.currentTarget.value)}
-            />
-            <p
-              id={canonicalFeedbackId}
-              class="text-xs {validationErrors.canonical_url
-                ? 'text-red-500'
-                : 'text-muted-foreground'}"
-              aria-live="polite"
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              class="h-auto shrink-0 px-2 py-1 text-xs"
+              aria-expanded={canonicalExpanded}
+              aria-controls="canonical-url-fields"
+              onclick={() => setCanonicalExpanded(!canonicalExpanded)}
             >
-              {validationErrors.canonical_url ||
-                $t(
-                  "editor.canonicalUrlHint",
-                  "This article stays on Free2Z. Search engines are asked to prefer the original URL as the authoritative version.",
-                )}
-            </p>
+              {canonicalExpanded
+                ? $t("editor.canonicalUrlHide", "Hide")
+                : canonicalUrl.trim()
+                  ? $t("editor.canonicalUrlEdit", "Edit original URL")
+                  : $t(
+                      "editor.canonicalUrlAdd",
+                      "Add the original article URL",
+                    )}
+            </Button>
           </div>
-        {/if}
-      </div>
 
-      <div class="space-y-2">
-        <Label for="publish-tags" class="text-sm font-semibold">
-          {$t("editor.tags", "Tags")}
-        </Label>
-        <!-- No `onChange` here on purpose: the `$effect` below already turns a
+          {#if canonicalExpanded}
+            <div id="canonical-url-fields" class="space-y-2">
+              <div class="flex items-center justify-between gap-3">
+                <Label for="canonical-url" class="text-sm font-semibold">
+                  {$t("editor.canonicalUrlLabel", "Original article URL")}
+                </Label>
+                {#if canonicalUrl}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    class="h-auto px-2 py-1 text-xs text-muted-foreground"
+                    onclick={() => {
+                      notifyCanonicalChange("");
+                      canonicalInput?.focus();
+                    }}
+                  >
+                    {$t("editor.canonicalUrlClear", "Clear URL")}
+                  </Button>
+                {/if}
+              </div>
+              <Input
+                bind:ref={canonicalInput}
+                id="canonical-url"
+                type="url"
+                bind:value={canonicalUrl}
+                placeholder={$t(
+                  "editor.canonicalUrlPlaceholder",
+                  "https://your-blog.example/original-article",
+                )}
+                spellcheck={false}
+                autocapitalize="none"
+                autocomplete="url"
+                maxlength={CANONICAL_URL_MAX_LENGTH}
+                aria-invalid={Boolean(validationErrors.canonical_url)}
+                aria-describedby={canonicalFeedbackId}
+                aria-errormessage={validationErrors.canonical_url
+                  ? canonicalFeedbackId
+                  : undefined}
+                class={validationErrors.canonical_url ? "border-red-500" : ""}
+                oninput={(event) =>
+                  notifyCanonicalChange(event.currentTarget.value)}
+                onblur={(event) => onCanonicalBlur?.(event.currentTarget.value)}
+              />
+              <p
+                id={canonicalFeedbackId}
+                class="text-xs {validationErrors.canonical_url
+                  ? 'text-red-500'
+                  : 'text-muted-foreground'}"
+                aria-live="polite"
+              >
+                {validationErrors.canonical_url ||
+                  $t(
+                    "editor.canonicalUrlHint",
+                    "This article stays on Free2Z. Search engines are asked to prefer the original URL as the authoritative version.",
+                  )}
+              </p>
+            </div>
+          {/if}
+        </div>
+
+        <div class="space-y-2">
+          <Label for="publish-tags" class="text-sm font-semibold">
+            {$t("editor.tags", "Tags")}
+          </Label>
+          <!-- No `onChange` here on purpose: the `$effect` below already turns a
              change in the tag list into one dirty signal, and it is the half
              that knows not to fire on a `resetKey` change.
              `resetKey` is what tells it a hydration happened, so it has to
@@ -497,18 +535,19 @@
              `metadataResetKey` in `/edit` and. Until it did, this effect
              reported a tag change on mount for every article that had tags,
              because its first pass baselined against the pre-hydration `[]`. -->
-        <TagInput id="publish-tags" bind:tags />
-        <!-- AI proposes, the creator disposes. Below the input on
+          <TagInput id="publish-tags" bind:tags />
+          <!-- AI proposes, the creator disposes. Below the input on
              purpose: what the creator types comes first, and the machine's
              offer is an addition to it, never a replacement. -->
-        <TagSuggestions
-          {free2zaddr}
-          bind:tags
-          onServerWrote={onTagSuggestionWrite}
-        />
-      </div>
+          <TagSuggestions
+            {free2zaddr}
+            bind:tags
+            onServerWrote={onTagSuggestionWrite}
+          />
+        </div>
+      {/if}
 
-      {#if canSchedule && !isPublished}
+      {#if !localOnly && canSchedule && !isPublished}
         <div class="space-y-2">
           <Label for="publish-at" class="text-sm font-semibold">
             {$t("editor.scheduleLabel", "Schedule (Optional)")}
@@ -557,13 +596,19 @@
 
       <div class="space-y-2">
         <Label for="zcash-address" class="text-sm font-semibold">
-          {$t("editor.zcashLabel", "Zcash Address (Optional Override)")}
+          {localOnly
+            ? $t(
+                "editor.localPublish.zcashLabel",
+                "This page's Zcash wallet (optional)",
+              )
+            : $t("editor.zcashLabel", "Zcash Address (Optional Override)")}
         </Label>
         <!-- Wrapping, not a single-line input: the whole payout address must
              stay visible so it can be verified before publish. -->
         <Textarea
           id="zcash-address"
           rows={2}
+          maxlength={localOnly ? 512 : undefined}
           bind:value={zcashAddress}
           placeholder={currentUser?.p2paddr ||
             $t("editor.zcashPlaceholder", "zs... or u...")}
@@ -584,52 +629,84 @@
           }}
         />
         <p class="mt-1 text-xs text-muted-foreground">
-          {$t(
-            "editor.zcashHint",
-            "Use this if it differs from your profile address. Usually a Zcash address.",
-          )}
+          {localOnly
+            ? $t(
+                "editor.localPublish.zcashHint",
+                "Configuration for this test only. No funds will be sent to this address.",
+              )
+            : $t(
+                "editor.zcashHint",
+                "Use this if it differs from your profile address. Usually a Zcash address.",
+              )}
         </p>
       </div>
 
-      <div class="space-y-2">
-        <label class="flex cursor-pointer items-center gap-2">
-          <Switch
-            bind:checked={isSubscriberOnly}
-            onCheckedChange={() => onChange?.()}
-          />
-          <span class="text-sm font-medium">
-            {$t("editor.subscribersOnly", "Subscribers Only")}
-          </span>
-        </label>
-        <p class="text-xs text-muted-foreground">
-          {$t(
-            "editor.subscribersOnlyHint",
-            "Only your subscribers can view this content.",
-          )}
-        </p>
-        {#if !isSubscriberOnly && restrictedBodyMedia.length > 0}
-          <p
-            class="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-200"
-            data-restricted-body-media={restrictedBodyMedia.length}
-            role="status"
-          >
-            {restrictedBodyMedia.length === 1
-              ? $t(
-                  "editor.restrictedBodyMediaOne",
-                  "One image in this page is linked from a path only you or your subscribers can open. On a page that is not subscribers-only, readers may see it broken — you would not, because you own it. Worth checking in your media library before you publish.",
-                )
-              : $t(
-                  "editor.restrictedBodyMediaMany",
-                  "{count} images in this page are linked from paths only you or your subscribers can open. On a page that is not subscribers-only, readers may see them broken — you would not, because you own them. Worth checking in your media library before you publish.",
-                  { count: restrictedBodyMedia.length },
-                )}
+      {@render campaignSettings?.()}
+
+      {#if !localOnly}
+        <div class="space-y-2">
+          <label class="flex cursor-pointer items-center gap-2">
+            <Switch
+              bind:checked={isSubscriberOnly}
+              onCheckedChange={() => onChange?.()}
+            />
+            <span class="text-sm font-medium">
+              {$t("editor.subscribersOnly", "Subscribers Only")}
+            </span>
+          </label>
+          <p class="text-xs text-muted-foreground">
+            {$t(
+              "editor.subscribersOnlyHint",
+              "Only your subscribers can view this content.",
+            )}
           </p>
-        {/if}
-      </div>
+          {#if !isSubscriberOnly && restrictedBodyMedia.length > 0}
+            <p
+              class="rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-800 dark:text-amber-200"
+              data-restricted-body-media={restrictedBodyMedia.length}
+              role="status"
+            >
+              {restrictedBodyMedia.length === 1
+                ? $t(
+                    "editor.restrictedBodyMediaOne",
+                    "One image in this page is linked from a path only you or your subscribers can open. On a page that is not subscribers-only, readers may see it broken — you would not, because you own it. Worth checking in your media library before you publish.",
+                  )
+                : $t(
+                    "editor.restrictedBodyMediaMany",
+                    "{count} images in this page are linked from paths only you or your subscribers can open. On a page that is not subscribers-only, readers may see them broken — you would not, because you own them. Worth checking in your media library before you publish.",
+                    { count: restrictedBodyMedia.length },
+                  )}
+            </p>
+          {/if}
+        </div>
+      {/if}
     </div>
 
     <Sheet.Footer class="gap-2 border-t pt-4">
-      {#if isPublished}
+      {#if localOnly}
+        <Button
+          class="w-full"
+          disabled={isSaving || descriptionTooLong}
+          aria-describedby={descriptionTooLong
+            ? "local-description-limit"
+            : undefined}
+          onclick={() => runAction(() => onPublish(""))}
+        >
+          <Send class="mr-2 h-4 w-4" />
+          {$t("editor.localPublish.publish", "Publish locally")}
+        </Button>
+        <Sheet.Close class="w-full">
+          {#snippet child({ props })}
+            <Button
+              {...props}
+              variant="ghost"
+              class="w-full text-muted-foreground"
+              disabled={isSaving}
+              >{$t("editor.localPublish.keepEditing", "Keep editing")}</Button
+            >
+          {/snippet}
+        </Sheet.Close>
+      {:else if isPublished}
         <Button
           class="w-full"
           disabled={isSaving || descriptionTooLong}

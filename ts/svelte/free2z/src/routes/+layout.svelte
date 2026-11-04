@@ -52,6 +52,7 @@
   import { goto, invalidate, invalidateAll } from "$app/navigation";
   import { ACCOUNT_BALANCE_DEPENDENCY } from "$lib/account-balance";
   import { isSdkFlow } from "$lib/sdk-flow";
+  import { isLiveStreamPath } from "$lib/utils/stream-path";
 
   export let data: {
     locale?: string;
@@ -409,7 +410,12 @@
       setLocale(data.locale);
     } else {
       setLocale(browserLocale);
-      if (browserLocale !== data.locale) void invalidateAll();
+      if (
+        browserLocale !== data.locale &&
+        !isLiveStreamPath(page.url.pathname)
+      ) {
+        void invalidateAll();
+      }
     }
     const syncAuthState = () => {
       authStore

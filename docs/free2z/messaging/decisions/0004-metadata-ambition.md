@@ -41,9 +41,10 @@ ongoing communication does not expose the social graph.**
   consulted again for ongoing traffic. It is documented honestly in
   [`../THREAT-MODEL.md` §4.1](../THREAT-MODEL.md#41-directory-lookup-reveals-interest-in-a-handle)
   rather than papered over.
-- **Fixed-size padding buckets are mandatory**, enforced by the relay rejecting
-  non-conforming sizes — so a sloppy client cannot leak length and a malicious one
-  cannot use length as a covert channel to a colluding relay.
+- **Fixed-size padding buckets are mandatory.** The relay rejects a non-conforming
+  size as a backstop against a client that fails to pad. A colluding client and
+  relay can bypass that check; the privacy property depends on an honest client
+  applying its own bucket policy before sending.
 - **Delivery-receipt policy is a deliberate decision, not an accident.** Receipt
   timing is a *published* deanonymization vector against sealed sender — group
   membership has been recovered from receipt patterns alone

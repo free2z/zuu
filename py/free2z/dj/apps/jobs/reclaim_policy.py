@@ -161,6 +161,15 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'would buy nothing -- and a duplicate of a run hung on a socket '
         'with no timeout would simply hang too.',
     ),
+    'dyte.retire_host_evictions': TaskPolicy(
+        NEVER,
+        'one run calls DyteClient.retire_participant once per queued host '
+        'eviction, and that queue has no per-run cap, so there is no single '
+        'wall clock. The task reschedules itself under a queueing lock and a '
+        'heartbeat also defers it. Reclaiming a run stuck in provider I/O '
+        'would overlap a newer eviction; compare-and-update already drops a '
+        'stale write.',
+    ),
     'dyte.reconcile_create_unknowns': TaskPolicy(
         5,
         'the additive schema release body is a constant-time return with no '

@@ -154,12 +154,12 @@ const KEY_PACKAGE_EXHAUSTION_TEXT: &str = "12.6.6 Exhaustion, and the package of
 // Because it covers the whole document, a paragraph edit anywhere trips it, and
 // that is the point: the pin moves only with a stated reason. This branch
 // names the sealed storage and migration boundary under the authentication
-// table, and #1231 updates the handle documentation: the conditional username
-// index, legacy exceptions, public-source billing-validator provenance, and
-// the internal-phase one-time handle claim. Those edits change rendered prose
-// outside the key-package authentication table. §12.6's exact structure and
+// table. #1231 updates the handle documentation. #1212 documents that
+// `max_bytes` counts ciphertext payload bytes while `max_frame_bytes` bounds
+// the complete encoded response. Those edits change rendered prose outside
+// the key-package authentication table. §12.6's exact structure and
 // mutation-sensitive normative assertions are checked independently below.
-const WIRE_RENDERED_PROSE_DIGEST: u64 = 7_529_784_510_476_242_147;
+const WIRE_RENDERED_PROSE_DIGEST: u64 = 7_781_535_293_663_679_299;
 
 fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
     markdown::stable_digest(rendered.paragraphs())
