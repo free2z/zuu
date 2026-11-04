@@ -48,10 +48,7 @@ test("malformed report is not a pass", () => {
 test("allowlist is exactly the known entries, each with an issue and a 30-day expiry", () => {
   assert.deepEqual(
     ALLOWLIST.map((e) => [e.id, e.package, e.issue.split("/").pop()]),
-    [
-      ["GHSA-5gmw-xhrv-c9v3", "tinypool", "1173"],
-      ["GHSA-85c8-ppgw-ccpr", "tinypool", "1174"],
-    ],
+    [],
   );
   for (const e of ALLOWLIST) assert.equal(e.expires, "2026-11-04");
 });
@@ -72,4 +69,16 @@ test("retired source-map-js advisory fails without an exception", () => {
   const r = evaluate(report(adv("source-map-js", "GHSA-68fv-2mgg-jv7q")), ALLOWLIST, before);
   assert.equal(r.problems.length, 1);
   assert.deepEqual(r.waived, []);
+});
+
+test("retired braces and tinypool exceptions cannot waive a regression", () => {
+  for (const [name, id] of [
+    ["braces", BR],
+    ["tinypool", "GHSA-5gmw-xhrv-c9v3"],
+    ["tinypool", "GHSA-85c8-ppgw-ccpr"],
+  ]) {
+    const r = evaluate(report(adv(name, id, "critical")), ALLOWLIST, before);
+    assert.equal(r.problems.length, 1);
+    assert.deepEqual(r.waived, []);
+  }
 });
