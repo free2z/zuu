@@ -27,6 +27,7 @@
     "provider_request": {
       "model": "m-xai-upstream",
       "service_tier": null,
+      "store": null,
       "messages": [
         {
           "role": "user",

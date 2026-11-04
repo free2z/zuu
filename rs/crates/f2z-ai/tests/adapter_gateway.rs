@@ -167,9 +167,8 @@ async fn the_idle_deadline_fires_under_the_call_tasks_ticks() {
 /// `start` returns, which would let retained requests escape the budget.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_retained_request_keeps_its_upload_reservation_until_the_head() {
-    let mock = MockProvider::start(Scenario::default().with_ttfb(Duration::from_millis(800)))
-        .await
-        .unwrap();
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let head_gate = mock.pause_response_headers();
     let config = config(&[
         ("F2Z_AI_MAX_BODY_BYTES", "1000"),
         ("F2Z_AI_MAX_BODY_BYTES_WITH_IMAGES", "1000"),
@@ -194,10 +193,24 @@ async fn a_retained_request_keeps_its_upload_reservation_until_the_head() {
     assert!(first.to_string().len() >= 690 && first.to_string().len() <= 710);
     let public = running.public;
     let slow = tokio::spawn(async move { text(post_chat(public, &first).await).await });
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    // The first call is waiting for its head and still holds its raw bytes plus decoded-memory reservation.
-    let refused = post_chat(running.public, &padded(700)).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while mock.request_count() == 0 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("first request must reach the provider while its response head is blocked");
+    assert_eq!(mock.request_count(), 1);
+    // The gate keeps the first call's head blocked independently of scheduler timing.
+    // Its raw bytes and decoded-memory reservation must remain held.
+    let refused = tokio::time::timeout(
+        Duration::from_secs(5),
+        post_chat(running.public, &padded(700)),
+    )
+    .await
+    .expect("competing request must return while the first provider head is blocked");
     assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+    head_gate.add_permits(1);
     let body = slow.await.unwrap();
     assert!(body.contains("event: delta"), "{body}");
     // After the head the reservation is released.

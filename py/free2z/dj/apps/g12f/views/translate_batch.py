@@ -1,0 +1,827 @@
+"""Parallel and bulk AI translation of one zPage (workstream A).
+
+Three routes, all owner-only, beside the single-language ones in
+:mod:`dj.apps.g12f.views.translate`:
+
+``GET  /api/zpage/{free2zaddr}/translations/``
+    The job tray: the newest job per language for this article. Read from the
+    charge records, so it works from any device and survives a reload.
+``GET  /api/zpage/{free2zaddr}/translations/quote/?languages=fr,es,ja``
+    A price per language plus a total. Charges nothing, writes nothing -- a GET,
+    so a query string choosing what to quote is a representation selector and
+    fine (CLAUDE.md, "A URL never dictates what goes in the database").
+``POST /api/zpage/{free2zaddr}/translations/``
+    Buy several at once. ALL OR NOTHING.
+
+THE BULK PURCHASE IS THE SINGLE PURCHASE, N TIMES, IN ONE TRANSACTION
+----------------------------------------------------------------------
+Same ordering rules and the same code:
+
+1. ``Idempotency-Key`` (a UUIDv4) names the batch. Missing is a 400.
+2. Request identity (article, every language and its price, the source
+   digest) is normalized and fingerprinted, and the BATCH is claimed in its own
+   scope (``charges.BATCH_SCOPE``) BEFORE any mutable check, so a retry of a
+   batch that succeeded replays it rather than being told the money that is now
+   gone is "insufficient" ( finding 1).
+3. Per-language validation and pricing outside the money transaction
+   (tokenizers can fetch data on a cold process), then the failure ceilings.
+4. One transaction: buyer's balance row, then the article row (the global lock
+   order), the source digest, then ``item_refusal`` for EVERY language -- the
+   method the single purchase calls -- collecting every failure instead of
+   stopping at the first, so the 409 names them all. Then the account cap and
+   the platform queue for N jobs at once, then ONE debit of the total (a 402
+   names the total), then N charge records keyed ``{batch}:{lang}`` and the
+   batch receipt, all in that transaction. Jobs are enqueued on commit.
+
+Every refusal rolls back and releases the batch key: nothing was charged, so
+nothing is burnt.
+
+Each charge record is the ordinary ``zpage-translate`` record with a
+``batch_id``: the worker, the reaper, the status route, the failure ceilings and
+``reconcile_zpage_variants`` see N ordinary purchases, because that is what this
+is.
+"""
+import logging
+from types import SimpleNamespace
+
+from django import http
+from django.db import transaction
+
+from drf_spectacular.utils import OpenApiParameter, extend_schema
+from rest_framework import status
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from dj.apps.g12f.localization import normalize_zpage_language, variant_reads_enabled
+from dj.apps.g12f.models import ZPageTranslation, ZPageVariant
+from dj.apps.g12f.preconditions import variant_etags
+from dj.apps.g12f.serializers.translate import TranslationErrorSerializer
+from dj.apps.g12f.serializers.translate_batch import (
+    MAX_TRANSLATION_BATCH_ITEMS,
+    TranslationBatchErrorSerializer,
+    TranslationBatchJobsSerializer,
+    TranslationBatchPurchaseSerializer,
+    TranslationBatchQuoteSerializer,
+    TranslationJobListSerializer,
+)
+from dj.apps.g12f.serializers.zpage import lock_zpages_for_translation_write
+from dj.apps.g12f.translation import charges
+from dj.apps.g12f.variants import content_digest, translation_digest
+from dj.apps.g12f.views.translate import (
+    ZPAGE_PATH_PARAMETER,
+    _Refuse,
+    _TranslationRouteMixin,
+    _defer_translation,
+    _error,
+    _idempotency_key,
+    _public_variant,
+)
+from dj.apps.tuzis import ledger
+from dj.apps.tuzis import models as idempotency
+from dj.apps.tuzis.serializers import InsufficientFundsErrorSerializer
+
+logger = logging.getLogger(__name__)
+
+
+BATCH_IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
+    name="Idempotency-Key",
+    type={
+        "type": "string",
+        "format": "uuid",
+        "minLength": 36,
+        "maxLength": 36,
+    },
+    location=OpenApiParameter.HEADER,
+    required=True,
+    description=(
+        "**Required** UUIDv4 naming the WHOLE batch. Reuse the same key for "
+        "every retry of one bulk purchase and a new key for a new one. A "
+        "retry of a completed batch replays it -- every job with its CURRENT "
+        "status -- and charges nothing, for "
+        f"{idempotency.COMPLETED_CLAIM_RETENTION.days} days. A retry while the "
+        "original is still deciding answers 409 `request_in_progress`. The key "
+        "is bound to the article, the source digest and the exact set of "
+        "(language, price) pairs, in any order; reusing it for a different "
+        "set answers 409 `idempotency_mismatch`. A refused batch (409, 402, "
+        "429, 503) moved no 2Z and does NOT burn the key. Each job the batch "
+        "creates carries this key as its `batch_id`. Not generated by orval: "
+        "the call site must send the header itself."
+    ),
+)
+
+LANGUAGES_QUERY_PARAMETER = OpenApiParameter(
+    name="languages",
+    type=str,
+    location=OpenApiParameter.QUERY,
+    required=True,
+    description=(
+        "Comma-separated BCP-47 tags to quote, e.g. `fr,es,ja` (the parameter "
+        "may also be repeated). Selects what to price; it changes nothing. At "
+        "most `max_items` distinct languages after normalization."
+    ),
+)
+
+
+def _item_failure(language, response):
+    """One entry of a 409's ``items`` from a single-language refusal."""
+    data = dict(response.data)
+    item = {
+        "language": language,
+        "code": data.get("code"),
+        "error": data.get("error"),
+    }
+    if "price" in data:
+        item["price"] = data["price"]
+    return item
+
+
+def _items_refused(failures):
+    return _error(
+        "items_refused",
+        "Some of these translations cannot be bought right now, so none were "
+        "bought and nothing was charged. Fix or remove the languages listed "
+        "and try again.",
+        status.HTTP_409_CONFLICT,
+        items=failures,
+    )
+
+
+def _parse_languages(request):
+    """Raw tags from ``?languages=a,b&languages=c``, in order, blanks dropped."""
+    raw = []
+    for value in request.query_params.getlist("languages"):
+        raw.extend(part.strip() for part in value.split(","))
+    return [tag for tag in raw if tag]
+
+
+def _normalize(tag):
+    """``(language, error_response)`` -- identity normalization only."""
+    try:
+        return normalize_zpage_language(tag, allow_missing=False), None
+    except Exception as exc:
+        return None, _error(
+            "invalid_language", str(exc), status.HTTP_400_BAD_REQUEST
+        )
+
+
+def _variant_states(page, languages):
+    """``{language: (is_published, is_stale)}`` across both storage shapes.
+
+    Published in EITHER shape counts, as everywhere a guard asks: a reader may
+    be served either. Staleness follows ``variants.staleness``: only a recorded
+    ``source_digest`` can say stale or fresh; without one it is unknown.
+    """
+    languages = list(languages)
+    if not languages:
+        return {}
+    current = content_digest(page.content)
+    states = {}
+    for language, is_published in ZPageTranslation.objects.filter(
+        zpage_id=page.pk, language__in=languages
+    ).values_list("language", "is_published"):
+        states[language] = (bool(is_published), None)
+    for language, is_published, digest in (
+        ZPageVariant.objects.filter(zpage_id=page.pk, language__in=languages)
+        .exclude(origin=ZPageVariant.SOURCE)
+        .values_list("language", "is_published", "source_digest")
+    ):
+        legacy_published = states.get(language, (False, None))[0]
+        states[language] = (
+            bool(is_published) or legacy_published,
+            None if not digest else digest != current,
+        )
+    return states
+
+
+def _current_draft_contents(page):
+    """Current unpublished translation fields by language, in active storage."""
+    if variant_reads_enabled():
+        rows = ZPageVariant.objects.filter(zpage_id=page.pk).exclude(
+            origin=ZPageVariant.SOURCE
+        ).values_list("language", "title", "description", "content", "is_published")
+    else:
+        rows = ZPageTranslation.objects.filter(zpage_id=page.pk).values_list(
+            "language", "title", "description", "content", "is_published"
+        )
+    return {
+        language: (title, description, content)
+        for language, title, description, content, published in rows
+        if not published
+    }
+
+
+def _draft_reviews(page, contents, provenances, prior_warnings):
+    """Snapshot current drafts with the exact validator used by variant writes.
+
+    The parent row is locked by the caller, which serializes this read with
+    translation saves and delivery. This keeps the body digest, its persisted
+    producing-job warnings, and the returned ETag tied to the same draft.
+    """
+    if not contents:
+        return {}
+
+    revisions = variant_etags(
+        page,
+        contents.keys(),
+        translation_model=ZPageTranslation,
+        variant_model=ZPageVariant,
+    )
+    drafts = {}
+    for language, fields in contents.items():
+        provenance = provenances.get(language)
+        drafts[language] = {
+            "job_id": provenance.get("job_id") if provenance else None,
+            "warnings": provenance.get("warnings", []) if provenance else [],
+            "prior_warnings": (
+                [] if provenance else prior_warnings.get(language, [])
+            ),
+            "revision": revisions.get(language),
+        }
+    return drafts
+
+
+class ZPageTranslationJobsView(_TranslationRouteMixin, APIView):
+    """`GET` the job tray; `POST` a bulk purchase."""
+
+    # The purchase claims its idempotency key outside any transaction; see the
+    # single-language view's module docstring ( finding 2).
+    atomic_request = False
+
+    # ----------------------------------------------------------------- GET --
+    @extend_schema(
+        operation_id="zpage_translation_jobs",
+        parameters=[ZPAGE_PATH_PARAMETER],
+        responses={
+            200: TranslationJobListSerializer,
+            404: TranslationErrorSerializer,
+        },
+        description=(
+            "Every AI translation job of this zPage that a client needs to "
+            "show: the newest job per language from the last 30 days, plus "
+            "the delivered job that produced any still-current draft, newest "
+            "first, with the state of the translation it produced (or would "
+            "overwrite). Read from the charge records themselves, so a job "
+            "started on one device, or before a reload, is visible from any "
+            "other. Read-only.\n\n"
+            "Poll this while any job is `queued`. `in_flight` and `capacity` "
+            "are account-wide, so a client can say how many more it may "
+            "start.\n\n"
+            "Owner only; a non-owner gets 404."
+        ),
+    )
+    @transaction.atomic
+    def get(self, request: Request, free2zaddr=None):
+        page = self.get_page(request, free2zaddr)
+        page = lock_zpages_for_translation_write(page.pk).get(page.pk)
+        if page is None:
+            raise http.Http404
+        contents = _current_draft_contents(page)
+        draft_digests = {
+            language: translation_digest(SimpleNamespace(
+                title=fields[0], description=fields[1], content=fields[2]
+            ))
+            for language, fields in contents.items()
+        }
+        latest = charges.latest_records_by_language(
+            request.user, page.pk, draft_digests=draft_digests
+        )
+        states = _variant_states(page, latest.keys())
+        provenances = charges.draft_provenances_by_language(
+            request.user, page.pk, draft_digests
+        )
+        prior_warnings = charges.latest_delivery_warnings_by_language(
+            request.user, page.pk, contents.keys()
+        )
+        drafts = _draft_reviews(page, contents, provenances, prior_warnings)
+        jobs = sorted(
+            latest.values(), key=lambda job: job["created_at"], reverse=True
+        )
+        for job in jobs:
+            is_published, is_stale = states.get(job["language"], (None, None))
+            job["is_published"] = is_published
+            job["is_stale"] = is_stale
+            job["draft"] = drafts.get(job["language"])
+        remaining, in_flight = charges.capacity(request.user)
+        return Response({
+            "source_digest": content_digest(page.content),
+            "jobs": jobs,
+            "drafts": drafts,
+            "in_flight": in_flight,
+            "capacity": remaining,
+            "max_in_flight": charges.account_in_flight_cap(),
+        })
+
+    # ---------------------------------------------------------------- POST --
+    @extend_schema(
+        operation_id="zpage_translation_batch_purchase",
+        parameters=[ZPAGE_PATH_PARAMETER, BATCH_IDEMPOTENCY_KEY_PARAMETER],
+        request=TranslationBatchPurchaseSerializer,
+        responses={
+            202: TranslationBatchJobsSerializer,
+            400: TranslationBatchErrorSerializer,
+            402: InsufficientFundsErrorSerializer,
+            404: TranslationErrorSerializer,
+            409: TranslationBatchErrorSerializer,
+            429: TranslationBatchErrorSerializer,
+            503: TranslationBatchErrorSerializer,
+        },
+        description=(
+            "Buy AI translations of this zPage into several languages at once. "
+            "**All or nothing**: either every item is bought and enqueued "
+            "(202, one job per language) or nothing is charged.\n\n"
+            "Each item is checked exactly as `POST .../variants/{language}/"
+            "translate/` checks one: `expected_price` must equal the server's "
+            "price, nothing published is overwritten, no job for that exact "
+            "language may already be running, and the result must fit the "
+            "published- and draft-translation ceilings -- counting the drafts "
+            "that already-running jobs will create -- and the translation must "
+            "be able to finish inside the time limit (`translation_too_long`"
+            "). Any failure answers 409 "
+            "`items_refused` listing EVERY failing language with its own "
+            "`code`. A changed article answers 409 `source_changed`.\n\n"
+            "Then the batch as a whole: the account's concurrent-translation "
+            "cap (409 `translation_in_progress`, with `in_flight` and "
+            "`max_in_flight`), the platform queue (503 `translation_backlog`) "
+            "and the balance -- 402 if the TOTAL is unaffordable, naming the "
+            "total. Recent-failure cooldowns answer 429 as on the "
+            "single-language purchase.\n\n"
+            "Every job settles independently afterwards, exactly as a "
+            "single-language purchase does: each lands as a DRAFT, and each "
+            "failure is refunded (or, under the accepted refund terms, settled) on its "
+            "own. One edit of the article that aborts several running jobs "
+            "counts as ONE change toward the accepted edit allowance, not one per "
+            "job.\n\n"
+            "Owner only; a non-owner gets 404."
+        ),
+    )
+    def post(self, request: Request, free2zaddr=None):
+        key = _idempotency_key(request)
+        if key is None:
+            return _error(
+                "idempotency_key_required",
+                "A valid UUIDv4 Idempotency-Key header is required.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Keep the serializer's hard bound on raw work, but preserve the
+        # public bulk-size error contract when it is exceeded. No successfully
+        # purchased request can contain more entries than the language
+        # universe, so this check cannot mask an idempotent replay.
+        raw_items = request.data.get("items") if hasattr(request.data, "get") else None
+        if (
+            isinstance(raw_items, (list, tuple))
+            and len(raw_items) > MAX_TRANSLATION_BATCH_ITEMS
+        ):
+            max_items = charges.max_batch_items()
+            return _error(
+                "too_many_languages",
+                f"At most {max_items} languages can be bought at once.",
+                status.HTTP_400_BAD_REQUEST,
+                max_items=max_items,
+            )
+
+        serializer = TranslationBatchPurchaseSerializer(data=request.data)
+        if not serializer.is_valid():
+            return _error(
+                "invalid_request",
+                "Send `items` (each a `language` and the whole-2Z "
+                "`expected_price` you quoted) and the quote's "
+                "`source_digest`.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        data = serializer.validated_data
+        source_digest = data["source_digest"]
+        declared_policy = data.get("settlement_policy")
+
+        page = self.get_page(request, free2zaddr)
+
+        # Request IDENTITY only, before the claim: the tags as normalized
+        # strings. Everything mutable comes after it.
+        items = []
+        failures = []
+        seen = set()
+        for item in data["items"]:
+            language, error = _normalize(item["language"])
+            if error is not None:
+                failures.append(_item_failure(item["language"], error))
+                continue
+            if language in seen:
+                failures.append({
+                    "language": language,
+                    "code": "duplicate_language",
+                    "error": "Each language may appear once in a batch.",
+                })
+                continue
+            seen.add(language)
+            items.append((language, item["expected_price"]))
+        if failures:
+            return _error(
+                failures[0]["code"],
+                "Some of these languages are not valid in a batch. Nothing "
+                "was charged.",
+                status.HTTP_400_BAD_REQUEST,
+                items=failures,
+            )
+
+        request_hash = charges.batch_fingerprint(
+            zpage_id=page.pk, source_digest=source_digest, items=items,
+        )
+        # THE KEY IS CLAIMED BEFORE ANY MUTABLE CHECK ( finding 1).
+        claim, duplicate = _claim_batch(request.user, key, request_hash)
+        if duplicate is not None:
+            return duplicate
+
+        try:
+            try:
+                body = self._purchase(
+                    request, page, key, claim, items, source_digest,
+                    declared_policy,
+                )
+            except _Refuse as refusal:
+                idempotency.release(claim)
+                return refusal.response
+            except ledger.InsufficientFunds as exc:
+                idempotency.release(claim)
+                return Response(
+                    ledger.insufficient_funds_payload(
+                        exc, action="translation"
+                    ),
+                    status=status.HTTP_402_PAYMENT_REQUIRED,
+                )
+        except Exception:
+            idempotency.release(claim)
+            raise
+
+        return Response(
+            {**body, "replayed": False}, status=status.HTTP_202_ACCEPTED
+        )
+
+    def _purchase(self, request, page, key, claim, items, source_digest,
+                  declared_policy):
+        """Everything after the claim. Raises ``_Refuse`` to refuse."""
+        user = request.user
+
+        # The batch size limit is a MUTABLE policy (it follows the account cap),
+        # so it is checked after the claim like every other one: a retry of a
+        # batch that was bought before the cap was lowered must replay its
+        # receipt, not be told its already-paid request is too big. (codex
+        # adversarial review of, round 2.)
+        max_items = charges.max_batch_items()
+        if len(items) > max_items:
+            raise _Refuse(_error(
+                "too_many_languages",
+                f"At most {max_items} languages can be bought at once.",
+                status.HTTP_400_BAD_REQUEST,
+                max_items=max_items,
+            ))
+
+        # Outside the money transaction: target validation and pricing (a cold
+        # tokenizer can fetch data -- never while holding the buyer's balance
+        # row), then the failure ceilings, which scan a window of records and
+        # need no lock (see the single-language view).
+        failures = []
+        quotes = {}
+        for language, _price in items:
+            _language, error = self.validate_target(page, language)
+            if error is not None:
+                failures.append(_item_failure(language, error))
+                continue
+            quote, error = self.build_quote(page, language)
+            if error is not None:
+                raise _Refuse(error)
+            # Per language, like a variant limit: Lao being too long for the
+            # clock says nothing about Spanish.
+            error = self.wall_clock_error(quote)
+            if error is not None:
+                failures.append(_item_failure(language, error))
+                continue
+            quotes[language] = quote
+        if failures:
+            raise _Refuse(_items_refused(failures))
+        quote_inputs = (
+            page.title, page.description, page.content, page.source_language,
+        )
+        error = self.failure_ceiling_error(user)
+        if error is not None:
+            raise _Refuse(error)
+
+        with transaction.atomic():
+            # Buyer's balance row FIRST, then the article: the global lock
+            # order (`ledger.lock_in_order`, /). Also what serializes
+            # two batches from one account, so the in-flight count and the
+            # draft reservation below are read by one purchase at a time.
+            ledger.lock_in_order(user)
+            locked_page = lock_zpages_for_translation_write(page.pk).get(page.pk)
+            if locked_page is None:
+                raise http.Http404
+            current_digest = content_digest(locked_page.content)
+            if current_digest != source_digest or quote_inputs != (
+                locked_page.title, locked_page.description,
+                locked_page.content, locked_page.source_language,
+            ):
+                raise _Refuse(_error(
+                    "source_changed",
+                    "The article changed before purchase. Refresh the quote "
+                    "before buying.",
+                    status.HTTP_409_CONFLICT,
+                    source_digest=current_digest,
+                    items=[
+                        {
+                            "language": language,
+                            "code": "source_changed",
+                            "error": "The article changed since this was "
+                                     "quoted.",
+                        }
+                        for language, _price in items
+                    ],
+                ))
+            page = locked_page
+
+            # Every item through the single purchase's own checks, collecting
+            # all failures. `reserved` grows as items are accepted (both the
+            # draft and the publish ceiling, see `Reservations`), so ten new
+            # languages on an article with 90 drafts are refused at purchase
+            # rather than sold and aborted at delivery.
+            reserved = self.reservations(page)
+            existing_by_language = {}
+            for language, price in items:
+                existing, error = self.item_refusal(
+                    page, language, quotes[language], price,
+                    user=user, reserved=reserved,
+                )
+                if error is not None:
+                    failures.append(_item_failure(language, error))
+                    continue
+                existing_by_language[language] = existing
+                reserved.add(language, existing)
+            if failures:
+                raise _Refuse(_items_refused(failures))
+
+            error = self.capacity_refusal(user, len(items))
+            if error is not None:
+                raise _Refuse(error)
+
+            total = sum(price for _language, price in items)
+            # ONE debit for the batch, so a 402 names the total and the
+            # balance can never be part-spent on a batch that then fails.
+            balance = ledger.debit(user, total, action="translation")
+
+            bodies = []
+            for language, price in items:
+                existing = existing_by_language[language]
+                body = charges.initial_body(
+                    job_id=charges.new_job_id(),
+                    zpage_id=page.pk,
+                    language=language,
+                    source_digest=source_digest,
+                    target_digest=existing["digest"] if existing else None,
+                    price=price,
+                    ai_model=quotes[language].ai_model,
+                    balance=balance,
+                    settlement_policy=declared_policy,
+                    batch_id=key,
+                )
+                # A completed record from birth, in the same transaction as
+                # the debit -- the invariant `charges` rests on ("a charge
+                # record exists iff its money moved").
+                idempotency.IdempotencyKey.objects.create(
+                    scope=charges.SCOPE,
+                    user=user,
+                    key=charges.batch_key(key, language),
+                    request_hash=charges.request_fingerprint(
+                        zpage_id=page.pk,
+                        language=language,
+                        source_digest=source_digest,
+                        price=price,
+                    ),
+                    response_status=status.HTTP_202_ACCEPTED,
+                    response_body=body,
+                )
+                bodies.append(body)
+
+            claim.finish(status.HTTP_202_ACCEPTED, {
+                "batch_id": key,
+                "zpage_id": page.pk,
+                "languages": [language for language, _price in items],
+                "total": total,
+            })
+            for body in bodies:
+                transaction.on_commit(
+                    lambda job_id=body["job_id"]: _defer_translation(job_id),
+                    robust=True,
+                )
+
+        return {
+            "batch_id": key,
+            "total": total,
+            "jobs": [charges.public_body(body) for body in bodies],
+        }
+
+
+class ZPageTranslationBatchQuoteView(_TranslationRouteMixin, APIView):
+    """`GET.../translations/quote/?languages=...` -- prices, no charge."""
+
+    @extend_schema(
+        operation_id="zpage_translation_batch_quote",
+        parameters=[ZPAGE_PATH_PARAMETER, LANGUAGES_QUERY_PARAMETER],
+        responses={
+            200: TranslationBatchQuoteSerializer,
+            400: TranslationBatchErrorSerializer,
+            404: TranslationErrorSerializer,
+            503: TranslationErrorSerializer,
+        },
+        description=(
+            "What translating this zPage into each of `languages` would cost, "
+            "and the total. **Charges nothing and writes nothing.**\n\n"
+            "Every language gets an item: `available: true` with its `price`, "
+            "or `available: false` with the `reason` the purchase would "
+            "refuse it for -- evaluated as ONE batch, so the draft ceiling "
+            "counts the earlier available items and the drafts running jobs "
+            "will create. `total` sums the available items. Send the "
+            "available ones back to `POST .../translations/` with their "
+            "prices and `source_digest`.\n\n"
+            "Owner only; a non-owner gets 404."
+        ),
+    )
+    def get(self, request: Request, free2zaddr=None):
+        page = self.get_page(request, free2zaddr)
+        raw = _parse_languages(request)
+        if not raw:
+            return _error(
+                "invalid_request",
+                "Name at least one language in `languages`.",
+                status.HTTP_400_BAD_REQUEST,
+            )
+        max_items = charges.max_batch_items()
+
+        # Normalize and de-duplicate first, so `pt,pt-BR` is one language.
+        entries = []
+        seen = set()
+        for tag in raw:
+            language, error = _normalize(tag)
+            key = language or tag
+            if key in seen:
+                continue
+            seen.add(key)
+            entries.append((key, error))
+        if len(entries) > max_items:
+            return _error(
+                "too_many_languages",
+                f"At most {max_items} languages can be quoted at once.",
+                status.HTTP_400_BAD_REQUEST,
+                max_items=max_items,
+            )
+
+        reserved = self.reservations(page)
+        items = []
+        ai_model = None
+        total = 0
+        for language, error in entries:
+            existing = None
+            if error is None:
+                _language, error = self.validate_target(page, language)
+            if error is None:
+                existing = self.existing_variant(page, language)
+                if existing is not None and existing["is_published"]:
+                    error = _error(
+                        "variant_published",
+                        "A published translation already exists in this "
+                        "language. Unpublish or delete it first.",
+                        status.HTTP_409_CONFLICT,
+                    )
+            if error is None and charges.has_in_flight_for_target(
+                request.user, page.pk, language
+            ):
+                error = _error(
+                    "translation_in_progress",
+                    "A translation into this language is already running.",
+                    status.HTTP_409_CONFLICT,
+                )
+            if error is None:
+                error = self.published_variant_limit_error(
+                    page, language, existing, reserved=reserved.publishes
+                )
+            if error is None:
+                error = self.draft_variant_limit_error(
+                    page, language, existing, reserved=reserved.drafts
+                )
+            if error is not None:
+                failure = _item_failure(language, error)
+                items.append({
+                    "language": language,
+                    "available": False,
+                    "price": None,
+                    "reason": failure["code"],
+                    "error": failure["error"],
+                    "existing_variant": _public_variant(existing),
+                })
+                continue
+
+            quote, error = self.build_quote(page, language)
+            if error is not None:
+                return error
+            # The same per-language refusal the purchase makes, and
+            # like every other `available: false` item it reserves no draft.
+            error = self.wall_clock_error(quote)
+            if error is not None:
+                failure = _item_failure(language, error)
+                items.append({
+                    "language": language,
+                    "available": False,
+                    "price": None,
+                    "reason": failure["code"],
+                    "error": failure["error"],
+                    "existing_variant": _public_variant(existing),
+                })
+                continue
+            ai_model = quote.ai_model.display_name
+            reserved.add(language, existing)
+            total += quote.price
+            items.append({
+                "language": language,
+                "available": True,
+                "price": quote.price,
+                "reason": None,
+                "error": None,
+                "existing_variant": _public_variant(existing),
+            })
+
+        remaining, in_flight = charges.capacity(request.user)
+        balance = request.user.tuzis
+        return Response({
+            "source_language": page.source_language,
+            "source_digest": content_digest(page.content),
+            "ai_model": ai_model,
+            "balance": str(balance),
+            "items": items,
+            "total": total,
+            "affordable": balance >= total,
+            "capacity": remaining,
+            "in_flight": in_flight,
+            "max_items": max_items,
+        })
+
+
+def _claim_batch(user, key, request_hash):
+    """``(claim, duplicate_response)`` for a batch -- exactly one is meaningful.
+
+    A completed batch replays as the CURRENT state of each job it created, read
+    from the per-language charge records, so a client that lost the 202 learns
+    what became of every one of them.
+    """
+    try:
+        return idempotency.claim(
+            charges.BATCH_SCOPE, user, key, request_hash=request_hash
+        ), None
+    except idempotency.IdempotencyConflict:
+        return None, _error(
+            "idempotency_mismatch",
+            "This idempotency key was already used for a different purchase.",
+            status.HTTP_409_CONFLICT,
+        )
+    except idempotency.DuplicateRequest as duplicate:
+        if duplicate.in_flight:
+            return None, _error(
+                "request_in_progress",
+                "The original purchase is still being decided. Ask again "
+                "shortly -- this is never a second charge.",
+                status.HTTP_409_CONFLICT,
+            )
+        receipt = duplicate.record.response_body
+        languages = (
+            receipt.get("languages") if isinstance(receipt, dict) else None
+        )
+        if not isinstance(languages, list):
+            return None, _error(
+                "invalid_idempotency_record",
+                "The original response could not be replayed safely.",
+                status.HTTP_409_CONFLICT,
+            )
+        records = charges.records_for_batch(user, key, languages)
+        if any(record is None for record in records):
+            # A receipt whose charges are not all there is not a receipt we
+            # can stand behind; never answer "here are your jobs" with a gap.
+            logger.error(
+                "translation batch %s for user %s: receipt names %d "
+                "language(s) but only %d charge record(s) exist",
+                key, user.pk, len(languages),
+                sum(record is not None for record in records),
+            )
+            return None, _error(
+                "invalid_idempotency_record",
+                "The original response could not be replayed safely.",
+                status.HTTP_409_CONFLICT,
+            )
+        return None, Response(
+            {
+                "batch_id": key,
+                "total": receipt.get("total"),
+                "jobs": [
+                    charges.public_body(record.response_body)
+                    for record in records
+                ],
+                "replayed": True,
+            },
+            status=duplicate.record.response_status,
+        )

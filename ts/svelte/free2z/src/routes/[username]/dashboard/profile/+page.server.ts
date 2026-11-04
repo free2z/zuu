@@ -1,33 +1,34 @@
 import type { PageServerLoad } from "./$types";
 import { error, redirect } from "@sveltejs/kit";
-import { env } from "$env/dynamic/private";
+import { loginDestination } from "$lib/login-destination";
+import * as env from "$app/env/private";
+import { requireAuthenticatedUser } from "$lib/server/backend";
 
-export const load: PageServerLoad = async ({ params, cookies, fetch }) => {
+export const load: PageServerLoad = async ({
+  params,
+  cookies,
+  fetch,
+  url,
+  setHeaders,
+}) => {
   const apiBase = env.PRIVATE_API_BASE_URL || "http://localhost:8000";
 
   const sessionId = cookies.get("sessionid");
   if (!sessionId) {
-    throw redirect(302, "/?login=true");
+    throw redirect(302, loginDestination(url.pathname + url.search));
   }
+  setHeaders({ "cache-control": "private, no-cache", vary: "Cookie" });
 
   try {
-    const userResponse = await fetch(`${apiBase}/api/auth/user/`, {
-      headers: {
-        Cookie: `sessionid=${sessionId}`,
-      },
-    });
-
-    if (!userResponse.ok) {
-      throw redirect(302, "/?login=true");
-    }
-
-    const creator = await userResponse.json();
+    // 401/403 -> /login; a backend 5xx, 429 or timeout -> 503.
+    const creator = await requireAuthenticatedUser<any>(
+      fetch,
+      cookies,
+      url.pathname + url.search,
+    );
 
     if (creator.username !== params.username) {
-      throw error(403, {
-        message: "You can only access your own profile dashboard",
-        code: 403,
-      });
+      throw error(403, "errors.dashboard.profileForbidden", { code: 403 });
     }
 
     const zpagesResponse = await fetch(
@@ -44,10 +45,9 @@ export const load: PageServerLoad = async ({ params, cookies, fetch }) => {
       : { results: [] };
 
     // `results` is one DRF page (PAGE_SIZE=12), so counting the array caps the
-    // stats at 12. The `?mine=true` list ships whole-queryset
-    // `published_count`/`draft_count` alongside the 12-row page; pass them
-    // through when present and let the page fall back to array length when the
-    // API does not send them.
+    // stats at 12. The `?mine=true` list injects the real totals over the whole
+    // queryset (zPageListPagination in py/dj/apps/g12f/views/zpage.py); the
+    // public profile route consumes them the same way.
     return {
       creator,
       zpages: zpagesData.results || [],
@@ -63,9 +63,6 @@ export const load: PageServerLoad = async ({ params, cookies, fetch }) => {
     if (err.status) {
       throw err;
     }
-    throw error(500, {
-      message: "Failed to load profile dashboard",
-      code: 500,
-    });
+    throw error(500, "errors.dashboard.profileLoadFailed", { code: 500 });
   }
 };

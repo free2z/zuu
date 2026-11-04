@@ -1,19 +1,19 @@
 import { AttachMoney, QuestionMarkRounded } from "@mui/icons-material";
 import {
     Dialog, DialogTitle, DialogContent, DialogActions,
-    Button, Typography, Stack, Tab, Tabs, useMediaQuery, Link,
+    Button, Typography, Stack, Tab, Tabs, useMediaQuery,
 } from "@mui/material";
 import React, { useState } from "react";
 import { Creator } from "../Begin";
-import { getURI, current_f2z_address } from "../Constants";
-import AmountSlider from "./AmountSlider";
-import QRAddress from "./QRAddress";
 import StripeCheckoutButton from "./StripeCheckoutButton";
 import ZcashIcon from "./ZcashIcon";
 import { TabPanel } from "./TabPanel";
+import { BOOTSTRAP_TUZIS_PER_ZEC } from "../hooks/useTuziPricing";
 
-// TODO: make dynamic
-export const TUZI_PER_ZEC = 2500
+// Cold-start display estimate only; the live, spread-adjusted rate comes from
+// useTuziPricing (/api/pricing/) — see issue. Re-exported for callers
+// that need a non-zero number before the first fetch resolves.
+export const BOOTSTRAP_TUZIS_PER_ZEC_DISPLAY = BOOTSTRAP_TUZIS_PER_ZEC
 export const DEFAULT_TUZI_AMOUNT = 2500
 
 
@@ -35,13 +35,6 @@ export default function TuzisDialog(props: TuzisDialogProps) {
     const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
         setTabValue(newValue);
     };
-    // Maybe we want to try to pin 2Zs closer to a penny USD and try to
-    // make it more stable than Zcash ultimately. But, for now we'll
-    // just introduce it at 0.0001 Zcash which at time of comment is closer
-    // to $0.003. Limited time only?
-    // https://medium.com/hackernoon/fetching-crypto-price-with-react-3a49f41bf80c
-    const [amount, setAmount] = React.useState(DEFAULT_TUZI_AMOUNT)
-
     return (
         <Dialog
             // fullScreen={fullScreen}
@@ -90,7 +83,7 @@ export default function TuzisDialog(props: TuzisDialogProps) {
                             width: "100%",
                         }}
                         sx={{
-                            // paddingTop: ,
+                            // paddingTop:,
                         }}
                     >
                         <Typography variant="h6">What are 2Zs?</Typography>
@@ -99,21 +92,10 @@ export default function TuzisDialog(props: TuzisDialogProps) {
                                 width: isSmallerScreen ? "100%" : "88%"
                             }}
                         >
-                            2Zs are points worth $0.01 on our platform.
-                            With 2Zs, you can support creators through donations and
-                            subscriptions and engage in activities like commenting,
-                            voting, boosting content, and accessing AI and livestream features.
-                            Qualified creators can redeem 2Zs for
-                            up to their full value of $0.01.
-                            You don't have to buy them, you can make a cool profile and {` `}
-                            <Link
-                                href="https://free2z.com/docs/for-creators/creating-a-profile"
-                                target="_blank"
-                                rel="noopener"
-                            >
-                                earn them
-                            </Link>
-                            {` `}with donations, subscriptions and pay-per-view livestreams.
+                            2Zs are usage credits for Free2Z services, including
+                            subscriptions, commenting, voting, AI and livestream access.
+                            Sharing or receiving usage credits does not itself establish USD earnings.
+                            Creator earnings are recorded separately in Credits &amp; Earnings.
 
                         </Typography>
                         <Stack
@@ -146,36 +128,17 @@ export default function TuzisDialog(props: TuzisDialogProps) {
                 </TabPanel>
 
                 <TabPanel value={tabValue} index={1} p={2}>
-                    <StripeCheckoutButton />
+                    <StripeCheckoutButton expectedActorId={props.id} expectedUsername={props.username} />
                 </TabPanel>
                 <TabPanel value={tabValue} index={2} p={2}>
-
-                    <Stack
-                        direction="column"
-                        spacing={2}
-                        alignItems="center"
-                        justifyContent="center"
-                        sx={{
-                            paddingTop: 1,
-                            // border: '1px solid #e0e0e0',
-                            // borderRadius: 2,
-                        }}
-                    >
-                        <Typography variant="caption" align="center">
-                            Buy 2Zs with Zcash
+                    <Stack spacing={2} alignItems="center">
+                        <Typography align="center">
+                            Open Credits &amp; Earnings to review the Zcash estimate and purchase terms.
+                            Use the payment address and memo shown there when sending.
                         </Typography>
-                        <QRAddress
-                            size={180}
-                            addr={getURI(
-                                current_f2z_address,
-                                String(amount / TUZI_PER_ZEC),
-                                JSON.stringify({
-                                    act: "buy_2z",
-                                    id: props.username,
-                                })
-                            )}
-                        />
-                        <AmountSlider value={amount} setValue={setAmount} />
+                        <Button component="a" href={`/${encodeURIComponent(props.username)}/dashboard/billing?tab=zcash`} variant="contained">
+                            Buy credits with Zcash
+                        </Button>
                     </Stack>
                 </TabPanel>
             </DialogContent>

@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- ${generated_notice} -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="This link is meant for the ${app_name} app. Open it on a device where ${app_name} is installed.">
+<title>Open this link in ${app_name} | free2z</title>
+<link rel="stylesheet" href="/bridge/_static/bridge.css">
+<script src="/bridge/_static/scrub-fragment.js" defer></script>
+</head>
+<body>
+<div class="page">
+<header class="brand">
+<svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><rect width="28" height="28" rx="8" fill="currentColor" opacity="0.15"/><path d="M12.5 15.5a3.5 3.5 0 0 0 5 0l3-3a3.5 3.5 0 0 0-5-5l-1 1M15.5 12.5a3.5 3.5 0 0 0-5 0l-3 3a3.5 3.5 0 0 0 5 5l1-1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+<span>free2z · ${app_name}</span>
+</header>
+<main id="main" data-bridge-app="${app_slug}">
+<h1>Open this link on a device with ${app_name}</h1>
+<p class="lede">This link is meant for ${app_name}, ${app_role}. It opened in your browser because ${app_name} isn't installed here, or the link was opened in the browser instead of the app.</p>
+
+<section class="card" aria-labelledby="next">
+<h2 id="next">What to do</h2>
+<ul class="bullets">
+<li><strong>${app_name} is on another device:</strong> open the link there.</li>
+<li><strong>${app_name} is on this device:</strong> go back and tap the link again. On iPhone you can also press and hold the link and choose <strong>Open in “${app_name}”</strong>.</li>
+<li><strong>You were in the middle of something in another free2z app:</strong> go back to that app and start again. This page can't finish it.</li>
+</ul>
+</section>
+
+<section class="card" aria-labelledby="install">
+<h2 id="install">Install ${app_name}</h2>
+${install_app}
+<p class="small">${app_name} is only available to invited testers right now: TestFlight on iPhone, Google Play internal testing on Android.</p>
+<div class="actions"><a class="button" href="${access_mailto}">Ask for access: ${contact}</a></div>
+</section>
+</main>
+<footer>
+<p class="small">Anything after the “#” in this link stays on your device. This page doesn't read it or send it anywhere, and when JavaScript is on it also removes it from the address bar.</p>
+<p class="small"><a href="https://free2z.cash/" rel="noreferrer">free2z.cash</a></p>
+</footer>
+</div>
+</body>
+</html>

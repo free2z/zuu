@@ -40,39 +40,29 @@ test("profile title fixtures cover production-shaped wrapping pressure", () => {
 
 test("mobile stat tiles stack without truncating interface copy", () => {
   const sectionStart = source.indexOf(
-    '<section class="grid grid-cols-2 gap-4 sm:grid-cols-4">',
+    '<section class="grid grid-cols-2 gap-4 md:grid-cols-4">',
   );
   const sectionEnd = source.indexOf("</section>", sectionStart);
   assert.notEqual(sectionStart, -1, "stats section must exist");
-  assert.notEqual(sectionEnd, -1, "stats section must close");
   const stats = source.slice(sectionStart, sectionEnd);
-
-  assert.equal(
-    occurrences(
-      stats,
-      'class="flex flex-col items-start gap-2 p-4 sm:flex-row sm:items-center sm:gap-3"',
-    ),
-    4,
-    "all four stat tiles must stack on mobile",
+  assert.equal(occurrences(stats, "<StatTile"), 4);
+  const tile = readFileSync(
+    new URL("../src/lib/components/dashboard/StatTile.svelte", import.meta.url),
+    "utf8",
   );
-  assert.equal(
-    occurrences(stats, "text-xl font-bold tabular-nums sm:text-2xl"),
-    4,
-    "all four stat values must use the measured responsive size",
+  assert.match(
+    tile,
+    /class="flex flex-col items-start gap-2 p-4 lg:flex-row lg:items-center lg:gap-3"/,
   );
-  assert.doesNotMatch(
-    stats,
-    /\btruncate\b/,
-    "interface copy must never truncate",
-  );
-
-  for (const testId of ["stat-balance", "stat-fans"]) {
-    assert.match(
-      openingTagForTestId(testId),
-      /col-span-2 sm:col-span-1/,
-      `${testId} must span the mobile grid without leaving a hole`,
-    );
+  assert.match(tile, /text-xl font-bold tabular-nums sm:text-2xl/);
+  assert.doesNotMatch(tile, /class="[^"]*\btruncate\b/);
+  for (const id of ["stat-balance", "stat-fans"]) {
+    const marker = stats.indexOf(`testId="${id}"`);
+    assert.notEqual(marker, -1);
+    const end = stats.indexOf(">", marker);
+    assert.match(stats.slice(marker, end), /\bwide\b/);
   }
+  assert.match(tile, /col-span-2 md:col-span-1/);
 });
 
 test("draft and published rows shrink while user titles wrap and clamp", () => {

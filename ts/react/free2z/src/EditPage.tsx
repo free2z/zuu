@@ -39,6 +39,8 @@ import { useTransitionNavigate } from "./hooks/useTransitionNavigate"
 import EditSelectSeries from "./components/EditSelectSeries"
 import { PublicCreator } from "./CreatorDetail";
 import BoostPageButton from "./components/BoostPageButton";
+import { buildLegacyZPagePayload } from "./legacyZPagePayload"
+import { classicPageCanonicalPath } from "./classicRouteCompatibility"
 
 export const saplingRE = /^zs[a-z0-9]{76}$/g
 
@@ -75,6 +77,10 @@ export default function EditPage() {
     const [, setLoading] = useGlobalState("loading")
     const [focus] = useState(false)
     const [page, setPage] = useState(newPage)
+    const canonicalPagePath = classicPageCanonicalPath({
+        ...page,
+        creator: { username: current.username },
+    })
     const navigate = useTransitionNavigate()
     const location = useLocation()
 
@@ -84,12 +90,10 @@ export default function EditPage() {
         const update = (f2zaddr: string): Promise<AxiosResponse<any, any>> => {
             // console.log(`update ${f2zaddr}`)
             return axios
-                .put(`/api/zpage/${f2zaddr}/`, {
-                    ...page,
-                    tags: page.tags.map((t) => t.name),
-                    featured_image: selectedImage?.id || null,
-                    publish_at: page.publish_at?.toISOString() || null,
-                })
+                .put(
+                    `/api/zpage/${f2zaddr}/`,
+                    buildLegacyZPagePayload(page, selectedImage?.id),
+                )
                 .then((res) => {
                     // console.log("UPDATE THEN", res)
                     setSnackbarState({
@@ -143,12 +147,10 @@ export default function EditPage() {
             //     return new Promise()
             // }
             // setLoading(true)
-            return axios.post('/api/zpage/', {
-                ...page,
-                tags: page.tags.map((t) => t.name),
-                featured_image: selectedImage?.id || null,
-                publish_at: page.publish_at?.toISOString() || null,
-            }).then((res) => {
+            return axios.post(
+                '/api/zpage/',
+                buildLegacyZPagePayload(page, selectedImage?.id),
+            ).then((res) => {
                 // console.log(`NEW POST THEN, ${res.data.free2zaddr}`, page)
                 setPage({
                     ...page,
@@ -215,7 +217,7 @@ export default function EditPage() {
         setLoading(true)
         // Get the data into the dom here for the page we are goinng to edit
         return axios
-            .get(`/api/zpage/${id}/`)
+            .get(`/api/zpage/${id}/`, { params: { mine: true } })
             .then((res) => {
                 // not really a security concern but it looks bad
                 if (res.data.creator.username !== current.username) {
@@ -413,14 +415,14 @@ export default function EditPage() {
                         <Button
                             variant="contained"
                             color="primary"
-                            disabled={!page.get_url}
+                            disabled={!page.get_url || !canonicalPagePath}
                             onClick={() => {
                                 // still should do some fancy preview probably
                                 // but, let's check the real page, eh?
                                 handleSave().then((res) => {
                                     // fragiley
                                     if (res.status === 200) {
-                                        navigate(`/${current.username}/zpage/${page.vanity || page.free2zaddr}`);
+                                        navigate(canonicalPagePath!);
                                     }
                                 });
                             }}
@@ -530,7 +532,7 @@ export default function EditPage() {
                             variant="standard"
                             error={Boolean(errors.vanity)}
                             value={page.vanity}
-                            helperText={`free2z.cash/${current.username}/zpage/${page.vanity} - If this is blank, your page will not be publicized on your profile or in search!`}
+                            helperText={`free2z.cash${canonicalPagePath || ""} - If this is blank, your page will not be publicized on your profile or in search!`}
                             onKeyDown={(v: { keyCode: number; }) => {
                                 if (v.keyCode === 13) {
                                     handleSave();
