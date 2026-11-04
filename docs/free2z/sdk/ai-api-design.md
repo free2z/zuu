@@ -82,7 +82,7 @@ dependency map and the parallel waves.
 | Headers | `Idempotency-Key` (24 h, per app+user), `X-F2Z-Call-Id`, `X-F2Z-Replayed`, `X-F2Z-RateLimit-{Limit,Remaining,Reset}`, `Retry-After`, `ETag`/`Cache-Control` on `/v1/models` |
 | Limits | 4 MiB body (20 MiB with images), 20 images, `metadata` 16 keys, schema 32 KiB, 4 open streams per user, 16 open holds, 300 s per call |
 | SDKs | `f2z-sdk` (Rust), `@free2z/sdk` (TS; fetch + Tauri transports), guest-js, `tauri-plugin-f2z`; typed models/capabilities (#1137), preflight (#1136 in flight) |
-| Observability | per-call content-free `features` record (zuu #1141, tuzi #2482): `response_format`, `…_strict`, `…_schema_name`, `…_schema_bytes`, `tools`, `max_output_tokens_strict`, `stream`, `fallback` |
+| Observability | per-call content-free `features` record (zuu #1141): `response_format`, `…_strict`, `…_schema_name`, `…_schema_bytes`, `tools`, `max_output_tokens_strict`, `stream`, `fallback` |
 
 ### 1.2 In flight — designed around, not duplicated
 
@@ -92,7 +92,7 @@ dependency map and the parallel waves.
 | [#1140](https://github.com/free2z/zuu/pull/1140) Anthropic tools + structured output (**merged** 4527e8fa) | `tool_choice` → `auto/any/tool/none`, `disable_parallel_tool_use`, `response_format` as a forced tool, Anthropic fixtures | Anthropic structured output is the forced-tool mode, declared in the catalogue |
 | [#1143](https://github.com/free2z/zuu/pull/1143) (#1132) | `OrderedJson` for schemas; fingerprints unchanged | compat encodings decode schemas into `OrderedJson` too |
 | [#1138](https://github.com/free2z/zuu/pull/1138) (**merged**), [#1136](https://github.com/free2z/zuu/pull/1136) | sign-in codes; DX (preflight, typed errors, quickstart) | out of scope here |
-| tuzi #2482 + zuu #1141 | per-call `features` | new features extend the record (§3.2, "`features` grows per slice") |
+| zuu #1141 (gateway + platform) | per-call `features` | new features extend the record (§3.2, "`features` grows per slice") |
 | **Catalogue as the single source of model truth** (orchestrator, 2026-10-05, in progress by another agent) | provider model discovery with the existing keys; rate card v3 with audited prices and a long-context cap; catalogue = discovered ∩ priced ∩ enabled, **signed with capabilities**; the gateway admits exactly the signed catalogue (no static allow-list), with an emergency override | **every capability claim in this document is a signed catalogue member read by the gateway, never a name-based or hard-coded rule.** §3.3 defines *which* members and what the gateway and SDKs do with them; it does not define discovery, pricing or admission, which are that work's |
 
 ### 1.3 Provider reality

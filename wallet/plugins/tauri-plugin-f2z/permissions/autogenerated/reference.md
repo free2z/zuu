@@ -40,6 +40,32 @@ Denies the balance command without any pre-configured scope.
 <tr>
 <td>
 
+`f2z:allow-billing-url`
+
+</td>
+<td>
+
+Enables the billing_url command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-billing-url`
+
+</td>
+<td>
+
+Denies the billing_url command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `f2z:allow-call`
 
 </td>
@@ -267,6 +293,32 @@ Enables the next_chat command without any pre-configured scope.
 <td>
 
 Denies the next_chat command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:allow-open-billing`
+
+</td>
+<td>
+
+Enables the open_billing command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`f2z:deny-open-billing`
+
+</td>
+<td>
+
+Denies the open_billing command without any pre-configured scope.
 
 </td>
 </tr>

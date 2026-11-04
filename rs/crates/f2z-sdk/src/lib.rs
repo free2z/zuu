@@ -4,8 +4,10 @@
 //!
 //! 1. **sign a user in to Free2Z** — OAuth 2.0 / OpenID Connect with PKCE
 //!    `S256` ([`oauth`], [`Client::sign_in`]);
-//! 2. **show and sell 2Z** — the balance ([`Client::balance`]) and card
-//!    purchases ([`purchase`]);
+//! 2. **show the 2Z balance** ([`Client::balance`]) and, where the build may
+//!    link to payment, send the user to their Free2Z billing page to get more
+//!    ([`Client::billing_url`]). Apps don't sell 2Z: the card purchase API
+//!    ([`purchase`]) is deprecated for apps since 0.4.0;
 //! 3. **call AI** through the metered streaming gateway ([`ai`]).
 //!
 //! 2Z are platform credits: 1 2Z corresponds to $0.01 of usage. They are not

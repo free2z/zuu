@@ -1,0 +1,1712 @@
+{
+  "kind": "application source inventory; not deployed-state or production attestation",
+  "inputs": {
+    "python": "3.12",
+    "django": "5.2.18",
+    "dependency_lock": "py/free2z/requirements/main.txt",
+    "dependency_lock_sha256": "95984c17de95e76d0e2bdb6c6915feadfb85d48ae44a62556d94c5d524f36836"
+  },
+  "models": [
+    {
+      "model": "admin.LogEntry",
+      "table": "django_admin_log",
+      "source": "installed:django/contrib/admin/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "auth.Group",
+      "table": "auth_group",
+      "source": "installed:django/contrib/auth/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "auth.Permission",
+      "table": "auth_permission",
+      "source": "installed:django/contrib/auth/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "comments.Comment",
+      "table": "comments_comment",
+      "source": "py/free2z/dj/apps/comments/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "comments.CommentConsumerClaim",
+      "table": "comments_commentconsumerclaim",
+      "source": "py/free2z/dj/apps/comments/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "comments.ContentReport",
+      "table": "comments_contentreport",
+      "source": "py/free2z/dj/apps/comments/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "comments.UUIDTaggedItem",
+      "table": "comments_uuidtaggeditem",
+      "source": "py/free2z/dj/apps/comments/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "contenttypes.ContentType",
+      "table": "django_content_type",
+      "source": "installed:django/contrib/contenttypes/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "dyte.CreatorMeeting",
+      "table": "dyte_creatormeeting",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.ProviderRoomCleanup",
+      "table": "dyte_providerroomcleanup",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.RecordingDelivery",
+      "table": "dyte_recordingdelivery",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.RecordingDeliveryTarget",
+      "table": "dyte_recordingdeliverytarget",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.WebhookDelivery",
+      "table": "dyte_webhookdelivery",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "e2ee.ChatRequest",
+      "table": "e2ee_chatrequest",
+      "source": "py/free2z/dj/apps/e2ee/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "economy.CapturedZecNote",
+      "table": "economy_capturedzecnote",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.CompensationAgreement",
+      "table": "economy_compensationagreement",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.CompensationSchedule",
+      "table": "economy_compensationschedule",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.CreatorPayable",
+      "table": "economy_creatorpayable",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.EconomicPolicy",
+      "table": "economy_economicpolicy",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.FundingDay",
+      "table": "economy_fundingday",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.FundingReservation",
+      "table": "economy_fundingreservation",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.LegacyClaim",
+      "table": "economy_legacyclaim",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.LegacyClaimDecision",
+      "table": "economy_legacyclaimdecision",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.LegalPayee",
+      "table": "economy_legalpayee",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.PayableJournal",
+      "table": "economy_payablejournal",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.PaymentRequest",
+      "table": "economy_paymentrequest",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.PurchaserDay",
+      "table": "economy_purchaserday",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.SdkServiceAdmission",
+      "table": "economy_sdkserviceadmission",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.ServiceAdmission",
+      "table": "economy_serviceadmission",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.ServiceDelivery",
+      "table": "economy_servicedelivery",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.SupplierOfferApproval",
+      "table": "economy_supplierofferapproval",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.SupplierOfferRevocation",
+      "table": "economy_supplierofferrevocation",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.ZecNoteDisposition",
+      "table": "economy_zecnotedisposition",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "economy.ZecPromotion",
+      "table": "economy_zecpromotion",
+      "source": "py/free2z/dj/apps/economy/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "efm.FrostGroup",
+      "table": "efm_frostgroup",
+      "source": "py/free2z/dj/apps/efm/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "efm.Participant",
+      "table": "efm_participant",
+      "source": "py/free2z/dj/apps/efm/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "efm.WebAuthnChallenge",
+      "table": "efm_webauthnchallenge",
+      "source": "py/free2z/dj/apps/efm/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "emails.Email",
+      "table": "emails_email",
+      "source": "py/free2z/dj/apps/emails/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "emails.OptOutEmail",
+      "table": "emails_optoutemail",
+      "source": "py/free2z/dj/apps/emails/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "emails.PasswordResetToken",
+      "table": "emails_passwordresettoken",
+      "source": "py/free2z/dj/apps/emails/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "events.Event",
+      "table": "events_event",
+      "source": "py/free2z/dj/apps/events/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "exports.PublicationExportJob",
+      "table": "exports_publicationexportjob",
+      "source": "py/free2z/dj/apps/exports/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.AccountDeletionEvent",
+      "table": "g12f_accountdeletionevent",
+      "source": "py/free2z/dj/apps/g12f/models/account_deletion.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.Address",
+      "table": "g12f_address",
+      "source": "py/free2z/dj/apps/g12f/models/address.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.Creator",
+      "table": "g12f_creator",
+      "source": "py/free2z/dj/apps/g12f/models/creator.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "g12f.CreatorBlock",
+      "table": "g12f_creatorblock",
+      "source": "py/free2z/dj/apps/g12f/models/follow.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.CreatorFollow",
+      "table": "g12f_creatorfollow",
+      "source": "py/free2z/dj/apps/g12f/models/follow.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.CreatorMute",
+      "table": "g12f_creatormute",
+      "source": "py/free2z/dj/apps/g12f/models/follow.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.IssuedTokenEpoch",
+      "table": "g12f_issuedtokenepoch",
+      "source": "py/free2z/dj/apps/g12f/models/credentials.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.PageComment",
+      "table": "g12f_pagecomment",
+      "source": "py/free2z/dj/apps/g12f/models/comment.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "g12f.PageMentionDelivery",
+      "table": "g12f_pagementiondelivery",
+      "source": "py/free2z/dj/apps/g12f/models/follow.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.PageOrder",
+      "table": "g12f_pageorder",
+      "source": "py/free2z/dj/apps/g12f/models/series.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.Poll",
+      "table": "g12f_poll",
+      "source": "py/free2z/dj/apps/g12f/models/poll.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.Series",
+      "table": "g12f_series",
+      "source": "py/free2z/dj/apps/g12f/models/series.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.Subscription",
+      "table": "g12f_subscription",
+      "source": "py/free2z/dj/apps/g12f/models/creator.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "g12f.Transaction",
+      "table": "g12f_transaction",
+      "source": "py/free2z/dj/apps/g12f/models/transaction.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "g12f.ViewedTransaction",
+      "table": "g12f_viewedtransaction",
+      "source": "py/free2z/dj/apps/g12f/models/viewed.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.ZPageMutationActor",
+      "table": "g12f_zpagemutationactor",
+      "source": "py/free2z/dj/apps/g12f/models/zpage.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.ZPageTranslation",
+      "table": "g12f_zpagetranslation",
+      "source": "py/free2z/dj/apps/g12f/models/zpage.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.ZPageVariant",
+      "table": "g12f_zpagevariant",
+      "source": "py/free2z/dj/apps/g12f/models/zpage.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "g12f.zPage",
+      "table": "g12f_zpage",
+      "source": "py/free2z/dj/apps/g12f/models/zpage.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "handles.MessagingHandle",
+      "table": "handles_messaginghandle",
+      "source": "py/free2z/dj/apps/handles/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "identity.AuthContext",
+      "table": "identity_authcontext",
+      "source": "py/free2z/dj/apps/identity/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "identity.RecoveryCode",
+      "table": "identity_recoverycode",
+      "source": "py/free2z/dj/apps/identity/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "identity.WebAuthnCredential",
+      "table": "identity_webauthncredential",
+      "source": "py/free2z/dj/apps/identity/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "jobs.JobLease",
+      "table": "jobs_joblease",
+      "source": "py/free2z/dj/apps/jobs/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "jobs.OperatorAction",
+      "table": "jobs_operator_action",
+      "source": "py/free2z/dj/apps/jobs/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "jobs.OutboxMessage",
+      "table": "jobs_outbox_message",
+      "source": "py/free2z/dj/apps/jobs/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "jobs.ParkedJob",
+      "table": "jobs_parked_job",
+      "source": "py/free2z/dj/apps/jobs/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "jobs.ProcrastinateEvent",
+      "table": "procrastinate_events",
+      "source": "py/free2z/dj/apps/jobs/ops.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "jobs.QuarantinedJob",
+      "table": "jobs_quarantined_job",
+      "source": "py/free2z/dj/apps/jobs/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "jobs.QueueControl",
+      "table": "jobs_queue_control",
+      "source": "py/free2z/dj/apps/jobs/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "knox.AuthToken",
+      "table": "knox_authtoken",
+      "source": "installed:knox/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "kyc.UserProfile",
+      "table": "kyc_userprofile",
+      "source": "py/free2z/dj/apps/kyc/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "kyc.W8BEN",
+      "table": "kyc_w8ben",
+      "source": "py/free2z/dj/apps/kyc/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "kyc.W8BENE",
+      "table": "kyc_w8bene",
+      "source": "py/free2z/dj/apps/kyc/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "kyc.W9",
+      "table": "kyc_w9",
+      "source": "py/free2z/dj/apps/kyc/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.Account",
+      "table": "ledger_account",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.Config",
+      "table": "ledger_config",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerAiSplitQueue",
+      "table": "ledger_ai_split_queue",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerApp",
+      "table": "ledger_app",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerDevMarkupPending",
+      "table": "ledger_dev_markup_pending",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerGatewayAttempt",
+      "table": "ledger_gateway_attempt",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerGatewayCall",
+      "table": "ledger_gateway_call",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerGatewayIdempotency",
+      "table": "ledger_gateway_idempotency",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerHold",
+      "table": "ledger_hold",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerRollupState",
+      "table": "ledger_rollup_state",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerSpendCap",
+      "table": "ledger_spend_cap",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.LedgerSpendWindow",
+      "table": "ledger_spend_window",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.PurchaseRefund",
+      "table": "ledger_purchase_refund",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.ReconcileRun",
+      "table": "ledger_reconcile_run",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.Transfer",
+      "table": "ledger_transfer",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ledger.TransferKey",
+      "table": "ledger_transfer_key",
+      "source": "py/free2z/dj/apps/ledger/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "oidc.AccessToken",
+      "table": "oidc_accesstoken",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.AiOutputReport",
+      "table": "oidc_aioutputreport",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.AppAuthorization",
+      "table": "oidc_appauthorization",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.AudienceChange",
+      "table": "oidc_audiencechange",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.AuthorizationCode",
+      "table": "oidc_authorizationcode",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.DeviceGrant",
+      "table": "oidc_devicegrant",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.F2ZApplication",
+      "table": "oidc_f2zapplication",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.IDToken",
+      "table": "oidc_idtoken",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "oidc.RefreshToken",
+      "table": "oidc_refreshtoken",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "openai.AIModel",
+      "table": "openai_aimodel",
+      "source": "py/free2z/dj/apps/openai/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "openai.Conversation",
+      "table": "openai_conversation",
+      "source": "py/free2z/dj/apps/openai/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "openai.Personality",
+      "table": "openai_personality",
+      "source": "py/free2z/dj/apps/openai/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "openai.PromptResponse",
+      "table": "openai_promptresponse",
+      "source": "py/free2z/dj/apps/openai/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "openai.ProviderModel",
+      "table": "openai_providermodel",
+      "source": "py/free2z/dj/apps/openai/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "otp.OTPSecret",
+      "table": "otp_otpsecret",
+      "source": "py/free2z/dj/apps/otp/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "pricing.RateCard",
+      "table": "pricing_ratecard",
+      "source": "py/free2z/dj/apps/pricing/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "pricing.RateCardModel",
+      "table": "pricing_ratecard_model",
+      "source": "py/free2z/dj/apps/pricing/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "pricing.ZecPriceSnapshot",
+      "table": "pricing_zecpricesnapshot",
+      "source": "py/free2z/dj/apps/pricing/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "procrastinate.ProcrastinateEvent",
+      "table": "procrastinate_events",
+      "source": "installed:procrastinate/contrib/django/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "procrastinate.ProcrastinateJob",
+      "table": "procrastinate_jobs",
+      "source": "installed:procrastinate/contrib/django/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "procrastinate.ProcrastinatePeriodicDefer",
+      "table": "procrastinate_periodic_defers",
+      "source": "installed:procrastinate/contrib/django/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "procrastinate.ProcrastinateWorker",
+      "table": "procrastinate_workers",
+      "source": "installed:procrastinate/contrib/django/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "purchases.PurchaseIntent",
+      "table": "purchases_purchaseintent",
+      "source": "py/free2z/dj/apps/purchases/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "purchases.PurchaseReceipt",
+      "table": "purchases_purchasereceipt",
+      "source": "py/free2z/dj/apps/purchases/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "search.SearchIndex",
+      "table": "search_searchindex",
+      "source": "py/free2z/dj/apps/search/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "sessions.Session",
+      "table": "django_session",
+      "source": "installed:django/contrib/sessions/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "social.SocialIdentity",
+      "table": "social_socialidentity",
+      "source": "py/free2z/dj/apps/social/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "social.SocialState",
+      "table": "social_socialstate",
+      "source": "py/free2z/dj/apps/social/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "storytime.Page",
+      "table": "storytime_page",
+      "source": "py/free2z/dj/apps/storytime/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "storytime.Story",
+      "table": "storytime_story",
+      "source": "py/free2z/dj/apps/storytime/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tagging.TagAlias",
+      "table": "tagging_tagalias",
+      "source": "py/free2z/dj/apps/tagging/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tagging.TagIdentity",
+      "table": "tagging_tagidentity",
+      "source": "py/free2z/dj/apps/tagging/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tagging.TagNormalizationRun",
+      "table": "tagging_tagnormalizationrun",
+      "source": "py/free2z/dj/apps/tagging/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tagging.TagSuggestion",
+      "table": "tagging_tagsuggestion",
+      "source": "py/free2z/dj/apps/tagging/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tagging.TagSuggestionRun",
+      "table": "tagging_tagsuggestionrun",
+      "source": "py/free2z/dj/apps/tagging/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "taggit.Tag",
+      "table": "taggit_tag",
+      "source": "installed:taggit/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "taggit.TaggedItem",
+      "table": "taggit_taggeditem",
+      "source": "installed:taggit/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tax.CostBasis",
+      "table": "tax_costbasis",
+      "source": "py/free2z/dj/apps/tax/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tax.Currency",
+      "table": "tax_currency",
+      "source": "py/free2z/dj/apps/tax/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tax.TaxEvent",
+      "table": "tax_taxevent",
+      "source": "py/free2z/dj/apps/tax/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "tuzis.IdempotencyKey",
+      "table": "tuzis_idempotencykey",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "tuzis.ProviderReservation",
+      "table": "tuzis_providerreservation",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "tuzis.SubscriptionIntentAbandonment",
+      "table": "tuzis_subscriptionintentabandonment",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "tuzis.SubscriptionIntentEvidence",
+      "table": "tuzis_subscriptionintentevidence",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "tuzis.TuziGrant",
+      "table": "tuzis_tuzigrant",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "tuzis.ZecCreditReceipt",
+      "table": "tuzis_zeccreditreceipt",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "tuzis.ZecMemoDisposition",
+      "table": "tuzis_zecmemodisposition",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "tuzis.ZecPendingNotice",
+      "table": "tuzis_zecpendingnotice",
+      "source": "py/free2z/dj/apps/tuzis/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "twitter.Announcement",
+      "table": "twitter_announcement",
+      "source": "py/free2z/dj/apps/twitter/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "twitter.TwitterProfile",
+      "table": "twitter_twitterprofile",
+      "source": "py/free2z/dj/apps/twitter/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "uploads.GenericFile",
+      "table": "uploads_genericfile",
+      "source": "py/free2z/dj/apps/uploads/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "uploads.ImageVariant",
+      "table": "uploads_imagevariant",
+      "source": "py/free2z/dj/apps/uploads/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "uploads.PendingUploadBlobDeletion",
+      "table": "uploads_pendinguploadblobdeletion",
+      "source": "py/free2z/dj/apps/uploads/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "uploads.Webp",
+      "table": "uploads_webp",
+      "source": "py/free2z/dj/apps/uploads/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "zauth.ZcashChallengeClaim",
+      "table": "zauth_zcashchallengeclaim",
+      "source": "py/free2z/dj/apps/zauth/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "zauth.ZcashIdentity",
+      "table": "zauth_zcashidentity",
+      "source": "py/free2z/dj/apps/zauth/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
+      "model": "ztripe.CheckoutFulfillmentAudit",
+      "table": "ztripe_checkoutfulfillmentaudit",
+      "source": "py/free2z/dj/apps/ztripe/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ztripe.CheckoutIntent",
+      "table": "ztripe_checkoutintent",
+      "source": "py/free2z/dj/apps/ztripe/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ztripe.StripeCheckoutRollout",
+      "table": "ztripe_stripecheckoutrollout",
+      "source": "py/free2z/dj/apps/ztripe/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ztripe.StripeTransaction",
+      "table": "ztripe_stripetransaction",
+      "source": "py/free2z/dj/apps/ztripe/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "ztripe.StripeWebhookReadiness",
+      "table": "ztripe_stripewebhookreadiness",
+      "source": "py/free2z/dj/apps/ztripe/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    }
+  ],
+  "writer_calls": [
+    {
+      "source": "py/free2z/dj/apps/comments/management/commands/aiscore_comments.py",
+      "line": 131,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/comments/management/commands/aiscore_comments.py",
+      "line": 141,
+      "call": "ledger.credit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/comments/management/commands/aiscore_comments.py",
+      "line": 153,
+      "call": "ledger.debit_up_to",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/comments/views.py",
+      "line": 137,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/comments/views.py",
+      "line": 551,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/comments/views.py",
+      "line": 555,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/dyte/views.py",
+      "line": 1059,
+      "call": "ledger.debit_up_to",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/dyte/views.py",
+      "line": 1102,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/dyte/views.py",
+      "line": 1103,
+      "call": "ledger.debit_up_to",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/dyte/views.py",
+      "line": 1113,
+      "call": "ledger.debit_up_to",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/dyte/views.py",
+      "line": 1120,
+      "call": "ledger.credit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/e2ee/views.py",
+      "line": 380,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/e2ee/views.py",
+      "line": 382,
+      "call": "ledger.transfer",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/products.py",
+      "line": 151,
+      "call": "usage.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/products.py",
+      "line": 158,
+      "call": "usage.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/services.py",
+      "line": 80,
+      "call": "usage.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/services.py",
+      "line": 406,
+      "call": "usage.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/services.py",
+      "line": 407,
+      "call": "usage.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/services.py",
+      "line": 523,
+      "call": "usage.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/services.py",
+      "line": 528,
+      "call": "usage.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/services.py",
+      "line": 626,
+      "call": "usage.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/economy/services.py",
+      "line": 708,
+      "call": "usage.credit_purchase",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/models/creator.py",
+      "line": 1031,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/models/creator.py",
+      "line": 1057,
+      "call": "ledger.transfer",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/tasks.py",
+      "line": 726,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/translation/charges.py",
+      "line": 950,
+      "call": "ledger.credit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/translate.py",
+      "line": 1004,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/translate.py",
+      "line": 1045,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/translate_batch.py",
+      "line": 514,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/translate_batch.py",
+      "line": 568,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/zpage.py",
+      "line": 588,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/zpage.py",
+      "line": 596,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/zpage.py",
+      "line": 860,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/g12f/views/zpage.py",
+      "line": 863,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 478,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1762,
+      "call": "ledger.reserve",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1819,
+      "call": "ledger.settle_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1832,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1843,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1848,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1899,
+      "call": "ledger.settle_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1923,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 1932,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2036,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2402,
+      "call": "ledger_api.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2414,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2545,
+      "call": "ledger.reserve",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2578,
+      "call": "ledger.settle_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2591,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2602,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2607,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2647,
+      "call": "ledger.settle_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2665,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2678,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2984,
+      "call": "ledger_api.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2987,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3118,
+      "call": "ledger.reserve",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3202,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3253,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3262,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3278,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3315,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3418,
+      "call": "ledger.settle_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3482,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3562,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/purchases/services.py",
+      "line": 184,
+      "call": "usage.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/storytime/views.py",
+      "line": 224,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/storytime/views.py",
+      "line": 329,
+      "call": "ledger.debit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/grants.py",
+      "line": 128,
+      "call": "ledger.lock_in_order",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/grants.py",
+      "line": 167,
+      "call": "ledger.credit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 175,
+      "call": "_ledger.spend",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 204,
+      "call": "_ledger.spend_up_to",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 241,
+      "call": "_ledger.credit_purchase",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 247,
+      "call": "_ledger.credit_user",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 274,
+      "call": "_ledger.transfer_users",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 439,
+      "call": "_ledger.credit_with_repay",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 462,
+      "call": "_ledger.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 465,
+      "call": "_ledger.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 562,
+      "call": "_ledger.post_transfer",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 578,
+      "call": "_ledger.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 592,
+      "call": "_ledger.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/ledger.py",
+      "line": 599,
+      "call": "_ledger.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/management/commands/cleanup_idempotency.py",
+      "line": 151,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/management/commands/heal_ledger_drift.py",
+      "line": 61,
+      "call": "api.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/management/commands/heal_ledger_drift.py",
+      "line": 65,
+      "call": "api.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/management/commands/heal_ledger_drift.py",
+      "line": 88,
+      "call": "api.post_transfer",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/tuzis/management/commands/heal_ledger_drift.py",
+      "line": 94,
+      "call": "api.post_transfer",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/ztripe/economic_events.py",
+      "line": 806,
+      "call": "usage.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/ztripe/economic_events.py",
+      "line": 809,
+      "call": "usage.lock_account",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/ztripe/economic_events.py",
+      "line": 859,
+      "call": "usage.restore_purchase",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/ztripe/economic_events.py",
+      "line": 871,
+      "call": "usage.refund_purchase",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/ztripe/economic_events.py",
+      "line": 889,
+      "call": "usage.refund_purchase",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/ztripe/fulfillment.py",
+      "line": 329,
+      "call": "ledger.credit",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    }
+  ],
+  "source_sha256": {
+    "py/free2z/dj/apps/comments/management/commands/aiscore_comments.py": "8f798a223965b4841822bb239cb040e81c71dcad89c1cfdff072e4314966a902",
+    "py/free2z/dj/apps/comments/models.py": "81a006d2e2f57d1e40e79a4a70b8793ecf6f0d36948bc2eb2d2cb3a0bd6ad140",
+    "py/free2z/dj/apps/comments/views.py": "06477a05cfecc35dab620ea1a0dc73b3c7df10602ecfbe23dfcf748d459d359c",
+    "py/free2z/dj/apps/dyte/models.py": "9c6ab22a7e87800e85c47690da8dfe966be2103a25bbef5dd6e1be7bd67aad9a",
+    "py/free2z/dj/apps/dyte/views.py": "686b90b5c755449a518a8a74eba520270735f2034c6764474097f4018b7585e3",
+    "py/free2z/dj/apps/e2ee/models.py": "87bd06bb8461ef9d283f96f6e05b4c67576d7d0e0318bcaf9a8a679fc9b9717d",
+    "py/free2z/dj/apps/e2ee/views.py": "7533ddb3d6fa9ad0f96e2044d98b270ae80b9495fd45c953ab06d35011addf5c",
+    "py/free2z/dj/apps/economy/models.py": "234673203a0ebcbea06c5d690ecaaee3c2ad64054fd1a097ec953e53012f9725",
+    "py/free2z/dj/apps/economy/products.py": "b14976f048cdb80e0ce060250592b05766ec333b7a389798209b223ab012d0ae",
+    "py/free2z/dj/apps/economy/services.py": "31edcca04691a45f8f38b71a4019b71f7b5ab63d8c385c80b2987a89db5a823e",
+    "py/free2z/dj/apps/efm/models.py": "97b42f27e99097079d8b063e7cff8f9f7dd64db942922488878bbb2c408b16b4",
+    "py/free2z/dj/apps/emails/models.py": "d16b123c3d2593d59785cea563be6f816aa3995641b7ef63b2c6536e3b53125d",
+    "py/free2z/dj/apps/events/models.py": "7a6b0a09066c24280e4e4235f663cdf98c6273c862cbe6781e928d257ba3e5b6",
+    "py/free2z/dj/apps/exports/models.py": "61161ff8dbf0a6aeea60121fbebf8da609a5b6eb2a334c53508dd08e690b9327",
+    "py/free2z/dj/apps/g12f/models/account_deletion.py": "8e7d03912f3eebc33f132bc9c927f817edca3a3d8413bee8e299ae6eae489e89",
+    "py/free2z/dj/apps/g12f/models/address.py": "135f3ed8f2292e5ab13c49628a962d5d54a36a1edc455ec9381bc19a0ace146b",
+    "py/free2z/dj/apps/g12f/models/comment.py": "50c250f23b3a3536db0f38d103744ca5d2b1e991cc133ecaba6b6f73c756977c",
+    "py/free2z/dj/apps/g12f/models/creator.py": "2b42660344dba469f988bd437377f02292ec4acf1dea5be73f0a9a849d89abfe",
+    "py/free2z/dj/apps/g12f/models/credentials.py": "4a449350aa6f941084f7600b9906284cfe284707a0300ef3f04678774337c940",
+    "py/free2z/dj/apps/g12f/models/follow.py": "f1fe4c7c1e8e8a4214528f5cd24737f823071d37bc1d484c91f8445c3e2d1a2b",
+    "py/free2z/dj/apps/g12f/models/poll.py": "7d2f6aa7aacc6aa9715d451034696f24caaf5ae6a82356db9b8768beeca99c06",
+    "py/free2z/dj/apps/g12f/models/series.py": "a388d904c4830010ac97c9896bc4dd3b7f30e0bb0210f9003d4f56c2b1e71ae3",
+    "py/free2z/dj/apps/g12f/models/transaction.py": "cd4c6d096ad078ce10ee2f1f729cdb96c39ce8ece3370faa5c29cfed3e48102d",
+    "py/free2z/dj/apps/g12f/models/viewed.py": "be1895e41d832bf45fbe2daac8a27c678038aa7a6ee7d486393bf97203d4574d",
+    "py/free2z/dj/apps/g12f/models/zpage.py": "2c1c8171226265b12a1620bbe66ff66be01be5c61acbc19e74e004bd12589c62",
+    "py/free2z/dj/apps/g12f/tasks.py": "f79fb9edcc07684b23338fdb9408c887e1817eb174562d8c0218ecac9b54bf95",
+    "py/free2z/dj/apps/g12f/translation/charges.py": "1880f2c28b822df00d4eeafabc7337e3ebfc66eb8b590ddd4745a8296253e451",
+    "py/free2z/dj/apps/g12f/views/translate.py": "da6814a16c3693c675c4aeb40d62dd4e15057628ecb43ef26e2572a8f42c645d",
+    "py/free2z/dj/apps/g12f/views/translate_batch.py": "042d4a092f6ec85e5d8a4785b536dee83867325f9378b03ea23cde17e79a9886",
+    "py/free2z/dj/apps/g12f/views/zpage.py": "7d9c5fcdb9d75b9fc18b0c1f95bac96a5fcd78eb5d81032aa464c1cb1c26b794",
+    "py/free2z/dj/apps/handles/models.py": "4787949bbab9b905ca99b59918c492bcc1087e315605eea968526b9d45fdf808",
+    "py/free2z/dj/apps/identity/models.py": "bc7779a97afd262f39bf6b38d332931fc68a9a1c5f34809f2f821cb4550edf1c",
+    "py/free2z/dj/apps/jobs/models.py": "65b9aa06f58fa704144195d90d917262243fda3ab77cdf2f4bad67ede5ca433b",
+    "py/free2z/dj/apps/jobs/ops.py": "b2a0793830f6df24fb658af475cfb75985d1adb79d772d2d17b29c048b3ae053",
+    "py/free2z/dj/apps/kyc/models.py": "285560c38eb803f390b0581ed957b242770c67d311178da84baafcd56a41a045",
+    "py/free2z/dj/apps/ledger/models.py": "a2cccfcd82b3dda2562041d464818ec8c6dc9ed124ec57c8e23c0153a6762865",
+    "py/free2z/dj/apps/oidc/models.py": "8a904b80311b76c4028276729b55d0a402534876486b25749f3ff4e9539047f0",
+    "py/free2z/dj/apps/openai/models.py": "6c0102bab4c2906dddfdeaacb3d78bbca87798f3f9e54c5131102601acb3de5e",
+    "py/free2z/dj/apps/openai/views.py": "096b173b955bab46c1fe62d57c137f8fc1f287f3955b82437de5602d16370a26",
+    "py/free2z/dj/apps/otp/models.py": "d45fd3d4223cbd5f0b93db9e84013c238d216bdbd45fa13d718a230eca2e7556",
+    "py/free2z/dj/apps/pricing/models.py": "00fdb69c4ca7debb9d69441f70f2f0d518aeaf253bc3aa42cf57bd6639f3b007",
+    "py/free2z/dj/apps/purchases/models.py": "c771797cd2f04f9b65d17423d9878abc609f80597e4437ff6a4214cc075d4163",
+    "py/free2z/dj/apps/purchases/services.py": "15cbe21103bf143fabce277e116d9ab112dfea741d47266bd5096365f49bf27c",
+    "py/free2z/dj/apps/search/models.py": "7d4075094a3c21ac190eb01474db81a8ad7efdfe25a18328742087da095b7765",
+    "py/free2z/dj/apps/social/models.py": "c3735305a226266ce9a3714ab3b9098010f2f357a12345efb21cd081e845da7d",
+    "py/free2z/dj/apps/storytime/models.py": "2ad165b1fe36d5bbdb8b14afdb61c2b571df7b0787b53d4d116494247f77c7f9",
+    "py/free2z/dj/apps/storytime/views.py": "0bf65bf6238600b8e6f361e82ee3935bd696c4c9c5353c1dbdd759d4c99bb6c5",
+    "py/free2z/dj/apps/tagging/models.py": "eef860992c90a0c6e82061a7c14f3e4d3851e65c45a0da00219363fb7810b6c0",
+    "py/free2z/dj/apps/tax/models.py": "d986f0356a5b279aa20a427065139e93586d79a2623b0b0922af9cd57282da83",
+    "py/free2z/dj/apps/tuzis/grants.py": "305a2669b604d875555679b162807e223bd3d81ee6f858194d4ac37b714a7ec7",
+    "py/free2z/dj/apps/tuzis/ledger.py": "49cf243de6d401169118c5f0a354424d467b1922a49758eeebeac2caf52fd383",
+    "py/free2z/dj/apps/tuzis/management/commands/cleanup_idempotency.py": "28f1a4b70db341aafa2645aa7e19f56fbf8379c8938788bffb98b79b55941cf2",
+    "py/free2z/dj/apps/tuzis/management/commands/heal_ledger_drift.py": "bcd1bd67e9fa3afbabca1ddc5216afc4ad01d8216e05e369ab35e13c7f4b60c6",
+    "py/free2z/dj/apps/tuzis/models.py": "2cbe07826e84b58fbe06cc2e1f7bad8b516edc540b32a7b8a5cace9dadd871e3",
+    "py/free2z/dj/apps/twitter/models.py": "4f5fbe910f5078fffde98bd87f0a07b66aba31806042ad2e875fdf33bd6b377e",
+    "py/free2z/dj/apps/uploads/models.py": "743560c5a1fa5015005bc21304e4a8f56d0b2304ff5f9931cac1a2da05e1ad78",
+    "py/free2z/dj/apps/zauth/models.py": "a2cbe6804a8c6fde2eea0b5cc81c819cf5648e3a3bc031fc5c37b489c2665a11",
+    "py/free2z/dj/apps/ztripe/economic_events.py": "649d101be298a5887529c88594fc16c3e256cd87ca51e97630450e76bd4b14a7",
+    "py/free2z/dj/apps/ztripe/fulfillment.py": "5e00fe2a206231bff2c86a8b71402808ded6c67c629ae6eb7165949bbdb6bec1",
+    "py/free2z/dj/apps/ztripe/models.py": "fd0f3d3d0bedafd03942b1277a576c1bacbdc5c627fd718543f97d1b982d7fa0"
+  },
+  "activation": "Source inventory does not authorize production activation; reviewed drain and external writer deployment evidence is required"
+}

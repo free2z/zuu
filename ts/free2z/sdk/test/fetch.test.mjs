@@ -7,7 +7,7 @@ import {
   ToolCallAccumulator,
   runTools,
 } from "../dist/index.js";
-import { WebSession, freshLogin } from "../dist/oauth.js";
+import { DEFAULT_SCOPES, WebSession, freshLogin } from "../dist/oauth.js";
 import { issuer, deferred } from "./issuer.mjs";
 const options = { operationId: "operation-1", idempotencyKey: "durable-key" };
 const request = { model: "test", messages: [] };
@@ -1397,4 +1397,118 @@ test("web display names lose bidi marks too", async () => {
     (await new WebSession(mock.config).signIn()).preferredUsername,
     "ada",
   );
+});
+
+test("billing is its own page on the web origin, percent-encodes client_id and opens only through openExternal", async () => {
+  const opened = [];
+  const base = issuer().config;
+  const client = new Client(
+    new FetchTransport({
+      ...base,
+      clientId: "a b&c=d/é#x",
+      openExternal: async (url) => {
+        opened.push(url);
+      },
+    }),
+  );
+  const origin = new URL(base.issuer).origin;
+  assert.equal(
+    await client.billingUrl(),
+    `${origin}/buy-2z?client_id=a+b%26c%3Dd%2F%C3%A9%23x`,
+  );
+  // Manage stays the purchase-free account page.
+  assert.equal(
+    await client.manageAccountUrl(),
+    `${origin}/account/apps?client_id=a+b%26c%3Dd%2F%C3%A9%23x`,
+  );
+  await client.openBilling();
+  assert.deepEqual(opened, [await client.billingUrl()]);
+  const staged = new Client(
+    new FetchTransport({ ...base, webOrigin: "https://www.example/" }),
+  );
+  assert.equal(
+    await staged.billingUrl(),
+    "https://www.example/buy-2z?client_id=client",
+  );
+  await assert.rejects(staged.openBilling(), {
+    code: "external_opener_required",
+  });
+  // A custom transport predating 0.4.0 is refused, not guessed at.
+  const custom = new Client({});
+  await assert.rejects(custom.billingUrl(), { code: "unsupported_operation" });
+  await assert.rejects(custom.openBilling(), { code: "unsupported_operation" });
+});
+
+test("default scopes no longer ask for purchase:create; an explicit list still can", async () => {
+  assert.equal(DEFAULT_SCOPES.includes("purchase:create"), false);
+  assert.deepEqual(
+    [...DEFAULT_SCOPES],
+    ["openid", "profile", "offline_access", "balance:read", "ai:invoke"],
+  );
+  const requested = async (scopes) => {
+    const mock = issuer({ config: scopes ? { scopes } : {} });
+    let scope;
+    mock.authorize = (parsed) => {
+      scope = parsed.searchParams.get("scope");
+      const callback = new URL("https://app.example/callback");
+      callback.searchParams.set("code", "code");
+      callback.searchParams.set("state", parsed.searchParams.get("state"));
+      callback.searchParams.set("iss", "https://issuer.example");
+      return callback.href;
+    };
+    await new WebSession(mock.config).signIn();
+    return scope.split(" ");
+  };
+  assert.equal((await requested()).includes("purchase:create"), false);
+  assert.equal(
+    (await requested(["openid", "balance:read", "purchase:create"])).includes(
+      "purchase:create",
+    ),
+    true,
+  );
+});
+
+test("the deprecated purchase API still creates, opens and polls a card intent", async () => {
+  const mock = issuer({
+    config: { scopes: [...DEFAULT_SCOPES, "purchase:create"] },
+  });
+  const opened = [];
+  const client = new Client(
+    new FetchTransport({
+      ...mock.config,
+      openExternal: async (url) => {
+        opened.push(url);
+      },
+    }),
+  );
+  await client.signIn();
+  let polls = 0;
+  const intent = (status) => ({
+    id: "intent-1",
+    rail: "card",
+    status,
+    quantity_2z: 500,
+    price: { currency: "USD", amount_minor: 500 },
+    credited_milli_2z: status === "credited" ? 500000 : null,
+    credited_at: status === "credited" ? "2026-10-16T00:00:00Z" : null,
+    created_at: "2026-10-16T00:00:00Z",
+    expires_at: "2026-10-16T00:30:00Z",
+    rail_data: { checkout_url: "https://checkout.example/pay" },
+  });
+  const sent = [];
+  mock.api = (path, init) => {
+    sent.push([init.method ?? "GET", path]);
+    if (init.method === "POST") return mock.json(intent("pending"), 201);
+    return mock.json(intent(polls++ === 0 ? "pending" : "credited"));
+  };
+  const created = await client.createPurchase(
+    { rail: "card", quantity2z: 500n },
+    options,
+  );
+  assert.equal(created.status, "pending");
+  await client.openCheckout(created.id);
+  assert.deepEqual(opened, ["https://checkout.example/pay"]);
+  const done = await client.waitForPurchase(created.id, { timeoutMs: 10_000 });
+  assert.equal(done.status, "credited");
+  assert.deepEqual(sent[0], ["POST", "/api/sdk/v1/purchases"]);
 });

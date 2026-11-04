@@ -1,20 +1,15 @@
 ---
 sidebar_position: 7
-title: Subscriptions and Circles
+title: Boost a page
 ---
 
-Free2Z makes it easy for creators to build up and manage a circle of subscribers. Circles allow creators to reward their most loyal supporters by giving them access to exclusive content such as Free2Z livestreams.
+# Boost a page
 
-## Find Your Subscribers
+Give a published zPage a boost with 2Z credits. You can boost your own work or a page you want others to discover.
 
-- From your Profile page, tap the blue icon below your name with people making a circle.
-- You will see a box titled "Who subscribes to you" that lists every person that has joined your circle, with their name, avatar, and the max amount of 2Zs they are willing to spend on a monthly basis to suscribe to your circle.
-- Tapping the toggle icon will sort by expiration rather than by max-price.
+1. Open the published page.
+2. Open its action controls and choose **Boost**.
+3. Review the displayed credit cost and your available balance.
+4. Confirm once, then check the result before retrying if your connection drops.
 
-![Subscribers](/img/circle.png)
-
-## See Your Subscription
-
-- From the profile page, tap on the purple heart with people icon below your name.
-- This shows a list of all the creators that you have subscribed to.
-  ![Subscribed](/img/subscribed_to.png)
+Boosting is a paid platform action. It does not guarantee views or a particular ranking, and it does not create creator USD earnings.

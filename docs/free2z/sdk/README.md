@@ -39,13 +39,17 @@ Tauri/TypeScript packages and live-platform prerequisites.
    provider's credential. Users may link Google, GitHub, Apple, X, passkeys
    and Zcash to one account, and the app does not need to know which one they
    used. → [`spec/oidc.md`](./spec/oidc.md)
-2. **Show and sell 2Z.** An app can read the user's balance and start a
-   purchase by card or by Zcash. (Apple and Google in-app purchase exist
-   only in Free2Z's own apps in v1.) The purchase is completed and credited
-   by Free2Z; the app only opens the right surface and polls for the
-   result. → [`spec/purchase.md`](./spec/purchase.md). An app distributed
-   through the App Store or Google Play sells nothing and only spends 2Z →
-   [`STORE-COMPLIANCE.md`](./STORE-COMPLIANCE.md)
+2. **Show 2Z, and send users to Free2Z to get more.** An app reads the
+   user's balance. **Apps don't sell 2Z**: a user gets them on their Free2Z
+   billing page, paying with Zcash (preferred, shown first) or by card. A
+   web, direct-download desktop or Apple-US-storefront build may link it
+   with `billingUrl()` / `openBilling()` (SDK 0.4.0) →
+   [the billing URL contract](./INTEGRATION.md#get-2z--the-billing-url-contract).
+   An app distributed through Google Play, or on iOS outside the US
+   storefront, links no payment at all and shows only "Manage Free2Z
+   account" → [`STORE-COMPLIANCE.md`](./STORE-COMPLIANCE.md). The older
+   app-facing purchase API ([`spec/purchase.md`](./spec/purchase.md)) is
+   deprecated for apps.
 3. **Call AI.** A low-latency streaming gateway at `https://ai.free2z.cash`
    exposes one unified chat API over several providers, metered in 2Z with
    cost-plus pricing and rounded **up** to a whole 2Z per call. A registered
@@ -59,9 +63,10 @@ Tauri/TypeScript packages and live-platform prerequisites.
 
 **2Z are platform credits.** They are not money, not a currency and not a
 crypto asset; they are not transferable between users by an app, and they are
-not redeemable. **1 2Z corresponds to $0.01 of usage.** A user buys 2Z with a
-card, an in-app purchase or Zcash, and spends them on AI calls made through
-apps they have authorized. Wherever this documentation says "price" or
+not redeemable. **1 2Z corresponds to $0.01 of usage.** A user buys 2Z from
+2Z Inc on Free2Z — with Zcash or a card on the web, or by in-app purchase in
+Free2Z's own apps — and spends them on AI calls made through apps they have
+authorized. Third-party apps never sell 2Z. Wherever this documentation says "price" or
 "charge" it means a quantity of 2Z; wherever it says "cost" it means what a
 provider bills the platform in USD, which is the input to the price and never
 something a user pays directly.
@@ -107,12 +112,12 @@ binaries are AGPL.
 | `rs/crates/f2z-ai-proto` | `f2z-ai-proto` (crates.io) | Wire types for `/v1/chat`, the SSE event enum, the catalogue schema, error codes and `price_2z()` — the one pricing function, shared by gateway and SDK | MIT |
 | `rs/crates/f2z-ai` | — (unpublished) | The gateway service behind `ai.free2z.cash` | AGPL |
 | `rs/crates/f2z-ai-testkit` | — (unpublished) | Mock providers, a load harness and the ledger-contract fixtures | MIT |
-| `rs/crates/f2z-sdk` | `f2z-sdk` (crates.io) | Rust SDK core: `oauth`, `keychain`, `balance`, `purchase`, `ai`. No Tauri dependency | MIT |
+| `rs/crates/f2z-sdk` | `f2z-sdk` (crates.io) | Rust SDK core: `oauth`, `keychain`, `balance`, the account and billing links, `ai` (and the deprecated `purchase`). No Tauri dependency | MIT |
 | `rs/crates/f2z-zec-scanner` | — (unpublished) | Receive-only (viewing-key) Zcash payment scanner | AGPL |
 | `wallet/plugins/tauri-plugin-f2z` | `tauri-plugin-f2z` (crates.io) + `@free2z/tauri-plugin-f2z-api` (npm) | Tauri 2 plugin (`tauri = "2"`, from 2.5 up; peer `@tauri-apps/api ^2.5`). Tokens stay in Rust; JavaScript never sees them | MIT |
 | `ts/free2z/sdk` | `@free2z/sdk` (npm) | Framework-agnostic TypeScript client. `FetchTransport` for the web, explicit `NativeTransport(nativeBridge)` inside a Tauri webview; same API on both (pre-release source preview) | MIT |
-| `ts/free2z/sdk-ui` | `@free2z/sdk-ui` (npm, later) | Web components `<f2z-sign-in>`, `<f2z-balance>`, `<f2z-buy>` | MIT |
-| `wallet/examples/free2z/hello-ai` | — | The reference Tauri app: sign in, buy 2Z, stream a chat | — |
+| `ts/free2z/sdk-ui` | `@free2z/sdk-ui` (npm, later) | Web components `<f2z-sign-in>`, `<f2z-balance>` and a "get 2Z on Free2Z" link | MIT |
+| `wallet/examples/free2z/hello-ai` | — | The reference Tauri app (planned, not in the tree yet): sign in, show the balance and the Free2Z billing link, stream a chat | — |
 | `docs/free2z/sdk/` | — | This contract (D1), later the guides (D2), reference (D3) and security/operations notes (D4) | — |
 | `docs/free2z/ai-gateway/` | — | The gateway's architecture decision records | — |
 
@@ -176,7 +181,7 @@ Consequences that follow directly:
 | [`spec/chat-api.md`](./spec/chat-api.md) | Anyone calling or implementing the gateway. `POST /v1/chat` and the full SSE grammar with examples |
 | [`spec/metering.md`](./spec/metering.md) | Anyone who needs to explain a charge. Hold → stream → settle, the formula, worked examples, the edge cases |
 | [`spec/grant.md`](./spec/grant.md) | Apps verifying the current original consented limit, period and enforcement status |
-| [`spec/purchase.md`](./spec/purchase.md) | Anyone selling 2Z in a web or desktop app. Card and Zcash; StoreKit 2 and Play Billing in Free2Z's own apps |
+| [`spec/purchase.md`](./spec/purchase.md) | Legacy for apps: apps don't sell 2Z. The purchase-intent contract that Free2Z's own apps and SDK 0.3.0 clients rely on; StoreKit 2 and Play Billing in Free2Z's own apps |
 | [`STORE-COMPLIANCE.md`](./STORE-COMPLIANCE.md) | Anyone shipping to the App Store or Google Play. What a store build may show, age rating, consent, deletion, review notes |
 | [`spec/errors.md`](./spec/errors.md) | Everyone. The error catalogue: every status, code, whether to retry |
 | [`../ai-gateway/`](../ai-gateway/README.md) | Gateway implementers. The ADRs and the operational contract |
@@ -193,8 +198,8 @@ to this table first.
 | Platform margin | 2000 bps (20 %) | [`spec/metering.md`](./spec/metering.md) §2.2 |
 | Developer markup cap | 5000 bps (50 %) | [`spec/oidc.md`](./spec/oidc.md) §2 |
 | Minimum charge per call | 1 2Z (never below) | [`spec/metering.md`](./spec/metering.md) §2.2 |
-| Card purchase | 100–10,000 2Z per intent | [`spec/purchase.md`](./spec/purchase.md) §2 |
-| Zcash purchase | 100–1,000,000 2Z per intent; 30-minute quote; 3 confirmations | [`spec/purchase.md`](./spec/purchase.md) §2, §5 |
+| Card purchase (purchase API, legacy for apps) | 100–10,000 2Z per intent | [`spec/purchase.md`](./spec/purchase.md) §2 |
+| Zcash purchase (platform rail; never through an app) | 100–1,000,000 2Z per intent; 30-minute quote; 3 confirmations | [`spec/purchase.md`](./spec/purchase.md) §2, §5 |
 | Access token | 5 minutes | [`spec/oidc.md`](./spec/oidc.md) §6 |
 | Refresh token | 30 days, rotating; 60 s grace for a lost rotation | [`spec/oidc.md`](./spec/oidc.md) §8 |
 | Authorization code | 60 seconds, single use | [`spec/oidc.md`](./spec/oidc.md) §9.2 |

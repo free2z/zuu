@@ -206,7 +206,7 @@ call id it is about to claim (the previous image wrote `v1:plain:<call>`
 `py/dj/apps/ledger/migrations/_call_recovery.py`) plus a 10-minute margin for
 skew between Postgres's and Redis's clocks. A record must outlive its key row:
 a straddling retry that finds the key row but no record is charged twice and
-counted only as `miss` (tuzi#2670). Outliving it is harmless — a straddling
+counted only as `miss`. Outliving it is harmless — a straddling
 retry in the margin names the recorded call, which the ledger keeps 90 days,
 and is replayed rather than charged. Since a same-form retry also claims the
 recorded id (below), a key reused between 24 h and 24 h 10 m resolves to the
@@ -318,7 +318,7 @@ with this support is the rollback target too.
 
 ## Authentication and limits (`src/auth`)
 
-chat-api.md §2.2 steps 1–2, against the IdP of tuzi #2238
+chat-api.md §2.2 steps 1–2, against the IdP of the platform
 (`dj.apps.oidc`), in this order:
 
 | Check | Refusal |

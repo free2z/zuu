@@ -1,19 +1,11 @@
-# For Anons!
+# Explore without an account
 
-Free2Z is a versatile platform that allows anonymous users to benefit from its features without needing to create an account or provide personal information. As an anonymous user, you have various capabilities and features available to you. Read on to explore what you can do on Free2Z without sacrificing your privacy.
+Browse public profiles, zPages, comments, and public conversations before signing up. Some public live broadcasts also allow watching without an account.
 
-:::note Browsing Content
-As an anonymous user, you have access to all the public content on Free2Z. You can browse through various users' profiles, public zpages, comments, and AI conversations. Discover new and exciting content from creators across different domains. You can even join interactive live broadcasts without logging in!
-:::
+Private content, subscriber-only pages, and paid experiences require the access shown for that feature. Create an account when you want to publish, use credits, or manage memberships.
 
-:::tip Peer-to-Peer Donations
-One significant benefit of using Free2Z as an anonymous user is the ability to make peer-to-peer donations directly. With Free2Z, you [can donate Zcash](/privacy-and-security/zcash), a privacy-focused cryptocurrency, without the need for an account or providing personal information. Your donations can directly support your favorite creators, ensuring that your contribution goes directly to those you wish to support without anyone knowing your identity or taking a cut.
-:::
+## Send direct support
 
-:::info Private Messaging
-Free2Z enables anonymous users to communicate privately with others by leveraging Zcash's encrypted memo feature. You can send messages to specific users without revealing your identity or personal information. Enjoy secure and anonymous conversations with Zcash memos.
-:::
+You can send Zcash from your wallet to a creator's displayed support address without a Free2Z account. Review the recipient, amount, network fee, and wallet privacy settings before sending. [Follow the direct support guide](../for-supporters/donating-with-zcash.md).
 
-To get started as an anonymous user on Free2Z, simply visit the website and start browsing. You don't need to create an account or provide personal information to benefit from the platform's features. Feel free to explore and discover the variety of content available while maintaining your privacy.
-
-Happy browsing and supporting your favorite creators anonymously!
+Browsing without an account does not hide ordinary browser or network metadata. Read the [privacy guide](./index.md) when deciding what information to share.

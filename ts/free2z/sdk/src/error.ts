@@ -111,11 +111,11 @@ export type SdkErrorCode = ServerErrorCode | LocalErrorCode | (string & {});
  */
 const HINTS: { readonly [code: string]: string } = {
   insufficient_balance:
-    "the user's 2Z balance cannot cover this request; offer a purchase (details.required_2z, details.available_milli_2z)",
+    "the user's 2Z balance cannot cover this request (details.required_2z, details.available_milli_2z); send the user to Free2Z billing (openBilling()), or Manage in store builds",
   cap_exceeded:
     "this app's spend budget for the user is used up; link to https://free2z.cash/account/apps or wait for details.resets_at",
   account_in_debt:
-    "a refund or chargeback left a debt; show debt_milli_2z from balance() and the buy surface; do not retry",
+    "a refund or chargeback left a debt; show debt_milli_2z from balance() and send the user to Free2Z billing (openBilling()), or Manage in store builds; do not retry",
   account_frozen: "the account cannot spend; send the user to free2z.cash",
   context_length_exceeded:
     "the input plus max_output_tokens does not fit the model's context window; shorten the input or lower max_output_tokens",

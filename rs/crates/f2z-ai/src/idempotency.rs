@@ -69,7 +69,7 @@ use crate::auth::store::StoreError;
 /// [`RECORD_TTL_MARGIN`], so 24 h 10 m. A record must outlive the key row it
 /// describes: while the key row lives, a straddling retry with no record
 /// claims in its canonical form and is charged a second time, counted only as
-/// a `miss` (tuzi#2670 — the 23 h 50 m this replaced left the window's last
+/// a `miss` (the 23 h 50 m this replaced left the window's last
 /// 10 minutes exposed). Outliving the key row is harmless: the retry names the
 /// recorded call id, and call rows live 90 days, so it replays the call
 /// instead of charging.

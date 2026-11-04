@@ -1,7 +1,8 @@
 # @free2z/sdk
 
-Pre-release TypeScript client for Free2Z sign-in, 2Z balances, purchases, and
-micro-metered AI. This package is **not yet published**. Registry names and
+Pre-release TypeScript client for Free2Z sign-in, 2Z balances, the Free2Z
+account and billing links, and micro-metered AI. Apps don't sell 2Z: since
+0.4.0 the purchase methods are deprecated. This package is **not yet published**. Registry names and
 commands below describe the intended release, not an available installation.
 Production integration also requires a registered public OAuth client, enabled
 service endpoints, and the native plugin for Tauri. See the
@@ -36,7 +37,6 @@ import { Client, FetchTransport } from '@free2z/sdk';
 const client = new Client(new FetchTransport({
   clientId: 'YOUR_REGISTERED_PUBLIC_CLIENT_ID',
   redirectUri: 'https://your-app.example/oauth/callback',
-  purchaseReturnUri: 'https://your-app.example/purchase-return',
   openExternal: async url => { window.location.assign(url); },
 }));
 // Call from a user gesture so the popup can open.
@@ -53,8 +53,9 @@ issuer/audience/signature checks, and a single shared refresh operation.
 Never use FetchTransport inside a privileged Tauri webview: use NativeTransport.
 
 The default scopes are `openid profile offline_access balance:read
-purchase:create ai:invoke`. Inspect `session().grantedScopes`. A web app may
-configure fewer scopes; native scopes belong to its Rust builder.
+ai:invoke`; since 0.4.0 they no longer include `purchase:create`. Inspect
+`session().grantedScopes`. A web app may configure fewer scopes; native scopes
+belong to its Rust builder.
 
 ## Amounts, operations, and receipts
 
@@ -88,7 +89,8 @@ to you: the gateway then refuses (`insufficient_balance`, `cap_exceeded`, …)
 before any hold or charge instead of lowering `max_output_tokens` to what the
 user can afford. Pre-check with `client.preflight(request)` on that same strict
 request: no hold or charge, and it returns the screen to show — `ready`,
-`needs_top_up` (offer a purchase), `needs_budget` (link to
+`needs_top_up` (send the user to Free2Z billing with `openBilling()`, or
+"Manage Free2Z account" in a store build), `needs_budget` (link to
 `https://free2z.cash/account/apps`; buying 2Z does not help) or `too_large`.
 Display amounts with `formatMilli2z(available_milli_2z)` (`"41.500"`). The
 [quickstart](../../../docs/free2z/sdk/QUICKSTART.md) is a complete first app.
@@ -122,16 +124,33 @@ collection/shortfall fields are milli-2Z. `released` means a confirmed zero
 charge. Polling can return pending at its deadline; inspect the returned state.
 Unknown server settlement states remain pending.
 
-For purchases, persist a separate key, call
-`createPurchase({rail: 'card', quantity2z: 100n}, {idempotencyKey})`, then
-`openCheckout(intent.id)` and `waitForPurchase(intent.id)`. Native checkout URLs
-stay native. Zcash intents expose payment instructions in `rail_data`.
-Register the purchase-return URI too; it should restore the persisted intent ID
-and begin polling. If it shares the OAuth callback route, distinguish
-`purchase_id` returns from OAuth code callbacks before calling
-`completeBrowserSignIn`. A browser return is **not** proof of payment. `paid` still needs polling until
-`credited`; refresh the balance after returning to the app. A poll deadline can
-return the last `paid`/`pending` intent. Refund/dispute statuses are preserved.
+## Getting 2Z: the billing link
+
+Apps don't sell 2Z. A user who needs 2Z gets them on their Free2Z billing page,
+paying with Zcash (preferred, shown first) or by card:
+
+```ts
+const STORE_BUILD = false; // true for Google Play, and iOS outside the US storefront
+if (STORE_BUILD) await client.openManageAccount(); // "Manage Free2Z account"
+else await client.openBilling(); // "Get 2Z on Free2Z"
+// Later, when the app returns to the foreground:
+const balance = await client.balance();
+```
+
+`billingUrl()` is `{web origin}/buy-2z?client_id=<percent-encoded id>`.
+`openBilling()` opens it through `FetchConfig.openExternal` on the web, or the
+plugin's `open_billing` command natively (system browser, URL built in Rust).
+It is **opt-in**: web, direct-download desktop and Apple-US-storefront builds
+may show it; a Google Play build, or an iOS build outside the US storefront,
+must not, and must not grant the plugin permission `f2z:allow-open-billing`.
+`openManageAccount()` stays a purchase-free account page. There is no return
+redirect: re-read `balance()` on foreground. See
+[the billing URL contract](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/INTEGRATION.md#get-2z--the-billing-url-contract).
+
+**Deprecated:** `createPurchase`, `purchase`, `waitForPurchase`,
+`openCheckout` and `FetchConfig.purchaseReturnUri`. They keep working for apps
+that list `purchase:create` in their scopes (no longer a default), card only;
+Zcash is paid on Free2Z's billing page, never through them.
 
 ## Cancellation and errors
 
@@ -168,7 +187,7 @@ From `ts/free2z/sdk`: `npm ci`, `npm test`, `npm run test:package`.
 The latter installs the locally built tarball into a temporary isolated consumer
 and checks public imports/types. It is a packaging test, not a supported released
 installation. Tests use a signed mock issuer and fake transports; they do not
-establish production availability or make real purchases.
+establish production availability or make real payments.
 
 Application types are handwritten normalized types (`bigint` and `Charge`),
 not generated Rust wire aliases. Protocol conformance and native guest type

@@ -278,6 +278,7 @@ export class FetchTransport implements Transport {
     }
     return intent;
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   async createPurchase(
     request: PurchaseRequest,
     options: OperationOptions,
@@ -310,6 +311,7 @@ export class FetchTransport implements Transport {
       throw withOperation(error, options.idempotencyKey);
     }
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   async purchase(id: string, signal?: AbortSignal): Promise<Purchase> {
     const generation = this.#auth.generation;
     return this.#remember(
@@ -331,6 +333,12 @@ export class FetchTransport implements Transport {
   async deleteAccountUrl(): Promise<string> {
     return new URL("/account/delete", this.#web).href;
   }
+  /** `{web origin}/buy-2z?client_id=…`: Free2Z billing, never Manage. */
+  async billingUrl(): Promise<string> {
+    const url = new URL("/buy-2z", this.#web);
+    url.searchParams.set("client_id", this.config.clientId);
+    return url.href;
+  }
   /** Through `config.openExternal`, like checkout: a new top-level browsing context, never an iframe. */
   async openManageAccount(): Promise<void> {
     if (!this.config.openExternal) failure("external_opener_required");
@@ -340,6 +348,11 @@ export class FetchTransport implements Transport {
     if (!this.config.openExternal) failure("external_opener_required");
     await this.config.openExternal(await this.deleteAccountUrl());
   }
+  async openBilling(): Promise<void> {
+    if (!this.config.openExternal) failure("external_opener_required");
+    await this.config.openExternal(await this.billingUrl());
+  }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `openBilling`. */
   async openCheckout(id: string): Promise<void> {
     if (!this.config.openExternal) failure("external_opener_required");
     if (!this.#checkouts.has(id)) await this.purchase(id);

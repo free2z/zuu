@@ -22,12 +22,13 @@ test('pull and cancel address only their caller-owned operation', async () => {
   assert.deepEqual(sent.at(-1)[1], { operationId: 'op' });
 });
 test('guest exports no token, raw request or URL callback method', () => {
-  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','call','cancelChat','createPurchase','deleteAccountUrl','estimate','grant','manageAccountUrl','models','nextChat','openCheckout','openDeleteAccount','openManageAccount','purchase','reportCall','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','billingUrl','call','cancelChat','createPurchase','deleteAccountUrl','estimate','grant','manageAccountUrl','models','nextChat','openBilling','openCheckout','openDeleteAccount','openManageAccount','purchase','reportCall','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
 });
 
 test('account exits take no URL from the webview', async () => {
   for (const [method, name] of [['manageAccountUrl', 'manage_account_url'], ['openManageAccount', 'open_manage_account'],
-    ['deleteAccountUrl', 'delete_account_url'], ['openDeleteAccount', 'open_delete_account']]) {
+    ['deleteAccountUrl', 'delete_account_url'], ['openDeleteAccount', 'open_delete_account'],
+    ['billingUrl', 'billing_url'], ['openBilling', 'open_billing']]) {
     await nativeBridge[method]('https://evil.example/');
     assert.deepEqual(sent.pop(), [`plugin:f2z|${name}`, {}, undefined]);
   }

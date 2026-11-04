@@ -10,7 +10,7 @@
 //!
 //! The ledger's key rows and the Redis records expire on one simulated
 //! [`Clock`] the tests advance, so a record's TTL is tested against the key
-//! row it must outlive (tuzi#2670), not just its size.
+//! row it must outlive, not just its size.
 #![allow(
     missing_docs,
     clippy::unwrap_used,
