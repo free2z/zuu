@@ -4,6 +4,22 @@
 **Refs:** [#1047](https://github.com/free2z/zuu/issues/1047),
 [#1048](https://github.com/free2z/zuu/issues/1048)
 
+> **Legacy for apps: apps don't sell 2Z.** Since SDK 0.4.0 an app never
+> creates a purchase. A user who needs 2Z gets them on **their Free2Z
+> billing page**, paying with Zcash (preferred, shown first) or by card; a
+> web, direct-download desktop or Apple-US-storefront build links it with
+> `billingUrl()` / `openBilling()`
+> ([the billing URL contract](../INTEGRATION.md#get-2z--the-billing-url-contract)),
+> and a store build shows only "Manage Free2Z account". The SDK's purchase
+> methods are deprecated and its default scopes no longer request
+> `purchase:create`. This endpoint is **not** removed: it stays for
+> Free2Z's own apps and for SDK 0.3.0 clients, which keep working
+> unchanged. **Zcash is paid on Free2Z's billing page, never through this
+> API by a third-party app:** the platform refuses `rail: zcash` from an app
+> (`400 rail_unavailable`), so §5 describes the platform's own rail, not
+> something an app can open. Read the rest of this page as the contract
+> those existing clients rely on.
+
 An app lets a user buy 2Z without ever handling a payment itself. The app
 creates a **purchase intent** on the account API, opens the surface the
 rail returns (a hosted checkout page, the platform's store sheet, or a
@@ -11,16 +27,18 @@ Zcash payment URI), and polls the intent until it is `credited`. The
 platform does the verifying and the crediting; the app never sees a card
 number, a store account or a Zcash key.
 
-**Third-party apps sell 2Z by card and by Zcash in v1.** The in-app
+**Third-party apps don't sell 2Z** (see the notice above). An SDK 0.3.0
+client may still create a **card** intent; Zcash is paid on Free2Z's
+billing page, not through this API. The in-app
 purchase rails (§4) exist only in Free2Z's own apps: a store pays the
 proceeds of an in-app product to the account that lists the app, so a
 third-party listing would put the payment and the credit in different
-hands, and the platform does not operate that arrangement in v1. A
-third-party app on iOS or Android opens the card or Zcash surface exactly
-as on desktop. **Before any third-party iOS submission, the app-store
-rules on digital goods bought outside in-app purchase must be revisited
-against that app's own category and jurisdiction**; this contract does not
-settle that question.
+hands, and the platform does not operate that arrangement in v1.
+**An app distributed through the App Store or Google Play sells nothing**:
+it does not request `purchase:create`, open a purchase surface or show a
+buy button, except where the
+[store-compliance playbook](../STORE-COMPLIANCE.md#2-the-line) allows a
+US-storefront link in the external browser.
 
 2Z bought this way are platform credits ([README](../README.md)); a
 purchase buys usage, and the amount of 2Z a given price buys depends on
@@ -152,7 +170,7 @@ The `hello-ai` reference app polls; a push channel is not part of v1.
 
 | Field | Rules |
 |---|---|
-| `rail` | `card` or `zcash` for every app; `apple_iap` and `google_iap` only from Free2Z's own apps (§4), otherwise `400 rail_unavailable` |
+| `rail` | `card` for an existing third-party client; `zcash` is refused (`400 rail_unavailable`): a user pays Zcash on Free2Z's billing page. `apple_iap` and `google_iap` only from Free2Z's own apps (§4), otherwise `400 rail_unavailable` |
 | `quantity_2z` | Whole 2Z. **Card:** any amount from **100** ($1.00) to **10,000**. **IAP:** must equal a pack in `GET /purchases/packs` (§4.1). **Zcash:** any amount from **100** to **1,000,000** |
 | `platform` | `desktop`, `ios`, `android`, `web`. Decides which surface the rail returns, and `apple_iap` / `google_iap` are refused off their platform with `400 rail_unavailable` |
 | `return_url` | Card only. Where the hosted checkout sends the browser afterwards. Must be one of the app's registered redirect URIs or a loopback URI; the platform appends `?purchase_id=…&status=…` |
@@ -179,8 +197,9 @@ the app prefers a hosted page:
 ```
 
 The app opens `checkout_url` in the **system browser** (desktop: the default
-browser; iOS/Android: `SFSafariViewController` / Custom Tabs, or the
-system browser). Apple Pay, Google Pay and the processor's one-click wallet
+browser; iOS/Android builds distributed outside the stores: Custom Tabs or
+the system browser). Store builds do not open checkout at all
+([store compliance](../STORE-COMPLIANCE.md#2-the-line)). Apple Pay, Google Pay and the processor's one-click wallet
 are offered on that page where available. When the user finishes, the page
 redirects to `return_url`; the app then polls the intent. **The redirect is
 a convenience, not the signal**: the platform credits from the processor's
@@ -216,31 +235,28 @@ platform wins re-credits. An app sees these as intent states and as
 `403 account_frozen` or `403 account_in_debt` on spending.
 
 **Developer markup is not reversed automatically in v1.** A refund or
-chargeback moves the user's 2Z as above and leaves the developer's
-credit where it is: credits are fungible, and every automatic rule for
+chargeback moves the user's 2Z as above and leaves the developer
+allocations already recorded for past calls where they are: every automatic rule for
 attributing a reversal to past markup that was reviewed for v1 was
 either unsound or exploitable. What v1 does instead:
 
-- **Markup is gated on manual approval of a value.** An app earns at most
+- **Markup is gated on manual approval of a value.** An app's markup is at most
   `approved_markup_bps` ([oidc.md](./oidc.md) §2), whatever `markup_bps`
   it asks for; an unapproved app is priced as if its markup were `0`,
   and the platform can lower or withdraw the approval, which takes effect
   on everyone's next hold ([metering.md](./metering.md) §2.2). The
-  approval is the platform's chance to know who it is crediting, and the
+  approval is the platform's chance to know who it is compensating, and the
   withdrawal is its first response to abuse.
-- **Earnings are recorded per (user, developer)** — how much markup each
-  developer earned from each user, and when — so that an administrative
-  clawback under the developer terms is possible when a pattern of
-  reversals shows abuse. It is a manual decision, not a ledger rule.
-- **Earnings are 2Z credits only** ([metering.md](./metering.md) §2.3),
-  which bounds the exposure: a clawed-back credit was never cash.
-- **An authorized clawback is an ordinary reversal on the developer's
-  account.** It debits what is available; whatever it cannot cover
-  becomes the developer's debt on the same terms as a user's (§1.1,
-  §3.1) — spending is refused with `403 account_in_debt` and the next
-  credits repay it first — and it never touches the developer's open
-  holds, which settle normally. Spending earnings early therefore does
-  not put them beyond reach.
+- **Developer allocations are recorded per (user, developer)**: how much
+  markup each developer was allocated from each user, and when. That record
+  is what makes an adjustment possible when a pattern of reversals shows
+  abuse. It is a manual decision, not a ledger rule.
+- **Compensation and its adjustment are governed by the Free2Z Creator Compensation Agreement (cc-2026-10-v2, schedule `sdk-application-2026-10-v2`)**, not by this
+  contract ([metering.md](./metering.md) §2.3). Under the agreement's §4, an
+  adjustment needs identifiable event evidence and a contractual or legal
+  basis. It may not consume compensation already reserved for a payment. A
+  disputed recovery beyond available compensation must be separately
+  identified, and it is never displayed as negative earnings.
 
 Automatic reversal is a **v2** item. The review of the v1 candidates
 left the design constraints for it: the ratio's numerator and
@@ -254,10 +270,11 @@ is **consumption**, not lifetime purchases, because unspent credits
 inflate purchases and nothing was earned on them; contributions must be
 computed **per reversal event** with a fixed split at that event, never
 re-derived from a running balance; the target must be **clamped to what
-was earned** and can never go negative or over-claw a won dispute; and a
-**developer credit earned from consumption the reversed purchase did
-not fund must not be clawed** — the attribution has to follow the
-credits, not the app.
+was allocated** and can never go negative or over-claw a won dispute; and a
+**developer allocation from consumption the reversed purchase did not
+fund must not be adjusted** — the attribution has to follow the
+credits, not the app. Any such adjustment remains subject to the
+agreement's §4.
 
 ## 4. In-app purchase — StoreKit 2 and Play Billing, as equals
 
@@ -429,6 +446,10 @@ the store already took the payment.
 
 ## 5. Zcash
 
+> **Not an app rail.** Free2Z's billing page is where a user pays with Zcash.
+> A third-party app's `POST /purchases` with `rail: zcash` is refused
+> (`400 rail_unavailable`); this section describes the platform rail only.
+
 A Zcash purchase is a payment to a **per-purchase address**. Every intent
 gets its own unified address, so the platform matches a payment by *where
 it arrived*, not by a memo; the user need not type anything.
@@ -512,5 +533,6 @@ includes a spread; it is quoted, not negotiated, and the intent shows it.
   down.
 - **The app never sets a price** and never holds a payment credential.
 - **iOS and Android are symmetric.** Any behaviour available on one store
-  rail is available on the other; a difference is a defect. For a
-  third-party app that symmetry is card and Zcash on both.
+  rail is available on the other; a difference is a defect. A third-party
+  app sells nothing on either: both link Free2Z billing, or show only
+  "Manage Free2Z account" in a store build.

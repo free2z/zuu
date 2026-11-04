@@ -25,7 +25,7 @@ invention.
 construction and the properties in prose and specified no structure, no
 signature, no cadence and no protocol; §9.3 named the witness role and specified
 no message. [ADR 0013](./decisions/0013-key-transparency-log.md) settled the
-construction — adopt [`akd`](https://github.com/facebook/akd) — and
+construction — adopt [`akd`](https://github.com/meta/akd) — and
 [ADR 0014](./decisions/0014-directory-key-rotation.md) settled what authorizes an
 entry **once a handle already has one** — it distinguishes a same-key update, a
 key change and a lost key, and takes no position on a handle's *first* entry. A
@@ -2618,7 +2618,7 @@ dependency.
 
 Treat the `Database` implementation as security-critical rather than as
 plumbing. NCC Group explicitly deprioritised "storage caching and parallelization
-strategy" in its review, and facebook/akd#495 — the append-only bypass that sets
+strategy" in its review, and meta/akd#495 — the append-only bypass that sets
 our floor — was in exactly that unreviewed region. Our storage layer is in the
 same neighbourhood and has had no review at all.
 
@@ -2806,8 +2806,8 @@ Deliberately, and listed rather than invented.
 [RFC 9381 — ECVRF](https://datatracker.ietf.org/doc/html/rfc9381)
 
 **Implementation**
-[facebook/akd](https://github.com/facebook/akd) ·
-[facebook/akd#495 — auditor append-only bypass](https://github.com/facebook/akd/pull/495) ·
+[meta/akd](https://github.com/meta/akd) ·
+[meta/akd#495 — auditor append-only bypass](https://github.com/meta/akd/pull/495) ·
 [NCC Group public report — WhatsApp Auditable Key Directory implementation review](https://www.nccgroup.com/research-blog/public-report-whatsapp-auditable-key-directory-akd-implementation-review/)
 
 **In this repository**

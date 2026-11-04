@@ -1,6 +1,10 @@
 //! The whole SDK flow — sign in over a loopback redirect, read the balance,
-//! buy 2Z by card, stream a chat, sign out — against local fakes of the
-//! issuer, the account API and the gateway (the same ones the tests use).
+//! show where the user gets 2Z, stream a chat, sign out — against local fakes
+//! of the issuer, the account API and the gateway (the same ones the tests
+//! use).
+//!
+//! The app never sells 2Z: it links the user's Free2Z billing page, or only
+//! "Manage Free2Z account" in a store build (`docs/free2z/sdk/STORE-COMPLIANCE.md`).
 //!
 //! ```text
 //! cargo run -p f2z-sdk --example full_flow
@@ -23,13 +27,15 @@
 mod support;
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use f2z_sdk::ai::Charge;
 use f2z_sdk::oauth::LoopbackSession;
-use f2z_sdk::proto::{Event, Whole2z};
-use f2z_sdk::purchase::{Platform, PollOptions, PurchaseRequest, ReturnListener};
+use f2z_sdk::proto::Event;
 use f2z_sdk::{Client, MemoryStore, SignInOptions};
+
+/// Google Play, or the App Store outside the US storefront: no payment links
+/// in this build. Decide it per build.
+const STORE_BUILD: bool = false;
 
 #[tokio::main]
 async fn main() -> Result<(), f2z_sdk::Error> {
@@ -51,23 +57,16 @@ async fn main() -> Result<(), f2z_sdk::Error> {
     let balance = client.balance().await?;
     println!("balance: {} available", balance.available_milli_2z);
 
-    // 3. Buy 500 2Z by card: create, open the checkout, poll.
-    let ret = ReturnListener::bind("/purchase-done").await?;
-    let intent = client
-        .create_purchase(&PurchaseRequest::card(
-            Whole2z::new(500),
-            Platform::Desktop,
-            ret.return_url(),
-        ))
-        .await?;
-    println!(
-        "open {} in the browser",
-        intent.checkout_url().unwrap_or("(no checkout URL)")
-    );
-    let credited = client
-        .wait_for_purchase(&intent.id, PollOptions::max_wait(Duration::from_secs(30)))
-        .await?;
-    println!("purchase {} is {:?}", credited.id, credited.status);
+    // 3. Where the user gets more 2Z. Apps don't sell 2Z: a web,
+    //    direct-download desktop or US-storefront build links the Free2Z
+    //    billing page (Zcash first, card second) in the system browser; a
+    //    store build shows only "Manage Free2Z account". No return redirect:
+    //    re-read the balance when the app comes back to the foreground.
+    if STORE_BUILD {
+        println!("Manage Free2Z account: {}", client.manage_account_url());
+    } else {
+        println!("Get 2Z on Free2Z: open {}", client.billing_url());
+    }
 
     // 4. Stream a chat, reading the charge with outcome().
     let mut stream = client.ai().chat(support::chat_request("settled")).await?;

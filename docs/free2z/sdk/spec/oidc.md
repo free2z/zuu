@@ -44,16 +44,17 @@ platform's own apps register the same way. Registration fixes:
 | `redirect_uris` | The exact set of allowed redirect URIs (§3). Matching is exact, except the port of a loopback URI |
 | `allowed_scopes` | The subset of §4 the app may request. Requesting a scope outside it fails with `invalid_scope` |
 | `markup_bps` | The developer markup in basis points the developer *asks* for on every AI call made through this app. `0` to the platform cap (v1: **5000**, i.e. 50 %). What is actually applied is the **effective markup** below; changing it re-prompts consent when the effective markup rises (§5) |
-| `approved_markup_bps` | Set by the platform, manually: the largest markup it has approved for this app (`0` until any approval). **Effective markup = `min(markup_bps, approved_markup_bps)`.** Raising `markup_bps` above the approved value changes nothing until re-approval — the excess is `pending` — and the platform can lower or withdraw the approval at any time, which takes effect on the next hold for every user ([metering.md](./metering.md) §2.2). Approval is what makes markup earnings — 2Z credits recorded per (user, developer) — administrable ([purchase.md](./purchase.md) §3.1) |
+| `approved_markup_bps` | Set by the platform, manually: the largest markup it has approved for this app (`0` until any approval). **Effective markup = `min(markup_bps, approved_markup_bps)`.** Raising `markup_bps` above the approved value changes nothing until re-approval — the excess is `pending` — and the platform can lower or withdraw the approval at any time, which takes effect on the next hold for every user ([metering.md](./metering.md) §2.2). Approval is what makes markup allocations — recorded per (user, developer) — administrable ([purchase.md](./purchase.md) §3.1) |
 | `markup_approval` | Derived, for the console and the consent screen: `none` (`markup_bps = 0`), `pending` (`markup_bps > approved_markup_bps`, so some or all of the requested markup is not yet in effect) or `approved` (`markup_bps ≤ approved_markup_bps`). The consent screen shows the *effective* markup, and no line at all when it is `0` |
 | `default_spend_cap_2z`, `default_cap_period` | An optional per-user suggestion for AI consent: a nullable whole number of 2Z and a period (§5). This is not a shared application quota |
 | `allow_zcash_assertion` | Whether the app may use the Zcash sign-in grant (§9.4). Off by default |
-| `rails` | Which purchase rails the app offers: `card` and `zcash`, both on for every app. The in-app-purchase rails exist only in Free2Z's own apps in v1 ([purchase.md](./purchase.md) §4) and are not a registration option |
+| `rails` | Legacy: which purchase rails the purchase API accepts from the app. Apps don't sell 2Z (SDK 0.4.0): a user pays with Zcash or by card on their Free2Z billing page, and the purchase API refuses `zcash` from an app (`rail_unavailable`), so only `card` matters, and only to SDK 0.3.0 clients. The in-app-purchase rails exist only in Free2Z's own apps in v1 ([purchase.md](./purchase.md) §4) and are not a registration option |
 | Name, logo, privacy URL, terms URL | Shown at consent |
 
 A registration has a **developer account** — an ordinary Free2Z account —
-and that account is where markup is credited, as 2Z platform credits
-([metering.md](./metering.md) §2.3).
+and the developer allocation from its markup is recorded against it.
+Compensation for that allocation is governed by the Free2Z Creator
+Compensation Agreement ([metering.md](./metering.md) §2.3).
 
 ## 3. Redirect URIs
 
@@ -109,8 +110,11 @@ does not have. So that a page can complete the flow with `fetch` alone:
 | `email` | `email`, `email_verified` | `f2z-id` |
 | `offline_access` | A refresh token (§8). Without it, the session ends when the access token expires | — |
 | `balance:read` | `GET /api/sdk/v1/balance` | `f2z-api` |
-| `purchase:create` | `POST /api/sdk/v1/purchases`, the receipt endpoint, reading the intents this app created, and the packs list ([purchase.md](./purchase.md)) | `f2z-api` |
+| `purchase:create` | `POST /api/sdk/v1/purchases`, the receipt endpoint, reading the intents this app created, and the packs list ([purchase.md](./purchase.md)). **Legacy for apps:** apps don't sell 2Z, so the SDK's default scopes no longer request it (0.4.0); a user gets 2Z on their Free2Z billing page ([INTEGRATION.md](../INTEGRATION.md#get-2z--the-billing-url-contract)). The IdP keeps issuing it to existing clients that ask | `f2z-api` |
 | `ai:invoke` | Every `ai.free2z.cash/v1/*` endpoint ([chat-api.md](./chat-api.md)). Requesting it makes the spend cap part of consent (§5) | `f2z-ai` |
+
+The SDK's default request (0.4.0) is
+`openid profile offline_access balance:read ai:invoke` — the request in §9.2.
 
 Scopes are space-separated in the `scope` parameter. The IdP returns the
 granted set in the token response's `scope` field; a client MUST read it and
@@ -232,6 +236,44 @@ user re-consents, the existing grant continues on its old terms; nothing
 about a registration
 change invalidates tokens.
 
+### 5.2 Account deletion: `https://free2z.cash/account/delete`
+
+Apple (App Review Guideline 5.1.1(v)) and Google Play require an app in
+which people can create an account to let them delete it. Free2Z sign-in can
+create a Free2Z account inside your app's flow, so **every SDK app that
+offers Free2Z sign-in must offer account deletion**, and Free2Z provides it.
+The contract is one fixed URL:
+
+```text
+https://free2z.cash/account/delete
+```
+
+- **Link it from your app** — a settings or account screen entry such as
+  "Delete Free2Z account" — and open it in the **system browser**, never an
+  embedded web view (§11). Both stores accept a link to a web deletion page
+  as the in-app path. No parameters are needed and none change what happens.
+  The SDK builds and opens it: `deleteAccountUrl()` / `openDeleteAccount()`
+  ([INTEGRATION.md](../INTEGRATION.md#manage-and-delete-the-free2z-account)).
+- **List it in Google Play Console** as the app's account-deletion URL. It
+  works signed out: the page says what deletion does and offers sign-in, so a
+  reviewer without an account can read it.
+- **No email is required.** The holder proves it is them with a fresh sign-in
+  (any method their account uses: password, provider or Zcash wallet) and by
+  typing their username. Burner accounts with no email delete like any other.
+- **What it does to your app:** deletion revokes every grant of the account
+  (`agen` moves, §6.3) and moves the account epoch (`aep`, §6.2). Every
+  access and refresh token your app holds for that user stops working at
+  once; the next call answers `401 token_revoked` or `invalid_grant`.
+  Handle it as any revocation: clear the session and show sign-in. Do not
+  keep the user's `sub` as a live account afterwards; any data you keep for
+  that user is yours to delete under your own privacy policy.
+- **What Free2Z keeps:** payment, 2Z ledger and tax records stay, attached
+  to a pseudonymous account, as law and accounting require. Remaining 2Z
+  credits can no longer be used. The page and
+  [the user guide](https://free2z.cash/docs/privacy-and-security/delete-account)
+  state the details; link either, and do not restate them as your own terms.
+- The URL is stable. `https://free2z.com/account/delete` redirects to it.
+
 ## 6. Access tokens
 
 ### 6.1 Format
@@ -272,6 +314,7 @@ payload: {
 | `aep` | **Account epoch** (§6.2) | Every resource server |
 | `agen` | **Grant generation** (§6.3) | Every resource server |
 | `auth_time`, `acr`, `amr` | When and how the user last authenticated (§10) | Endpoints that require recent or strong authentication |
+| `child_directed` | `true` when the app is registered as child-directed ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)). Present only when `true`; absent means `false`; any non-boolean value is `401 invalid_token` | The AI gateway, which then applies the child-directed rules: OpenAI models only, no `metadata`, keyed fingerprints ([chat-api.md](./chat-api.md) §2.1) |
 
 The gateway requires a canonical lowercase UUID `app_id` in the verified access
 token. It never derives an application UUID from `client_id` or a request header.
@@ -287,7 +330,8 @@ an unknown `kid` (at most once per minute) before refusing the token.
 
 Every account has an integer epoch that starts at `1` and **increments on a
 security event**: password reset or change, email change, disabling MFA,
-removing a passkey, unlinking an identity, merging accounts. It does **not**
+removing a passkey, unlinking an identity, merging accounts, deleting the
+account (§5.2). It does **not**
 change when a method is *added*. Every token carries the epoch at issue time.
 
 A resource server compares the token's `aep` with the account's current
@@ -608,6 +652,8 @@ suite exercises the same list from the other side.
   the user out.
 - Opens the system browser or the platform's authentication session for
   sign-in; never an embedded web view.
+- Links `https://free2z.cash/account/delete` from the app, opened in the
+  system browser (§5.2).
 - Reports why a sign-in ended without a callback — the user cancelled, no
   browser could be shown, or the deadline passed — distinctly from any other
   browser failure ([errors.md](./errors.md) §5.1).

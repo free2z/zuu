@@ -62,8 +62,8 @@ export function assertPatchedMermaid(versionString) {
 
 export function assertPatchedDomPurify(versionString) {
   const version = parseVersion(versionString);
-  if (!atLeast(version, { major: 3, minor: 4, patch: 14 })) {
-    throw new Error(`DOMPurify ${versionString} is vulnerable; require >=3.4.14`);
+  if (!atLeast(version, { major: 3, minor: 4, patch: 17 })) {
+    throw new Error(`DOMPurify ${versionString} is vulnerable; require >=3.4.17`);
   }
 }
 

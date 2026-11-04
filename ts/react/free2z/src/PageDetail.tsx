@@ -1,6 +1,6 @@
 import { Helmet } from "react-helmet-async";
 import { useEffect, useState } from "react"
-import { useParams } from "react-router"
+import { useLocation, useNavigate, useParams } from "react-router"
 
 import axios from "axios"
 import { AlertColor } from "@mui/material"
@@ -9,17 +9,26 @@ import PageRenderer, { PageInterface } from "./components/PageRenderer"
 import { useGlobalState } from "./state/global"
 import { Tag } from "./components/TagFilterMultiSelect"
 import SubscribeToCreator from "./components/SubscribeToCreator"
+import { resolveClassicPageOwner } from "./classicRouteCompatibility"
 
 export interface PageComment {
     created_at: string
     comment: string
 }
 
-export default function PageDetail() {
+export default function PageDetail({
+    identifier,
+    expectedCreator,
+}: {
+    identifier?: string,
+    expectedCreator?: string,
+} = {}) {
     const setSnackbarState = useGlobalState("snackbar")[1]
     const [loading, setLoading] = useGlobalState("loading")
     const [modalOpen, setModalOpen] = useState(false)
     const [authStatus, setAuthStatus] = useGlobalState("authStatus")
+    const navigate = useNavigate()
+    const location = useLocation()
 
     const [page, setPage] = useState({
         title: "",
@@ -42,16 +51,48 @@ export default function PageDetail() {
         updated_at: Date(),
         comments: Array<PageComment>(),
     } as PageInterface)
+    const [loadedPageIdentifier, setLoadedPageIdentifier] = useState<
+        string | undefined
+    >()
 
     const params = useParams()
+    const pageIdentifier = identifier || params.id
+    // React Router decodes route parameters. Encode the value again before
+    // interpolation so `/article/..%2Ftwitter%2Fstart%23` cannot normalize the
+    // credentialed axios request into a different same-origin API endpoint.
+    const encodedPageIdentifier = encodeURIComponent(pageIdentifier || "")
 
     useEffect(() => {
+        // Route transitions reuse this component. Mark the effect inactive in
+        // cleanup so a slower response for the previous identifier cannot
+        // overwrite the current page (including its real-money controls).
+        let active = true
         if (!modalOpen) {
             setLoading(true)
         }
         axios
-            .get(`/api/zpage/${params.id}/`)
+            .get(`/api/zpage/${encodedPageIdentifier}/`)
             .then((res) => {
+                if (!active) return
+                const resolvedPage = res.data.show_modal ? res.data.page : res.data
+                const ownerResolution = resolveClassicPageOwner(
+                    expectedCreator,
+                    resolvedPage,
+                )
+                if (ownerResolution.status === "unverifiable") {
+                    throw new Error("Page response did not identify its canonical owner")
+                }
+                if (ownerResolution.status === "redirect") {
+                    // Do not set page/modal state first: the page renderer carries
+                    // funding controls, so mismatched content must never mount under
+                    // the requested creator's trusted URL.
+                    setLoading(false)
+                    navigate(
+                        `${ownerResolution.path}${location.search}${location.hash}`,
+                        { replace: true },
+                    )
+                    return
+                }
                 if (res.data.show_modal) {
                     const updatedContentPage = {
                         ...res.data.page,
@@ -69,6 +110,7 @@ export default function PageDetail() {
                             return { name: t }
                         })
                     })
+                    setLoadedPageIdentifier(pageIdentifier)
                     // }
                 } else {
                     setPage({
@@ -77,6 +119,7 @@ export default function PageDetail() {
                             return { name: t }
                         })
                     })
+                    setLoadedPageIdentifier(pageIdentifier)
                     // console.log("closing modal from detail")
                     setModalOpen(false)
                 }
@@ -84,6 +127,7 @@ export default function PageDetail() {
                 setLoading(false)
             })
             .catch((res) => {
+                if (!active) return
                 setSnackbarState({
                     open: true,
                     severity: "error" as AlertColor,
@@ -92,7 +136,35 @@ export default function PageDetail() {
                 })
                 setLoading(false)
             })
-    }, [modalOpen, params.id, authStatus])
+
+        return () => {
+            active = false
+        }
+    }, [
+        modalOpen,
+        pageIdentifier,
+        encodedPageIdentifier,
+        authStatus,
+        expectedCreator,
+        location.hash,
+        location.search,
+        navigate,
+        setLoading,
+        setSnackbarState,
+    ])
+
+    // A route transition can reuse this component while its next request is in
+    // flight. Bind rendered state to the exact identifier that produced it so
+    // a failed same-creator transition cannot leave the previous page's money
+    // controls mounted under the new URL.
+    if (loadedPageIdentifier !== pageIdentifier) return null
+
+    // Keep any previously loaded page out of a different creator's namespace
+    // as well as rejecting a mismatched response before setPage().
+    if (
+        expectedCreator &&
+        resolveClassicPageOwner(expectedCreator, page).status !== "verified"
+    ) return null
 
     if (!page.title) return null
 

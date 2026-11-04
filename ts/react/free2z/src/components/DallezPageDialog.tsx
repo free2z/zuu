@@ -95,7 +95,7 @@ export default function DallezPageDialog(props: Props) {
                     variant="outlined"
                     value={prompt}
                     onChange={e => setPrompt(e.target.value)}
-                    helperText={"Generate an AI image with the prompt for 5 2Zs"}
+                    helperText={"Generate an AI image with the prompt for 6 2Zs"}
                     InputProps={{
                         endAdornment: (prompt && (
                             <InputAdornment position="start">

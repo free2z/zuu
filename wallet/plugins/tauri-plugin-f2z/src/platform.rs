@@ -56,7 +56,14 @@ impl f2z_sdk::oauth::AuthSession for DesktopSession {
 }
 #[cfg(not(mobile))]
 impl Platform {
-    pub async fn sign_in(&self, client: &Client, options: SignInOptions) -> Result<()> {
+    /// `_ephemeral`: the desktop system browser keeps its own cookies; use
+    /// `prompt: "login"` to switch accounts there.
+    pub async fn sign_in(
+        &self,
+        client: &Client,
+        options: SignInOptions,
+        _ephemeral: bool,
+    ) -> Result<()> {
         let noop: fn(&str) -> std::result::Result<(), String> = |_| Ok(());
         let session = DesktopSession(
             f2z_sdk::oauth::LoopbackSession::bind(noop)
@@ -74,6 +81,10 @@ impl Platform {
             .await
             .map_err(|_| NativeError::new("browser_error"))?
             .map_err(|_| NativeError::new("browser_error"))
+    }
+    /// The user's default browser: on desktop, the same as [`Self::open`].
+    pub async fn open_external(&self, url: String) -> Result<()> {
+        self.open(url).await
     }
 }
 
@@ -106,10 +117,13 @@ mod mobile {
         url: String,
         redirect_uri: String,
         timeout_ms: u64,
+        /// Ignored by a native layer older than it (both decode leniently).
+        ephemeral: bool,
     }
     struct Session<R: Runtime> {
         handle: PluginHandle<R>,
         uri: String,
+        ephemeral: bool,
     }
     struct Cancel<R: Runtime>(PluginHandle<R>, String);
     impl<R: Runtime> Drop for Cancel<R> {
@@ -144,6 +158,7 @@ mod mobile {
                     url: request.url.clone(),
                     redirect_uri: self.uri.clone(),
                     timeout_ms: 300_000,
+                    ephemeral: self.ephemeral,
                 };
                 let callback = tauri::async_runtime::spawn_blocking(move || {
                     handle.run_mobile_plugin::<Callback>("authorize", args)
@@ -161,7 +176,12 @@ mod mobile {
         }
     }
     impl<R: Runtime> MobilePlatform<R> {
-        pub async fn sign_in(&self, client: &Client, options: SignInOptions) -> Result<()> {
+        pub async fn sign_in(
+            &self,
+            client: &Client,
+            options: SignInOptions,
+            ephemeral: bool,
+        ) -> Result<()> {
             let handle = self.handle.clone();
             let redirects = self.redirects.clone();
             let redirect = tauri::async_runtime::spawn_blocking(move || {
@@ -173,6 +193,7 @@ mod mobile {
             let session = Session {
                 handle: self.handle.clone(),
                 uri: redirect.uri,
+                ephemeral,
             };
             client
                 .sign_in(&session, options)
@@ -181,11 +202,19 @@ mod mobile {
             Ok(())
         }
         pub async fn open(&self, url: String) -> Result<()> {
+            self.open_browser(url, false).await
+        }
+        /// The user's default browser app, not an in-app tab: Safari on iOS,
+        /// an `ACTION_VIEW` intent on Android.
+        pub async fn open_external(&self, url: String) -> Result<()> {
+            self.open_browser(url, true).await
+        }
+        async fn open_browser(&self, url: String, external: bool) -> Result<()> {
             let handle = self.handle.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 handle.run_mobile_plugin::<serde_json::Value>(
                     "openBrowser",
-                    serde_json::json!({"url":url}),
+                    serde_json::json!({"url":url,"external":external}),
                 )
             })
             .await
