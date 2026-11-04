@@ -140,6 +140,7 @@
     />
     <EditorAITextCompletion
       draft={content}
+      {isAbandoned}
       onInsert={(text) => {
         content = `${content}${content ? "\n\n" : ""}${text}`;
         onContentChange?.();

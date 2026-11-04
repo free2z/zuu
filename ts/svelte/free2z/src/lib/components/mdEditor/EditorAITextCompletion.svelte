@@ -1,12 +1,21 @@
 <script lang="ts">
   import { apiFetch } from "$lib/api/config";
   import { currentUser } from "$lib/stores/auth";
+  import { authStore } from "$lib/stores/auth";
   import { tStore as t } from "$lib/i18n";
+  import type {
+    CreatorAIOptionsResponse,
+    CreatorPromptQuote,
+    CreatorPromptQuoteResponse,
+    MeteredPromptRequest,
+    MeteredPromptResponse,
+  } from "$lib/api/f2z.schemas";
   interface Props {
     draft: string;
     onInsert: (text: string) => void;
+    isAbandoned?: () => boolean;
   }
-  let { draft, onInsert }: Props = $props();
+  let { draft, onInsert, isAbandoned }: Props = $props();
 
   type Choice = {
     id: string;
@@ -20,48 +29,121 @@
   let choices = $state<Choice[]>([]);
   let model = $state("");
   let prompt = $state("");
-  let quote = $state<any>(null);
-  let preview = $state<any>(null);
+  let quote = $state<CreatorPromptQuoteResponse | null>(null);
+  let preview = $state<MeteredPromptResponse | null>(null);
   let busy = $state(false);
   let error = $state("");
   let generation = 0;
   let actor = $derived(String($currentUser?.id ?? ""));
+  let quoteSequence = 0;
+  let loading = $state(true);
+  let pending = $state<{
+    actor: string;
+    key: string;
+    body: MeteredPromptRequest;
+  } | null>(null);
+  let ownership = authStore.captureRequestOwnership();
+  let editorIdentity = crypto.randomUUID();
+  const pendingKey = (id: string) =>
+    `f2z:editor-ai-text-intent:v1:${encodeURIComponent(id)}`;
 
   async function load() {
+    const loadActor = actor,
+      seq = ++quoteSequence;
+    loading = true;
     try {
       const response = await apiFetch("/api/ai/creator-options/");
       if (!response.ok) throw new Error("load");
-      choices = (await response.json()).completion ?? [];
+      const data = (await response.json()) as CreatorAIOptionsResponse;
+      if (seq !== quoteSequence || actor !== loadActor) return;
+      choices = data.completion ?? [];
       if (!choices.some((choice) => choice.id === model))
         model = choices[0]?.id ?? "";
     } catch {
-      error = $t(
-        "editor.aiTextLoadError",
-        "AI text models are unavailable. Try again later.",
-      );
+      if (seq === quoteSequence && actor === loadActor)
+        error = $t(
+          "editor.aiTextLoadError",
+          "AI text models are unavailable. Try again later.",
+        );
+    } finally {
+      if (seq === quoteSequence && actor === loadActor) loading = false;
     }
   }
   async function getQuote() {
+    const seq = ++quoteSequence,
+      capturedActor = actor,
+      capturedPrompt = prompt,
+      capturedModel = model,
+      capturedDraft = draft,
+      own = authStore.captureRequestOwnership();
     quote = null;
     preview = null;
     error = "";
     if (!model || !prompt.trim()) return;
-    const response = await apiFetch("/api/ai/creator-options/", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, prompt, max_output_tokens: 256 }),
-    });
-    if (!response.ok) throw new Error("quote");
-    quote = await response.json();
+    try {
+      const body: CreatorPromptQuote = {
+        model: capturedModel,
+        prompt: capturedPrompt,
+        max_output_tokens: 256,
+      };
+      const response = await apiFetch("/api/ai/creator-options/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) throw new Error("quote");
+      const result = (await response.json()) as CreatorPromptQuoteResponse;
+      if (
+        seq === quoteSequence &&
+        actor === capturedActor &&
+        prompt === capturedPrompt &&
+        model === capturedModel &&
+        draft === capturedDraft &&
+        own()
+      )
+        quote = result;
+    } catch {
+      if (seq === quoteSequence && actor === capturedActor)
+        error = $t(
+          "editor.aiTextQuoteError",
+          "Could not price this prompt. Check the prompt and try again.",
+        );
+    }
   }
   async function submit() {
-    if (!quote || busy) return;
+    if ((!quote && !pending) || busy) return;
     const requestGeneration = ++generation;
     const submittedActor = actor,
-      submittedPrompt = prompt,
-      submittedModel = model,
+      submittedPrompt = pending?.body.prompt ?? prompt,
+      submittedModel = pending?.body.model ?? model,
       submittedQuote = quote,
-      submittedDraft = draft;
+      submittedDraft = draft,
+      own = ownership;
+    const body: MeteredPromptRequest = pending?.body ?? {
+      model: submittedModel,
+      prompt: submittedPrompt,
+      max_output_tokens: submittedQuote!.requested_output_tokens,
+      quote_token: submittedQuote!.quote_token,
+    };
+    let intent = pending;
+    if (
+      intent &&
+      (intent.actor !== submittedActor ||
+        JSON.stringify(intent.body) !== JSON.stringify(body))
+    )
+      return;
+    if (!intent) {
+      intent = { actor: submittedActor, key: crypto.randomUUID(), body };
+      pending = intent;
+      try {
+        localStorage.setItem(
+          pendingKey(submittedActor),
+          JSON.stringify(intent),
+        );
+      } catch {
+        /* in-memory replay remains available */
+      }
+    }
     busy = true;
     preview = null;
     error = "";
@@ -70,38 +152,45 @@
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Idempotency-Key": crypto.randomUUID(),
+          "Idempotency-Key": intent.key,
           "X-Expected-Actor": submittedActor,
         },
-        body: JSON.stringify({
-          model: submittedModel,
-          prompt: submittedPrompt,
-          max_output_tokens: submittedQuote.max_output_tokens,
-          quote_token: submittedQuote.quote_token,
-        }),
+        body: JSON.stringify(intent.body),
       });
-      if (!response.ok) throw new Error("generation");
-      const result = await response.json();
+      if (!response.ok) {
+        if (response.status < 500 && response.status !== 408) {
+          pending = null;
+          localStorage.removeItem(pendingKey(submittedActor));
+        }
+        throw new Error("generation");
+      }
+      const result = (await response.json()) as MeteredPromptResponse;
       if (
         requestGeneration === generation &&
         actor === submittedActor &&
         model === submittedModel &&
         prompt === submittedPrompt &&
-        draft === submittedDraft
+        draft === submittedDraft &&
+        own() &&
+        !isAbandoned?.() &&
+        editorIdentity
       )
         preview = result;
+      pending = null;
+      localStorage.removeItem(pendingKey(submittedActor));
     } catch {
-      if (requestGeneration === generation)
+      if (requestGeneration === generation) {
         error = $t(
-          "editor.aiTextGenerateError",
-          "Text generation failed. Review your choice and try again.",
+          "editor.aiTextRetryError",
+          "The result is uncertain. Retry this exact request to safely recover it, or keep it pending before changing provider.",
         );
+      }
     } finally {
       if (requestGeneration === generation) busy = false;
     }
   }
   function accept() {
-    if (!preview) return;
+    if (!preview || isAbandoned?.()) return;
     onInsert(preview.response);
     preview = null;
   }
@@ -114,10 +203,20 @@
   });
   $effect(() => {
     actor;
+    ownership = authStore.captureRequestOwnership();
     generation++;
     preview = null;
+    quote = null;
+    busy = false;
   });
-  $effect(() => {
+  import { onMount } from "svelte";
+  onMount(() => {
+    try {
+      const saved = localStorage.getItem(pendingKey(actor));
+      if (saved) pending = JSON.parse(saved);
+    } catch {
+      /* ignore corrupt recovery */
+    }
     void load();
   });
 </script>
@@ -132,6 +231,7 @@
       <textarea
         class="min-h-24 rounded-md border border-input bg-background p-2"
         bind:value={prompt}
+        disabled={Boolean(pending)}
         placeholder={$t(
           "editor.aiTextPromptPlaceholder",
           "Describe the text you want. Draft content is never sent automatically.",
@@ -142,7 +242,7 @@
       <select
         class="rounded-md border border-input bg-background p-2"
         bind:value={model}
-        onchange={() => void getQuote()}
+        disabled={Boolean(pending)}
       >
         {#each choices as choice}<option value={choice.id}
             >{choice.display_name} · {choice.provider}</option
@@ -155,7 +255,21 @@
       onclick={() => void getQuote()}
       >{$t("editor.aiTextQuote", "Show price and destination")}</button
     >
-    {#if quote}
+    {#if pending}
+      <p role="status">
+        {$t(
+          "editor.aiTextPending",
+          "A prior request may have completed. Retry the exact same request to recover its result; its provider and price are locked.",
+        )}
+      </p>
+      <button
+        class="w-fit rounded-md border px-3 py-2 disabled:opacity-50"
+        disabled={busy}
+        onclick={() => void submit()}
+        >{$t("editor.aiTextRetry", "Retry exact request")}</button
+      >
+    {/if}
+    {#if quote && !pending}
       <section aria-live="polite" class="grid gap-1 text-sm">
         <p>
           {quote.choice.display_name} · {quote.choice.provider}; prompt goes to {quote
