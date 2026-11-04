@@ -27,7 +27,7 @@ use secrecy::SecretString;
 use super::openai_chat::UsageConvention;
 use super::resilience::{BreakerPolicy, CircuitBreaker, RetryBudget, RetryPolicy};
 use super::upstream::{Prepared, ProviderUpstream};
-use super::{client, for_style, output_cap};
+use super::{client, for_style, output_cap, strict_model_ceiling};
 use crate::admission::CallHandle;
 use crate::call::Upstream;
 use crate::catalog::VerifiedCatalog;
@@ -213,7 +213,9 @@ impl ProviderBackend {
             .detail("model", request.model.as_str())
         };
         let handle = self.providers.get(&model.provider).ok_or_else(disabled)?;
-        let adapter = for_style(model.api_style, handle.chat_usage).ok_or_else(disabled)?;
+        let mut adapter = for_style(model.api_style, handle.chat_usage).ok_or_else(disabled)?;
+        adapter.bind(request);
+        strict_model_ceiling(request, model)?;
         let body = adapter.body(request, model, output_cap(request, model))?;
         let body = serde_json::to_vec(&body).map_err(|_| {
             ApiFailure::new(
@@ -246,6 +248,7 @@ impl ProviderBackend {
                 .flat_map(|m| &m.content)
                 .filter(|p| matches!(p, f2z_ai_proto::chat::ContentPart::Image { .. }))
                 .fold(0u64, |n, _| n.saturating_add(1)),
+            tool_deltas: request.stream,
         }))
     }
 }

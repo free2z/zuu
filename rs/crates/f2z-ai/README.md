@@ -26,6 +26,46 @@ Function tools and tool-result history require `capabilities.tools` in the
 signed model catalogue. Missing capability metadata conservatively disables
 tools; model names never imply support. The gateway relays calls but never runs
 a client tool. Tool definitions, arguments and results enter the input hold.
+`tool_choice` and `parallel_tool_calls` are passed through by the Chat
+Completions adapter (OpenAI, xAI) and refused elsewhere; a tool's `strict: true`
+needs `capabilities.strict_tools` (absent: provider `openai` only — xAI does
+not document it). Streamed Chat Completions calls relay each argument fragment
+as a `tool_call_delta` before the complete `tool_call`. Refusals carry
+`reason: "tools_unsupported"` and happen before any hold
+([docs/free2z/sdk/TOOLS.md](../../../docs/free2z/sdk/TOOLS.md)).
+
+Structured output (`response_format`: `json_schema` or `json_object`) is passed
+through by the Chat Completions adapter, to a model whose signed
+`capabilities.structured_output` is `true` — or, while the catalogue does not
+carry that member, whose provider is `openai`. The Anthropic Messages adapter
+translates it into a forced single tool whose `input_schema` is the schema and
+unwraps the tool's input back into the reply's text (`finish_reason: stop`),
+for a model whose catalogue entry declares `structured_output: true`; it
+refuses a `response_format` beside `tools`. Any Anthropic request that sends
+tools also reserves `TOOL_USE_OVERHEAD_TOKENS` of input for Anthropic's
+tool-use system prompt, which the request bytes do not show (hold only). Everything else is refused with
+`400 invalid_request` (`reason: "response_format_unsupported"`) before any hold
+or provider I/O; the gateway never drops the constraint. The schema enters the
+input hold like a tool definition; the pricing formula is unchanged.
+
+Reasoning effort (`reasoning_effort`: `minimal`/`low`/`medium`/`high`) is sent
+by the Chat Completions adapter as `reasoning_effort` (OpenAI and xAI) and by
+the Responses adapter as `reasoning.effort`, only to a model whose signed
+`capabilities.reasoning_effort` is `true` and, where the catalogue lists
+`controls.effort_levels`, only at a listed level. Anthropic Messages refuses
+it (its `thinking` takes a budget, not an effort). Everything else is refused
+with `400 invalid_request` (`reason: "reasoning_effort_unsupported"`) before
+any hold or provider I/O. The hold is unchanged: reasoning is output, and the
+hold reserves the whole output cap — which on OpenAI bounds reasoning and on
+xAI does not (`max_completion_tokens` there counts visible tokens only).
+
+OpenAI-shaped tool controls (`tool_choice`, `parallel_tool_calls`) are
+translated by the Anthropic Messages adapter (`required` → `any`, a named
+function → `tool`, `none` → `none`, `parallel_tool_calls: false` →
+`disable_parallel_tool_use`) and refused up front by the others
+(`reason: "tools_unsupported"`, `field` naming the control) until their
+translation lands. Recorded Anthropic payloads and their expected results are
+in `tests/fixtures/anthropic/` (`tests/anthropic_conformance.rs`).
 
 Nonstreaming delivery aggregates the same event pipeline. Before provider I/O it
 reserves 64 times its event-byte limit from the shared upload memory pool; the
@@ -35,16 +75,20 @@ Exhaustion before starting is `503`; overflow or interrupted delivery is `502`
 with a pending charge and a call ID for receipt reconciliation. Provider reading
 and settlement continue after delivery ends.
 
-Limitations: model fallback and images are unsupported. Input reservation uses
-a conservative UTF-8 byte-token bound including serialized message and
-tool-definition framing; it can reserve more than a tokenizer. Final charges
-use provider-reported usage and signed prices. **Missing provider usage has no
-tokenizer-backed billing fallback in this release**: produced text is preserved,
-followed by an explicit error and confirmed released/no-charge receipt (or pending
-until release is confirmed). The platform absorbs that unknown cost; missing
-usage is never fabricated as zero or charged as bytes. Full contract work remains
-in #1078. These local tests do not establish production deployment, authenticated
-paid-call, load, or drain acceptance.
+Limitations: model fallback and images are unsupported. Input reservation runs
+the provider's own tokenizer (`o200k_base` / `cl100k_base`, vendored by
+`tiktoken-rs`) over messages, tool definitions and the `response_format` schema
+with measured framing for OpenAI models (`src/estimate.rs`; the recorded corpus
+in `tests/estimate.rs` holds it never below, and within 15 % of, what the provider
+billed), and a conservative UTF-8 byte bound for every other provider. Final
+charges use provider-reported usage and signed prices. **Missing provider usage
+on an accepted request settles on the metering.md §5.4 estimate** — the hold's
+input estimate plus the produced output tokenized (× 1.1), never above the hold,
+recorded as `usage_source: "estimated"`; a request the provider refused releases
+the hold. Reasoning tokens a lost usage frame would have carried are not
+estimated and are the platform's loss. Full contract work remains in #1078. These
+local tests do not establish production deployment, authenticated paid-call,
+load, or drain acceptance.
 
 ## Backend configuration
 
@@ -53,8 +97,22 @@ catalog_url = "https://free2z.cash/api/ai/catalog/v1"
 catalog_keys_file = "/run/config/catalog-trusted-keys.json"
 ledger_url_file = "/run/secrets/gateway-ledger-url"
 ledger_max_connections = 4
+# ledger_features_meta = false   # see "Request features" below
 # Configure authentication and at least one provider as described below.
 ```
+
+**Request features.** Every `POST /v1/chat` and `/v1/chat/estimate` `response`
+log line carries a content-free description of what the request asked for:
+`response_format` (`json_schema`/`json_object`, absent when none),
+`response_format_strict`, `response_format_schema_bytes`, `tools` and
+`fallback` (counts), `max_output_tokens_strict`, `stream`, and `call_id` once
+one is known. Never a schema body, a prompt, a tool definition — nor the
+schema's client-chosen *name*, which like `metadata` never reaches a log line
+(`src/features.rs`). With `ledger_features_meta = true`
+(`F2Z_AI_LEDGER_FEATURES_META=true`) the same object, name included, is stored
+on the ledger call claim as `features` and returned on `GET /v1/calls/{id}`. It is **off by default**: a ledger without tuzi migration
+`ledger.0006_call_features` refuses the unknown key and would fail every paid
+call, so the flag is flipped only after that migration is live.
 
 The trust file is a JSON object mapping key IDs to 64-character lower-case
 Ed25519 public-key hex strings. Trust never comes from the catalogue endpoint.
@@ -89,9 +147,98 @@ Without backend configuration the diagnostic skeleton remains closed and unready
 Setting any backend key requires complete configuration and a configured provider.
 `Deps::skeleton` and trait injection remain test seams, not billable service modes.
 
+## Child-directed calls
+
+A token with `"child_directed": true` (`docs/free2z/sdk/CHILD-DIRECTED.md`)
+may name only catalogue models whose provider is in
+`chat::CHILD_DIRECTED_PROVIDERS` (OpenAI: the providers sent `store: false`),
+may not send `metadata`, and its claim carries no schema name. Its request
+fingerprint and `Idempotency-Key` reach the ledger only as HMAC-SHA256 under a
+server secret (`meter::ChildDirectedKey`, 64 hex characters — the shapes
+`ledger.call_claim` checks), so neither a short, guessable prompt nor the
+caller's key text can be confirmed from the record.
+
+```toml
+child_directed_key_file = "/run/secrets/child-directed-key"   # or F2Z_AI_CHILD_DIRECTED_KEY
+# child_directed_key_previous_file = "/run/secrets/child-directed-key-previous"
+#   # or F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS; only during a rotation
+```
+
+At least 32 bytes, never inline. Without it, child-directed calls are refused
+with `503` (`reason: "child_directed_unconfigured"`) and nothing is claimed;
+other calls are unaffected. Other apps keep the unkeyed SHA-256 fingerprint and
+the key as sent, byte for byte, so no stored row changes format.
+
+**Retries across a flip or a rotation (`src/idempotency.rs`).**
+Which form a call was claimed in depends on the token's `child_directed` claim
+and on the key, so a same-key retry that straddles a flag flip or a rotation
+derives the other form. After every keyed claim that inserts a call, the
+gateway writes a form record to the shared Redis:
+`<ns>:ai:idem:<sub>:<app>:<hmac>` → `v1:plain:<call>` or
+`v1:keyed:<key id>:<call>`, for 24 h 10 m (`idempotency::RECORD_TTL`): the
+ledger key's 24 h (`ledger::IDEMPOTENCY_KEY_LIFETIME`, which restates
+`ledger.call_claim`'s `now() + interval '24 hours'` in tuzi
+`py/dj/apps/ledger/migrations/_call_recovery.py`) plus a 10-minute margin for
+skew between Postgres's and Redis's clocks. A record must outlive its key row:
+a straddling retry that finds the key row but no record is charged twice and
+counted only as `miss`. Outliving it is harmless — a straddling
+retry in the margin names the recorded call, which the ledger keeps 90 days,
+and is replayed rather than charged; a same-form retry after 24 h is a new call
+as the contract says.
+The `<hmac>` is an HMAC of the `Idempotency-Key` under the current key, for
+every app, so the key text reaches neither Redis nor, for a child-directed
+app, the ledger. A keyed request reads the record (under the current key, then
+the previous one). If it names a form this request does not derive, the claim
+names the **recorded call id** with the fingerprint in that call's form, and
+`ledger.call_claim` resolves the existing call by id — replayed, pending, or a
+conflict — inserting nothing. The key the claim carries is always this
+request's canonical form. The key id is 16 hex characters of an HMAC of a
+fixed label under the key (`ChildDirectedKey::id`).
+
+Records need the key configured: without it (before the key is deployed)
+every claim takes its canonical form, as before, uncounted (the gateway logs
+that once at startup). So a call claimed before the key is live has no record:
+**flag an app child-directed only once the key has been live for 24 hours**,
+or a plain-form call retried after the flip is charged twice, silently. A
+plain-form call that carried `metadata` cannot be replayed by a child-directed
+retry, which may not send `metadata`: the ledger answers `409
+idempotency_conflict` (no charge). Anything that loses a record
+falls back to the canonical form, so a straddling retry can again be charged
+twice. Counted in `f2z_ai_idempotency_forms_total{outcome}` — alert on any
+increase of these four: Redis unavailable (`unavailable`), a record write that
+failed (`write_failed`), a record naming a key no longer configured
+(`unknown_record`), a ledger that no longer holds the recorded call
+(`orphaned`). Not distinguishable from a first request (`miss`), so accepted
+as residual risk: a record evicted or lost to a Redis restart or flush, and a
+crash between the claim and the record write.
+
+The records carry a TTL, so a `volatile-*` eviction policy would drop them
+first and an `allkeys-*` one could; the shared Redis must run with no
+`maxmemory` limit or `noeviction`. Without a limit Redis grows until its
+container's memory limit OOM-kills it, which loses every record at once (with
+the limits' state), so size that limit for this keyspace. A record measured
+313 bytes on the platform's Redis 8.10.1 image (`INFO memory`, 100 000
+records with TTLs), so the bound is keyed calls per 24 h 10 m × 313 B:
+1 M keyed calls a day leaves ≈ 1.007 M records live, ≈ 315 MB (301 MiB), 29 %
+of the redis container's 1 GiB limit (`k8s/free2z/redis.yaml` in tuzi).
+Records alone would fill that 1 GiB at ≈ 3.43 M live records, ≈ 3.4 M keyed
+calls a day (≈ 39 a second, sustained) — less in practice, since the limits'
+and revocation keys and Redis's own baseline share it. Raise the limit before
+keyed traffic approaches that.
+
+**Rotation.** Two deploys, so no pod in a rolling update lacks the other
+pod's key: first add the new key B as `child_directed_key_previous` (current
+A, previous B), then swap (current B, previous A) and keep that for at least
+24 hours, then drop the previous key. While both are set, a keyed retry of a call claimed under the old key
+replays it. A retry after the previous key is dropped is a new call. The
+previous key must differ from the current one and needs it.
+`F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS` is a new `F2Z_AI_*` variable, and an
+image older than this one refuses to start on it: set it only once an image
+with this support is the rollback target too.
+
 ## Authentication and limits (`src/auth`)
 
-chat-api.md §2.2 steps 1–2, against the IdP of tuzi #2238
+chat-api.md §2.2 steps 1–2, against the IdP of the platform
 (`dj.apps.oidc`), in this order:
 
 | Check | Refusal |
@@ -212,6 +359,7 @@ variable is a startup error.
 | `catalog_version_regression_bound_secs` | `420` | A lower catalogue version installs if its `issued_at` is within this of the newest installed (tuzi's `VERSION_REGRESSION_BOUND_SECONDS`); beyond it, a replay, counted by `f2z_ai_catalog_replays_total` (zuu#1067) |
 | `delivery_buffer_bytes` | `262144` | Undelivered event bytes per stream before `delivery_aborted` |
 | `delivery_stall_secs` | `30` | Frames waiting and none delivered for this long → `delivery_aborted` |
+| `stream_keepalive_secs` | `15` | Upstream silence after which a streamed call sends a `: ping` comment (chat-api.md §3), from the headers to the terminal event; 1..=30, because the TypeScript SDK drops a stream after 45 s without a byte (the Rust SDK after 90 s; zuu#1163) |
 | `log_level` | `info` | This crate only; dependencies are capped at `warn` |
 | `otlp_endpoint` | *(unset: off)* | `http://collector:4318`; spans go to `/v1/traces`. `https://` is refused: no TLS in this exporter build |
 | `otlp_authorization_file` | *(unset)* | Or `F2Z_AI_OTLP_AUTHORIZATION`. Never inline in the file |
@@ -264,7 +412,11 @@ and counts against the concurrency limit until that settle has returned
 ends; an aborted response is the last on its connection (it closes once
 the abort frame is flushed, so it is never reused), and one stall period
 after an abort the connection is dropped outright, so a client that never
-reads cannot hold a socket or a buffer past its slot. Request bodies are read
+reads cannot hold a socket or a buffer past its slot. While the upstream is
+silent the task queues a `: ping` comment every `stream_keepalive_secs` — but
+only into an empty buffer, so a ping is never behind undelivered data and
+cannot keep a client that is not reading data alive; non-streamed calls get
+none. Request bodies are read
 into one contiguous buffer, so a body sent in one-byte chunks costs its
 payload and not a descriptor per chunk, and a body's share of the upload
 budget is held until the backend's `start` has consumed the request — or,

@@ -16,7 +16,8 @@ use std::time::Instant;
 
 use common::adapter_usage;
 use f2z_ai_testkit::mock::{
-    ChatFlavor, Fault, MockProvider, ProviderStyle, RenderContext, SCENARIO_HEADER, Scenario, plan,
+    ChatFlavor, Fault, MockProvider, Plan, ProviderStyle, RenderContext, SCENARIO_HEADER, Scenario,
+    plan,
 };
 use serde_json::{Value, json};
 
@@ -351,5 +352,74 @@ async fn a_request_body_above_axums_default_limit_is_served() {
     let resp = post(&mock, ProviderStyle::OpenAiResponses, &body).await;
     assert_eq!(resp.status(), 200);
     read_all(resp).await.unwrap();
+    mock.shutdown().await;
+}
+
+/// `Scenario::with_replay`: the conformance corpus's provider streams are
+/// served byte for byte, one frame per write, still recorded and still
+/// subject to the scenario's fault.
+#[tokio::test]
+async fn a_replay_is_served_byte_for_byte_one_frame_per_step() {
+    let body = "event: a\r\ndata: {\"x\": 1}\r\n\r\ndata: {\"y\":2}\n\ndata: [DONE]\n\ntrailing";
+    let ctx = RenderContext {
+        model: "m".into(),
+        include_usage: true,
+        request_seq: 0,
+    };
+    for style in ProviderStyle::ALL {
+        let scenario = Scenario::default().with_replay(body);
+        let Plan::Stream(stream) = plan(style, &scenario, &ctx) else {
+            panic!("a replay is a stream");
+        };
+        let (steps, aborted) = stream.collect_steps();
+        assert!(!aborted);
+        let frames: Vec<String> = steps
+            .iter()
+            .map(|s| String::from_utf8(s.bytes.clone()).unwrap())
+            .collect();
+        assert_eq!(
+            frames,
+            [
+                "event: a\r\ndata: {\"x\": 1}\r\n\r\n",
+                "data: {\"y\":2}\n\n",
+                "data: [DONE]\n\n",
+                "trailing"
+            ],
+            "{style:?}"
+        );
+        // A fault still applies to a replay.
+        let cut = Scenario::default()
+            .with_replay(body)
+            .with_fault(Fault::DisconnectAtByte { byte: 10 });
+        let Plan::Stream(stream) = plan(style, &cut, &ctx) else {
+            panic!("a replay is a stream");
+        };
+        let (steps, aborted) = stream.collect_steps();
+        assert!(aborted);
+        let sent: Vec<u8> = steps.iter().flat_map(|s| s.bytes.clone()).collect();
+        assert_eq!(sent, body.as_bytes()[..10].to_vec());
+    }
+
+    let mock = MockProvider::start(Scenario::default().with_replay(body))
+        .await
+        .unwrap();
+    let resp = post(
+        &mock,
+        ProviderStyle::ChatCompletions,
+        &request_body(ProviderStyle::ChatCompletions),
+    )
+    .await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(read_all(resp).await.unwrap(), body.as_bytes());
+    assert_eq!(mock.recorded_requests().len(), 1);
+    // Negative control: without the replay the same request is rendered.
+    mock.set_scenario(Scenario::default());
+    let resp = post(
+        &mock,
+        ProviderStyle::ChatCompletions,
+        &request_body(ProviderStyle::ChatCompletions),
+    )
+    .await;
+    assert_ne!(read_all(resp).await.unwrap(), body.as_bytes());
     mock.shutdown().await;
 }

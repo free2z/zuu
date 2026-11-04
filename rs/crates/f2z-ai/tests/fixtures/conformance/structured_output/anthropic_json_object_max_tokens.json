@@ -1,0 +1,65 @@
+{
+  "name": "anthropic_json_object_max_tokens",
+  "feature": "structured_output",
+  "source": "Migrated from tests/fixtures/anthropic/streams.json + response_format_max_tokens.sse (#1140): cut off by max_tokens, the partial JSON is delivered and finish is length. Synthetic, documented event grammar.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "List two letters as JSON."
+          }
+        ]
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "json_object",
+          "description": "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "tool",
+        "name": "json_object",
+        "disable_parallel_tool_use": true
+      },
+      "response_format": null
+    },
+    "provider_stream": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01Trunc\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-haiku-4-5\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":120,\"output_tokens\":1}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"toolu_01Trunc\",\"name\":\"json_object\",\"input\":{}}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"items\\\": [\\\"a\\\", \\\"b\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"max_tokens\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":16}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "events": [
+      {
+        "type": "delta",
+        "text": "{\"items\": [\"a\", \"b"
+      }
+    ],
+    "finish_reason": "length",
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 16,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

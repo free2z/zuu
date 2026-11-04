@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Client, NativeTransport } from "../dist/index.js";
+import { Client, NativeTransport, runTools } from "../dist/index.js";
 const deferred = () => {
   let resolve, reject;
   const promise = new Promise((a, b) => {
@@ -305,4 +305,686 @@ test("native opening failure preserves the server call ID when no stream was ret
       e.callId === "known-call" &&
       e.idempotencyKey === options.idempotencyKey,
   );
+});
+test("native adapter forwards max_output_tokens_strict only when true", async () => {
+  const seen = [];
+  const b = bridge({
+    estimate: async (r) => {
+      seen.push(r);
+      return {
+        model: "test",
+        input_tokens: "1",
+        max_output_tokens: "1800",
+        hold_2z: "1",
+      };
+    },
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+  });
+  const transport = new NativeTransport(b);
+  const limited = { ...request, max_output_tokens: 1800n };
+  await transport.estimate({ ...limited, max_output_tokens_strict: true });
+  assert.equal(seen.at(-1).max_output_tokens_strict, true);
+  await transport.chat({ ...limited, max_output_tokens_strict: true }, options);
+  assert.equal(seen.at(-1).max_output_tokens_strict, true);
+  assert.equal(seen.at(-1).max_output_tokens, "1800");
+  await transport.estimate({ ...limited, max_output_tokens_strict: false });
+  assert.equal("max_output_tokens_strict" in seen.at(-1), false);
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat({ ...request, max_output_tokens_strict: true }, options),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before);
+});
+test("native sign-in forwards a spend-cap hint as decimal strings, only when given", async () => {
+  const sent = [];
+  const client = new NativeTransport(
+    bridge({
+      signIn: async (options) => {
+        sent.push(options);
+        return {
+          signedIn: true,
+          subject: "alice",
+          grantedScopes: [],
+          persistence: "persistent",
+          generation: "2",
+        };
+      },
+    }),
+  );
+  await client.signIn();
+  await client.signIn({ spendCap: { cap2z: 500n, period: "total" } });
+  await client.signIn({ prompt: "consent", spendCap: { cap2z: 9n } });
+  assert.deepEqual(sent, [
+    {},
+    { spendCap: "500", spendPeriod: "total" },
+    { prompt: "consent", spendCap: "9" },
+  ]);
+  await assert.rejects(client.signIn({ spendCap: { cap2z: -1n } }), {
+    code: "invalid_request",
+  });
+  assert.equal(sent.length, 3);
+});
+test("native adapter forwards response_format as plain JSON, only when set", async () => {
+  const seen = [];
+  const b = bridge({
+    estimate: async (r) => {
+      seen.push(r);
+      return {
+        model: "test",
+        input_tokens: "1",
+        max_output_tokens: "1800",
+        hold_2z: "1",
+      };
+    },
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+  });
+  const transport = new NativeTransport(b);
+  const format = {
+    type: "json_schema",
+    json_schema: {
+      name: "activity_spec",
+      schema: { type: "object", properties: { n: { maximum: 9n } } },
+      strict: true,
+    },
+  };
+  await transport.chat({ ...request, response_format: format }, options);
+  // The schema is ordinary JSON over IPC: bigint becomes a number, never
+  // the decimal-string quantity codec. (Converted objects are null-prototype.)
+  assert.deepEqual(JSON.parse(JSON.stringify(seen.at(-1).response_format)), {
+    type: "json_schema",
+    json_schema: {
+      name: "activity_spec",
+      schema: { type: "object", properties: { n: { maximum: 9 } } },
+      strict: true,
+    },
+  });
+  await transport.estimate({
+    ...request,
+    response_format: { type: "json_object" },
+  });
+  assert.deepEqual(seen.at(-1).response_format, { type: "json_object" });
+  await transport.estimate(request);
+  assert.equal("response_format" in seen.at(-1), false);
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat(
+      { ...request, response_format: { type: "text" } },
+      { ...options, operationId: "operation-2" },
+    ),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before);
+});
+test("native adapter forwards reasoning_effort as a plain string, only when set", async () => {
+  const seen = [];
+  const b = bridge({
+    estimate: async (r) => {
+      seen.push(r);
+      return {
+        model: "test",
+        input_tokens: "1",
+        max_output_tokens: "1800",
+        hold_2z: "1",
+      };
+    },
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+  });
+  const transport = new NativeTransport(b);
+  await transport.chat({ ...request, reasoning_effort: "low" }, options);
+  assert.equal(seen.at(-1).reasoning_effort, "low");
+  await transport.estimate({ ...request, reasoning_effort: "high" });
+  assert.equal(seen.at(-1).reasoning_effort, "high");
+  await transport.estimate(request);
+  assert.equal("reasoning_effort" in seen.at(-1), false);
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat(
+      { ...request, reasoning_effort: "xhigh" },
+      { ...options, operationId: "operation-2" },
+    ),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before);
+});
+test("native estimate decodes the budget fields from decimal strings", async () => {
+  let answer;
+  const transport = new NativeTransport(
+    bridge({ estimate: async () => answer }),
+  );
+  const base = {
+    model: "gpt-4o",
+    input_tokens: "180",
+    max_output_tokens: "16",
+    hold_2z: "1",
+    min_charge_2z: "1",
+    available_milli_2z: "4000",
+    cap_remaining_milli_2z: "4000",
+    catalog_version: "1791205020000000",
+  };
+  answer = base;
+  const estimate = await transport.estimate(request);
+  assert.equal(estimate.available_milli_2z, 4000n);
+  assert.equal(estimate.cap_remaining_milli_2z, 4000n);
+  assert.equal(estimate.min_charge_2z, 1n);
+  assert.equal(estimate.catalog_version, 1791205020000000n);
+  answer = { ...base, cap_remaining_milli_2z: null };
+  assert.equal(
+    (await transport.estimate(request)).cap_remaining_milli_2z,
+    null,
+  );
+  answer = { ...base, future_field: { x: "1" } };
+  assert.deepEqual(
+    { ...(await transport.estimate(request)).future_field },
+    {
+      x: "1",
+    },
+  );
+  const {
+    available_milli_2z,
+    cap_remaining_milli_2z,
+    min_charge_2z,
+    catalog_version,
+    ...older
+  } = base;
+  answer = older;
+  const bare = await transport.estimate(request);
+  assert.equal("cap_remaining_milli_2z" in bare, false);
+  assert.equal("available_milli_2z" in bare, false);
+  for (const bad of [
+    { ...base, available_milli_2z: "-1" },
+    { ...base, cap_remaining_milli_2z: "01" },
+  ]) {
+    answer = bad;
+    await assert.rejects(
+      transport.estimate(request),
+      (e) => e.code === "invalid_response",
+    );
+  }
+});
+test("native adapter forwards tool controls as plain JSON and decodes a decimal fragment index", async () => {
+  const seen = [];
+  const events = [
+    { type: "meta", call_id: "call-1", model: "test", hold_2z: "1" },
+    {
+      type: "tool_call_delta",
+      index: "1",
+      id: "call_q2",
+      name: "check_answer",
+      arguments: "{}",
+    },
+    { type: "tool_call", id: "call_q2", name: "check_answer", arguments: "{}" },
+    {
+      type: "done",
+      finish_reason: "tool_calls",
+      charge: { state: "charged", charged2z: "1", receiptId: "r" },
+    },
+  ];
+  const b = bridge({
+    startChat: async (r, o) => {
+      seen.push(r);
+      return { operationId: o.operationId };
+    },
+    nextChat: async () => events.shift() ?? null,
+  });
+  const transport = new NativeTransport(b);
+  const tool = {
+    name: "check_answer",
+    parameters: { type: "object", properties: { n: { maximum: 9n } } },
+    strict: true,
+  };
+  const stream = await transport.chat(
+    {
+      ...request,
+      tools: [tool],
+      tool_choice: "required",
+      parallel_tool_calls: false,
+    },
+    options,
+  );
+  assert.deepEqual(JSON.parse(JSON.stringify(seen.at(-1))), {
+    ...request,
+    tools: [
+      {
+        ...tool,
+        parameters: { type: "object", properties: { n: { maximum: 9 } } },
+      },
+    ],
+    tool_choice: "required",
+    parallel_tool_calls: false,
+  });
+  const decoded = [];
+  for await (const event of stream) decoded.push(event);
+  assert.deepEqual(decoded[1], {
+    type: "tool_call_delta",
+    index: 1,
+    id: "call_q2",
+    name: "check_answer",
+    arguments: "{}",
+  });
+  assert.equal(decoded[3].finish_reason, "tool_calls");
+  const before = seen.length;
+  await assert.rejects(
+    transport.chat(
+      { ...request, tool_choice: "auto" },
+      { ...options, operationId: "operation-2" },
+    ),
+    (e) => e.code === "invalid_request",
+  );
+  assert.equal(seen.length, before, "a refused request never crosses IPC");
+});
+test("native models decodes the plugin's decimal-string catalogue", async () => {
+  let answer;
+  const transport = new NativeTransport(bridge({ models: async () => answer }));
+  // What tauri-plugin-f2z's wire::value makes of the Rust SDK's `Models`:
+  // every u64 a decimal string, booleans as-is, absent options as null.
+  const gpt4o = {
+    id: "gpt-4o",
+    provider: "openai",
+    display_name: "gpt-4o",
+    context_window: "128000",
+    max_output_tokens: "16384",
+    capabilities: {
+      vision: false,
+      tools: false,
+      reasoning: false,
+      structured_output: true,
+    },
+    prices: {
+      input_milli_2z_per_mtok: "300000",
+      output_milli_2z_per_mtok: "1200000",
+      image_milli_2z: "0",
+    },
+    min_charge_2z: "1",
+    ttfb_timeout_ms: "60000",
+  };
+  const base = {
+    catalog_version: "1791205020000000",
+    includes_markup_bps: "0",
+    models: [gpt4o],
+  };
+  answer = base;
+  const live = await transport.models();
+  assert.equal(live.catalog_version, 1791205020000000n);
+  assert.equal(live.includes_markup_bps, 0n);
+  const [m] = live.models;
+  assert.equal(m.capabilities.structured_output, true);
+  assert.equal(m.capabilities.vision, false);
+  assert.equal(m.prices.input_milli_2z_per_mtok, 300000n);
+  assert.equal(m.context_window, 128000n);
+  assert.equal(m.max_output_tokens, 16384n);
+  assert.equal(m.min_charge_2z, 1n);
+  assert.equal(m.ttfb_timeout_ms, 60000n);
+  answer = {
+    ...base,
+    models: [
+      {
+        ...gpt4o,
+        provider: null,
+        display_name: null,
+        context_window: null,
+        min_charge_2z: null,
+      },
+    ],
+  };
+  const nulls = (await transport.models()).models[0];
+  for (const key of [
+    "provider",
+    "display_name",
+    "context_window",
+    "min_charge_2z",
+  ])
+    assert.equal(key in nulls, false, key);
+  for (const bad of [
+    { ...gpt4o, capabilities: { structured_output: "true" } },
+    { ...gpt4o, prices: { input_milli_2z_per_mtok: "-1" } },
+    { ...gpt4o, context_window: "01" },
+  ]) {
+    answer = { ...base, models: [bad] };
+    await assert.rejects(
+      transport.models(),
+      (e) => e.code === "invalid_response",
+    );
+  }
+});
+test("runTools stops when the session changes between rounds", async () => {
+  let generation = "1",
+    starts = 0,
+    reads = 0;
+  const b = bridge({
+    session: async () => ({
+      signedIn: true,
+      subject: generation === "1" ? "alice" : "bob",
+      grantedScopes: [],
+      persistence: "persistent",
+      generation,
+    }),
+    startChat: async (r, o) => {
+      starts++;
+      return { operationId: o.operationId };
+    },
+    nextChat: async () =>
+      [
+        { type: "meta", call_id: "call-1", model: "test", hold_2z: "1" },
+        {
+          type: "tool_call",
+          id: "call_q1",
+          name: "check_answer",
+          arguments: "{}",
+        },
+        {
+          type: "done",
+          finish_reason: "tool_calls",
+          charge: { state: "charged", charged2z: "1", receiptId: "r" },
+        },
+      ][reads++] ?? null,
+    cancelChat: async () => {},
+  });
+  const client = new Client(new NativeTransport(b));
+  const run = await runTools(
+    client,
+    {
+      ...request,
+      tools: [{ name: "check_answer", parameters: { type: "object" } }],
+    },
+    () => {
+      generation = "2"; // the user switches to Bob while the tool runs
+      return "{}";
+    },
+    {
+      operation: (round) => ({
+        operationId: `op-${round}`,
+        idempotencyKey: `key-${round}`,
+      }),
+    },
+  );
+  assert.equal(starts, 1, "a round was sent under another session");
+  assert.equal(run.rounds.length, 1);
+  assert.equal(run.error?.code, "signed_out");
+  assert.equal(run.finished, false);
+});
+
+test("runTools pins each round to the starting session, even across the operation callback", async () => {
+  let generation = "1",
+    starts = 0;
+  const pinned = [];
+  const b = bridge({
+    session: async () => ({
+      signedIn: true,
+      subject: generation === "1" ? "alice" : "bob",
+      grantedScopes: [],
+      persistence: "persistent",
+      generation,
+    }),
+    startChat: async (r, o) => {
+      starts++;
+      pinned.push(o.sessionGeneration);
+      return { operationId: o.operationId };
+    },
+    nextChat: async () => null,
+    cancelChat: async () => {},
+  });
+  const client = new Client(new NativeTransport(b));
+  const run = await runTools(
+    client,
+    { ...request, tools: [{ name: "f", parameters: { type: "object" } }] },
+    () => "{}",
+    {
+      operation: async (round) => {
+        generation = "2"; // Bob signs in while the app journals the keys
+        return { operationId: `op-${round}`, idempotencyKey: `key-${round}` };
+      },
+    },
+  );
+  assert.equal(starts, 0, "Alice's history was sent as Bob");
+  assert.equal(run.error?.code, "signed_out");
+  assert.equal(run.rounds.length, 0);
+});
+
+test("the session pin reaches native registration", async () => {
+  const seen = [];
+  const b = bridge({
+    startChat: async (r, o) => {
+      seen.push(o);
+      return { operationId: o.operationId };
+    },
+    nextChat: async () => null,
+    cancelChat: async () => {},
+  });
+  const transport = new NativeTransport(b);
+  await transport.chat(request, { ...options, sessionGeneration: "1" });
+  assert.equal(seen.at(-1).sessionGeneration, "1");
+  await transport.chat(request, { ...options, operationId: "operation-2" });
+  assert.equal("sessionGeneration" in seen.at(-1), false, "absent is not sent");
+});
+test("native sign-in rejection codes reach the app unchanged and are never retryable", async () => {
+  for (const code of [
+    "user_cancelled",
+    "browser_unavailable",
+    "timeout",
+    "browser_error",
+  ]) {
+    const client = new Client(
+      new NativeTransport(
+        bridge({
+          signIn: async () => {
+            throw { code, retryable: false };
+          },
+        }),
+      ),
+    );
+    await assert.rejects(
+      client.signIn(),
+      (e) => e.name === "SdkError" && e.code === code && e.retryable === false,
+    );
+  }
+});
+test("a release failure after the terminal event never loses the charged round", async () => {
+  let reads = 0,
+    cancels = 0;
+  const b = bridge({
+    startChat: async (r, o) => ({ operationId: o.operationId }),
+    nextChat: async () =>
+      [
+        { type: "meta", call_id: "call-1", model: "test", hold_2z: "1" },
+        { type: "delta", text: "Correct!" },
+        {
+          type: "done",
+          finish_reason: "stop",
+          charge: { state: "charged", charged2z: "1", receiptId: "r" },
+        },
+      ][reads++] ?? null,
+    // A sign-out cleared the native operation after `done` was delivered.
+    cancelChat: async () => {
+      cancels++;
+      throw Object.assign(new Error("gone"), { code: "operation_not_found" });
+    },
+  });
+  const client = new Client(new NativeTransport(b));
+  const run = await runTools(
+    client,
+    {
+      ...request,
+      tools: [{ name: "check_answer", parameters: { type: "object" } }],
+    },
+    () => "{}",
+    {
+      operation: (round) => ({
+        operationId: `rel-${round}`,
+        idempotencyKey: `rel-${round}`,
+      }),
+    },
+  );
+  assert.equal(cancels, 1, "the stream was still released");
+  assert.equal(run.error, undefined, String(run.error?.code));
+  assert.equal(run.rounds.length, 1, "the charged round was lost");
+  assert.equal(run.rounds[0].text, "Correct!");
+  assert.equal(run.rounds[0].charge.state, "charged");
+  assert.equal(run.finished, true);
+});
+
+test("native session carries the profile only when native reports one", async () => {
+  const plain = await new NativeTransport(bridge()).session();
+  assert.equal("preferredUsername" in plain, false);
+  assert.equal("name" in plain, false);
+  const named = await new NativeTransport(
+    bridge({
+      session: async () => ({
+        signedIn: true,
+        subject: "alice",
+        grantedScopes: ["openid", "profile"],
+        persistence: "persistent",
+        generation: "2",
+        preferredUsername: "alice_z",
+        name: "Alice",
+      }),
+    }),
+  ).session();
+  assert.equal(named.preferredUsername, "alice_z");
+  assert.equal(named.name, "Alice");
+  for (const bad of [{ preferredUsername: 7 }, { name: null }]) {
+    const transport = new NativeTransport(
+      bridge({
+        session: async () => ({
+          signedIn: true,
+          subject: "alice",
+          grantedScopes: [],
+          persistence: "persistent",
+          generation: "1",
+          ...bad,
+        }),
+      }),
+    );
+    await assert.rejects(transport.session(), { code: "invalid_response" });
+  }
+});
+
+test("native sign-in forwards prompt=login and ephemeral, only when given", async () => {
+  const sent = [];
+  const transport = new NativeTransport(
+    bridge({
+      signIn: async (options) => {
+        sent.push(options);
+        return {
+          signedIn: true,
+          subject: "bob",
+          grantedScopes: [],
+          persistence: "persistent",
+          generation: "3",
+        };
+      },
+    }),
+  );
+  await transport.signIn();
+  await transport.signIn({ prompt: "login", ephemeral: true });
+  assert.deepEqual(sent, [{}, { prompt: "login", ephemeral: true }]);
+  await assert.rejects(transport.signIn({ ephemeral: "yes" }), {
+    code: "invalid_request",
+  });
+});
+
+test("account exits go through native and are refused by an older plugin", async () => {
+  const opened = [];
+  const client = new Client(
+    new NativeTransport(
+      bridge({
+        manageAccountUrl: async () =>
+          "https://free2z.cash/account/apps?client_id=c",
+        deleteAccountUrl: async () => "https://free2z.cash/account/delete",
+        openManageAccount: async (...args) => {
+          opened.push(["manage", args]);
+        },
+        openDeleteAccount: async (...args) => {
+          opened.push(["delete", args]);
+        },
+      }),
+    ),
+  );
+  assert.equal(
+    await client.manageAccountUrl(),
+    "https://free2z.cash/account/apps?client_id=c",
+  );
+  assert.equal(
+    await client.deleteAccountUrl(),
+    "https://free2z.cash/account/delete",
+  );
+  await client.openManageAccount();
+  await client.openDeleteAccount();
+  // No URL crosses to native: it opens what its own configuration names.
+  assert.deepEqual(opened, [
+    ["manage", []],
+    ["delete", []],
+  ]);
+  const old = new Client(new NativeTransport(bridge()));
+  for (const call of [
+    () => old.manageAccountUrl(),
+    () => old.openManageAccount(),
+    () => old.deleteAccountUrl(),
+    () => old.openDeleteAccount(),
+  ])
+    await assert.rejects(call(), { code: "unsupported_operation" });
+  const hostile = new Client(
+    new NativeTransport(
+      bridge({ manageAccountUrl: async () => "javascript:alert(1)" }),
+    ),
+  );
+  await assert.rejects(hostile.manageAccountUrl(), {
+    code: "invalid_response",
+  });
+});
+
+test("billing goes through native, takes no URL from JavaScript and is refused by an older plugin", async () => {
+  const opened = [];
+  const client = new Client(
+    new NativeTransport(
+      bridge({
+        billingUrl: async (...args) => {
+          opened.push(["read", args]);
+          return "https://free2z.cash/buy-2z?client_id=c";
+        },
+        openBilling: async (...args) => {
+          opened.push(["open", args]);
+        },
+      }),
+    ),
+  );
+  assert.equal(
+    await client.billingUrl(),
+    "https://free2z.cash/buy-2z?client_id=c",
+  );
+  await client.openBilling();
+  // Native opens what its own configuration names.
+  assert.deepEqual(opened, [
+    ["read", []],
+    ["open", []],
+  ]);
+  const old = new Client(new NativeTransport(bridge()));
+  for (const call of [() => old.billingUrl(), () => old.openBilling()])
+    await assert.rejects(call(), { code: "unsupported_operation" });
+  const hostile = new Client(
+    new NativeTransport(
+      bridge({ billingUrl: async () => "javascript:alert(1)" }),
+    ),
+  );
+  await assert.rejects(hostile.billingUrl(), { code: "invalid_response" });
+  // A plugin that refuses for want of the permission: the native error reaches the app.
+  const denied = new Client(
+    new NativeTransport(
+      bridge({
+        openBilling: async () => {
+          throw "f2z.open_billing not allowed. Permissions associated with this command: f2z:allow-open-billing";
+        },
+      }),
+    ),
+  );
+  await assert.rejects(denied.openBilling(), { code: "native_error" });
 });

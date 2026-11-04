@@ -46,12 +46,12 @@ use crate::pricing::{Bps, ModelPrices};
 /// Domain-separation prefix of the catalogue signing message.
 pub const CATALOG_SIGNING_LABEL: &[u8] = b"free2z/ai-catalog/v1";
 
-/// The only catalogue schema this crate understands.
+/// The schema understood by the original reader and the active gateway.
 ///
-/// Bump it for any change an old consumer must not silently misread — in
-/// particular **a new price dimension**: [`ModelPrices`] refuses unknown
-/// members, so an old consumer refuses such a catalogue anyway, and the bump
-/// makes that refusal say why.
+/// Changes an old consumer must not silently misread require a new schema
+/// and an explicitly versioned reader (see [`crate::catalog_v2`]). In
+/// particular, [`ModelPrices`] refuses unknown price dimensions so older
+/// consumers cannot silently price a new dimension at zero.
 pub const CATALOG_SCHEMA: u32 = 1;
 
 /// The largest platform margin [`Catalog::validate`] accepts: 1 000 %.
@@ -104,11 +104,84 @@ pub struct ModelCapabilities {
     pub tools: bool,
     /// The model can produce reasoning output.
     pub reasoning: bool,
+    /// `ChatRequest::response_format` (JSON / JSON-schema output) is
+    /// supported. **Tri-state**, unlike the members above: `Some(true)` and
+    /// `Some(false)` are an audited declaration; `None` (absent) means the
+    /// catalogue does not say, and the gateway applies its documented interim
+    /// rule (the `f2z-ai` crate's `provider::structured_output_supported`)
+    /// instead of reading absence as `false`. A present `null` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub structured_output: Option<bool>,
+    /// `Tool::strict: true` (provider-enforced argument schemas) is
+    /// supported. Tri-state like `structured_output`: absent means the
+    /// catalogue does not say, and the gateway applies its documented
+    /// interim rule (the `f2z-ai` crate's `provider::strict_tools_supported`).
+    /// A present `null` is refused.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub strict_tools: Option<bool>,
+    /// `ChatRequest::reasoning_effort` is supported: the model takes the
+    /// provider's own effort control (OpenAI/xAI `reasoning_effort`). Not the
+    /// same claim as [`ModelCapabilities::reasoning`], which says the model
+    /// *reasons*: a reasoning model may still take no effort control (Anthropic's
+    /// budget-only `thinking`). Absent reads as `false`
+    /// and is omitted when serialized, so a catalogue without it re-encodes
+    /// exactly as before. Which levels: [`ModelControls::effort_levels`].
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub reasoning_effort: bool,
+}
+
+fn declared_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
+    bool::deserialize(d).map(Some)
 }
 
 impl ModelCapabilities {
     fn is_empty(&self) -> bool {
-        !self.vision && !self.tools && !self.reasoning
+        !self.vision
+            && !self.tools
+            && !self.reasoning
+            && self.structured_output.is_none()
+            && self.strict_tools.is_none()
+            && !self.reasoning_effort
+    }
+}
+
+/// Signed, per-model narrowing of what a capability admits — the
+/// catalogue's `controls` object. Every member is optional and absent means
+/// "not narrowed": the capability alone decides.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelControls {
+    /// The `reasoning_effort` levels this model accepts, as wire strings
+    /// (`"low"`, `"high"`, …). Only read when
+    /// [`ModelCapabilities::reasoning_effort`] is `true`. Present: a level not
+    /// listed is refused before any hold. Absent: every level the request
+    /// wire can express is forwarded, and a level the provider rejects comes
+    /// back as its own `400` before any output (`provider_error`, hold
+    /// released, nothing charged) — so the signer should list them. A
+    /// string this crate does not know (`"xhigh"`, `"none"`) is kept and
+    /// simply unreachable: one newer level must not make an older gateway
+    /// refuse the whole signed catalogue.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub effort_levels: Option<Vec<String>>,
+    /// Tools require the provider's non-reasoning default. With tools, any
+    /// explicit non-none effort is refused before a hold. Omitted effort is
+    /// left at the provider default; sign only for models defaulting to none.
+    /// Absent/false preserves independent tools and effort admission.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub tools_require_effort_none: bool,
+}
+
+impl ModelControls {
+    fn is_empty(&self) -> bool {
+        self.effort_levels.is_none() && !self.tools_require_effort_none
     }
 }
 
@@ -127,6 +200,10 @@ pub struct CatalogModel {
     /// The gateway exposes only the intersection with features it implements.
     #[serde(default, skip_serializing_if = "ModelCapabilities::is_empty")]
     pub capabilities: ModelCapabilities,
+    /// Per-model narrowing of capabilities; see [`ModelControls`]. Absent
+    /// (every catalogue signed before it) is omitted when serialized.
+    #[serde(default, skip_serializing_if = "ModelControls::is_empty")]
+    pub controls: ModelControls,
     /// Prices. See [`ModelPrices`] for units.
     pub prices: ModelPrices,
     /// The minimum charge per call, in whole 2Z.
@@ -377,6 +454,36 @@ pub fn verify_catalog(
     trusted: &[TrustedKey],
     now_unix: u64,
 ) -> Result<Catalog, CatalogError> {
+    let tree = verify_catalog_tree(payload, signature, trusted)?;
+    // Inspect the signed tree before an older typed reader can discard a new
+    // money field. Explicit null is presence too, not a schema-1 extension.
+    if tree
+        .get("models")
+        .and_then(Value::as_array)
+        .is_some_and(|models| {
+            models
+                .iter()
+                .any(|model| model.get("long_context_pricing").is_some())
+        })
+    {
+        return Err(CatalogError::Invalid(
+            "context pricing requires catalogue schema 2",
+        ));
+    }
+    let catalog: Catalog = serde_json::from_value(tree).map_err(CatalogError::Json)?;
+    catalog.validate()?;
+    if now_unix >= catalog.expires_at {
+        return Err(CatalogError::Expired);
+    }
+    Ok(catalog)
+}
+
+/// Shared signature boundary; version-specific readers use this same tree.
+pub(crate) fn verify_catalog_tree(
+    payload: &[u8],
+    signature: &DetachedSignature,
+    trusted: &[TrustedKey],
+) -> Result<Value, CatalogError> {
     let key = trusted
         .iter()
         .find(|k| k.key_id == signature.key_id)
@@ -386,12 +493,7 @@ pub fn verify_catalog(
     key.key
         .verify_strict(&message, &signature.signature)
         .map_err(|_| CatalogError::BadSignature)?;
-    let catalog: Catalog = serde_json::from_value(tree).map_err(CatalogError::Json)?;
-    catalog.validate()?;
-    if now_unix >= catalog.expires_at {
-        return Err(CatalogError::Expired);
-    }
-    Ok(catalog)
+    Ok(tree)
 }
 
 /// Decode exactly `N` bytes of lowercase hex. Uppercase is refused so that a
@@ -438,8 +540,28 @@ mod tests {
             r#"{"tools":"true"}"#,
             r#"{"vision":null}"#,
             r#"{"reasoning":1}"#,
+            r#"{"structured_output":null}"#,
+            r#"{"structured_output":"true"}"#,
         ] {
             assert!(serde_json::from_str::<ModelCapabilities>(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn structured_output_is_tri_state_and_absent_is_not_serialized() {
+        let absent: ModelCapabilities = serde_json::from_str(r#"{"tools":true}"#).unwrap();
+        assert_eq!(absent.structured_output, None);
+        assert_eq!(
+            serde_json::to_string(&absent).unwrap(),
+            r#"{"vision":false,"tools":true,"reasoning":false}"#
+        );
+        for (wire, declared) in [
+            (r#"{"structured_output":true}"#, Some(true)),
+            (r#"{"structured_output":false}"#, Some(false)),
+        ] {
+            let caps: ModelCapabilities = serde_json::from_str(wire).unwrap();
+            assert_eq!(caps.structured_output, declared, "{wire}");
+            assert!(!caps.is_empty(), "a declaration is never dropped: {wire}");
         }
     }
 

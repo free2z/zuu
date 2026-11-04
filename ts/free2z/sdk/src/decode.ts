@@ -2,16 +2,23 @@ import { failure } from "./error.js";
 import { object, string, uint } from "./json.js";
 import type {
   Balance,
+  CallReport,
+  EnforcementReason,
   Grant,
   CallRecord,
   Charge,
   ChatEvent,
   Estimate,
   Json,
+  Model,
+  ModelCapabilities,
+  ModelControls,
+  ModelPrices,
   Models,
   ObjectData,
   Purchase,
   Session,
+  ToolCallDelta,
 } from "./types.js";
 
 const integerKeys = new Set([
@@ -38,6 +45,10 @@ const integerKeys = new Set([
   "confirmations",
   "required_confirmations",
   "quote_ttl_s",
+  // error `details` (errors.md §3); `required_2z` & co. match by suffix
+  "model_max_output_tokens",
+  "limit_bytes",
+  "limit",
   "charged2z",
   "collectedMilli2z",
   "shortfallMilli2z",
@@ -73,6 +84,8 @@ function unsignedLocation(path: readonly string[]): boolean {
       amountKey(key)
     );
   }
+  // error `details.packs` (`invalid_quantity`): whole-2Z pack sizes
+  if (path.length === 2 && path[0] === "packs" && path[1] === "*") return true;
   return path.length === 2 && path[0] === "milli_2z_per_minor_unit";
 }
 /** Native IPC numbers are decimal strings; content and identifiers remain strings. */
@@ -215,6 +228,24 @@ function utcTimestamp(value: string): boolean {
     Number(m[6]) <= 60
   );
 }
+const enforcementReasons: readonly string[] = [
+  "ok",
+  "platform_disabled",
+  "ledger_cutover_pending",
+  "ledger_cap_pending",
+];
+function enforcementReason(
+  value: unknown,
+  enforced: boolean,
+): EnforcementReason | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string") failure("invalid_response");
+  const reason = (
+    enforcementReasons.includes(value) ? value : "unknown"
+  ) as EnforcementReason;
+  if ((reason === "ok") !== enforced) failure("invalid_response");
+  return reason;
+}
 export function grant(value: unknown): Grant {
   const d = validated(value);
   if (
@@ -235,6 +266,7 @@ export function grant(value: unknown): Grant {
     !utcTimestamp(asOf)
   )
     failure("invalid_response");
+  const reason = enforcementReason(d.enforcement_reason, d.enforced);
   return {
     sub,
     client_id: client,
@@ -244,7 +276,25 @@ export function grant(value: unknown): Grant {
     spend_cap_2z: d.spend_cap_2z === null ? null : uint(d.spend_cap_2z),
     cap_period: d.cap_period as Grant["cap_period"],
     enforced: d.enforced,
+    ...(reason === undefined ? {} : { enforcement_reason: reason }),
     as_of: asOf,
+  };
+}
+export function callReport(value: unknown, callId: string): CallReport {
+  const d = validated(value);
+  const report = string(d.report_id),
+    call = string(d.call_id),
+    created = string(d.created_at),
+    reason = string(d.reason);
+  if (!report || call !== callId || !utcTimestamp(created))
+    failure("invalid_response");
+  return {
+    report_id: report,
+    call_id: call,
+    reason: ["incorrect", "inappropriate", "unsafe", "other"].includes(reason)
+      ? (reason as CallReport["reason"])
+      : "unknown",
+    created_at: created,
   };
 }
 export function balance(value: unknown): Balance {
@@ -265,13 +315,18 @@ export function session(value: unknown): Session {
     (d.persistence !== "persistent" && d.persistence !== "memory_only")
   )
     failure("invalid_response");
-  return {
+  const result: Session = {
     signedIn: d.signedIn,
     subject: d.subject === null ? null : string(d.subject),
     grantedScopes: d.grantedScopes.map(string),
     persistence: d.persistence,
     generation: string(d.generation),
   };
+  // Additive: absent from older plugins and without `profile`.
+  if (d.preferredUsername !== undefined)
+    result.preferredUsername = string(d.preferredUsername);
+  if (d.name !== undefined) result.name = string(d.name);
+  return result;
 }
 export function purchase(value: unknown): Purchase {
   const d = validated(value),
@@ -302,31 +357,156 @@ export function callRecord(value: unknown): CallRecord {
     charge: charge(d, true),
   };
 }
+const capabilityKeys = [
+  "vision",
+  "tools",
+  "reasoning",
+  "structured_output",
+  "strict_tools",
+  "reasoning_effort",
+] as const;
+/** Absent or `null` is `{}`: nothing declared, so nothing supported. A
+ * declared member must be a boolean — a string `"true"` would otherwise read
+ * as unsupported in an `=== true` check without anyone noticing. */
+function capabilities(value: Json | undefined): ModelCapabilities {
+  const result = Object.create(null) as ModelCapabilities;
+  if (value == null) return result;
+  for (const [key, member] of Object.entries(object(value))) {
+    if (member === undefined) continue;
+    if ((capabilityKeys as readonly string[]).includes(key)) {
+      if (member === null) continue;
+      if (typeof member !== "boolean") failure("invalid_response");
+    }
+    result[key] = member;
+  }
+  return result;
+}
+/** Absent or `null` is `{}`. Amount-named rates were checked as unsigned by
+ * `validated`; `null` reads as absent. Other members pass through. */
+function prices(value: Json | undefined): ModelPrices {
+  const result = Object.create(null) as ModelPrices;
+  if (value == null) return result;
+  for (const [key, member] of Object.entries(object(value))) {
+    if (member === undefined) continue;
+    if (unsignedLocation(["models", "*", "prices", key])) {
+      if (member !== null) result[key] = uint(member);
+    } else result[key] = member;
+  }
+  return result;
+}
+/** Absent or `null` is `{}`: nothing narrowed. A present `effort_levels`
+ * must be an array of strings; `null` reads as absent. Other members pass
+ * through. */
+function controls(value: Json | undefined): ModelControls {
+  const result = Object.create(null) as ModelControls;
+  if (value == null) return result;
+  for (const [key, member] of Object.entries(object(value))) {
+    if (member === undefined) continue;
+    if (key === "effort_levels") {
+      if (member === null) continue;
+      if (
+        !Array.isArray(member) ||
+        !member.every((level) => typeof level === "string")
+      )
+        failure("invalid_response");
+    }
+    result[key] = member;
+  }
+  return result;
+}
+function model(value: unknown): Model {
+  const {
+    id,
+    provider,
+    display_name: displayName,
+    context_window: contextWindow,
+    max_output_tokens: maxOutputTokens,
+    capabilities: declared,
+    controls: narrowed,
+    prices: rates,
+    min_charge_2z: minCharge,
+    ttfb_timeout_ms: ttfb,
+    ...rest
+  } = object(value);
+  const result: Model = {
+    ...rest,
+    id: string(id),
+    capabilities: capabilities(declared),
+    controls: controls(narrowed),
+    prices: prices(rates),
+  };
+  if (!result.id) failure("invalid_response");
+  if (provider != null) result.provider = string(provider);
+  if (displayName != null) result.display_name = string(displayName);
+  if (contextWindow != null) result.context_window = uint(contextWindow);
+  if (maxOutputTokens != null) result.max_output_tokens = uint(maxOutputTokens);
+  if (minCharge != null) result.min_charge_2z = uint(minCharge);
+  if (ttfb != null) result.ttfb_timeout_ms = uint(ttfb);
+  return result;
+}
+/** Typed members are checked; `null` reads as absent, as the Rust SDK reads
+ * it. Unknown members — of the answer, a model, its capabilities or prices —
+ * pass through. */
 export function models(value: unknown): Models {
   const d = validated(value);
+  const { includes_markup_bps: markup, ...rest } = d;
   if (!Array.isArray(d.models)) failure("invalid_response");
-  return {
-    ...d,
+  const result: Models = {
+    ...rest,
     catalog_version: uint(d.catalog_version),
-    models: d.models.map((v) => {
-      const model = object(v);
-      string(model.id);
-      return model;
-    }),
+    models: d.models.map(model),
   };
+  if (markup != null) result.includes_markup_bps = uint(markup);
+  return result;
 }
+/** The budget fields are optional on decode (chat-api.md §6). `null` reads as
+ * absent, as the Rust proto reads it, except for `cap_remaining_milli_2z`,
+ * where `null` is "uncapped" and stays apart from absent. */
 export function estimate(value: unknown): Estimate {
   const d = validated(value);
-  return {
-    ...d,
+  const {
+    available_milli_2z: available,
+    cap_remaining_milli_2z: capRemaining,
+    min_charge_2z: minCharge,
+    catalog_version: catalogVersion,
+    ...rest
+  } = d;
+  const result: Estimate = {
+    ...rest,
     model: string(d.model),
     input_tokens: uint(d.input_tokens),
     max_output_tokens: uint(d.max_output_tokens),
     hold_2z: uint(d.hold_2z),
   };
+  if (available != null) result.available_milli_2z = uint(available);
+  if (capRemaining !== undefined)
+    result.cap_remaining_milli_2z =
+      capRemaining === null ? null : uint(capRemaining);
+  if (minCharge != null) result.min_charge_2z = uint(minCharge);
+  if (catalogVersion != null) result.catalog_version = uint(catalogVersion);
+  return result;
+}
+/** A tool call's position: a u32, as a JSON integer (bigint here) or, across
+ * native IPC, a canonical decimal string. */
+function toolIndex(value: unknown): number {
+  if (typeof value === "string" && /^(0|[1-9][0-9]{0,9})$/.test(value))
+    value = BigInt(value);
+  if (typeof value !== "bigint" || value < 0n || value > 4_294_967_295n)
+    failure("invalid_response");
+  return Number(value);
 }
 export function event(type: string, value: unknown): ChatEvent | undefined {
-  if (!["meta", "delta", "tool_call", "usage", "done", "error"].includes(type))
+  if (
+    ![
+      "meta",
+      "delta",
+      "tool_call_delta",
+      "tool_call",
+      "usage",
+      "done",
+      "error",
+    ].includes(type)
+  )
     return undefined;
   const d = validated(value);
   switch (type) {
@@ -340,6 +520,16 @@ export function event(type: string, value: unknown): ChatEvent | undefined {
       };
     case "delta":
       return { type, text: string(d.text) };
+    case "tool_call_delta": {
+      const fragment: { type: "tool_call_delta" } & ToolCallDelta = {
+        type,
+        index: toolIndex(d.index),
+        arguments: d.arguments === undefined ? "" : string(d.arguments),
+      };
+      if (d.id !== undefined) fragment.id = string(d.id);
+      if (d.name !== undefined) fragment.name = string(d.name);
+      return fragment;
+    }
     case "tool_call":
       return {
         type,

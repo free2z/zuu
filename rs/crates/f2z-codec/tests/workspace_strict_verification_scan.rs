@@ -601,9 +601,9 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
     },
     // ---- f2z-ai-proto -------------------------------------------------------
     //
-    // The AI gateway's signed model catalogue (#1049). Its own base, not a
-    // delegation: the crate holds a dalek `VerifyingKey` inside `TrustedKey`
-    // and calls `verify_strict` on it directly, over
+    // The AI gateway's signed model catalogue (#1049). Both versioned readers
+    // delegate to one strict tree verifier holding a `VerifyingKey` in `TrustedKey`
+    // and calling `verify_strict` on it directly, over
     // `CATALOG_SIGNING_LABEL || canonical_json(payload)`. Strict is the point
     // here as much as anywhere: under plain `verify` the identity point as a
     // trusted key accepts (R = identity, s = 0) for every message, i.e. any
@@ -613,6 +613,24 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
     VerifyFn {
         file: "f2z-ai-proto/src/catalog.rs",
         name: "verify_catalog",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-ai-proto/src/catalog.rs::verify_catalog_tree",
+            call: "verify_catalog_tree",
+        },
+    },
+    VerifyFn {
+        file: "f2z-ai-proto/src/catalog_v2.rs",
+        name: "verify_catalog_v2",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-ai-proto/src/catalog.rs::verify_catalog_tree",
+            call: "verify_catalog_tree",
+        },
+    },
+    VerifyFn {
+        file: "f2z-ai-proto/src/catalog.rs",
+        name: "verify_catalog_tree",
         occurrence: 0,
         strictness: Strictness::CallsVerifyStrict {
             receiver: "key.key",
@@ -1596,15 +1614,10 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
                 );
             }
             Strictness::DelegatesToFn { target, call } => {
-                let (target_file, target_name) = target.rsplit_once("::").unwrap();
                 assert!(
-                    WORKSPACE_VERIFY_FNS
-                        .iter()
-                        .any(|other| other.file == target_file
-                            && other.name == target_name
-                            && matches!(other.strictness, Strictness::CallsVerifyStrict { .. })),
-                    "{}::{} delegates to {target}, which is not registered as a strict \
-                     verifier",
+                    delegation_reaches_strict_base(target, WORKSPACE_VERIFY_FNS),
+                    "{}::{} delegates to {target}, whose registered chain does not terminate in \
+                     a strict verifier",
                     entry.file,
                     entry.name
                 );

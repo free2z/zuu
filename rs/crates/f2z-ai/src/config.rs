@@ -66,7 +66,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::Deserialize;
 
 /// 4 MiB: the body limit for a request without image parts (chat-api.md §1).
@@ -80,6 +80,13 @@ pub const DEFAULT_MAX_UPLOAD_BUFFER_BYTES: usize = 256 * 1024 * 1024;
 
 /// 256 KiB: the per-stream delivery buffer (chat-api.md §2.4, ADR 0001).
 pub const DEFAULT_DELIVERY_BUFFER_BYTES: usize = 256 * 1024;
+
+/// 15 s: the `: ping` interval chat-api.md §3 specifies.
+pub const DEFAULT_STREAM_KEEPALIVE: Duration = Duration::from_secs(15);
+
+/// The longest configurable keep-alive interval: well inside the TypeScript
+/// SDK's 45 s idle watchdog (the Rust SDK's is 90 s), with room for one ping lost to a slow write.
+const MAX_STREAM_KEEPALIVE_SECS: u64 = 30;
 
 /// The environment variable prefix.
 pub const ENV_PREFIX: &str = "F2Z_AI_";
@@ -101,6 +108,10 @@ pub const ENV_AUTH_EPOCH_TOKEN: &str = "F2Z_AI_AUTH_EPOCH_TOKEN";
 pub const ENV_REDIS_URL: &str = "F2Z_AI_REDIS_URL";
 /// Ledger connection URL; accepted only as a secret.
 pub const ENV_LEDGER_URL: &str = "F2Z_AI_LEDGER_URL";
+/// The child-directed HMAC key ([`crate::meter::ChildDirectedKey`]).
+pub const ENV_CHILD_DIRECTED_KEY: &str = "F2Z_AI_CHILD_DIRECTED_KEY";
+/// The child-directed HMAC key in force before the last rotation.
+pub const ENV_CHILD_DIRECTED_KEY_PREVIOUS: &str = "F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS";
 
 /// Authentication, revocation and limits ([`crate::auth`]).
 #[derive(Clone)]
@@ -296,6 +307,14 @@ pub struct Config {
     /// Time with frames waiting and none delivered before delivery ends with
     /// `delivery_aborted` (chat-api.md §2.4).
     pub delivery_stall: Duration,
+    /// Upstream silence after which a streamed call writes a `: ping`
+    /// comment (chat-api.md §3), from the headers until the terminal event.
+    /// `stream_keepalive_secs`, 1..=30, default 15: the TypeScript SDK treats
+    /// 45 s without a byte as a dead connection (the Rust SDK, 90 s), so a longer interval would drop
+    /// the clients of every slow-thinking model (zuu#1163). `None` sends no
+    /// pings; no configuration produces it — it exists for tests that prove
+    /// what the pings are for.
+    pub stream_keepalive: Option<Duration>,
     /// The level for this crate's own log lines. Dependencies are capped at
     /// `warn` whatever this says (see [`crate::telemetry`]).
     pub log_level: LogLevel,
@@ -318,6 +337,24 @@ pub struct Config {
     pub ledger_max_connections: u32,
     /// Optional exact model IDs approved for new paid work; an empty set denies all.
     pub allowed_models: Option<BTreeSet<String>>,
+    /// Send the content-free `features` object ([`crate::features`]) in the
+    /// ledger call claim. **Off by default**: a ledger older than tuzi
+    /// migration `ledger.0006_call_features` refuses any metadata key it does
+    /// not name (`invalid gateway call claim`), which would fail every paid
+    /// call. Turn it on (`F2Z_AI_LEDGER_FEATURES_META=true`) only once that
+    /// migration is live. The `response` log line carries the features
+    /// either way.
+    pub ledger_features_meta: bool,
+    /// Server secret for child-directed call claims (at least 32 bytes),
+    /// from `child_directed_key_file` or `F2Z_AI_CHILD_DIRECTED_KEY`; never
+    /// inline. Absent: child-directed calls are refused with `503`.
+    pub child_directed_key: Option<SecretString>,
+    /// The key `child_directed_key` replaced, kept for the 24 hours after a
+    /// rotation (`child_directed_key_previous_file` or
+    /// `F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS`): a keyed retry of a call claimed
+    /// under it still replays that call (`meter::FormStore`). Requires
+    /// `child_directed_key`, and must differ from it.
+    pub child_directed_key_previous: Option<SecretString>,
 }
 
 impl Default for Config {
@@ -345,6 +382,7 @@ impl Default for Config {
             ),
             delivery_buffer_bytes: DEFAULT_DELIVERY_BUFFER_BYTES,
             delivery_stall: Duration::from_secs(30),
+            stream_keepalive: Some(DEFAULT_STREAM_KEEPALIVE),
             log_level: LogLevel::Info,
             otlp_endpoint: None,
             otlp_authorization: None,
@@ -355,6 +393,9 @@ impl Default for Config {
             ledger_url: None,
             ledger_max_connections: 4,
             allowed_models: None,
+            ledger_features_meta: false,
+            child_directed_key: None,
+            child_directed_key_previous: None,
         }
     }
 }
@@ -415,6 +456,9 @@ struct Raw {
     catalog_keys_file: Option<PathBuf>,
     ledger_url_file: Option<PathBuf>,
     ledger_max_connections: Option<u64>,
+    ledger_features_meta: Option<bool>,
+    child_directed_key_file: Option<PathBuf>,
+    child_directed_key_previous_file: Option<PathBuf>,
     allowed_models: Option<BTreeSet<String>>,
     listen: Option<String>,
     admin_listen: Option<String>,
@@ -436,6 +480,7 @@ struct Raw {
     catalog_version_regression_bound_secs: Option<u64>,
     delivery_buffer_bytes: Option<u64>,
     delivery_stall_secs: Option<u64>,
+    stream_keepalive_secs: Option<u64>,
     log_level: Option<String>,
     otlp_endpoint: Option<String>,
     otlp_authorization_file: Option<PathBuf>,
@@ -472,6 +517,7 @@ enum Kind {
     Text,
     TextArray,
     Integer,
+    Boolean,
 }
 
 /// Every key, and how an environment value for it is read.
@@ -481,6 +527,9 @@ const KEYS: &[(&str, Kind)] = &[
     ("catalog_keys_file", Kind::Text),
     ("ledger_url_file", Kind::Text),
     ("ledger_max_connections", Kind::Integer),
+    ("ledger_features_meta", Kind::Boolean),
+    ("child_directed_key_file", Kind::Text),
+    ("child_directed_key_previous_file", Kind::Text),
     ("listen", Kind::Text),
     ("admin_listen", Kind::Text),
     ("max_concurrent_calls", Kind::Integer),
@@ -501,6 +550,7 @@ const KEYS: &[(&str, Kind)] = &[
     ("catalog_version_regression_bound_secs", Kind::Integer),
     ("delivery_buffer_bytes", Kind::Integer),
     ("delivery_stall_secs", Kind::Integer),
+    ("stream_keepalive_secs", Kind::Integer),
     ("log_level", Kind::Text),
     ("otlp_endpoint", Kind::Text),
     ("otlp_authorization_file", Kind::Text),
@@ -590,7 +640,12 @@ impl Config {
                 env_secret = Some(SecretString::from(value));
                 continue;
             }
-            if name == ENV_AUTH_EPOCH_TOKEN || name == ENV_REDIS_URL || name == ENV_LEDGER_URL {
+            if name == ENV_AUTH_EPOCH_TOKEN
+                || name == ENV_REDIS_URL
+                || name == ENV_LEDGER_URL
+                || name == ENV_CHILD_DIRECTED_KEY
+                || name == ENV_CHILD_DIRECTED_KEY_PREVIOUS
+            {
                 env_secrets.insert(name, SecretString::from(value));
                 continue;
             }
@@ -632,6 +687,11 @@ impl Config {
                         .parse::<i64>()
                         .map_err(|_| err(format!("`{name}` must be an integer")))?,
                 ),
+                Kind::Boolean => toml::Value::Boolean(match value.trim() {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err(err(format!("`{name}` must be `true` or `false`"))),
+                }),
             };
             table.insert(key, parsed);
         }
@@ -655,6 +715,45 @@ impl Config {
             "ledger_url_file",
             raw.ledger_url_file.take(),
         )?;
+        let child_directed_key = secret(
+            ENV_CHILD_DIRECTED_KEY,
+            env_secrets.remove(ENV_CHILD_DIRECTED_KEY),
+            "child_directed_key_file",
+            raw.child_directed_key_file.take(),
+        )?;
+        let child_directed_key_previous = secret(
+            ENV_CHILD_DIRECTED_KEY_PREVIOUS,
+            env_secrets.remove(ENV_CHILD_DIRECTED_KEY_PREVIOUS),
+            "child_directed_key_previous_file",
+            raw.child_directed_key_previous_file.take(),
+        )?;
+        for key in [&child_directed_key, &child_directed_key_previous]
+            .into_iter()
+            .flatten()
+        {
+            if key.expose_secret().len() < crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES {
+                return Err(err(format!(
+                    "the child-directed key must be at least {} bytes",
+                    crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES
+                )));
+            }
+        }
+        match (&child_directed_key, &child_directed_key_previous) {
+            (None, Some(_)) => {
+                return Err(err(
+                    "the previous child-directed key needs a current one (`child_directed_key_file` \
+                     or F2Z_AI_CHILD_DIRECTED_KEY)",
+                ));
+            }
+            (Some(current), Some(previous))
+                if current.expose_secret() == previous.expose_secret() =>
+            {
+                return Err(err(
+                    "the previous child-directed key is the current one; a rotation needs a new key",
+                ));
+            }
+            _ => {}
+        }
         let defaults = Self::default();
         let addr = |key: &str, value: Option<String>, default: SocketAddr| match value {
             Some(text) => text
@@ -754,12 +853,16 @@ impl Config {
                 defaults.delivery_buffer_bytes,
             )?,
             delivery_stall: secs(raw.delivery_stall_secs, defaults.delivery_stall),
+            stream_keepalive: Some(secs(raw.stream_keepalive_secs, DEFAULT_STREAM_KEEPALIVE)),
             log_level,
             otlp_endpoint: raw.otlp_endpoint.filter(|s| !s.is_empty()),
             otlp_authorization,
             providers,
             auth,
             allowed_models: raw.allowed_models,
+            ledger_features_meta: raw.ledger_features_meta.unwrap_or(false),
+            child_directed_key,
+            child_directed_key_previous,
             catalog_url: raw.catalog_url,
             catalog_keys_file: raw.catalog_keys_file,
             ledger_url,
@@ -840,6 +943,15 @@ impl Config {
             if value.is_zero() {
                 return Err(err(format!("`{key}` must be at least 1")));
             }
+        }
+        if self
+            .stream_keepalive
+            .is_some_and(|every| !(1..=MAX_STREAM_KEEPALIVE_SECS).contains(&every.as_secs()))
+        {
+            return Err(err(format!(
+                "`stream_keepalive_secs` must be between 1 and {MAX_STREAM_KEEPALIVE_SECS}: the \
+                 TypeScript SDK drops a stream after 45 s without a byte (chat-api.md §3)"
+            )));
         }
         if let Some(endpoint) = &self.otlp_endpoint {
             if endpoint.starts_with("https://") {
@@ -1098,6 +1210,101 @@ mod tests {
         }
     }
 
+    #[test]
+    fn ledger_features_meta_is_off_unless_set_to_exactly_true() {
+        assert!(!Config::default().ledger_features_meta);
+        assert!(!Config::load(None, env(&[])).unwrap().ledger_features_meta);
+        let on = env(&[("F2Z_AI_LEDGER_FEATURES_META", "true")]);
+        assert!(Config::load(None, on).unwrap().ledger_features_meta);
+        let off = env(&[("F2Z_AI_LEDGER_FEATURES_META", "false")]);
+        assert!(!Config::load(None, off).unwrap().ledger_features_meta);
+        let path = file("ledger_features_meta = true");
+        assert!(
+            Config::load(Some(path.path()), env(&[]))
+                .unwrap()
+                .ledger_features_meta
+        );
+        for invalid in ["1", "yes", "TRUE", ""] {
+            assert!(
+                Config::load(None, env(&[("F2Z_AI_LEDGER_FEATURES_META", invalid)])).is_err(),
+                "{invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_child_directed_key_is_a_secret_of_at_least_32_bytes() {
+        assert!(
+            Config::load(None, env(&[]))
+                .unwrap()
+                .child_directed_key
+                .is_none()
+        );
+        let long = "k".repeat(32);
+        let ok = Config::load(None, env(&[("F2Z_AI_CHILD_DIRECTED_KEY", &long)])).unwrap();
+        assert!(ok.child_directed_key.is_some());
+        assert!(!format!("{ok:?}").contains(&long), "redacted in Debug");
+        let short = "k".repeat(31);
+        assert!(Config::load(None, env(&[("F2Z_AI_CHILD_DIRECTED_KEY", &short)])).is_err());
+        // Never inline in the file: only the path of a file holding it.
+        assert!(Config::load(Some(file("child_directed_key = \"x\"").path()), env(&[])).is_err());
+    }
+
+    #[test]
+    fn the_previous_child_directed_key_needs_a_different_current_one() {
+        let current = "c".repeat(32);
+        let previous = "p".repeat(32);
+        let both = Config::load(
+            None,
+            env(&[
+                ("F2Z_AI_CHILD_DIRECTED_KEY", &current),
+                ("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &previous),
+            ]),
+        )
+        .unwrap();
+        assert!(both.child_directed_key_previous.is_some());
+        assert!(
+            !format!("{both:?}").contains(&previous),
+            "redacted in Debug"
+        );
+        // Alone, too short, or the same key twice: refused at startup.
+        assert!(
+            Config::load(
+                None,
+                env(&[("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &previous)])
+            )
+            .is_err()
+        );
+        let short = "p".repeat(31);
+        assert!(
+            Config::load(
+                None,
+                env(&[
+                    ("F2Z_AI_CHILD_DIRECTED_KEY", &current),
+                    ("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &short),
+                ]),
+            )
+            .is_err()
+        );
+        assert!(
+            Config::load(
+                None,
+                env(&[
+                    ("F2Z_AI_CHILD_DIRECTED_KEY", &current),
+                    ("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &current),
+                ]),
+            )
+            .is_err()
+        );
+        assert!(
+            Config::load(
+                Some(file("child_directed_key_previous = \"x\"").path()),
+                env(&[])
+            )
+            .is_err()
+        );
+    }
+
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
         pairs
             .iter()
@@ -1149,6 +1356,7 @@ mod tests {
         assert_eq!(config.catalog_poll, Duration::from_secs(30));
         assert_eq!(config.delivery_buffer_bytes, 256 * 1024);
         assert_eq!(config.delivery_stall, Duration::from_secs(30));
+        assert_eq!(config.stream_keepalive, Some(Duration::from_secs(15)));
         assert!(config.otlp_endpoint.is_none());
         assert!(config.otlp_authorization.is_none());
     }
@@ -1428,6 +1636,26 @@ mod tests {
         );
         for value in ["0", "65537", "18446744073709551615"] {
             assert!(Config::load(None, env(&[(key, value)])).is_err());
+        }
+    }
+    #[test]
+    fn the_keepalive_is_configurable_but_always_inside_the_sdk_watchdog() {
+        let key = "F2Z_AI_STREAM_KEEPALIVE_SECS";
+        for (value, secs) in [("1", 1), ("30", 30)] {
+            assert_eq!(
+                Config::load(None, env(&[(key, value)]))
+                    .unwrap()
+                    .stream_keepalive,
+                Some(Duration::from_secs(secs))
+            );
+        }
+        // Zero cannot mean "off", and nothing at or past the TypeScript SDK's 45 s
+        // watchdog is accepted.
+        for value in ["0", "31", "45", "86400"] {
+            let error = Config::load(None, env(&[(key, value)]))
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("stream_keepalive_secs"), "{value}: {error}");
         }
     }
 }

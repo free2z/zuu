@@ -45,9 +45,20 @@ pub enum Error {
     Authorization(OAuthError),
     /// The token endpoint refused (`invalid_grant`, `invalid_client`, …).
     Token(OAuthError),
-    /// The browser or platform authentication session failed or was
-    /// dismissed.
+    /// The browser or platform authentication session failed for a reason
+    /// none of [`Error::UserCancelled`], [`Error::BrowserUnavailable`] or
+    /// [`Error::Timeout`] describes. The fallback: a session that cannot
+    /// tell why it ended reports this.
     Browser(String),
+    /// The user dismissed the sign-in sheet or browser before it redirected
+    /// back: the iOS `ASWebAuthenticationSession` cancel button, or returning
+    /// to an Android app from its Custom Tab without a callback. A deliberate
+    /// choice, not a failure: offer sign-in again, do not report an error.
+    UserCancelled,
+    /// No browser or platform authentication session could be shown (no
+    /// default browser, no window to present from, the session refused to
+    /// start). Nothing was shown to the user.
+    BrowserUnavailable(String),
     /// Nothing arrived in time. Almost always a registration mistake when it
     /// is the sign-in callback: the IdP does not redirect for an unknown
     /// client or redirect URI (`errors.md` §5).
@@ -132,6 +143,8 @@ impl fmt::Display for Error {
             Self::Authorization(e) => write!(f, "authorization refused: {e}"),
             Self::Token(e) => write!(f, "token endpoint refused: {e}"),
             Self::Browser(m) => write!(f, "browser: {m}"),
+            Self::UserCancelled => f.write_str("the user cancelled sign-in"),
+            Self::BrowserUnavailable(m) => write!(f, "browser unavailable: {m}"),
             Self::Timeout(what) => write!(f, "timed out waiting for {what}"),
             Self::IdToken(m) => write!(f, "ID token rejected: {m}"),
             Self::SignedOut(r) => write!(f, "signed out: {r}"),

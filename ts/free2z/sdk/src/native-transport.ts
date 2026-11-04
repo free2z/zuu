@@ -7,13 +7,24 @@ import {
   type ErrorContext,
 } from "./error.js";
 import { identifier, key, withOperation } from "./http.js";
-import { object, string, uint } from "./json.js";
+import { reportBody } from "./report.js";
+import { spendCapParams } from "./spend-cap.js";
+import {
+  object,
+  reasoningEffort,
+  responseFormat,
+  strictOutput,
+  string,
+  toolOptions,
+  uint,
+} from "./json.js";
 import type {
   ChatOptions,
   ChatRequest,
   ChatStream,
   OperationOptions,
   PurchaseRequest,
+  ReportReason,
   SignInOptions,
   Transport,
 } from "./types.js";
@@ -27,10 +38,21 @@ type NativeJson =
   | { [key: string]: NativeJson };
 export type NativeChatRequest = Omit<
   ChatRequest,
-  "max_output_tokens" | "tools"
+  "max_output_tokens" | "tools" | "response_format"
 > & {
   max_output_tokens?: string;
-  tools?: { name: string; description?: string; parameters: NativeJson }[];
+  tools?: {
+    name: string;
+    description?: string;
+    parameters: NativeJson;
+    strict?: boolean;
+  }[];
+  response_format?:
+    | { type: "json_object" }
+    | {
+        type: "json_schema";
+        json_schema: { name: string; schema: NativeJson; strict?: boolean };
+      };
 };
 /** Structural subset of the plugin guest API; importing this SDK never loads Tauri. */
 export interface NativeBridge {
@@ -39,6 +61,11 @@ export interface NativeBridge {
     prompt?: "none" | "login" | "consent";
     maxAge?: string;
     acrValues?: string;
+    /** Needs a plugin with spend-cap support; an older one refuses unknown keys. */
+    spendCap?: string;
+    spendPeriod?: string;
+    /** Needs a plugin with this option; an older one refuses unknown keys. */
+    ephemeral?: boolean;
   }): Promise<unknown>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;
   balance(): Promise<unknown>;
@@ -54,11 +81,30 @@ export interface NativeBridge {
   openCheckout(id: string): Promise<void>;
   startChat(
     request: NativeChatRequest,
-    operation: { operationId: string; idempotencyKey: string },
+    operation: {
+      operationId: string;
+      idempotencyKey: string;
+      /** Needs a plugin that pins registration; an older one refuses unknown keys. */
+      sessionGeneration?: string;
+    },
   ): Promise<{ operationId: string; callId?: string; replay?: unknown }>;
   nextChat(operationId: string): Promise<unknown | null>;
   cancelChat(operationId: string): Promise<void>;
   call(callId: string): Promise<unknown>;
+  /** Absent from plugins older than the account exits. */
+  manageAccountUrl?(): Promise<string>;
+  openManageAccount?(): Promise<void>;
+  deleteAccountUrl?(): Promise<string>;
+  openDeleteAccount?(): Promise<void>;
+  /** Absent from plugins older than 0.4.0; the plugin also needs its explicit permission. */
+  billingUrl?(): Promise<string>;
+  openBilling?(): Promise<void>;
+  /** Needs a plugin with reporting; `unsupported_operation` without it. */
+  reportCall?(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+  ): Promise<unknown>;
 }
 function parameters(value: unknown, depth = 0): NativeJson {
   if (depth > 64) failure("invalid_request");
@@ -89,8 +135,24 @@ function parameters(value: unknown, depth = 0): NativeJson {
   return result;
 }
 function request(value: ChatRequest): NativeChatRequest {
-  const { max_output_tokens, tools, ...rest } = value;
+  const {
+    max_output_tokens,
+    tools,
+    response_format: format,
+    ...rest
+  } = reasoningEffort(toolOptions(responseFormat(strictOutput(value))));
   const result: NativeChatRequest = { ...rest };
+  if (format?.type === "json_object") result.response_format = format;
+  else if (format !== undefined)
+    // The schema is ordinary JSON, like tool parameters: bigint becomes a
+    // safe number, never a decimal string.
+    result.response_format = {
+      type: "json_schema",
+      json_schema: {
+        ...format.json_schema,
+        schema: parameters(format.json_schema.schema),
+      },
+    };
   if (max_output_tokens !== undefined)
     result.max_output_tokens = uint(max_output_tokens).toString();
   if (tools !== undefined)
@@ -130,6 +192,18 @@ function nativeError(error: unknown): SdkError {
     if (typeof step.acrValues === "string")
       context.stepUp.acrValues = step.acrValues;
   }
+  if (
+    data.details &&
+    typeof data.details === "object" &&
+    !Array.isArray(data.details)
+  ) {
+    try {
+      // Same shape as FetchTransport: documented integers become bigint.
+      context.details = decode.nativeData(data.details);
+    } catch {
+      /* malformed optional details remain unknown */
+    }
+  }
   if (data.record !== undefined) {
     try {
       context.record = decode.callRecord(decode.nativeData(data.record));
@@ -152,6 +226,27 @@ async function invoke<T>(
   } catch (error) {
     throw nativeError(error);
   }
+}
+/** An account page URL from native: absolute `https` (or loopback for tests), no credentials. */
+function accountUrl(value: unknown): string {
+  if (typeof value !== "string") failure("invalid_response");
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    failure("invalid_response");
+  }
+  const loopback =
+    url.protocol === "http:" &&
+    (url.hostname === "127.0.0.1" || url.hostname === "[::1]");
+  if (
+    (url.protocol !== "https:" && !loopback) ||
+    url.username ||
+    url.password ||
+    url.hash
+  )
+    failure("invalid_response");
+  return value;
 }
 export class NativeTransport implements Transport {
   #epoch = 0;
@@ -176,6 +271,16 @@ export class NativeTransport implements Transport {
       if (!Number.isSafeInteger(options.maxAge) || options.maxAge < 0)
         failure("invalid_request");
       native.maxAge = String(options.maxAge);
+    }
+    if (options.spendCap !== undefined) {
+      const hint = spendCapParams(options.spendCap);
+      native.spendCap = hint.f2z_spend_cap;
+      if (hint.f2z_spend_period !== undefined)
+        native.spendPeriod = hint.f2z_spend_period;
+    }
+    if (options.ephemeral !== undefined) {
+      if (typeof options.ephemeral !== "boolean") failure("invalid_request");
+      native.ephemeral = options.ephemeral;
     }
     const session = decode.session(
       await invoke(() => this.bridge.signIn(native)),
@@ -223,6 +328,7 @@ export class NativeTransport implements Transport {
       ),
     );
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   async createPurchase(value: PurchaseRequest, options: OperationOptions) {
     key(options.idempotencyKey);
     try {
@@ -250,6 +356,36 @@ export class NativeTransport implements Transport {
   async openCheckout(id: string) {
     await invoke(() => this.bridge.openCheckout(identifier(id)));
   }
+  async manageAccountUrl() {
+    const read = this.bridge.manageAccountUrl;
+    if (!read) failure("unsupported_operation");
+    return accountUrl(await invoke(() => read.call(this.bridge)));
+  }
+  async openManageAccount() {
+    const open = this.bridge.openManageAccount;
+    if (!open) failure("unsupported_operation");
+    await invoke(() => open.call(this.bridge));
+  }
+  async deleteAccountUrl() {
+    const read = this.bridge.deleteAccountUrl;
+    if (!read) failure("unsupported_operation");
+    return accountUrl(await invoke(() => read.call(this.bridge)));
+  }
+  async openDeleteAccount() {
+    const open = this.bridge.openDeleteAccount;
+    if (!open) failure("unsupported_operation");
+    await invoke(() => open.call(this.bridge));
+  }
+  async billingUrl() {
+    const read = this.bridge.billingUrl;
+    if (!read) failure("unsupported_operation");
+    return accountUrl(await invoke(() => read.call(this.bridge)));
+  }
+  async openBilling() {
+    const open = this.bridge.openBilling;
+    if (!open) failure("unsupported_operation");
+    await invoke(() => open.call(this.bridge));
+  }
   async call(id: string, signal?: AbortSignal) {
     return decode.callRecord(
       decode.nativeData(
@@ -257,10 +393,37 @@ export class NativeTransport implements Transport {
       ),
     );
   }
+  async reportCall(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ) {
+    cancelled(signal);
+    const body = reportBody(callId, reason, detail);
+    if (!this.bridge.reportCall) failure("unsupported_operation");
+    // The server routes the canonical lowercase UUID only.
+    callId = callId.toLowerCase();
+    return decode.callReport(
+      decode.nativeData(
+        await invoke(
+          () =>
+            body.detail === undefined
+              ? this.bridge.reportCall!(callId, body.reason)
+              : this.bridge.reportCall!(callId, body.reason, body.detail),
+          signal,
+        ),
+      ),
+      callId,
+    );
+  }
   async chat(value: ChatRequest, options: ChatOptions): Promise<ChatStream> {
     key(options.idempotencyKey);
     identifier(options.operationId);
     cancelled(options.signal);
+    // Convert (and so validate) before any bridge call: a request refused
+    // locally never reaches native, so there is no operation to cancel.
+    const wire = request(value);
     const bridge = this.bridge,
       owner = this,
       epoch = this.#epoch;
@@ -286,12 +449,22 @@ export class NativeTransport implements Transport {
         await invoke(() => bridge.session(), options.signal),
       );
       current();
+      if (
+        options.sessionGeneration !== undefined &&
+        (!initial.signedIn || initial.generation !== options.sessionGeneration)
+      )
+        failure("signed_out");
       // Keep observing start after caller cancellation so the registered stream
       // is also closed if cancellation reached native before registration did.
       const pending = invoke(() =>
-        bridge.startChat(request(value), {
+        bridge.startChat(wire, {
           operationId: options.operationId,
           idempotencyKey: options.idempotencyKey,
+          // Native registration re-checks it under its own lock: the
+          // snapshot above can be stale by the time the call registers.
+          ...(options.sessionGeneration === undefined
+            ? {}
+            : { sessionGeneration: options.sessionGeneration }),
         }),
       );
       void pending

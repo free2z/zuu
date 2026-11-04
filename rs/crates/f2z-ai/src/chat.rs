@@ -55,6 +55,7 @@ use crate::auth::Gatekeeper;
 use crate::call::{self, Upstream};
 use crate::catalog::{self, VerifiedCatalog};
 use crate::error::ApiFailure;
+use crate::features::{Logged, RequestFeatures};
 use crate::metrics::Rejection;
 use crate::serve::ConnectionKill;
 
@@ -230,14 +231,46 @@ pub struct ChatState {
     pub delivery_buffer_bytes: usize,
     /// Time with frames waiting and none delivered before delivery ends.
     pub delivery_stall: Duration,
+    /// Upstream silence after which a streamed call sends `: ping`
+    /// (chat-api.md §3); `None` sends none.
+    pub stream_keepalive: Option<Duration>,
 }
 
 /// The handler.
+///
+/// Once the body has decoded and validated, the response carries a
+/// [`Logged`] extension — the request's content-free [`RequestFeatures`] and
+/// the call id once one is known — which the `response` log line reads
+/// (`crate::server`'s observe layer). It never reaches the client.
 pub async fn handle(State(state): State<ChatState>, request: Request) -> Response {
-    match serve(&state, request).await {
-        Ok(response) => response,
-        Err(failure) => failure.into_response(),
+    let mut logged = None;
+    let handle = request.extensions().get::<CallHandle>().cloned();
+    let (mut response, failed_call) = match serve(&state, request, &mut logged).await {
+        Ok(response) => (response, None),
+        Err(failure) => {
+            let call = failure
+                .detail_of("call_id")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|id| id.parse::<uuid::Uuid>().ok());
+            (failure.into_response(), call)
+        }
+    };
+    if let Some(mut logged) = logged {
+        logged.call_id = logged.call_id.or(failed_call).or_else(|| {
+            response
+                .headers()
+                .get("x-f2z-call-id")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|id| id.parse().ok())
+        });
+        // A refusal after the claim (e.g. response_format_unsupported) may
+        // carry no call id in its body; the backend recorded it here.
+        logged.call_id = logged
+            .call_id
+            .or_else(|| handle.as_ref().and_then(CallHandle::durable_call_id));
+        response.extensions_mut().insert(logged);
     }
+    response
 }
 
 /// Small authenticated GET routes use the same peer admission bound as chat.
@@ -309,7 +342,11 @@ pub async fn read_handle(State(state): State<ChatState>, request: Request) -> Re
         .unwrap_or_else(IntoResponse::into_response)
 }
 
-async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailure> {
+async fn serve(
+    state: &ChatState,
+    request: Request,
+    logged: &mut Option<Logged>,
+) -> Result<Response, ApiFailure> {
     let estimating = request.uri().path() == "/v1/chat/estimate";
     let (parts, body) = request.into_parts();
     let Some(call) = parts.extensions.get::<CallHandle>().cloned() else {
@@ -380,6 +417,14 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
     upload.merge(decoded);
     let request = decode(&bytes, state.max_body_bytes)?;
     validate(&request)?;
+    let principal = call
+        .principal()
+        .ok_or_else(|| ApiFailure::new(ErrorCode::Internal, "missing principal"))?;
+    validate_for(principal, &request)?;
+    *logged = Some(Logged {
+        features: RequestFeatures::of(&request),
+        call_id: None,
+    });
     drop(upload_lease);
     // The raw bytes are no longer needed, but the decoded request is about
     // as large and lives on into the backend's `start`: the reservation goes
@@ -393,6 +438,24 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
             "no verified, unexpired catalogue is loaded; the gateway will not price blind",
         ));
     };
+    if principal_child_directed(&call) {
+        // The call claim records the requested model id before the backend
+        // checks it, and an id is caller-chosen text. A child-directed app's
+        // record keeps catalogue ids only (CHILD-DIRECTED.md). And its calls
+        // go only to a provider the gateway sends `store: false` to: OpenAI.
+        for id in request.attempts() {
+            let Some(model) = catalog.catalog().models.iter().find(|m| m.id == id) else {
+                return Err(ApiFailure::new(ErrorCode::ModelNotFound, "no such model"));
+            };
+            if !CHILD_DIRECTED_PROVIDERS.contains(&model.provider.as_str()) {
+                return Err(ApiFailure::new(
+                    ErrorCode::ModelDisabled,
+                    "this model is not available to a child-directed app",
+                )
+                .detail("reason", "child_directed"));
+            }
+        }
+    }
 
     if estimating {
         let principal = call
@@ -441,6 +504,8 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
                 buffer_bytes: state.delivery_buffer_bytes,
                 stall: state.delivery_stall,
                 start_timeout: state.start_timeout,
+                // Streamed only: a non-streamed body is one JSON document.
+                keepalive: state.stream_keepalive.filter(|_| aggregation.is_none()),
             },
         },
         head,
@@ -448,6 +513,12 @@ async fn serve(state: &ChatState, request: Request) -> Result<Response, ApiFailu
     match body.await {
         Ok(Ok(mut body)) => {
             if let Some(record) = body.replay.take() {
+                if let Some(logged) = logged.as_mut() {
+                    logged.call_id = record
+                        .get("call_id")
+                        .and_then(serde_json::Value::as_str)
+                        .and_then(|id| id.parse().ok());
+                }
                 let mut response = axum::Json(record).into_response();
                 response
                     .headers_mut()
@@ -694,6 +765,14 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
         // have earned the image allowance.
         Err(_) if over_text_limit => return Err(too_large(text_limit)),
         Err(error) => {
+            if let Some(refusal) =
+                response_format_refusal(bytes).or_else(|| tool_option_refusal(bytes))
+            {
+                return Err(refusal);
+            }
+            if let Some(refusal) = reasoning_effort_refusal(bytes) {
+                return Err(refusal);
+            }
             let reason = match error.classify() {
                 serde_json::error::Category::Syntax => "syntax",
                 serde_json::error::Category::Eof => "eof",
@@ -714,6 +793,107 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
         return Err(too_large(text_limit));
     }
     Ok(request)
+}
+
+/// A body that failed to decode because of an unknown `response_format.type`
+/// gets a refusal that names the field, not just a line and column: it is
+/// the one mistake an integrator porting an OpenAI call (`"type": "text"`)
+/// is likely to make. Error path only; the body already passed
+/// [`json_complexity`] and the size limits. Never quotes the request.
+fn response_format_refusal(bytes: &[u8]) -> Option<ApiFailure> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let format = value.get("response_format")?;
+    if format.is_null() {
+        return Some(invalid(
+            "response_format",
+            "null",
+            "response_format must be an object; omit it for an unconstrained reply",
+        ));
+    }
+    match format.get("type").and_then(serde_json::Value::as_str) {
+        Some("json_schema" | "json_object") => None,
+        _ => Some(invalid(
+            "response_format.type",
+            "unsupported",
+            "response_format.type must be \"json_schema\" or \"json_object\"",
+        )),
+    }
+}
+
+/// As [`response_format_refusal`], for the tool controls an integrator
+/// porting from another API is likely to get wrong: a `tool_choice` that is
+/// not one of OpenAI's four shapes (Anthropic's `"any"`, `{"type":"tool"}`),
+/// a `null` control, and a tool `strict` that is not a boolean. Error path
+/// only; never quotes the request.
+fn tool_option_refusal(bytes: &[u8]) -> Option<ApiFailure> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    if let Some(choice) = value.get("tool_choice")
+        && serde_json::from_value::<f2z_ai_proto::chat::ToolChoice>(choice.clone()).is_err()
+    {
+        return Some(invalid(
+            "tool_choice",
+            if choice.is_null() {
+                "null"
+            } else {
+                "unsupported"
+            },
+            "tool_choice must be \"auto\", \"none\", \"required\" or {\"type\":\"function\",\"function\":{\"name\":...}}",
+        ));
+    }
+    if let Some(parallel) = value.get("parallel_tool_calls")
+        && !parallel.is_boolean()
+    {
+        return Some(invalid(
+            "parallel_tool_calls",
+            if parallel.is_null() {
+                "null"
+            } else {
+                "not_boolean"
+            },
+            "parallel_tool_calls must be true or false",
+        ));
+    }
+    let tools = value.get("tools")?.as_array()?;
+    for (index, tool) in tools.iter().enumerate() {
+        if let Some(strict) = tool.get("strict")
+            && !strict.is_boolean()
+        {
+            return Some(invalid(
+                &format!("tools[{index}].strict"),
+                if strict.is_null() {
+                    "null"
+                } else {
+                    "not_boolean"
+                },
+                "a tool's strict must be true or false",
+            ));
+        }
+    }
+    None
+}
+
+/// As [`response_format_refusal`], for `reasoning_effort`: a value OpenAI
+/// or xAI take that the unified wire does not (`"none"`, `"xhigh"`), or a
+/// present `null`, is named by field. Error path only; never quotes the
+/// request.
+fn reasoning_effort_refusal(bytes: &[u8]) -> Option<ApiFailure> {
+    let value: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let effort = value.get("reasoning_effort")?;
+    if effort.is_null() {
+        return Some(invalid(
+            "reasoning_effort",
+            "null",
+            "reasoning_effort must be a string; omit it for the provider's default",
+        ));
+    }
+    if serde_json::from_value::<f2z_ai_proto::chat::ReasoningEffort>(effort.clone()).is_ok() {
+        return None;
+    }
+    Some(invalid(
+        "reasoning_effort",
+        "unsupported",
+        "reasoning_effort must be \"minimal\", \"low\", \"medium\" or \"high\"",
+    ))
 }
 
 fn image_count(request: &ChatRequest) -> usize {
@@ -737,6 +917,38 @@ fn is_standard_base64(data: &str) -> bool {
         && body
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/')
+}
+
+/// Providers a child-directed call may reach: those the gateway sends an
+/// explicit no-store instruction to (`store: false`, both OpenAI adapters).
+pub const CHILD_DIRECTED_PROVIDERS: &[&str] = &["openai"];
+
+fn principal_child_directed(call: &CallHandle) -> bool {
+    call.principal().is_some_and(|p| p.child_directed)
+}
+
+/// The rules that depend on who is calling, after [`validate`].
+///
+/// A child-directed app (the access token's `child_directed` claim) may not
+/// send `metadata`: it is the only caller-chosen text a call record keeps,
+/// and for such an app the record holds numbers only. Refused, never
+/// dropped, so the developer finds out on the first call.
+///
+/// # Errors
+///
+/// `400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`.
+pub fn validate_for(
+    principal: &crate::auth::Principal,
+    request: &ChatRequest,
+) -> Result<(), ApiFailure> {
+    if principal.child_directed && !request.metadata.is_empty() {
+        return Err(invalid(
+            "metadata",
+            "child_directed",
+            "a child-directed app may not send metadata",
+        ));
+    }
+    Ok(())
 }
 
 /// chat-api.md §2.1's structural rules — the ones that do not need the
@@ -820,28 +1032,27 @@ pub fn validate(request: &ChatRequest) -> Result<(), ApiFailure> {
             "at most 20 image parts per request",
         ));
     }
-    for (index, tool) in request.tools.iter().enumerate() {
-        if tool.name.is_empty() {
-            return Err(invalid(
-                &format!("tools[{index}].name"),
-                "empty",
-                "a tool needs a name",
-            ));
-        }
-        if !tool.parameters.is_object() {
-            return Err(invalid(
-                &format!("tools[{index}].parameters"),
-                "not_object",
-                "tool parameters must be a JSON Schema object",
-            ));
-        }
-    }
+    request
+        .check_tools()
+        .map_err(|e| invalid(&e.field, e.reason, e.message))?;
     if request.max_output_tokens == Some(0) {
         return Err(invalid(
             "max_output_tokens",
             "out_of_range",
             "max_output_tokens must be at least 1",
         ));
+    }
+    if request.max_output_tokens_strict && request.max_output_tokens.is_none() {
+        return Err(invalid(
+            "max_output_tokens",
+            "required",
+            "max_output_tokens_strict requires max_output_tokens",
+        ));
+    }
+    if let Some(format) = &request.response_format {
+        format
+            .check()
+            .map_err(|e| invalid(e.field, e.reason, e.message))?;
     }
     if request.fallback.iter().any(String::is_empty) {
         return Err(invalid("fallback", "empty", "a fallback model id is empty"));
@@ -891,6 +1102,55 @@ mod tests {
         validate(&request(minimal())).unwrap();
     }
 
+    fn principal(child_directed: bool) -> crate::auth::Principal {
+        crate::auth::Principal {
+            sub: "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60".into(),
+            client_id: "app".into(),
+            app_id: "22222222-2222-4222-8222-222222222222".into(),
+            scope: "ai:invoke".into(),
+            aep: 0,
+            agen: 1,
+            exp: 0,
+            jti: "j".into(),
+            child_directed,
+        }
+    }
+
+    #[test]
+    fn no_caller_can_ask_a_provider_to_store_a_call() {
+        // `store: false` is the gateway's own, set in each OpenAI adapter
+        // (tests/adapter_requests.rs). A caller asking for storage — a
+        // child-directed one included — is refused before admission
+        // reaches a provider, never forwarded.
+        for member in [json!(true), json!(false)] {
+            let mut body = minimal();
+            body["store"] = member;
+            let refused = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(refused.status().as_u16(), 400, "{refused:?}");
+        }
+        let mut nested = minimal();
+        nested["metadata"] = json!({"store": "true"});
+        // Metadata is never sent to a provider at all; a child-directed app
+        // may not send it in the first place.
+        let nested = request(nested);
+        assert!(validate_for(&principal(true), &nested).is_err());
+    }
+
+    #[test]
+    fn a_child_directed_app_may_not_send_metadata() {
+        let mut with = minimal();
+        with["metadata"] = json!({"lesson": "fractions-2"});
+        let with = request(with);
+        let without = request(minimal());
+
+        validate_for(&principal(false), &with).unwrap();
+        validate_for(&principal(true), &without).unwrap();
+        let refused = validate_for(&principal(true), &with).unwrap_err();
+        let text = reason(&refused);
+        assert!(text.contains("child_directed"), "{text}");
+        assert!(text.contains("metadata"), "{text}");
+    }
+
     #[test]
     fn structural_rules_name_the_field_by_path() {
         let cases = [
@@ -928,6 +1188,18 @@ mod tests {
                 json!({"model": "m", "tools": [{"name": "f", "parameters": []}], "messages": [{"role": "user", "content": []}]}),
                 "tools[0].parameters",
             ),
+            (
+                json!({"model": "m", "max_output_tokens_strict": true, "messages": [{"role": "user", "content": []}]}),
+                "max_output_tokens",
+            ),
+            (
+                json!({"model": "m", "response_format": {"type": "json_schema", "json_schema": {"name": "bad name", "schema": {}}}, "messages": [{"role": "user", "content": []}]}),
+                "response_format.json_schema.name",
+            ),
+            (
+                json!({"model": "m", "response_format": {"type": "json_schema", "json_schema": {"name": "n", "schema": "{}"}}, "messages": [{"role": "user", "content": []}]}),
+                "response_format.json_schema.schema",
+            ),
         ];
         for (value, field) in cases {
             let failure = validate(&request(value)).unwrap_err();
@@ -937,6 +1209,225 @@ mod tests {
                 "{field}: {rendered}"
             );
         }
+    }
+
+    #[test]
+    fn tool_controls_are_named_when_malformed_and_need_tools() {
+        let tools = json!([{"name": "lookup", "parameters": {"type": "object"}}]);
+        // Decode: an OpenAI port's mistakes, named by field, never quoted.
+        for (member, value, reason) in [
+            ("tool_choice", json!("any"), "unsupported"),
+            (
+                "tool_choice",
+                json!({"type": "tool", "name": "CANARY"}),
+                "unsupported",
+            ),
+            ("tool_choice", serde_json::Value::Null, "null"),
+            ("parallel_tool_calls", serde_json::Value::Null, "null"),
+            ("parallel_tool_calls", json!("false"), "not_boolean"),
+        ] {
+            let mut body = minimal();
+            body["tools"] = tools.clone();
+            body[member] = value.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(failure.detail_of("field"), Some(&json!(member)), "{value}");
+            assert_eq!(failure.detail_of("reason"), Some(&json!(reason)), "{value}");
+            assert!(!reason_of(&failure).contains("CANARY"));
+        }
+        // Validate: a tool control needs tools, and a named function must be
+        // one of them.
+        for (extra, field, why) in [
+            (
+                json!({"tool_choice": "auto"}),
+                "tool_choice",
+                "requires_tools",
+            ),
+            (
+                json!({"parallel_tool_calls": false}),
+                "parallel_tool_calls",
+                "requires_tools",
+            ),
+            (
+                json!({"tools": tools, "tool_choice": {"type": "function", "function": {"name": "other"}}}),
+                "tool_choice.function.name",
+                "unknown_tool",
+            ),
+        ] {
+            let mut body = minimal();
+            for (key, value) in extra.as_object().unwrap() {
+                body[key] = value.clone();
+            }
+            let failure = validate(&request(body)).unwrap_err();
+            assert_eq!(failure.detail_of("field"), Some(&json!(field)));
+            assert_eq!(failure.detail_of("reason"), Some(&json!(why)));
+        }
+        // Negative control: every well-formed control validates with tools.
+        for choice in [
+            json!("auto"),
+            json!("none"),
+            json!("required"),
+            json!({"type": "function", "function": {"name": "lookup"}}),
+        ] {
+            let mut body = minimal();
+            body["tools"] = tools.clone();
+            body["tool_choice"] = choice;
+            body["parallel_tool_calls"] = json!(false);
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
+        }
+    }
+
+    fn reason_of(failure: &ApiFailure) -> String {
+        format!("{failure:?}")
+    }
+
+    #[test]
+    fn a_reasoning_effort_outside_the_wire_values_is_named_not_located() {
+        for (effort, why) in [
+            (json!("xhigh"), "unsupported"),
+            (json!("none"), "unsupported"),
+            (json!("High"), "unsupported"),
+            (json!(2), "unsupported"),
+            (serde_json::Value::Null, "null"),
+        ] {
+            let mut body = minimal();
+            body["reasoning_effort"] = effort.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(
+                failure.detail_of("field"),
+                Some(&json!("reasoning_effort")),
+                "{effort}"
+            );
+            assert_eq!(failure.detail_of("reason"), Some(&json!(why)), "{effort}");
+            // Never quotes the request.
+            assert!(!reason(&failure).contains("xhigh"));
+        }
+        // Negative control: every wire value decodes and validates.
+        for effort in ["minimal", "low", "medium", "high"] {
+            let mut body = minimal();
+            body["reasoning_effort"] = json!(effort);
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn an_unknown_response_format_type_is_named_not_located() {
+        for format in [
+            json!({"type": "text"}),
+            json!({"type": "xml", "json_schema": {}}),
+            json!({"json_schema": {"name": "n", "schema": {}}}),
+            json!("json_object"),
+        ] {
+            let mut body = minimal();
+            body["response_format"] = format.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            let rendered = reason(&failure);
+            assert!(
+                rendered.contains("\"response_format.type\"") && rendered.contains("unsupported"),
+                "{format}: {rendered}"
+            );
+        }
+        // A present null is refused by name, never read as absent.
+        let mut body = minimal();
+        body["response_format"] = serde_json::Value::Null;
+        let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("response_format")));
+        assert_eq!(failure.detail_of("reason"), Some(&json!("null")));
+        // A known type with a bad member keeps the generic schema refusal
+        // (and still never quotes the request).
+        let mut body = minimal();
+        body["response_format"] = json!({"type": "json_schema", "json_schema": {"name": "n", "schema": {}, "x": "CANARY"}});
+        let rendered = reason(&decode(body.to_string().as_bytes(), 1 << 20).unwrap_err());
+        assert!(
+            rendered.contains("schema") && !rendered.contains("CANARY"),
+            "{rendered}"
+        );
+        // And both known types decode and validate.
+        for format in [
+            json!({"type": "json_object"}),
+            json!({"type": "json_schema", "json_schema": {"name": "activity_spec", "schema": {"type": "object"}, "strict": true}}),
+        ] {
+            let mut body = minimal();
+            body["response_format"] = format;
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_tool_control_from_another_api_is_named_not_located() {
+        let with_tool = || {
+            let mut body = minimal();
+            body["tools"] = json!([{"name": "check_answer", "parameters": {"type": "object"}}]);
+            body
+        };
+        for (member, value, field, why) in [
+            ("tool_choice", json!("any"), "tool_choice", "unsupported"),
+            (
+                "tool_choice",
+                json!({"type": "tool", "name": "check_answer"}),
+                "tool_choice",
+                "unsupported",
+            ),
+            (
+                "tool_choice",
+                json!({"type": "function", "name": "check_answer"}),
+                "tool_choice",
+                "unsupported",
+            ),
+            (
+                "tool_choice",
+                serde_json::Value::Null,
+                "tool_choice",
+                "null",
+            ),
+            (
+                "parallel_tool_calls",
+                serde_json::Value::Null,
+                "parallel_tool_calls",
+                "null",
+            ),
+            (
+                "parallel_tool_calls",
+                json!("false"),
+                "parallel_tool_calls",
+                "not_boolean",
+            ),
+        ] {
+            let mut body = with_tool();
+            body[member] = value.clone();
+            let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+            assert_eq!(failure.detail_of("field"), Some(&json!(field)), "{value}");
+            assert_eq!(failure.detail_of("reason"), Some(&json!(why)), "{value}");
+        }
+        let mut body = with_tool();
+        body["tools"][0]["strict"] = serde_json::Value::Null;
+        let failure = decode(body.to_string().as_bytes(), 1 << 20).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("tools[0].strict")));
+        // Every OpenAI shape decodes and validates.
+        for choice in [
+            json!("auto"),
+            json!("none"),
+            json!("required"),
+            json!({"type": "function", "function": {"name": "check_answer"}}),
+        ] {
+            let mut body = with_tool();
+            body["tool_choice"] = choice;
+            body["parallel_tool_calls"] = json!(false);
+            body["tools"][0]["strict"] = json!(true);
+            validate(&decode(body.to_string().as_bytes(), 1 << 20).unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn tool_limits_are_refused_by_path() {
+        let mut body = minimal();
+        body["tool_choice"] = json!("required");
+        let failure = validate(&request(body)).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("tool_choice")));
+        assert_eq!(failure.detail_of("reason"), Some(&json!("requires_tools")));
+        let mut body = minimal();
+        body["tools"] = json!([{"name": "a b", "parameters": {}}]);
+        let failure = validate(&request(body)).unwrap_err();
+        assert_eq!(failure.detail_of("field"), Some(&json!("tools[0].name")));
     }
 
     #[test]

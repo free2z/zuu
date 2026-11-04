@@ -1,0 +1,53 @@
+{
+  "name": "anthropic_request_json_object",
+  "feature": "structured_output",
+  "source": "Migrated from tests/fixtures/anthropic/requests.json (#1140), case 'response_format json_object: any object'. Request translation only: no provider_stream, so the mock renders its own Anthropic text stream.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "json_object",
+          "description": "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "tool",
+        "name": "json_object",
+        "disable_parallel_tool_use": true
+      },
+      "response_format": null,
+      "parallel_tool_calls": null
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

@@ -21,7 +21,7 @@ const releasingPath = "wallet/zuuli/docs/releasing.md";
 // before hashing. The semantic section/table checks remain independent so a
 // reviewer gets a precise diagnostic rather than an opaque digest alone.
 const RELEASING_DOCUMENT_SHA256 =
-  "eeaed2febad3e0a9a217dda0d5e64017f72d6f875568b0d753020f8d784781f8";
+  "c5e2d9c60b4d24dca836aee01a1fe1ebd915489d9ab0f13a6517e522d358feba";
 const STATUS_DOCUMENT_SHA256 =
   "f235c7fff1e4cfddb31203fcca17672bb94e73951507a0e95100f0a01ff30ad5";
 const statusSourceMarkerPattern =

@@ -11,6 +11,24 @@ pub struct MobileRedirects {
     pub private_scheme: Option<String>,
 }
 
+/// The `code` a native `authorize` rejection carries, as the SDK's error.
+///
+/// iOS (`AuthRejection.swift`) and Android (`AuthRejection.kt`) reject with
+/// one of these codes when they know why the session ended. Anything else —
+/// no code, or a code this core does not know — is the `browser_error`
+/// fallback, which is what every rejection was before the codes existed.
+#[cfg(any(mobile, test))]
+pub(crate) fn native_auth_rejection(code: Option<&str>) -> f2z_sdk::Error {
+    match code {
+        Some("user_cancelled") => f2z_sdk::Error::UserCancelled,
+        Some("browser_unavailable") => {
+            f2z_sdk::Error::BrowserUnavailable("native authentication session".into())
+        }
+        Some("timeout") => f2z_sdk::Error::Timeout("the sign-in redirect"),
+        _ => f2z_sdk::Error::Browser("native session ended".into()),
+    }
+}
+
 #[cfg(not(mobile))]
 pub struct Platform;
 #[cfg(not(mobile))]
@@ -31,14 +49,21 @@ impl f2z_sdk::oauth::AuthSession for DesktopSession {
             Platform
                 .open(request.url.clone())
                 .await
-                .map_err(|_| f2z_sdk::Error::Browser("browser unavailable".into()))?;
+                .map_err(|_| f2z_sdk::Error::BrowserUnavailable("system browser".into()))?;
             self.0.authorize(request).await
         })
     }
 }
 #[cfg(not(mobile))]
 impl Platform {
-    pub async fn sign_in(&self, client: &Client, options: SignInOptions) -> Result<()> {
+    /// `_ephemeral`: the desktop system browser keeps its own cookies; use
+    /// `prompt: "login"` to switch accounts there.
+    pub async fn sign_in(
+        &self,
+        client: &Client,
+        options: SignInOptions,
+        _ephemeral: bool,
+    ) -> Result<()> {
         let noop: fn(&str) -> std::result::Result<(), String> = |_| Ok(());
         let session = DesktopSession(
             f2z_sdk::oauth::LoopbackSession::bind(noop)
@@ -57,6 +82,10 @@ impl Platform {
             .map_err(|_| NativeError::new("browser_error"))?
             .map_err(|_| NativeError::new("browser_error"))
     }
+    /// The user's default browser: on desktop, the same as [`Self::open`].
+    pub async fn open_external(&self, url: String) -> Result<()> {
+        self.open(url).await
+    }
 }
 
 #[cfg(mobile)]
@@ -64,7 +93,10 @@ mod mobile {
     use super::*;
     use f2z_sdk::oauth::{AuthSession, AuthorizationRequest, BoxFuture};
     use serde::{Deserialize, Serialize};
-    use tauri::{Runtime, plugin::PluginHandle};
+    use tauri::{
+        Runtime,
+        plugin::{PluginHandle, mobile::PluginInvokeError},
+    };
 
     pub struct MobilePlatform<R: Runtime> {
         pub handle: PluginHandle<R>,
@@ -85,10 +117,13 @@ mod mobile {
         url: String,
         redirect_uri: String,
         timeout_ms: u64,
+        /// Ignored by a native layer older than it (both decode leniently).
+        ephemeral: bool,
     }
     struct Session<R: Runtime> {
         handle: PluginHandle<R>,
         uri: String,
+        ephemeral: bool,
     }
     struct Cancel<R: Runtime>(PluginHandle<R>, String);
     impl<R: Runtime> Drop for Cancel<R> {
@@ -123,19 +158,30 @@ mod mobile {
                     url: request.url.clone(),
                     redirect_uri: self.uri.clone(),
                     timeout_ms: 300_000,
+                    ephemeral: self.ephemeral,
                 };
                 let callback = tauri::async_runtime::spawn_blocking(move || {
                     handle.run_mobile_plugin::<Callback>("authorize", args)
                 })
                 .await
                 .map_err(|_| f2z_sdk::Error::Browser("native session unavailable".into()))?
-                .map_err(|_| f2z_sdk::Error::Browser("native session ended".into()))?;
+                .map_err(|error| {
+                    super::native_auth_rejection(match &error {
+                        PluginInvokeError::InvokeRejected(rejected) => rejected.code.as_deref(),
+                        _ => None,
+                    })
+                })?;
                 Ok(callback.url)
             })
         }
     }
     impl<R: Runtime> MobilePlatform<R> {
-        pub async fn sign_in(&self, client: &Client, options: SignInOptions) -> Result<()> {
+        pub async fn sign_in(
+            &self,
+            client: &Client,
+            options: SignInOptions,
+            ephemeral: bool,
+        ) -> Result<()> {
             let handle = self.handle.clone();
             let redirects = self.redirects.clone();
             let redirect = tauri::async_runtime::spawn_blocking(move || {
@@ -147,6 +193,7 @@ mod mobile {
             let session = Session {
                 handle: self.handle.clone(),
                 uri: redirect.uri,
+                ephemeral,
             };
             client
                 .sign_in(&session, options)
@@ -155,11 +202,19 @@ mod mobile {
             Ok(())
         }
         pub async fn open(&self, url: String) -> Result<()> {
+            self.open_browser(url, false).await
+        }
+        /// The user's default browser app, not an in-app tab: Safari on iOS,
+        /// an `ACTION_VIEW` intent on Android.
+        pub async fn open_external(&self, url: String) -> Result<()> {
+            self.open_browser(url, true).await
+        }
+        async fn open_browser(&self, url: String, external: bool) -> Result<()> {
             let handle = self.handle.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 handle.run_mobile_plugin::<serde_json::Value>(
                     "openBrowser",
-                    serde_json::json!({"url":url}),
+                    serde_json::json!({"url":url,"external":external}),
                 )
             })
             .await
@@ -171,3 +226,53 @@ mod mobile {
 }
 #[cfg(mobile)]
 pub use mobile::MobilePlatform;
+
+#[cfg(test)]
+mod tests {
+    use super::native_auth_rejection;
+    use crate::wire::NativeError;
+
+    fn code(native: Option<&str>) -> String {
+        NativeError::from(native_auth_rejection(native))
+            .code
+            .clone()
+    }
+
+    #[test]
+    fn native_rejection_codes_reach_the_guest_distinctly() {
+        assert_eq!(code(Some("user_cancelled")), "user_cancelled");
+        assert_eq!(code(Some("browser_unavailable")), "browser_unavailable");
+        assert_eq!(code(Some("timeout")), "timeout");
+        // The fallback: an older native layer sends no code, and a code this
+        // core does not know is never passed through as if it were one.
+        for other in [
+            None,
+            Some(""),
+            Some("cancelled"),
+            Some("USER_CANCELLED"),
+            Some("weird"),
+        ] {
+            assert_eq!(code(other), "browser_error", "{other:?}");
+        }
+        for e in [
+            native_auth_rejection(Some("user_cancelled")),
+            native_auth_rejection(None),
+        ] {
+            assert!(!NativeError::from(e).retryable);
+        }
+    }
+
+    /// The codes are a wire contract between three languages with no shared
+    /// definition: pin each native source to the exact strings mapped above.
+    #[test]
+    fn native_sources_send_exactly_the_mapped_codes() {
+        let swift = include_str!("../ios/Sources/AuthRejection.swift");
+        let kotlin = include_str!("../android/src/main/java/AuthRejection.kt");
+        for wire in ["user_cancelled", "browser_unavailable", "timeout"] {
+            let literal = format!("\"{wire}\"");
+            assert!(swift.contains(&literal), "iOS never sends {wire}");
+            assert!(kotlin.contains(&literal), "Android never sends {wire}");
+            assert_eq!(code(Some(wire)), wire);
+        }
+    }
+}

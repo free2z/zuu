@@ -67,6 +67,59 @@ async fn sent_body(mock: &MockProvider, model: Model) -> Value {
     last.body.clone()
 }
 
+#[test]
+fn openai_standard_processing_cannot_be_overridden_by_caller_metadata() {
+    use f2z_ai::provider::{for_style, openai_chat::UsageConvention};
+    use f2z_ai_proto::catalog::ApiStyle;
+
+    let catalog = catalog(10_000);
+    let mut model = catalog.catalog().callable_model(CHAT.id).unwrap().clone();
+    let mut request = rich(CHAT.id);
+    request
+        .metadata
+        .insert("service_tier".into(), "priority".into());
+    for style in [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses] {
+        let adapter = for_style(style, UsageConvention::CompletionIncludesReasoning).unwrap();
+        model.provider = "openai".into();
+        let body = adapter.body(&request, &model, 16).unwrap().to_value();
+        assert_eq!(body["service_tier"], "default");
+        for provider in ["xai", "chatco"] {
+            model.provider = provider.into();
+            let body = adapter.body(&request, &model, 16).unwrap().to_value();
+            assert!(body.get("service_tier").is_none());
+        }
+    }
+}
+
+#[test]
+fn openai_never_stores_a_call_whichever_adapter_and_whatever_the_metadata() {
+    use f2z_ai::provider::{for_style, openai_chat::UsageConvention};
+    use f2z_ai_proto::catalog::ApiStyle;
+
+    let catalog = catalog(10_000);
+    let mut model = catalog.catalog().callable_model(CHAT.id).unwrap().clone();
+    let mut request = rich(CHAT.id);
+    request.metadata.insert("store".into(), "true".into());
+    model.provider = "openai".into();
+    for style in [ApiStyle::OpenaiChat, ApiStyle::OpenaiResponses] {
+        let adapter = for_style(style, UsageConvention::CompletionIncludesReasoning).unwrap();
+        let body = adapter.body(&request, &model, 16).unwrap().to_value();
+        assert_eq!(body["store"], false, "{style:?}");
+    }
+    // Chat Completions sends it to OpenAI only; other compatible providers
+    // do not document the member.
+    let chat = for_style(
+        ApiStyle::OpenaiChat,
+        UsageConvention::CompletionIncludesReasoning,
+    )
+    .unwrap();
+    for provider in ["xai", "chatco"] {
+        model.provider = provider.into();
+        let body = chat.body(&request, &model, 16).unwrap().to_value();
+        assert!(body.get("store").is_none(), "{provider}");
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn each_adapter_translates_the_unified_request() {
     let mock = MockProvider::start(Scenario::default()).await.unwrap();
@@ -85,6 +138,10 @@ async fn each_adapter_translates_the_unified_request() {
     let chat = sent_body(&mock, CHAT).await;
     assert_eq!(chat["model"], "m-chat-upstream");
     assert_eq!(chat["stream"], true);
+    assert!(
+        chat.get("service_tier").is_none(),
+        "compatible providers keep their own contract"
+    );
     assert_eq!(chat["stream_options"]["include_usage"], true);
     assert_eq!(
         chat["max_completion_tokens"], 8192,
@@ -124,6 +181,7 @@ async fn each_adapter_translates_the_unified_request() {
 
     let responses = sent_body(&mock, RESPONSES).await;
     assert_eq!(responses["store"], false);
+    assert_eq!(responses["service_tier"], "default");
     assert_eq!(responses["max_output_tokens"], 8192);
     let input = responses["input"].as_array().unwrap();
     let kinds: Vec<String> = input
@@ -279,5 +337,358 @@ async fn only_allowlisted_headers_reach_the_wire() {
         ] {
             assert!(!names.iter().any(|n| n == forbidden), "{forbidden}");
         }
+    }
+}
+
+/// The adapter catalogue with `m-chat` moved to `provider` and given
+/// `structured` as its declared `capabilities.structured_output`.
+fn with_chat_model(provider: &str, structured: Option<bool>) -> f2z_ai::catalog::VerifiedCatalog {
+    let mut value = serde_json::to_value(catalog(10_000).catalog()).unwrap();
+    for model in value["models"].as_array_mut().unwrap() {
+        if model["id"] == CHAT.id {
+            model["provider"] = json!(provider);
+            if let Some(declared) = structured {
+                model["capabilities"] = json!({"structured_output": declared});
+            }
+        }
+    }
+    f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap()).unwrap()
+}
+
+fn with_format(model: &str, format: &Value) -> ChatRequest {
+    let mut value = serde_json::to_value(request(model)).unwrap();
+    value["response_format"] = format.clone();
+    serde_json::from_value(value).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn response_format_reaches_chat_completions_exactly_as_sent() {
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let backend = backend(&mock.base_url(), tuning(0));
+    // gpt-4o's shape tonight: OpenAI, Chat Completions, no declaration.
+    let catalog = with_chat_model("openai", None);
+    // Wire round trip: client JSON text -> proto -> gateway -> provider body.
+    let activity = json!({"type": "json_schema", "json_schema": {
+        "name": "activity_spec", "strict": true,
+        "schema": {"type": "object", "additionalProperties": false,
+                   "properties": {"title": {"type": "string"}, "steps": {"type": "array", "items": {"type": "string"}}},
+                   "required": ["title", "steps"]}}});
+    for format in [activity, json!({"type": "json_object"})] {
+        let text = format!(
+            r#"{{"model":"{}","messages":[{{"role":"user","content":[{{"type":"text","text":"Reply in JSON."}}]}}],"response_format":{format}}}"#,
+            CHAT.id
+        );
+        let request: ChatRequest = serde_json::from_str(&text).unwrap();
+        let run = drive(&backend, &catalog, &request).await;
+        assert_eq!(run.outcome.failure, None);
+        let sent = mock.recorded_requests().last().unwrap().body.clone();
+        assert_eq!(sent["response_format"], format, "sent unchanged");
+        assert_eq!(sent["service_tier"], "default");
+    }
+    // Absent stays absent: nothing is invented for an ordinary call.
+    drive(&backend, &catalog, &request(CHAT.id)).await;
+    assert!(
+        mock.recorded_requests()
+            .last()
+            .unwrap()
+            .body
+            .get("response_format")
+            .is_none()
+    );
+    mock.shutdown().await;
+}
+
+/// zuu#1132: the caller's schema member order reaches the provider's wire
+/// bytes — `response_format` on Chat Completions, tool `parameters` on all
+/// three adapters. Read from the raw body text: the parsed `body` is a
+/// `serde_json::Value`, which sorts members and so cannot see the bug.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn schema_member_order_reaches_the_provider_as_sent() {
+    // Unsorted at every level: `reasoning` before `answer`, `type` last,
+    // `zeta` before `alpha`, nested `properties` unsorted too.
+    const SCHEMA: &str = r#"{"properties":{"reasoning":{"type":"string"},"answer":{"type":"object","properties":{"value":{"type":"number"},"unit":{"type":"string"}}}},"required":["reasoning","answer"],"additionalProperties":false,"type":"object"}"#;
+    const PARAMETERS: &str = r#"{"type":"object","properties":{"zeta":{"type":"string"},"alpha":{"type":"integer"}},"required":["zeta","alpha"]}"#;
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let backend = backend(&mock.base_url(), tuning(0));
+    let catalog = with_chat_model("openai", None);
+    let text = |model: &str, format: bool| {
+        let format = if format {
+            format!(
+                r#","response_format":{{"type":"json_schema","json_schema":{{"name":"activity_spec","schema":{SCHEMA},"strict":true}}}}"#
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            r#"{{"model":"{model}","messages":[{{"role":"user","content":[{{"type":"text","text":"Reply in JSON."}}]}}],"tools":[{{"name":"lookup","parameters":{PARAMETERS}}}]{format}}}"#
+        )
+    };
+    let sent_text = |request: ChatRequest| {
+        let backend = &backend;
+        let catalog = &catalog;
+        let mock = &mock;
+        async move {
+            let run = drive(backend, catalog, &request).await;
+            assert_eq!(run.outcome.failure, None, "{}", request.model);
+            mock.recorded_requests()
+                .last()
+                .unwrap()
+                .body_text
+                .clone()
+                .unwrap()
+        }
+    };
+    for (model, format) in [(CHAT, true), (RESPONSES, false), (ANTHROPIC, false)] {
+        // Client JSON text -> proto -> gateway -> provider bytes.
+        let request: ChatRequest = serde_json::from_str(&text(model.id, format)).unwrap();
+        let sent = sent_text(request).await;
+        let schema_key = if model.style == ProviderStyle::AnthropicMessages {
+            "input_schema"
+        } else {
+            "parameters"
+        };
+        assert!(
+            sent.contains(&format!(r#""{schema_key}":{PARAMETERS}"#)),
+            "{}: tool parameters reordered: {sent}",
+            model.id
+        );
+        if format {
+            assert!(
+                sent.contains(&format!(
+                    r#""json_schema":{{"name":"activity_spec","schema":{SCHEMA},"strict":true}}"#
+                )),
+                "{}: response_format schema reordered: {sent}",
+                model.id
+            );
+        }
+
+        // Negative control: the same request, its schemas round-tripped
+        // through `serde_json::Value` as the gateway did before #1132,
+        // reaches the provider sorted — so the assertions above can fail.
+        let via_value: ChatRequest =
+            serde_json::from_value(serde_json::from_str(&text(model.id, format)).unwrap()).unwrap();
+        let sorted = sent_text(via_value).await;
+        assert!(
+            !sorted.contains(PARAMETERS),
+            "{}: control did not reorder: {sorted}",
+            model.id
+        );
+        assert!(sorted.contains(r#""properties":{"alpha""#), "{sorted}");
+        if format {
+            assert!(!sorted.contains(SCHEMA), "{sorted}");
+            assert!(sorted.contains(r#""properties":{"answer""#), "{sorted}");
+        }
+    }
+
+    // Anthropic carries `response_format` as a forced tool whose
+    // `input_schema` is the caller's schema (#1140): that too goes as sent.
+    let anthropic = {
+        let mut value = serde_json::to_value(catalog.catalog()).unwrap();
+        for model in value["models"].as_array_mut().unwrap() {
+            if model["id"] == ANTHROPIC.id {
+                model["capabilities"] = json!({"structured_output": true});
+            }
+        }
+        f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap())
+            .unwrap()
+    };
+    let formatted = format!(
+        r#"{{"model":"{}","messages":[{{"role":"user","content":[{{"type":"text","text":"Reply in JSON."}}]}}],"response_format":{{"type":"json_schema","json_schema":{{"name":"activity_spec","schema":{SCHEMA},"strict":true}}}}}}"#,
+        ANTHROPIC.id
+    );
+    for (request, kept) in [
+        (
+            serde_json::from_str::<ChatRequest>(&formatted).unwrap(),
+            true,
+        ),
+        // Negative control: the same request through a `Value` arrives sorted.
+        (
+            serde_json::from_value(serde_json::from_str(&formatted).unwrap()).unwrap(),
+            false,
+        ),
+    ] {
+        let run = drive(&backend, &anthropic, &request).await;
+        assert_eq!(run.outcome.failure, None);
+        let sent = mock
+            .recorded_requests()
+            .last()
+            .unwrap()
+            .body_text
+            .clone()
+            .unwrap();
+        assert_eq!(
+            sent.contains(&format!(r#""input_schema":{SCHEMA}"#)),
+            kept,
+            "anthropic forced-tool input_schema: {sent}"
+        );
+        assert_eq!(sent.contains(r#""properties":{"answer""#), !kept, "{sent}");
+    }
+    mock.shutdown().await;
+}
+
+#[tokio::test]
+async fn response_format_is_refused_before_any_io_where_it_cannot_be_honoured() {
+    // Port 9 (discard): a request that got as far as I/O would fail with a
+    // connection error, not this refusal.
+    let backend = backend("http://127.0.0.1:9", tuning(0));
+    let format = json!({"type": "json_object"});
+    let cases = [
+        // No translation for these APIs, whatever the catalogue says.
+        (RESPONSES.id, with_chat_model("openai", None)),
+        (ANTHROPIC.id, with_chat_model("openai", None)),
+        // A compatible provider must be declared; absence is not support.
+        (CHAT.id, with_chat_model("chatco", None)),
+        // A declared `false` wins over the OpenAI default.
+        (CHAT.id, with_chat_model("openai", Some(false))),
+    ];
+    for (model, catalog) in &cases {
+        let e = backend
+            .open(&with_format(model, &format), catalog, Instant::now())
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(
+            (e.status().as_u16(), e.code()),
+            (400, "invalid_request"),
+            "{model}"
+        );
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!("response_format_unsupported")),
+            "{model}"
+        );
+        // Negative control: without the field, the same model and catalogue
+        // pass every pre-I/O check.
+        assert!(
+            backend
+                .open(&request(model), catalog, Instant::now())
+                .is_ok(),
+            "{model}"
+        );
+    }
+    // And a declaration admits a compatible provider.
+    assert!(
+        backend
+            .open(
+                &with_format(CHAT.id, &format),
+                &with_chat_model("chatco", Some(true)),
+                Instant::now()
+            )
+            .is_ok()
+    );
+}
+
+/// The adapter catalogue with `capabilities.reasoning_effort` declared on
+/// every model when `declared`, and `controls.effort_levels` = `levels`.
+fn with_effort(declared: bool, levels: Option<&[&str]>) -> f2z_ai::catalog::VerifiedCatalog {
+    let mut value = serde_json::to_value(catalog(10_000).catalog()).unwrap();
+    for model in value["models"].as_array_mut().unwrap() {
+        if declared {
+            model["capabilities"] = json!({"reasoning": true, "reasoning_effort": true});
+        }
+        if let Some(levels) = levels {
+            model["controls"] = json!({"effort_levels": levels});
+        }
+    }
+    f2z_ai::catalog::VerifiedCatalog::from_verified(serde_json::from_value(value).unwrap()).unwrap()
+}
+
+fn with_effort_request(model: &str, effort: &str) -> ChatRequest {
+    // Client JSON text -> proto: the wire round trip the SDKs make.
+    let mut value = serde_json::to_value(request(model)).unwrap();
+    value["reasoning_effort"] = json!(effort);
+    serde_json::from_str(&value.to_string()).unwrap()
+}
+
+/// zuu#1151 (S3, effort only): Chat Completions (OpenAI and xAI) sends
+/// `reasoning_effort` as a top-level string; Responses nests it as
+/// `reasoning.effort`. Documented shapes: platform.openai.com
+/// `chat/completions` `reasoning_effort` and `responses` `reasoning.effort`;
+/// docs.x.ai `chat/completions` `reasoning_effort`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reasoning_effort_reaches_each_openai_shaped_adapter_as_documented() {
+    let mock = MockProvider::start(Scenario::default()).await.unwrap();
+    let backend = backend(&mock.base_url(), tuning(0));
+    let catalog = with_effort(true, None);
+    for model in [CHAT, XAI, RESPONSES] {
+        for effort in ["minimal", "low", "medium", "high"] {
+            let run = drive(&backend, &catalog, &with_effort_request(model.id, effort)).await;
+            assert_eq!(run.outcome.failure, None, "{} {effort}", model.id);
+            let sent = mock.recorded_requests().last().unwrap().body.clone();
+            if model.style == ProviderStyle::OpenAiResponses {
+                assert_eq!(sent["reasoning"], json!({"effort": effort}), "{}", model.id);
+                assert!(sent.get("reasoning_effort").is_none(), "{}", model.id);
+            } else {
+                assert_eq!(sent["reasoning_effort"], json!(effort), "{}", model.id);
+                assert!(sent.get("reasoning").is_none(), "{}", model.id);
+            }
+        }
+        // Negative control: absent stays absent — the same model, catalogue
+        // and backend send neither member, so the assertions above can fail.
+        let run = drive(&backend, &catalog, &request(model.id)).await;
+        assert_eq!(run.outcome.failure, None, "{}", model.id);
+        let sent = mock.recorded_requests().last().unwrap().body.clone();
+        assert!(sent.get("reasoning_effort").is_none(), "{}", model.id);
+        assert!(sent.get("reasoning").is_none(), "{}", model.id);
+    }
+    mock.shutdown().await;
+}
+
+#[tokio::test]
+async fn reasoning_effort_is_refused_before_any_io_where_it_cannot_be_honoured() {
+    // Port 9 (discard): a request that got as far as I/O would fail with a
+    // connection error, not this refusal.
+    let backend = backend("http://127.0.0.1:9", tuning(0));
+    let undeclared = with_effort(false, None);
+    let declared = with_effort(true, None);
+    let narrowed = with_effort(true, Some(&["low", "high"]));
+    let cases = [
+        // Not declared: absence is never support, on any adapter.
+        (CHAT.id, "low", &undeclared),
+        (XAI.id, "high", &undeclared),
+        (RESPONSES.id, "medium", &undeclared),
+        // Declared, but Messages has no effort control (only a budget).
+        (ANTHROPIC.id, "low", &declared),
+        // Declared, but the level is not one the catalogue lists.
+        (CHAT.id, "medium", &narrowed),
+        (XAI.id, "minimal", &narrowed),
+    ];
+    for (model, effort, catalog) in cases {
+        let e = backend
+            .open(&with_effort_request(model, effort), catalog, Instant::now())
+            .map(|_| ())
+            .unwrap_err();
+        assert_eq!(
+            (e.status().as_u16(), e.code()),
+            (400, "invalid_request"),
+            "{model} {effort}"
+        );
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!("reasoning_effort_unsupported")),
+            "{model} {effort}"
+        );
+        assert_eq!(e.detail_of("field"), Some(&json!("reasoning_effort")));
+        // Negative control: without the field, the same model and catalogue
+        // pass every pre-I/O check.
+        assert!(
+            backend
+                .open(&request(model), catalog, Instant::now())
+                .is_ok(),
+            "{model}"
+        );
+    }
+    // A listed level, and a declared model with no list, are admitted.
+    for (model, effort, catalog) in [
+        (CHAT.id, "high", &narrowed),
+        (XAI.id, "low", &narrowed),
+        (CHAT.id, "minimal", &declared),
+        (RESPONSES.id, "medium", &declared),
+    ] {
+        assert!(
+            backend
+                .open(&with_effort_request(model, effort), catalog, Instant::now())
+                .is_ok(),
+            "{model} {effort}"
+        );
     }
 }

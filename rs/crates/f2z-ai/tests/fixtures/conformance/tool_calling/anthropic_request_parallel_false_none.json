@@ -1,0 +1,57 @@
+{
+  "name": "anthropic_request_parallel_false_none",
+  "feature": "tool_calling",
+  "source": "Migrated from tests/fixtures/anthropic/requests.json (#1140), case 'parallel_tool_calls false with none: nothing to serialise'. Request translation only: no provider_stream, so the mock renders its own Anthropic text stream.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ],
+    "tool_choice": "none",
+    "parallel_tool_calls": false
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "lookup",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "none"
+      },
+      "response_format": null,
+      "parallel_tool_calls": null
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

@@ -1,0 +1,262 @@
+{
+  "name": "openai_chat_json_schema_strict",
+  "feature": "structured_output",
+  "source": "OpenAI structured outputs guide (platform.openai.com/docs/guides/structured-outputs): response_format json_schema with strict, streamed as content deltas of the JSON text. The schema is metered.rs's order-sensitive activity_spec (zuu#1132). Synthetic, documented shape.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "An activity about fractions."
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 400,
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "activity_spec",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "level": {
+              "type": "string",
+              "enum": [
+                "intro",
+                "core",
+                "advanced"
+              ]
+            },
+            "steps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "prompt": {
+                    "type": "string"
+                  },
+                  "answer": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "prompt",
+                  "answer"
+                ]
+              }
+            },
+            "graded": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "title",
+            "steps",
+            "level",
+            "graded"
+          ]
+        }
+      }
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "activity_spec",
+          "schema": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "level": {
+                "type": "string",
+                "enum": [
+                  "intro",
+                  "core",
+                  "advanced"
+                ]
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "answer": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "prompt",
+                    "answer"
+                  ]
+                }
+              },
+              "graded": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "title",
+              "steps",
+              "level",
+              "graded"
+            ]
+          },
+          "strict": true
+        }
+      },
+      "stream_options": {
+        "include_usage": true
+      },
+      "tools": null
+    },
+    "provider_stream": [
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": ""
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "{\"title\":\"Fractions\",\"steps\":["
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "{\"prompt\":\"Half of 8?\",\"answer\":4}],\"lev"
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "el\":\"intro\",\"graded\":true}"
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 120,
+          "completion_tokens": 33,
+          "total_tokens": 153,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      "[DONE]"
+    ],
+    "events": [
+      {
+        "type": "delta",
+        "text": "{\"title\":\"Fractions\",\"steps\":["
+      },
+      {
+        "type": "delta",
+        "text": "{\"prompt\":\"Half of 8?\",\"answer\":4}],\"lev"
+      },
+      {
+        "type": "delta",
+        "text": "el\":\"intro\",\"graded\":true}"
+      }
+    ],
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 33,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

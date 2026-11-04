@@ -117,6 +117,7 @@ fn spec() -> wire::ChatOperation {
     wire::ChatOperation {
         operation_id: "operation".into(),
         idempotency_key: "saved-key".into(),
+        session_generation: None,
     }
 }
 #[tokio::test]
