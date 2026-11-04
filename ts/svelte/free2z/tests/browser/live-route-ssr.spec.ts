@@ -370,9 +370,8 @@ test.describe("#2420 paid-stream links unfurl as the creator's card", () => {
             body: {
               role: "viewer",
               expected_actor_id: 4498,
-              admission_idempotency_key: expect.stringMatching(
-                /^[0-9a-f-]{36}$/,
-              ),
+              admission_idempotency_key:
+                expect.stringMatching(/^[0-9a-f-]{36}$/),
             },
           });
         } else {

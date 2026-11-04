@@ -285,8 +285,8 @@ export class StreamService {
       type === "ppv" && role !== "host"
         ? (expectedActorId ?? get(currentUser)?.id)
         : undefined;
-      if (originalViewerId && type === "ppv" && !meetingSessionId)
-        throw new Error("PPV admission requires a meeting session");
+    if (originalViewerId && type === "ppv" && !meetingSessionId)
+      throw new Error("PPV admission requires a meeting session");
     try {
       signal?.throwIfAborted();
       if (type === "ppv" && role !== "host") {
