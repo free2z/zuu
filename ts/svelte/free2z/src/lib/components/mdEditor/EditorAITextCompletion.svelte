@@ -3,6 +3,7 @@
   import { currentUser } from "$lib/stores/auth";
   import { authStore } from "$lib/stores/auth";
   import { tStore as t } from "$lib/i18n";
+  import { newZpageCreateKey } from "$lib/zpage-create-idempotency.js";
   import type {
     CreatorAIOptionsResponse,
     CreatorPromptQuote,
@@ -43,7 +44,10 @@
     body: MeteredPromptRequest;
   } | null>(null);
   let ownership = authStore.captureRequestOwnership();
-  let editorIdentity = crypto.randomUUID();
+  // A secure context can mint this. An insecure one cannot (`randomUUID` is
+  // absent), and the writing surface still has to render — the editor's
+  // keyless-create tests delete `Crypto.prototype.randomUUID` on purpose.
+  let editorIdentity = newZpageCreateKey() ?? "editor";
   let priorActor = "";
   const pendingKey = (id: string) =>
     `f2z:editor-ai-text-intent:v1:${encodeURIComponent(id)}`;
@@ -133,7 +137,6 @@
   }
   async function submit() {
     if ((!quote && !pending) || busy) return;
-    const requestGeneration = ++generation;
     const submittedActor = actor,
       submittedPrompt = pending?.body.prompt ?? prompt,
       submittedModel = pending?.body.model ?? model,
@@ -154,7 +157,15 @@
     )
       return;
     if (!intent) {
-      intent = { actor: submittedActor, key: crypto.randomUUID(), body };
+      const key = newZpageCreateKey();
+      if (!key) {
+        error = $t(
+          "editor.aiTextGenerateError",
+          "Text generation failed. Review your choice and try again.",
+        );
+        return;
+      }
+      intent = { actor: submittedActor, key, body };
       pending = intent;
       try {
         localStorage.setItem(
@@ -165,6 +176,7 @@
         /* in-memory replay remains available */
       }
     }
+    const requestGeneration = ++generation;
     busy = true;
     preview = null;
     error = "";
