@@ -10544,7 +10544,8 @@ components:
           allOf:
           - $ref: '#/components/schemas/CatalogModelCapabilities'
           description: Signed capability policy, always emitted. Absent vision/tools/reasoning
-            mean false; absent structured_output/strict_tools means undeclared.
+            mean false; absent structured_output/strict_tools means undeclared; absent
+            forced_tool_choice preserves legacy tools/adapter admission.
         controls:
           allOf:
           - $ref: '#/components/schemas/CatalogModelControls'
@@ -10585,6 +10586,12 @@ components:
           description: '`strict: true` on a function tool is supported. Always emitted
             by this signer; a gateway reads absence as ''not declared'', never as
             false.'
+        forced_tool_choice:
+          type: boolean
+          description: 'Required/named function choice is supported. Explicit false
+            refuses forcing before a hold; absent preserves legacy tools/adapter admission.
+            No default: legacy rows omit this member; new rows default false pending
+            reviewed opt-in.'
         reasoning_effort:
           type: boolean
           default: false

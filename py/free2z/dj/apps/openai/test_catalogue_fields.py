@@ -34,7 +34,7 @@ pytestmark = pytest.mark.django_db
 
 NEW_COLUMNS = {"provider_model_id", "api_style", "ttfb_timeout_ms", "idle_timeout_ms", "safety_factor_bps",
                "supports_tools", "supports_vision", "supports_reasoning",
-               "supports_structured_output", "supports_strict_tools",
+               "supports_structured_output", "supports_strict_tools", "supports_forced_tool_choice",
                "supports_reasoning_effort", "reasoning_effort_levels", "tools_require_effort_none"}
 
 # The serializer's keys before  (fields='__all__' over the old columns).

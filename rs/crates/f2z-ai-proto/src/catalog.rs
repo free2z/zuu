@@ -94,7 +94,8 @@ pub struct Catalog {
 }
 
 /// Audited provider features carried inside the signed catalogue.
-/// Old catalogues and absent members conservatively advertise no support.
+/// Boolean members default false; optional declarations retain their documented
+/// legacy admission policy when absent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelCapabilities {
@@ -127,6 +128,15 @@ pub struct ModelCapabilities {
         deserialize_with = "declared_bool"
     )]
     pub strict_tools: Option<bool>,
+    /// Required or named function choice is supported. Absent preserves legacy
+    /// admission on adapters that translate tool controls; false refuses forcing.
+    /// Tools support is independently required. A present null is invalid.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub forced_tool_choice: Option<bool>,
     /// `ChatRequest::reasoning_effort` is supported: the model takes the
     /// provider's own effort control (OpenAI/xAI `reasoning_effort`). Not the
     /// same claim as [`ModelCapabilities::reasoning`], which says the model
@@ -149,6 +159,7 @@ impl ModelCapabilities {
             && !self.reasoning
             && self.structured_output.is_none()
             && self.strict_tools.is_none()
+            && self.forced_tool_choice.is_none()
             && !self.reasoning_effort
     }
 }

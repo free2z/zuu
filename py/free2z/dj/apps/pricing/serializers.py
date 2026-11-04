@@ -106,6 +106,12 @@ class CatalogModelCapabilitiesSerializer(serializers.Serializer):
         "emitted by this signer; a gateway reads absence as 'not declared', "
         "never as false.",
     )
+    forced_tool_choice = serializers.BooleanField(
+        required=False,
+        help_text="Required/named function choice is supported. Explicit false refuses "
+        "forcing before a hold; absent preserves legacy tools/adapter admission. "
+        "No default: legacy rows omit this member; new rows default false pending reviewed opt-in.",
+    )
     reasoning_effort = serializers.BooleanField(
         required=False, default=False,
         help_text="`reasoning_effort` is supported (zuu#1170); not implied by "
@@ -152,7 +158,8 @@ class CatalogModelSerializer(serializers.Serializer):
     enabled = serializers.BooleanField()
     capabilities = CatalogModelCapabilitiesSerializer(
         required=False, help_text="Signed capability policy, always emitted. Absent vision/tools/"
-        "reasoning mean false; absent structured_output/strict_tools means undeclared."
+        "reasoning mean false; absent structured_output/strict_tools means undeclared; "
+        "absent forced_tool_choice preserves legacy tools/adapter admission."
     )
     controls = CatalogModelControlsSerializer(
         required=False, help_text="Signed per-model narrowing (zuu#1170); present "
