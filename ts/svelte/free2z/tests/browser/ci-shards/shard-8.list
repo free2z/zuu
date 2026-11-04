@@ -1,3 +1,4 @@
+rtk-manager-prejoin.spec.ts
 recorder-app.spec.ts
 stream-host-seat.spec.ts
 stream-ppv-prompt.spec.ts
