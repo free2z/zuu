@@ -291,6 +291,8 @@ export interface Usage extends ObjectData {
   input_tokens?: bigint;
   cached_input_tokens?: bigint;
   cache_write_tokens?: bigint;
+  /** Hourly subset of cache_write_tokens. */
+  cache_write_1h_tokens?: bigint;
   output_tokens?: bigint;
   reasoning_tokens?: bigint;
   images?: bigint;

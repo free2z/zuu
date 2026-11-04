@@ -366,6 +366,7 @@ fn usage_of(usage: &Value, convention: UsageConvention) -> Result<Usage, Malform
             .ok_or(Malformed("output overflows"))?,
     };
     Ok(Usage {
+        cache_write_1h_tokens: 0,
         input_tokens: ordinary,
         cached_input_tokens: cached,
         cache_write_tokens: written,

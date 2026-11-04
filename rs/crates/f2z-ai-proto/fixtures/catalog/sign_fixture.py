@@ -58,7 +58,7 @@ catalog = {
                 "cached_input_nusd_per_mtok": 37500000,
                 "cache_write_nusd_per_mtok": 0,
                 "output_nusd_per_mtok": 600000000,
-                "image_nusd": 1000000,
+                "image_nusd": 0,
                 "tool_call_nusd": 10000000,
             },
             "min_charge_2z": 1,
@@ -118,26 +118,36 @@ catalog = {
 # they differ only when a name contains a character above U+FFFF compared
 # against one in U+E000..U+FFFF. A signer that could ever emit such a name must
 # sort by `name.encode("utf-16-be")` instead.
-served = json.dumps(catalog, indent=2, ensure_ascii=False) + "\n"
-canonical = json.dumps(catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
-key = Ed25519PrivateKey.from_private_bytes(SECRET)
-sig = key.sign(LABEL + canonical)
-pub = key.public_key().public_bytes_raw()
+def write_fixture(catalog, destination):
+    destination.mkdir(exist_ok=True)
+    served = json.dumps(catalog, indent=2, ensure_ascii=False) + "\n"
+    canonical = json.dumps(catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+    key = Ed25519PrivateKey.from_private_bytes(SECRET)
+    sig = key.sign(LABEL + canonical)
+    pub = key.public_key().public_bytes_raw()
 
-(HERE / "catalog.json").write_text(served, encoding="utf-8")
-(HERE / "catalog.canonical.json").write_bytes(canonical)
-(HERE / "signature.json").write_text(
-    json.dumps(
-        {
-            "key_id": "fixture-rfc8032-test1",
-            "public_key_hex": pub.hex(),
-            "signature_hex": sig.hex(),
-            "signing_label": LABEL.decode(),
-            "note": "RFC 8032 TEST 1 key. Public. Fixtures only; never a production key.",
-        },
-        indent=2,
+    (destination / "catalog.json").write_text(served, encoding="utf-8")
+    (destination / "catalog.canonical.json").write_bytes(canonical)
+    (destination / "signature.json").write_text(
+        json.dumps(
+            {
+                "key_id": "fixture-rfc8032-test1",
+                "public_key_hex": pub.hex(),
+                "signature_hex": sig.hex(),
+                "signing_label": LABEL.decode(),
+                "note": "RFC 8032 TEST 1 key. Public. Fixtures only; never a production key.",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
     )
-    + "\n",
-    encoding="utf-8",
-)
-print(pub.hex(), sig.hex())
+
+write_fixture(catalog, HERE)
+# Synthetic prices: protocol evidence only, never a provider rate publication.
+import copy
+v2 = copy.deepcopy(catalog)
+v2["schema"] = 2
+for model in v2["models"]:
+    model["prices"]["cache_write_1h_nusd_per_mtok"] = 17
+write_fixture(v2, HERE / "v2")
