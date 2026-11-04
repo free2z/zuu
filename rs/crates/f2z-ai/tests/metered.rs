@@ -853,6 +853,7 @@ async fn reasoning_timeouts_settle_at_the_provider_output_cap() {
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&mock.base_url(), tuning),
+            adapter_support::claim_key(),
         ));
         let catalog = if signed_effort {
             reasoning_effort_interruption_catalog()
@@ -966,6 +967,7 @@ async fn reasoning_requests_keep_complete_provider_usage_unchanged() {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let running = support::start(
         &support::config(&[]),
