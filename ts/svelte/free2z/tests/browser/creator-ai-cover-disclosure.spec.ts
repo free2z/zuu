@@ -655,6 +655,104 @@ test("empty catalogue has accessible retry and blocks paid submission", async ({
   expect(paid).toBe(1);
 });
 
+test("same-account auth epoch changes invalidate an in-flight completion", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  let release!: () => void, started!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const began = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const choice = {
+    id: "auth-epoch",
+    provider: "openai",
+    display_name: "Auth model",
+    destination: "OpenAI",
+    privacy_policy_url: "https://openai.com/policies/privacy-policy/",
+    availability: "Ready",
+    queue: "Now",
+  };
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "auth-epoch",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  await page.route(
+    (url) => url.pathname.startsWith("/api/"),
+    async (route) => {
+      const req = route.request(),
+        path = new URL(req.url()).pathname;
+      if (path === "/api/auth/user/") return route.fulfill({ json: CREATOR });
+      if (path === "/api/ai/creator-options/" && req.method() === "GET")
+        return route.fulfill({ json: { cover: [], completion: [choice] } });
+      if (path === "/api/ai/creator-options/" && req.method() === "POST")
+        return route.fulfill({
+          json: {
+            choice,
+            model: choice.id,
+            requested_output_tokens: 256,
+            max_output_tokens: 256,
+            max_charge_2z: 2,
+            quote_token: "auth-quote",
+            availability: "Ready",
+            queue: "Now",
+          },
+        });
+      if (path === "/api/ai/prompt/" && req.method() === "POST") {
+        started();
+        await held;
+        return route.fulfill({
+          json: {
+            response: "old session result",
+            provider: "openai",
+            model: "m",
+            display_name: "Auth model",
+            tuzis_charged: 1,
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        });
+      }
+      return route.fulfill({ json: {} });
+    },
+  );
+  await page.goto("/edit");
+  await expect(page.locator("textarea.writing-area-textarea")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByText("Draft with AI").click();
+  await page
+    .getByLabel("Prompt (sent to the selected provider)")
+    .fill("account-owned prompt");
+  await page
+    .getByRole("button", { name: "Show price and destination" })
+    .click();
+  await page.getByRole("button", { name: /Generate text/ }).click();
+  await began;
+  await page.evaluate(async () => {
+    const path = "/src/lib/stores/auth.ts";
+    const { authStore } = await import(/* @vite-ignore */ path);
+    authStore.clear();
+    authStore.updateCreator({
+      id: 8104,
+      username: "ai-cover-user",
+      full_name: "AI Cover User",
+    });
+  });
+  release();
+  await expect(page.getByText("old session result")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Generating/ })).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Show price and destination" }),
+  ).toBeEnabled();
+});
+
 test("cover generation discloses destination and price and gates explicit fallback", async ({
   page,
 }) => {
