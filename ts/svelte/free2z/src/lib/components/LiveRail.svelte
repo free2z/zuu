@@ -51,87 +51,92 @@
 <section
   data-testid="homepage-live-now"
   aria-labelledby="homepage-live-now-heading"
-  class="relative z-10 -mb-6 px-4 sm:px-6 md:-mt-2 md:-mb-8 lg:-mt-5 lg:-mb-16 lg:px-8"
+  class="relative z-10 -mb-6 md:-mt-2 md:-mb-8 lg:-mt-5 lg:-mb-16"
 >
+  <!-- Full-bleed glass band; the contents stay on the page column. -->
   <div
-    class="live-card relative mx-auto flex max-w-7xl min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border border-border/60 bg-card/30 p-3 backdrop-blur-sm sm:p-4 {narrow
-      ? 'lg:max-w-6xl'
-      : ''}"
+    class="live-card relative overflow-hidden border-y border-border/60 bg-card/30 backdrop-blur-sm"
   >
     <span
-      class="pointer-events-none absolute -top-16 -left-16 size-48 rounded-full bg-red-500/10 blur-3xl"
+      class="pointer-events-none absolute -top-16 left-[10%] size-48 rounded-full bg-red-500/10 blur-3xl"
       aria-hidden="true"
     ></span>
-    <div class="relative flex items-center gap-3 px-1">
-      <h2
-        id="homepage-live-now-heading"
-        class="flex shrink-0 items-center gap-2 font-mono text-[11px] font-bold tracking-[0.2em] text-red-500 uppercase"
-      >
-        <span class="live-dot" aria-hidden="true"></span>
-        <span>{$t("homepage.liveNow", "Live Now")}</span>
-        <span
-          class="font-normal tracking-normal text-muted-foreground"
-          aria-hidden="true">· {items.length}</span
-        >
-      </h2>
-      <span
-        class="h-px min-w-8 flex-1 border-t border-dashed border-border/50"
-        aria-hidden="true"
-      ></span>
-    </div>
-
-    <ul
-      class="rail-scroll relative -mx-3 -my-2 flex min-w-0 items-center gap-2.5 overflow-x-auto px-3 py-2 sm:-mx-4 sm:px-4"
+    <div
+      class="relative mx-auto flex max-w-7xl min-w-0 flex-col gap-3 px-4 py-3 sm:px-6 sm:py-4 lg:px-8 {narrow
+        ? 'lg:max-w-[76rem]'
+        : ''}"
     >
-      {#each items as it (it.key)}
-        <li class="shrink-0">
-          <a
-            data-testid="homepage-live-now-card"
-            href={it.href}
-            aria-label={it.label}
-            class="capsule group relative flex items-center gap-2.5 overflow-hidden rounded-full border border-white/10 bg-background/40 py-1.5 pr-4 pl-1.5 backdrop-blur-sm transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-px hover:border-red-500/40 focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+      <div class="relative flex items-center gap-3 px-1">
+        <h2
+          id="homepage-live-now-heading"
+          class="flex shrink-0 items-center gap-2 font-mono text-[11px] font-bold tracking-[0.2em] text-red-500 uppercase"
+        >
+          <span class="live-dot" aria-hidden="true"></span>
+          <span>{$t("homepage.liveNow", "Live Now")}</span>
+          <span
+            class="font-normal tracking-normal text-muted-foreground"
+            aria-hidden="true">· {items.length}</span
           >
-            <span
-              class="pointer-events-none absolute inset-0 scale-150 opacity-25 blur-xl saturate-150 transition-opacity duration-300 group-hover:opacity-45"
-              style:background={it.tint}
-              aria-hidden="true"
-            ></span>
-            <span
-              class="pointer-events-none absolute inset-0 rounded-full bg-linear-to-b from-white/[0.07] to-transparent"
-              aria-hidden="true"
-            ></span>
+        </h2>
+        <span
+          class="h-px min-w-8 flex-1 border-t border-dashed border-border/50"
+          aria-hidden="true"
+        ></span>
+      </div>
 
-            <span class="live-ring relative shrink-0 rounded-full">
+      <ul
+        class="rail-scroll relative -mx-3 -my-2 flex min-w-0 items-center gap-2.5 overflow-x-auto px-3 py-2 sm:-mx-4 sm:px-4"
+      >
+        {#each items as it (it.key)}
+          <li class="shrink-0">
+            <a
+              data-testid="homepage-live-now-card"
+              href={it.href}
+              aria-label={it.label}
+              class="capsule group relative flex items-center gap-2.5 overflow-hidden rounded-full border border-white/10 bg-background/40 py-1.5 pr-4 pl-1.5 backdrop-blur-sm transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-px hover:border-red-500/40 focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+            >
               <span
-                class="grid size-7 place-items-center overflow-hidden rounded-full text-[10px] font-bold text-white"
-                style:background={it.img ? undefined : it.tint}
-              >
-                {#if it.img}
-                  <img
-                    src={it.img}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    class="size-full object-cover"
-                  />
-                {:else}
-                  {it.initials}
-                {/if}
-              </span>
-            </span>
+                class="pointer-events-none absolute inset-0 scale-150 opacity-25 blur-xl saturate-150 transition-opacity duration-300 group-hover:opacity-45"
+                style:background={it.tint}
+                aria-hidden="true"
+              ></span>
+              <span
+                class="pointer-events-none absolute inset-0 rounded-full bg-linear-to-b from-white/[0.07] to-transparent"
+                aria-hidden="true"
+              ></span>
 
-            <span
-              class="relative text-sm font-semibold whitespace-nowrap text-foreground"
-              >{it.name}</span
-            >
-            <span
-              class="relative font-mono text-[10.5px] whitespace-nowrap text-foreground/65 transition-colors group-hover:text-foreground/85"
-              >{it.mode}</span
-            >
-          </a>
-        </li>
-      {/each}
-    </ul>
+              <span class="live-ring relative shrink-0 rounded-full">
+                <span
+                  class="grid size-7 place-items-center overflow-hidden rounded-full text-[10px] font-bold text-white"
+                  style:background={it.img ? undefined : it.tint}
+                >
+                  {#if it.img}
+                    <img
+                      src={it.img}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      class="size-full object-cover"
+                    />
+                  {:else}
+                    {it.initials}
+                  {/if}
+                </span>
+              </span>
+
+              <span
+                class="relative text-sm font-semibold whitespace-nowrap text-foreground"
+                >{it.name}</span
+              >
+              <span
+                class="relative font-mono text-[10.5px] whitespace-nowrap text-foreground/65 transition-colors group-hover:text-foreground/85"
+                >{it.mode}</span
+              >
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </div>
   </div>
 </section>
 
