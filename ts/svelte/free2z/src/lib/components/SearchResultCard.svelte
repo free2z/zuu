@@ -1,25 +1,27 @@
 <script lang="ts">
-  import { goto } from '$app/navigation';
-  import { formatDistanceToNow } from 'date-fns';
-  import { tStore as t } from '$lib/i18n';
-  import { env } from '$env/dynamic/public';
+  import { locale, tStore as t } from "$lib/i18n";
+  import { formatRelativeTime } from "$lib/utils/date";
+  import * as env from "$app/env/public";
   import * as Avatar from "$lib/components/ui/avatar/index.js";
   import { Badge } from "$lib/components/ui/badge/index.js";
   import { Card, CardContent } from "$lib/components/ui/card";
-  import { extractPlainText } from '$lib/utils/markdown';
+  import { translateCategory } from "$lib/components/mdEditor/categoryNames";
+  import TagChips from "$lib/components/TagChips.svelte";
+  import { extractPlainText } from "$lib/utils/markdown";
+  import { zpageCanonicalPath } from "$lib/zpage-path";
 
   export let article: any;
 
   // API base (remove trailing slash like other components)
-  const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, '') || '';
+  const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") || "";
 
   // Build avatar URL
   function buildAvatarUrl(avatar: any): string {
-    if (!avatar) return '';
+    if (!avatar) return "";
 
     // Use the thumbnail if available, otherwise the main URL
     const imageUrl = avatar.thumbnail || avatar.url;
-    if (!imageUrl) return '';
+    if (!imageUrl) return "";
 
     // If the URL is already absolute, use it as-is
     if (/^https?:\/\//.test(imageUrl)) {
@@ -27,16 +29,16 @@
     }
 
     // Otherwise prepend the API base URL and ensure single slash
-    return `${apiBase}${imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`}`;
+    return `${apiBase}${imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`}`;
   }
 
   // Build featured image URL
   function buildFeaturedImageUrl(featuredImage: any): string {
-    if (!featuredImage) return '';
+    if (!featuredImage) return "";
 
     // Use the thumbnail if available, otherwise the main URL
     const imageUrl = featuredImage.thumbnail || featuredImage.url;
-    if (!imageUrl) return '';
+    if (!imageUrl) return "";
 
     // If the URL is already absolute, use it as-is
     if (/^https?:\/\//.test(imageUrl)) {
@@ -44,7 +46,7 @@
     }
 
     // Otherwise prepend the API base URL and ensure single slash
-    return `${apiBase}${imageUrl.startsWith('/') ? imageUrl : `/${imageUrl}`}`;
+    return `${apiBase}${imageUrl.startsWith("/") ? imageUrl : `/${imageUrl}`}`;
   }
 
   // Format article content for excerpt
@@ -53,118 +55,148 @@
   }
 
   // Format date
-  function formatDate(dateString: string): string {
+  function formatDate(dateString: string, currentLocale: string): string {
     try {
-      return formatDistanceToNow(new Date(dateString), { addSuffix: true });
+      return formatRelativeTime(dateString, currentLocale);
     } catch {
       return dateString;
     }
   }
 
-  // Handle click to navigate to article
-  function handleClick() {
-    if (article?.get_url) {
-      // Transform URL from /username/zpage/vanity to /username/vanity
-      const transformedUrl = article.get_url.replace('/zpage/', '/');
-      goto(transformedUrl);
-    }
+  function formatScore(value: unknown, currentLocale: string): string {
+    return new Intl.NumberFormat(currentLocale, {
+      maximumFractionDigits: 0,
+    }).format(Number(value));
   }
 
-  // Handle keyboard navigation
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleClick();
-    }
-  }
+  $: articleHref =
+    zpageCanonicalPath(article || {}) ||
+    article?.get_url?.replace("/zpage/", "/");
 
   $: avatarUrl = buildAvatarUrl(article?.creator?.avatar_image);
   $: featuredImageUrl = buildFeaturedImageUrl(article?.featured_image);
-  $: excerpt = getExcerpt(article?.content || article?.description || '');
-  $: createdDate = formatDate(article?.created_at);
-  $: updatedDate = formatDate(article?.updated_at);
+  $: excerpt = getExcerpt(article?.content || article?.description || "");
+  $: createdDate = formatDate(article?.created_at, $locale);
+  $: updatedDate = formatDate(article?.updated_at, $locale);
 </script>
 
 <Card
-  role="button"
-  tabindex={0}
-  onclick={handleClick}
-  onkeydown={handleKeydown}
-  aria-label="Read article: {article?.title}"
-  class="block rounded-xl overflow-hidden transition-all duration-200 cursor-pointer text-inherit hover:border-primary hover:shadow-md hover:-translate-y-px focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-2"
+  class="block overflow-hidden rounded-xl text-inherit transition-colors duration-200 has-[a[aria-label]:hover]:border-primary"
 >
-<CardContent class="p-4 md:p-6">
-  <div class="grid gap-4 md:gap-5 grid-cols-1 md:grid-cols-[120px_1fr] items-start {!featuredImageUrl ? '!grid-cols-1' : ''}">
-    <!-- Featured Image (if available) -->
-    {#if featuredImageUrl}
-      <div class="w-full h-[150px] md:w-[120px] md:h-[90px] rounded-lg overflow-hidden shrink-0 -order-1 md:order-none">
-        <img src={featuredImageUrl} alt={article?.title || ''} loading="lazy" class="w-full h-full object-cover" />
-      </div>
-    {/if}
+  <CardContent class="p-4 md:p-6">
+    <a
+      href={articleHref}
+      aria-label={$t("common.article.readArticle", "Read article: {title}", {
+        title: article?.title || $t("editor.untitled", "Untitled"),
+      })}
+      class="block text-inherit no-underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+    >
+      <div
+        class="grid grid-cols-1 items-start gap-4 md:grid-cols-[120px_1fr] md:gap-5 {!featuredImageUrl
+          ? '!grid-cols-1'
+          : ''}"
+      >
+        <!-- Featured Image (if available) -->
+        {#if featuredImageUrl}
+          <div
+            class="-order-1 h-[150px] w-full shrink-0 overflow-hidden rounded-lg md:order-none md:h-[90px] md:w-[120px]"
+          >
+            <img
+              src={featuredImageUrl}
+              alt={article?.title || ""}
+              loading="lazy"
+              class="h-full w-full object-cover"
+            />
+          </div>
+        {/if}
 
-    <div class="min-w-0">
-      <!-- Article Title -->
-      <h3 class="text-lg md:text-xl font-semibold text-foreground m-0 mb-3 leading-tight line-clamp-2">
-        {article?.title || 'Untitled'}
-      </h3>
+        <div class="min-w-0">
+          <!-- Article Title -->
+          <h3
+            class="m-0 mb-3 line-clamp-2 text-lg leading-tight font-semibold text-foreground md:text-xl"
+          >
+            {article?.title || $t("editor.untitled", "Untitled")}
+          </h3>
 
-      <!-- Article Excerpt -->
-      {#if excerpt}
-        <p class="text-muted-foreground leading-relaxed m-0 mb-4 line-clamp-3">
-          {excerpt}
-        </p>
-      {/if}
+          <!-- Article Excerpt -->
+          {#if excerpt}
+            <p
+              class="m-0 mb-4 line-clamp-3 leading-relaxed text-muted-foreground"
+            >
+              {excerpt}
+            </p>
+          {/if}
 
-      <!-- Article Meta -->
-      <div class="flex flex-col md:flex-row md:justify-between items-start gap-3 md:gap-4 flex-wrap">
-        <!-- Author Info -->
-        <div class="flex items-center gap-2 sm:gap-3 min-w-0">
-          <Avatar.Root class="h-7 w-7 sm:h-8 sm:w-8 shrink-0">
-            {#if avatarUrl}
-              <Avatar.Image src={avatarUrl} alt={article?.creator?.username || 'Author'} />
-            {/if}
-            <Avatar.Fallback class="bg-primary text-primary-foreground font-semibold text-xs sm:text-sm">
-              {(article?.creator?.username || 'A')[0].toUpperCase()}
-            </Avatar.Fallback>
-          </Avatar.Root>
+          <!-- Article Meta -->
+          <div
+            class="flex flex-col flex-wrap items-start gap-3 md:flex-row md:justify-between md:gap-4"
+          >
+            <!-- Author Info -->
+            <div class="flex min-w-0 items-center gap-2 sm:gap-3">
+              <Avatar.Root class="h-7 w-7 shrink-0 sm:h-8 sm:w-8">
+                {#if avatarUrl}
+                  <Avatar.Image
+                    src={avatarUrl}
+                    alt={article?.creator?.username ||
+                      $t("common.article.author", "Author")}
+                  />
+                {/if}
+                <Avatar.Fallback
+                  class="bg-primary text-xs font-semibold text-primary-foreground sm:text-sm"
+                >
+                  {(article?.creator?.username || "A")[0].toUpperCase()}
+                </Avatar.Fallback>
+              </Avatar.Root>
 
-          <div class="flex flex-col gap-1 min-w-0">
-            <span class="text-sm font-medium text-foreground">
-              {$t('common.meta.createdBy')}
-              {article?.creator?.username || $t('common.meta.unknown')}
-            </span>
-            <span class="text-xs text-muted-foreground">
-              {#if article?.updated_at !== article?.created_at}
-                {$t('common.article.updatedOn')} {updatedDate}
-              {:else}
-                {$t('common.article.publishedOn')} {createdDate}
+              <div class="flex min-w-0 flex-col gap-1">
+                <span class="text-sm font-medium text-foreground">
+                  {$t("common.meta.createdBy")}
+                  {article?.creator?.username || $t("common.meta.unknown")}
+                </span>
+                <span class="text-xs text-muted-foreground">
+                  {#if article?.updated_at !== article?.created_at}
+                    {$t("common.article.updatedOn")} {updatedDate}
+                  {:else}
+                    {$t("common.article.publishedOn")} {createdDate}
+                  {/if}
+                </span>
+              </div>
+            </div>
+
+            <!-- Article Stats -->
+            <div class="flex w-full flex-wrap items-center gap-2 md:w-auto">
+              {#if article?.category}
+                <Badge
+                  variant="secondary"
+                  class="py-0.5 text-[10px] font-medium tracking-wider uppercase md:text-xs"
+                >
+                  {translateCategory(article.category, $t)}
+                </Badge>
               {/if}
-            </span>
+
+              {#if article?.f2z_score && parseFloat(article.f2z_score) > 0}
+                <Badge
+                  class="border-0 bg-gradient-to-br from-amber-500 to-amber-600 py-0.5 text-[10px] font-semibold text-white hover:from-amber-600 hover:to-amber-700 md:text-xs"
+                >
+                  {formatScore(article.f2z_score, $locale)} ⚡
+                </Badge>
+              {/if}
+
+              {#if article?.is_subscriber_only}
+                <Badge
+                  class="border-0 bg-gradient-to-br from-violet-500 to-violet-600 py-0.5 text-[10px] font-semibold text-white hover:from-violet-600 hover:to-violet-700 md:text-xs"
+                >
+                  🔒 {$t("common.article.premium", "Premium")}
+                </Badge>
+              {/if}
+            </div>
           </div>
         </div>
-
-        <!-- Article Stats -->
-        <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
-          {#if article?.category}
-            <Badge variant="secondary" class="uppercase tracking-wider font-medium text-[10px] md:text-xs py-0.5">
-              {article.category}
-            </Badge>
-          {/if}
-
-          {#if article?.f2z_score && parseFloat(article.f2z_score) > 0}
-            <Badge class="bg-gradient-to-br from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white border-0 font-semibold text-[10px] md:text-xs py-0.5">
-              {parseFloat(article.f2z_score).toFixed(0)} ⚡
-            </Badge>
-          {/if}
-
-          {#if article?.is_subscriber_only}
-            <Badge class="bg-gradient-to-br from-violet-500 to-violet-600 hover:from-violet-600 hover:to-violet-700 text-white border-0 font-semibold text-[10px] md:text-xs py-0.5">
-              🔒 Premium
-            </Badge>
-          {/if}
-        </div>
       </div>
-    </div>
-  </div>
-</CardContent>
+    </a>
+
+    <!-- Tag links are siblings of the article link, so each has one native
+         destination and cannot trigger article navigation as well. -->
+    <TagChips tags={article?.tags} limit={6} class="mt-3" />
+  </CardContent>
 </Card>

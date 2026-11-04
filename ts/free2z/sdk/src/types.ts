@@ -42,10 +42,23 @@ export interface Balance {
 }
 export interface Session {
   signedIn: boolean;
+  /** The stable account id. Key local data by this, never by a display name. */
   subject: string | null;
   grantedScopes: string[];
   persistence: "persistent" | "memory_only";
   generation: string;
+  /**
+   * The Free2Z username to show for the signed-in account, from the verified
+   * ID token of its sign-in. Present only when the `profile` scope was
+   * granted; otherwise absent (also from a native plugin older than it, and
+   * for a native session stored by one until the next sign-in). Free2Z
+   * accounts need no email: show this, never ask for one. Display only: not
+   * unique (usernames compare case-insensitively, so two can look alike) and
+   * not stable (the user can rename the account). Key data by `subject`.
+   */
+  preferredUsername?: string;
+  /** The account's display name, when it has one and `profile` was granted. */
+  name?: string;
 }
 export type CapPeriod = "day" | "week" | "month" | "total";
 /**
@@ -67,6 +80,16 @@ export interface SignInOptions {
   acrValues?: string;
   /** Optional, additive: see {@link SpendCapHint}. */
   spendCap?: SpendCapHint;
+  /**
+   * Native only (`NativeTransport`): sign in without the browser's cookies,
+   * so the page cannot reuse another account's web session (iOS
+   * `prefersEphemeralWebBrowserSession`; Android an ephemeral Custom Tab
+   * where supported; desktop ignores it). Default `false`. Needs a plugin
+   * with this option; an older one refuses the unknown key. The web
+   * transport refuses it (`invalid_request`). To switch accounts on every
+   * platform, pass `prompt: "login"`.
+   */
+  ephemeral?: boolean;
   signal?: AbortSignal;
 }
 /**
@@ -214,6 +237,7 @@ export interface ChatOptions extends OperationOptions {
   sessionGeneration?: string;
 }
 export type PurchaseRail = "card" | "zcash";
+/** @deprecated Since 0.4.0: apps don't sell 2Z; link users to Free2Z billing with `billingUrl()`. */
 export interface PurchaseRequest {
   rail: PurchaseRail;
   quantity2z: bigint;
@@ -449,7 +473,10 @@ export interface Estimate extends ObjectData {
 export type Preflight =
   | { kind: "ready"; estimate: Estimate }
   | {
-      /** Balance too low: offer a purchase (`createPurchase`). */
+      /** Balance too low: send the user to Free2Z billing
+       * (`openBilling()`), or "Manage Free2Z account" in store builds that
+       * must not link to payment. Re-read `balance()` when the app returns
+       * to the foreground. */
       kind: "needs_top_up";
       required2z?: bigint;
       availableMilli2z?: bigint;
@@ -515,6 +542,22 @@ export interface PollOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
 }
+/**
+ * Why the user reports an AI output. Offer these as preset choices: apps that
+ * children may use should not offer a free-text box.
+ */
+export type ReportReason = "incorrect" | "inappropriate" | "unsafe" | "other";
+/**
+ * The receipt of `Client.reportCall`. Reporting the same call again returns
+ * the same `report_id` with the latest reason.
+ */
+export interface CallReport {
+  report_id: string;
+  call_id: string;
+  /** A reason newer than this SDK decodes as `"unknown"`. */
+  reason: ReportReason | "unknown";
+  created_at: string;
+}
 export interface Transport {
   session(): Promise<Session>;
   signIn(options?: SignInOptions): Promise<Session>;
@@ -523,12 +566,30 @@ export interface Transport {
   grant(signal?: AbortSignal): Promise<Grant>;
   models(signal?: AbortSignal): Promise<Models>;
   estimate(request: ChatRequest, signal?: AbortSignal): Promise<Estimate>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   createPurchase(
     request: PurchaseRequest,
     options: OperationOptions,
   ): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   purchase(id: string, signal?: AbortSignal): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `openBilling`. */
   openCheckout(id: string): Promise<void>;
   chat(request: ChatRequest, options: ChatOptions): Promise<ChatStream>;
   call(id: string, signal?: AbortSignal): Promise<CallRecord>;
+  /** Optional so a custom transport keeps compiling; `Client` refuses without it. */
+  manageAccountUrl?(): Promise<string>;
+  openManageAccount?(): Promise<void>;
+  deleteAccountUrl?(): Promise<string>;
+  openDeleteAccount?(): Promise<void>;
+  /** Optional so a custom transport predating 0.4.0 keeps compiling; `Client` refuses without it. */
+  billingUrl?(): Promise<string>;
+  openBilling?(): Promise<void>;
+  /** Optional so a custom transport predating it still compiles. */
+  reportCall?(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ): Promise<CallReport>;
 }

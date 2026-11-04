@@ -8,7 +8,7 @@ const FFT_SIZE = 1024;
 const AudioMicrophoneVisualizer: React.FC = () => {
     const audioContextRef = useRef<AudioContext | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
-    const dataArrayRef = useRef<Uint8Array | null>(null);
+    const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
     const [isListening, setIsListening] = useState(false);
 
     const handleAudioStream = (stream: MediaStream) => {

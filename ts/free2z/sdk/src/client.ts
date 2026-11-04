@@ -8,6 +8,7 @@ import type {
   Preflight,
   Purchase,
   PurchaseRequest,
+  ReportReason,
   SignInOptions,
   Transport,
 } from "./types.js";
@@ -112,14 +113,81 @@ export class Client {
       }
     }
   }
+  /**
+   * @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing
+   * with {@link billingUrl} / {@link openBilling}, or "Manage Free2Z account"
+   * in store builds. Kept working for apps built on 0.3.0; it needs the
+   * `purchase:create` scope, which `DEFAULT_SCOPES` no longer requests. Card
+   * only: Zcash is paid on Free2Z's billing page, never through this API.
+   */
   createPurchase(request: PurchaseRequest, options: OperationOptions) {
     return this.transport.createPurchase(request, options);
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see {@link billingUrl}. */
   purchase(id: string, signal?: AbortSignal) {
     return this.transport.purchase(id, signal);
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see {@link openBilling}. */
   openCheckout(id: string) {
     return this.transport.openCheckout(id);
+  }
+  /**
+   * `{web origin}/account/apps?client_id=<this app>`: where the user manages
+   * this app's access and budget, and their Free2Z account and balance.
+   * Account management, not a checkout: label it "Manage Free2Z account",
+   * with no purchase wording. `unsupported_operation` from a transport or
+   * native bridge without the method; a Rust plugin without the command
+   * rejects with its native error instead.
+   */
+  async manageAccountUrl(): Promise<string> {
+    if (!this.transport.manageAccountUrl) failure("unsupported_operation");
+    return this.transport.manageAccountUrl();
+  }
+  /** Opens {@link manageAccountUrl} in the system browser, never a webview. */
+  async openManageAccount(): Promise<void> {
+    if (!this.transport.openManageAccount) failure("unsupported_operation");
+    return this.transport.openManageAccount();
+  }
+  /**
+   * `{web origin}/buy-2z?client_id=<this app>`: the user's Free2Z billing
+   * page, where they get 2Z — Zcash first, card second. Apps don't sell 2Z;
+   * this is the "get 2Z" link for `insufficient_balance`, `account_in_debt`
+   * and `needs_top_up`. There is no return redirect: re-read `balance()`
+   * when the app returns to the foreground.
+   *
+   * Opt-in, and not for every build: web apps, directly downloaded desktop
+   * apps and Apple-US-storefront builds may show it. A Google Play build, or
+   * an iOS build outside the US storefront, must not link to payment: show
+   * {@link openManageAccount} ("Manage Free2Z account") instead. Under a
+   * native plugin it also needs the explicit `f2z:allow-billing-url`
+   * permission. `unsupported_operation` from a transport or native bridge
+   * without the method.
+   */
+  async billingUrl(): Promise<string> {
+    if (!this.transport.billingUrl) failure("unsupported_operation");
+    return this.transport.billingUrl();
+  }
+  /**
+   * Opens {@link billingUrl} in the system browser, never a webview. Under a
+   * native plugin it needs the explicit `f2z:allow-open-billing` permission,
+   * which a store build that must not link to payment never grants.
+   */
+  async openBilling(): Promise<void> {
+    if (!this.transport.openBilling) failure("unsupported_operation");
+    return this.transport.openBilling();
+  }
+  /** `{web origin}/account/delete`: where the user deletes their Free2Z account. */
+  async deleteAccountUrl(): Promise<string> {
+    if (!this.transport.deleteAccountUrl) failure("unsupported_operation");
+    return this.transport.deleteAccountUrl();
+  }
+  /**
+   * Opens {@link deleteAccountUrl} in the system browser: the in-app account
+   * deletion path the App Store and Google Play require.
+   */
+  async openDeleteAccount(): Promise<void> {
+    if (!this.transport.openDeleteAccount) failure("unsupported_operation");
+    return this.transport.openDeleteAccount();
   }
   chat(request: ChatRequest, options: ChatOptions) {
     return this.transport.chat(request, options);
@@ -127,7 +195,35 @@ export class Client {
   call(id: string, signal?: AbortSignal) {
     return this.transport.call(id, signal);
   }
-  /** Returns the last observed intent at the deadline, including pending/paid. */
+  /**
+   * Report a call's AI output (`POST /api/sdk/v1/calls/{id}/report`): one
+   * tap on the output, preset reasons, never leaving the app. Free2Z keeps
+   * the call id, reason and `detail` — never the AI content; the app's
+   * developer (`GET /api/oauth/apps/{app_id}/reports/`) and Free2Z moderation see it, and
+   * `unsafe` alerts Free2Z staff. Reporting the same call again replaces the
+   * reason and returns the same `report_id`.
+   *
+   * `detail` is optional: 1–200 characters, one line. Prefer an app-defined
+   * preset (`"wrong_grade"`); apps that children may use should not offer a
+   * free-text box, and a child-directed app (`FetchConfig.childDirected`, or
+   * the Rust `Config::child_directed` under a native plugin) sends none. A
+   * bad argument throws `invalid_request`
+   * (`details.field`) before anything is sent; a call this user and app did
+   * not make is the server's 404.
+   */
+  reportCall(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ) {
+    if (!this.transport.reportCall) failure("unsupported_operation");
+    return this.transport.reportCall(callId, reason, detail, signal);
+  }
+  /**
+   * Returns the last observed intent at the deadline, including pending/paid.
+   * @deprecated Since 0.4.0: apps don't sell 2Z; see {@link billingUrl}.
+   */
   waitForPurchase(id: string, options?: PollOptions): Promise<Purchase> {
     return this.#poll(
       (signal) => this.purchase(id, signal),

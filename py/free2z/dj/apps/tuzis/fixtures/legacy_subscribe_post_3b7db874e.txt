@@ -1,0 +1,273 @@
+# Historical CreatorSubscribeView.post from main 3b7db874e.
+# Verbatim method (dedented, without schema decorators) and its receipt
+# lookup helper. Keep frozen: this is the other pod in the mixed-version
+# rollout regression, not a mock.
+def post(self, request, *args, **kwargs):
+    # this buys 30 more days of a creator
+    star: Creator = get_object_or_404(
+        Creator, username=kwargs.get('username'))
+    fan: Creator = request.user
+
+    if star.username == fan.username:
+        return Response(
+            data={'error': "Don't subscribe to yourself, lol"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    raw_idem_key = request.headers.get(self.IDEMPOTENCY_HEADER)
+    idem_key = _idempotency_key(request)
+    if raw_idem_key is not None and idem_key is None:
+        return _credit_error(
+            "invalid_idempotency_key",
+            "Idempotency-Key must be a UUIDv4.",
+            status.HTTP_400_BAD_REQUEST,
+        )
+    claim = None
+    if idem_key:
+        # The confirmed route owns this key too (the application contract moved the new-ui
+        # there). Look under its scope BEFORE claiming under ours, or an
+        # old bundle retrying a committed confirmed purchase pays twice.
+        # Also before the `is_active` / `member_price` gates below, for
+        # the reason given on the mirror lookup in ConfirmedSubscribeView:
+        # a committed purchase must not be reported as a 404/400 the
+        # client can never recover from.
+        confirmed_replay = _confirmed_subscribe_receipt(
+            fan, star, idem_key)
+        if confirmed_replay is not None:
+            return confirmed_replay
+        try:
+            # Scope the key to the TARGET, not just the operation. A key
+            # reused across two different creators is two different
+            # requests; replaying the first creator's "OK" would silently
+            # swallow a subscription to the second. (codex review.)
+            claim = idempotency.claim(
+                f"{self.IDEMPOTENCY_SCOPE}:{star.pk}",
+                fan,
+                idem_key,
+                request_hash=idempotency.fingerprint({
+        "creator": str(star.pk),
+                    "creator_username": star.username,
+                    "intent": "subscribe",
+                }),
+            )
+        except idempotency.IdempotencyConflict as conflict:
+            # "Finished" is not "a different intent" HERE either. This
+            # route's fingerprint carries no price, so the only way a
+            # COMPLETED receipt conflicts is a creator RENAME between the
+            # purchase and the retry -- narrow, but the outcome was a
+            # second month: `key_resolved: true`, and all three bundles
+            # retire the key and buy again. It is also exactly what the
+            # 409 schema above already promises ("a finished receipt for
+            # a membership you are still holding ... replays as a 200
+            # instead"), so the code contradicted its own published
+            # contract -- the the application contract defect, on the route the application contract is fixing.
+            # (Adversarial review of the application contract, round 3.)
+            #
+            # `scope_is_creator_bound`: this scope is
+            # `subscribe:<star.pk>`, so every receipt in it is this
+            # creator's, and a legacy receipt carries no `_creator_pk` to
+            # compare anyway.
+            settled = _completed_purchase_this_key_already_made(
+                conflict.record, fan, star, scope_is_creator_bound=True,
+            )
+            if settled is not None:
+                return settled
+            return _credit_error(
+                "idempotency_mismatch",
+                "This idempotency key was already used for a different request.",
+                status.HTTP_409_CONFLICT,
+                # See `_claim`: true means the other request COMPLETED, so
+                # this key holds no evidence about the current intent and
+                # a new one may safely be minted. The guard above has
+                # already ruled out the one case where "completed" WOULD
+                # be evidence -- the membership this fan is still holding.
+                # Deliberately absent from the cross-route refusals below,
+                # where the receipt might be this very purchase.
+                key_resolved=(
+                    conflict.record.response_status is not None
+                ),
+            )
+        except idempotency.DuplicateRequest as dup:
+            if dup.in_flight:
+                # The original is still running. Reporting success would be
+                # a lie and reporting failure would invite another click,
+                # so say "ask again".
+                return Response(
+                    data={'error': 'Request already in progress'},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            return _never_report_a_membership_that_ended(
+                Response(
+                    {**dup.record.response_body, "replayed": True},
+                    status=dup.record.response_status,
+                ),
+                fan,
+                star,
+            )
+
+    if not star.is_active:
+        if claim is not None:
+            idempotency.release(claim)
+        return Response(
+            data={'error': 'Creator not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    # should we set an automatic minimum member price to fix this bug?
+    if not star.member_price:
+        if claim is not None:
+            idempotency.release(claim)
+        return Response(
+            data={'error': 'Creator did not set member price'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        # ONE transaction covering the charge AND the recording of the
+        # idempotency result. This is what makes an unfinished claim mean
+        # exactly one thing: "the charge did not commit". If the pod dies
+        # mid-request, the money transaction and claim.finish() roll back
+        # together, so the later stale-claim takeover in idempotency.claim
+        # cannot re-run a charge that already happened.
+        with transaction.atomic():
+            sub, _ = Subscription.objects.get_or_create(
+                star=star,
+                fan=fan,
+                defaults={
+                    'max_price': star.member_price,
+                },
+            )
+            # extend() is idempotent within SUBSCRIBE_DEBOUNCE and returns
+            # False when it swallowed a duplicate.
+            #
+            # Either way this is a 200: the caller ends up subscribed, and
+            # a retry that looks like a failure is exactly what makes
+            # people click a third time. But it says WHICH it was.
+            # Returning an identical "OK" for a charge and for a swallowed
+            # duplicate leaves the client — and anyone reading logs during
+            # an incident — unable to tell whether 2Z moved on a 2Z
+            # endpoint. `expires` rides along so the client can show the
+            # real membership end date instead of assuming +30 days.
+            charged = sub.extend()
+            body = {
+                'charged': charged,
+                'expires': sub.expires.isoformat(),
+                'replayed': False,
+            }
+            if claim is not None:
+                claim.finish(status.HTTP_200_OK, body)
+    except ledger.InsufficientFunds as exc:
+        if claim is not None:
+            # No 2Z moved, so don't burn the key.
+            idempotency.release(claim)
+        return Response(
+            data=ledger.insufficient_funds_payload(
+                exc, action="subscription"
+            ),
+            status=status.HTTP_402_PAYMENT_REQUIRED,
+        )
+    except ledger.InactiveCreator:
+        if claim is not None:
+            idempotency.release(claim)
+        return Response(
+            data={'error': 'Creator not found'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+    except Exception:
+        if claim is not None:
+            idempotency.release(claim)
+        raise
+
+    return Response(body)
+
+
+def _confirmed_subscribe_receipt(fan, star, key):
+    """Refuse (or replay) a key POST /subscribe-confirmed/ already spent.
+
+    The mirror of `_legacy_subscribe_receipt`, and it is needed for the same
+    reason in the opposite direction: the new-ui now buys on the confirmed
+    route, but an older bundle in a tab that has been open across the deploy
+    -- or a rollback -- still posts here, and it reads the SAME persisted key
+    out of localStorage. Without this lookup the legacy route finds nothing
+    under `subscribe:<pk>`, claims afresh and charges a second month for the
+    intent the confirmed route already committed. Bridging only one direction
+    is not a bridge (codex adversarial review of #1585/#1584).
+
+    Returns None when the confirmed route never saw this key, and when it saw
+    it for a POSITIVELY IDENTIFIED different creator -- this route scopes
+    claims per creator, so that key is unspent here and a normal claim is the
+    correct, chargeable answer. A completed receipt for THIS creator, for a
+    membership still running, replays in this route's response shape. A
+    receipt this route cannot identify -- still running, or no `_creator_pk`
+    because it predates #1585 -- is a 409: it may be this creator's, so mint
+    a new key. So is one whose month has already ended, and that one is NOT a
+    fall-through to a chargeable claim (`_spent_on_a_membership_that_ended`
+    has the reasoning). Nothing is charged in the 409 cases, which is the
+    whole point.
+    """
+    record = idempotency.replay_record_or_release_abandoned(
+        CONFIRMED_SUBSCRIBE_SCOPE, fan, key,
+    )
+    if record is None:
+        return None
+    if record.response_status is None:
+        # Still in flight on the other route. Undecided, not failed.
+        return Response(
+            data={'error': 'Request already in progress'},
+            status=status.HTTP_409_CONFLICT,
+        )
+    body = record.response_body
+    # Compare the IMMUTABLE creator id, never the username the receipt
+    # serialized: a creator can rename and free their old username for
+    # someone else, and a username comparison would then replay the first
+    # creator's receipt for a request aimed at the second -- reporting a
+    # purchase that the second creator's subscription never received (codex
+    # adversarial review of the application contract). A receipt with no `_creator_pk` predates
+    # the application contract and cannot be identified at all, so it is refused rather than
+    # replayed against a guess; that costs a replay and charges nothing.
+    stored_pk = body.get('_creator_pk') if isinstance(body, dict) else None
+    if stored_pk is not None and stored_pk != star.pk:
+        # A receipt we can positively identify as ANOTHER creator's is not
+        # this request. Fall through to a normal claim: this route's own
+        # scope is `subscribe:<star.pk>`, so the key is unspent HERE and
+        # claiming it cannot replay or double-charge the other creator's
+        # purchase. Answering 409 instead (as an earlier revision did) turned
+        # a legitimate second purchase into an unrecoverable refusal and
+        # silently narrowed the per-creator key scoping this route has always
+        # published for third-party clients. (Codex adversarial review.)
+        return None
+    if (
+        record.response_status != status.HTTP_200_OK
+        or not isinstance(body, dict)
+        or 'charged' not in body
+        or stored_pk is None
+    ):
+        # Left: a receipt this route cannot identify at all -- no
+        # `_creator_pk` (it predates the application contract), a non-200, or a body without
+        # `charged`. It may well be THIS creator's committed purchase, and
+        # claiming it here would then be the second month this function
+        # exists to stop. 409 says "spent, mint a new one" and moves no 2Z.
+        return _credit_error(
+            "idempotency_mismatch",
+            "This idempotency key was already used for a different request.",
+            status.HTTP_409_CONFLICT,
+        )
+    sub = Subscription.objects.filter(star=star, fan=fan).first()
+    if sub is None:
+        return _credit_error(
+            "invalid_idempotency_record",
+            "The original response could not be replayed safely.",
+            status.HTTP_409_CONFLICT,
+        )
+    if _replay_would_report_a_lapsed_membership(sub):
+        # Same rule as the other direction, and note it is NOT "fall through
+        # and charge": this route binds no price at all, so a debit here on
+        # the strength of an expired receipt is a charge at whatever the
+        # creator's price happens to be, under a key the client still
+        # considers unresolved.
+        return _spent_on_a_membership_that_ended()
+    return Response({
+        'charged': bool(body['charged']),
+        'expires': body.get('expires') or sub.expires.isoformat(),
+        'replayed': True,
+    })

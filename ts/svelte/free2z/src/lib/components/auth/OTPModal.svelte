@@ -1,23 +1,24 @@
 <script lang="ts">
-  import { createEventDispatcher } from 'svelte';
-  import { authStore } from '$lib/stores/auth';
-  import { tStore as t } from '$lib/i18n';
-  import { Button } from '$lib/components/ui/button';
-  import { Input } from '$lib/components/ui/input';
-  import { Label } from '$lib/components/ui/label';
+  import { createEventDispatcher, onDestroy } from "svelte";
+  import { authStore } from "$lib/stores/auth";
+  import { tStore as t } from "$lib/i18n";
+  import { Button } from "$lib/components/ui/button";
+  import { Input } from "$lib/components/ui/input";
+  import { Label } from "$lib/components/ui/label";
   import {
     Dialog,
     DialogContent,
     DialogDescription,
     DialogHeader,
     DialogTitle,
-  } from '$lib/components/ui/dialog';
-  import { Loader2, Smartphone } from '@lucide/svelte';
+  } from "$lib/components/ui/dialog";
+  import { Loader2, Smartphone } from "@lucide/svelte";
 
   // Props
   export let open = false;
-  export let username = '';
-  export let password = '';
+  export let username = "";
+  export let password = "";
+  export let captchaResult = "";
 
   // Event dispatcher
   const dispatch = createEventDispatcher<{
@@ -26,40 +27,57 @@
     back: void;
   }>();
 
+  let destroyed = false;
+  onDestroy(() => {
+    destroyed = true;
+  });
+
   // Form state
-  let otpCode = '';
-  let error = '';
+  let otpCode = "";
+  let error = "";
   let isLoading = false;
 
   // Clear form when modal opens/closes
   $: if (!open) {
-    otpCode = '';
-    error = '';
+    otpCode = "";
+    error = "";
   }
 
   // Handle OTP submission
   async function handleSubmit() {
     try {
       if (!otpCode.trim()) {
-        error = 'Please enter the verification code';
+        error = $t(
+          "auth.errors.verificationCodeRequired",
+          "Please enter the verification code",
+        );
         return;
       }
 
-      error = '';
+      error = "";
       isLoading = true;
 
-      // Login with OTP
-      const authResult = await authStore.login(username, password, '', otpCode);
+      // Retry the login directly; MFA must not re-enter the signup flow.
+      const authResult = await authStore.loginOnly(
+        username,
+        password,
+        captchaResult,
+        otpCode,
+        () => !destroyed,
+      );
 
+      if (destroyed) return;
       if (authResult.success) {
-        dispatch('success', { creator: authResult.creator });
+        dispatch("success", { creator: authResult.creator });
         close();
       } else {
-        error = authResult.error || 'Invalid verification code';
+        error =
+          authResult.error ||
+          $t("auth.errors.verificationFailed", "Verification failed");
       }
     } catch (err: any) {
-      console.error('OTP verification error:', err);
-      error = err.message || 'Verification failed';
+      console.error("OTP verification error:", err);
+      error = $t("auth.errors.verificationFailed", "Verification failed");
     } finally {
       isLoading = false;
     }
@@ -67,26 +85,27 @@
 
   // Handle Enter key
   function handleKeydown(event: KeyboardEvent) {
-    if (event.key === 'Enter' && !isLoading) {
+    if (event.key === "Enter" && !isLoading) {
       handleSubmit();
     }
   }
 
   // Close modal
   function close() {
+    if (destroyed) return;
     open = false;
-    dispatch('close');
+    dispatch("close");
   }
 
   // Go back to login
   function goBack() {
-    dispatch('back');
+    dispatch("back");
     close();
   }
 
   // Auto-format OTP code (6 digits)
   function formatOtpCode(value: string) {
-    return value.replace(/\D/g, '').slice(0, 6);
+    return value.replace(/\D/g, "").slice(0, 6);
   }
 
   $: otpCode = formatOtpCode(otpCode);
@@ -96,15 +115,15 @@
   <DialogContent class="sm:max-w-[400px]">
     <DialogHeader>
       <DialogTitle
-        class="text-center text-2xl font-bold flex items-center justify-center gap-2"
+        class="flex items-center justify-center gap-2 text-center text-2xl font-bold"
       >
         <Smartphone class="h-6 w-6" />
-        {$t('common.auth.twoFactorTitle', 'Two-Factor Authentication')}
+        {$t("common.auth.twoFactorTitle", "Two-Factor Authentication")}
       </DialogTitle>
       <DialogDescription class="text-center">
         {$t(
-          'common.auth.otpDescription',
-          'Enter the 6-digit code from your authenticator app'
+          "common.auth.otpDescription",
+          "Enter the 6-digit code from your authenticator app",
         )}
       </DialogDescription>
     </DialogHeader>
@@ -112,8 +131,8 @@
     <form on:submit|preventDefault={handleSubmit} class="space-y-4">
       <!-- OTP Code Field -->
       <div class="space-y-2">
-        <Label for="otpCode" class="text-center block">
-          {$t('common.auth.verificationCode', 'Verification Code')}
+        <Label for="otpCode" class="block text-center">
+          {$t("common.auth.verificationCode", "Verification Code")}
         </Label>
         <Input
           id="otpCode"
@@ -122,20 +141,20 @@
           placeholder="000000"
           disabled={isLoading}
           onkeydown={handleKeydown}
-          class={`text-center text-xl tracking-widest ${error ? 'border-red-500' : ''}`}
+          class={`text-center text-xl tracking-widest ${error ? "border-red-500" : ""}`}
           maxlength={6}
           autocomplete="one-time-code"
         />
         {#if error}
-          <p class="text-sm text-red-500 text-center">{error}</p>
+          <p class="text-center text-sm text-red-500">{error}</p>
         {/if}
       </div>
 
       <!-- Helper Text -->
       <p class="text-center text-sm text-gray-600">
         {$t(
-          'common.auth.otpHelp',
-          'Open your authenticator app and enter the 6-digit code'
+          "common.auth.otpHelp",
+          "Open your authenticator app and enter the 6-digit code",
         )}
       </p>
 
@@ -148,7 +167,7 @@
           onclick={goBack}
           disabled={isLoading}
         >
-          {$t('common.auth.back', 'Back')}
+          {$t("common.auth.back", "Back")}
         </Button>
 
         <Button
@@ -158,9 +177,9 @@
         >
           {#if isLoading}
             <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {$t('common.auth.verifying', 'Verifying...')}
+            {$t("common.auth.verifying", "Verifying...")}
           {:else}
-            {$t('common.auth.verify', 'Verify')}
+            {$t("common.auth.verify", "Verify")}
           {/if}
         </Button>
       </div>
@@ -171,13 +190,10 @@
           variant="link"
           size="sm"
           type="button"
+          href="mailto:help@free2z.com"
           class="text-blue-600 hover:text-blue-500"
-          onclick={() => {
-            // TODO: Handle trouble with 2FA
-            console.log('Trouble with 2FA');
-          }}
         >
-          {$t('common.auth.troubleWith2FA', 'Having trouble with 2FA?')}
+          {$t("common.auth.troubleWith2FA", "Having trouble with 2FA?")}
         </Button>
       </div>
     </form>

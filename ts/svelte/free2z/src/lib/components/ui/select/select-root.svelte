@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Select as SelectPrimitive } from 'bits-ui';
+  import { Select as SelectPrimitive } from "bits-ui";
 
   // Keep things permissive for now; accept any props and make `selected` bindable.
   // Support legacy `childrenProp` function and the standard default slot.

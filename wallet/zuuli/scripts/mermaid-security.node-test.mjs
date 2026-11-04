@@ -21,11 +21,11 @@ test("advisory guard rejects both vulnerable Mermaid release lines", () => {
 
 test("manifest and every lock entry must stay exact, patched and aligned", () => {
   const manifest = {
-    dependencies: { dompurify: "3.4.14", mermaid: "11.17.0" },
+    dependencies: { dompurify: "3.4.17", mermaid: "11.17.0" },
   };
   const lock = {
     packages: {
-      "node_modules/dompurify": { version: "3.4.14" },
+      "node_modules/dompurify": { version: "3.4.17" },
       "node_modules/mermaid": { version: "11.17.0" },
     },
   };
@@ -33,7 +33,7 @@ test("manifest and every lock entry must stay exact, patched and aligned", () =>
   assert.throws(
     () =>
       checkManifestAndLock(
-        { dependencies: { dompurify: "3.4.14", mermaid: "^11.17.0" } },
+        { dependencies: { dompurify: "3.4.17", mermaid: "^11.17.0" } },
         lock,
       ),
     /exact semantic version/,
@@ -42,7 +42,7 @@ test("manifest and every lock entry must stay exact, patched and aligned", () =>
     () =>
       checkManifestAndLock(manifest, {
         packages: {
-          "node_modules/dompurify": { version: "3.4.14" },
+          "node_modules/dompurify": { version: "3.4.17" },
           "node_modules/mermaid": { version: "11.17.0" },
           "node_modules/example/node_modules/mermaid": { version: "10.9.6" },
         },
@@ -52,10 +52,10 @@ test("manifest and every lock entry must stay exact, patched and aligned", () =>
 });
 
 test("SVG sink guard rejects known-vulnerable DOMPurify lines", () => {
-  for (const version of ["3.3.3", "3.4.12"]) {
+  for (const version of ["3.3.3", "3.4.12", "3.4.14", "3.4.16"]) {
     assert.throws(() => assertPatchedDomPurify(version), /DOMPurify/);
   }
-  assert.doesNotThrow(() => assertPatchedDomPurify("3.4.14"));
+  assert.doesNotThrow(() => assertPatchedDomPurify("3.4.17"));
 });
 
 test("free2z's committed manifest and lock remain patched and aligned", async () => {

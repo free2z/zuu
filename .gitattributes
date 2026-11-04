@@ -1,2 +1,0 @@
-docs/about-free2z/static/img/* filter=lfs diff=lfs merge=lfs -text
-ts/react/free2z/public/*.png filter=lfs diff=lfs merge=lfs -text

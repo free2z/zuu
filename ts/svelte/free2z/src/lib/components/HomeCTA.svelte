@@ -1,82 +1,103 @@
 <script lang="ts">
-	import { Button } from '$lib/components/ui/button';
+  import { Button } from "$lib/components/ui/button";
+  import { tStore as t } from "$lib/i18n";
 </script>
 
-<section class="relative z-10 mx-auto w-full max-w-7xl px-4 pb-16 sm:px-6 sm:pb-24 lg:px-8">
-	<div class="mx-auto max-w-5xl text-center">
-		<h2 class="mb-6 text-4xl font-black tracking-tighter leading-[0.95] sm:mb-8 sm:text-6xl sm:leading-[0.9] lg:text-7xl">
-			Own your content.<br />
-			<span
-				class="text-transparent bg-clip-text bg-linear-to-r from-primary to-emerald-400 animate-gradient bg-300%"
-				>Monetize your mind.</span
-			>
-		</h2>
+<section
+  data-testid="homepage-cta"
+  class="relative z-10 mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8"
+>
+  <div class="mx-auto max-w-5xl text-center">
+    <h2
+      class="mb-6 text-4xl leading-[0.95] font-black tracking-tighter sm:mb-8 sm:text-6xl sm:leading-[0.9] lg:text-7xl"
+    >
+      {$t("homepage.cta.ownContent", "Own your content.")}<br />
+      <span
+        class="animate-gradient bg-300% bg-linear-to-r from-primary to-emerald-400 bg-clip-text text-transparent"
+        >{$t("homepage.cta.monetizeMind", "Monetize your mind.")}</span
+      >
+    </h2>
 
-		<p
-			class="text-lg sm:text-2xl text-muted-foreground font-light max-w-2xl mx-auto leading-relaxed"
-		>
-			Skip the gatekeepers. Publish on the blockchain, earn anonymously, and build a community
-			that truly belongs to you.
-		</p>
+    <p
+      class="mx-auto max-w-2xl text-lg leading-relaxed font-light text-muted-foreground sm:text-2xl"
+    >
+      {$t(
+        "homepage.cta.description",
+        "Publish independently, connect directly with readers, and receive support, including direct Zcash payments.",
+      )}
+    </p>
 
-		<!-- Stats / Trust Indicators -->
-		<div
-			class="mx-auto mt-8 mb-8 grid max-w-2xl grid-cols-3 gap-2 border-y border-dashed border-border/60 py-6 sm:mt-12 sm:mb-12 sm:gap-8 sm:py-8"
-		>
-			<div class="flex flex-col group/stat hover:-translate-y-1 transition-transform">
-				<span class="text-2xl font-black text-foreground sm:text-3xl">100%</span>
-				<span class="mt-1 break-words text-[10px] font-bold uppercase tracking-normal text-muted-foreground sm:text-xs sm:tracking-wider"
-					>Ownership</span
-				>
-			</div>
-			<div class="flex flex-col group/stat hover:-translate-y-1 transition-transform delay-75">
-				<span class="text-2xl font-black text-foreground sm:text-3xl">0</span>
-				<span class="mt-1 break-words text-[10px] font-bold uppercase tracking-normal text-muted-foreground sm:text-xs sm:tracking-wider"
-					>Intermediaries</span
-				>
-			</div>
-			<div
-				class="flex flex-col group/stat hover:-translate-y-1 transition-transform delay-150"
-			>
-				<span class="text-2xl font-black text-foreground sm:text-3xl">∞</span>
-				<span class="mt-1 break-words text-[10px] font-bold uppercase tracking-normal text-muted-foreground sm:text-xs sm:tracking-wider"
-					>Possibilities</span
-				>
-			</div>
-		</div>
+    <!-- Stats / Trust Indicators -->
+    <!--
+			The label row is the tightest thing on the page: "Intermediaries" is 14
+			uppercase characters in a column that is only ~1/3 of a 320px viewport
+			. Below `sm` the type shrinks and the tracking tightens so every
+			label stays on one line at 320px; `break-words` remains as a last-resort
+			guard so a wider font can never overflow its column and collide with the
+			neighbouring label the way it used to.
+		-->
+    <div
+      class="mx-auto mt-8 mb-8 grid max-w-2xl grid-cols-3 gap-1 border-y border-dashed border-border/60 py-6 sm:mt-12 sm:mb-12 sm:gap-8 sm:py-8"
+    >
+      <div class="flex flex-col">
+        <span class="text-2xl font-black text-foreground sm:text-3xl">100%</span
+        >
+        <span
+          class="mt-1 text-[9px] leading-tight font-bold tracking-tight break-words text-muted-foreground uppercase sm:text-xs sm:tracking-wider"
+          >{$t("homepage.cta.ownership", "Ownership")}</span
+        >
+      </div>
+      <div class="flex flex-col">
+        <span class="text-2xl font-black text-foreground sm:text-3xl">0</span>
+        <span
+          class="mt-1 text-[9px] leading-tight font-bold tracking-tight break-words text-muted-foreground uppercase sm:text-xs sm:tracking-wider"
+          >{$t("homepage.cta.intermediaries", "Intermediaries")}</span
+        >
+      </div>
+      <div class="flex flex-col">
+        <span class="text-2xl font-black text-foreground sm:text-3xl">∞</span>
+        <span
+          class="mt-1 text-[9px] leading-tight font-bold tracking-tight break-words text-muted-foreground uppercase sm:text-xs sm:tracking-wider"
+          >{$t("homepage.cta.possibilities", "Possibilities")}</span
+        >
+      </div>
+    </div>
 
-		<div class="flex flex-col sm:flex-row items-center justify-center gap-4">
-			<Button
-				href="/login?view=signup&next=%2Fedit"
-				class="min-h-11 w-full sm:min-h-9 sm:w-auto group/btn"
-			>
-				Start Writing Now
-				<svg
-					class="w-4 h-4 transition-transform group-hover/btn:translate-x-1"
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
-					><path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="2"
-						d="M13 7l5 5m0 0l-5 5m5-5H6"
-					/></svg
-				>
-			</Button>
-			<Button
-				variant="outline"
-				href="https://free2z.com/docs/getting-started/"
-				target="_blank"
-				rel="noreferrer"
-				class="min-h-11 w-full sm:min-h-9 sm:w-auto"
-			>
-				How it Works
-			</Button>
-		</div>
+    <div class="flex flex-col items-center justify-center gap-4 sm:flex-row">
+      <Button
+        href="/login?view=signup&next=%2Fedit"
+        class="group/btn min-h-11 w-full sm:min-h-9 sm:w-auto"
+      >
+        {$t("homepage.cta.startWriting", "Start Writing Now")}
+        <svg
+          class="h-4 w-4 transition-transform group-hover/btn:translate-x-1"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+          ><path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            stroke-width="2"
+            d="M13 7l5 5m0 0l-5 5m5-5H6"
+          /></svg
+        >
+      </Button>
+      <Button
+        variant="outline"
+        href="https://free2z.com/docs/getting-started/"
+        target="_blank"
+        rel="noreferrer"
+        class="min-h-11 w-full sm:min-h-9 sm:w-auto"
+      >
+        {$t("homepage.cta.howItWorks", "How it Works")}
+      </Button>
+    </div>
 
-		<p class="mt-6 text-xs font-mono text-muted-foreground opacity-60">
-			// No credit card required. Private by default.
-		</p>
-	</div>
+    <p class="mt-6 font-mono text-xs text-muted-foreground opacity-60">
+      // {$t(
+        "homepage.cta.noCardRequired",
+        "No credit card required. Choose the privacy options that fit you.",
+      )}
+    </p>
+  </div>
 </section>
