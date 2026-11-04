@@ -148,7 +148,7 @@
               data-testid="homepage-live-now-card"
               href={it.href}
               aria-label={it.label}
-              class="capsule group relative flex items-center gap-2.5 overflow-hidden rounded-full border border-white/10 bg-background/40 py-1.5 pr-4 pl-1.5 backdrop-blur-sm transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-px hover:border-red-500/40 focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+              class="capsule group relative flex items-center gap-2.5 overflow-hidden rounded-full border border-white/10 bg-background/40 py-1.5 pr-5 pl-1.5 backdrop-blur-sm transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-px hover:border-red-500/40 focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
               <span
                 class="pointer-events-none absolute inset-0 scale-150 opacity-25 blur-xl saturate-150 transition-opacity duration-300 group-hover:opacity-45"
@@ -162,7 +162,7 @@
 
               <span class="live-ring relative shrink-0 rounded-full">
                 <span
-                  class="grid size-7 place-items-center overflow-hidden rounded-full text-[10px] font-bold text-white"
+                  class="grid size-8 place-items-center overflow-hidden rounded-full text-[10px] font-bold text-white"
                   style:background={it.img && !it.broken ? undefined : it.tint}
                 >
                   {#if it.img}
@@ -184,20 +184,21 @@
                 </span>
               </span>
 
-              <span
-                class="relative max-w-44 truncate text-sm font-semibold text-foreground"
-                >{it.name}</span
-              >
-              <span
-                class="relative flex items-center gap-1 font-mono text-[10.5px] whitespace-nowrap text-foreground/65 transition-colors group-hover:text-foreground/85"
-              >
-                <svelte:component
-                  this={it.icon}
-                  class="size-3 shrink-0"
-                  strokeWidth={2.25}
-                  aria-hidden="true"
-                />
-                {it.mode}
+              <span class="relative flex min-w-0 flex-col gap-1">
+                <span
+                  class="max-w-44 truncate text-sm leading-none font-semibold text-foreground"
+                  >{it.name}</span
+                >
+                <span
+                  class="flex items-center gap-1 text-[11px] leading-none whitespace-nowrap text-foreground/60 transition-colors group-hover:text-foreground/80"
+                >
+                  <svelte:component
+                    this={it.icon}
+                    class="size-3 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{it.mode}</span>
+                </span>
               </span>
             </a>
           </li>
