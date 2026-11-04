@@ -151,7 +151,7 @@
               class="capsule group relative flex items-center gap-2.5 overflow-hidden rounded-full border border-white/10 bg-background/40 py-1.5 pr-5 pl-1.5 backdrop-blur-sm transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-px hover:border-red-500/40 focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
               <span
-                class="pointer-events-none absolute inset-0 scale-150 opacity-25 blur-xl saturate-150 transition-opacity duration-300 group-hover:opacity-45"
+                class="pointer-events-none absolute inset-0 scale-150 opacity-15 blur-xl saturate-150 transition-opacity duration-300 group-hover:opacity-30"
                 style:background={it.tint}
                 aria-hidden="true"
               ></span>
@@ -160,7 +160,7 @@
                 aria-hidden="true"
               ></span>
 
-              <span class="live-ring relative shrink-0 rounded-full">
+              <span class="relative shrink-0 rounded-full ring-1 ring-white/10">
                 <span
                   class="grid size-8 place-items-center overflow-hidden rounded-full text-[10px] font-bold text-white"
                   style:background={it.img && !it.broken ? undefined : it.tint}
@@ -185,12 +185,21 @@
               </span>
 
               <span class="relative flex min-w-0 flex-col gap-1">
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <span
+                    class="max-w-44 truncate text-sm leading-none font-semibold text-foreground"
+                    >@{it.name}</span
+                  >
+                  <span
+                    class="inline-flex shrink-0 items-center gap-1 rounded-[4px] bg-red-600 px-1.5 py-[3px] text-[9px] leading-none font-bold tracking-wide text-white uppercase"
+                    aria-hidden="true"
+                  >
+                    <span class="live-dot live-dot-white"></span>
+                    {$t("stream.live", "LIVE")}
+                  </span>
+                </span>
                 <span
-                  class="max-w-44 truncate text-sm leading-none font-semibold text-foreground"
-                  >{it.name}</span
-                >
-                <span
-                  class="flex items-center gap-1 text-[11px] leading-none whitespace-nowrap text-foreground/60 transition-colors group-hover:text-foreground/80"
+                  class="flex items-center gap-1 text-[11px] leading-none whitespace-nowrap text-muted-foreground transition-colors group-hover:text-foreground/75"
                 >
                   <svelte:component
                     this={it.icon}
@@ -234,27 +243,13 @@
     }
   }
 
-  /* Red "on air" ring. The breathing glow lives on a pseudo-element and only
-     its opacity animates, so it stays on the compositor (no per-frame paint). */
-  .live-ring {
-    box-shadow:
-      0 0 0 2px var(--background, #0a0c09),
-      0 0 0 3.5px rgb(239 68 68);
+  .live-dot-white {
+    width: 4px;
+    height: 4px;
+    background: #fff;
   }
-  .live-ring::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    border-radius: inherit;
-    box-shadow: 0 0 10px 6px rgb(239 68 68 / 0.35);
-    opacity: 0;
-    pointer-events: none;
-    animation: live-breathe 2.4s ease-in-out infinite;
-  }
-  @keyframes live-breathe {
-    50% {
-      opacity: 1;
-    }
+  .live-dot-white::after {
+    display: none;
   }
 
   .capsule:hover {
@@ -291,8 +286,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .live-dot::after,
-    .live-ring::after {
+    .live-dot::after {
       animation: none;
     }
   }
