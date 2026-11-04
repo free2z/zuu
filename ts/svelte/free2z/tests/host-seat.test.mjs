@@ -240,7 +240,7 @@ test("the public stream viewer never joins as a host", () => {
   assert.match(viewer, /const isHost = false;/);
   assert.match(
     viewer,
-    /\{\s*role:\s*["']viewer["'],\s*expectedActorId:\s*originalViewerActorId,\s*signal\s*\}/,
+    /\{\s*role:\s*["']viewer["'],\s*expectedActorId:\s*originalViewerActorId,\s*signal,\s*meetingSessionId,?\s*\}/,
   );
 });
 
@@ -258,7 +258,7 @@ test("a meeting that finishes initializing after a take-over is disposed", () =>
   );
   const init = source.indexOf("await initRtkMeeting(");
   const guard = source.indexOf("if (superseded || !isCurrentStart()) {", init);
-  const adopt = source.indexOf("cleanup = cleanupFn;", init);
+  const adopt = source.indexOf("ownedMeeting = meetingInstance;", init);
   assert.ok(init > 0, "initRtkMeeting call");
   assert.ok(guard > init, "supersession checked after the init await");
   assert.ok(adopt > guard, "meeting adopted only after the check");

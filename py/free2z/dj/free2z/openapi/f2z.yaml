@@ -13782,6 +13782,11 @@ components:
           type: integer
           description: Original viewer account ID; required for a first-party paid
             PPV join under the active economic policy.
+        admission_idempotency_key:
+          type: string
+          format: uuid
+          description: Stable UUID for one paid PPV join attempt. Reuse it when retrying
+            an ambiguous provider response; generate a new one for a new join.
         role:
           allOf:
           - $ref: '#/components/schemas/RoleEnum'
