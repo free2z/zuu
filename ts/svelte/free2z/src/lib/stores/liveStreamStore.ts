@@ -16,6 +16,8 @@ export type ConnectionStatus =
   | "connected"
   | "disconnected"
   | "failed"
+  | "kicked"
+  | "rejected"
   | "ended";
 // Single source of truth for the enum lives in $lib/streamTypes.js so the
 // SvelteKit load guards and `npm test` can import the runtime values without
