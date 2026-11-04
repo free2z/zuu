@@ -35,7 +35,7 @@ from dj.apps.g12f.account_deletion import (
     keep_redirect,
 )
 from dj.apps.g12f.usernames import is_forbidden_username
-from dj.apps.tuzis.welcome import identity_welcome_key, welcome_new_account
+from dj.apps.tuzis.welcome import identity_welcome_key, remember_welcome_grant, welcome_new_account
 from dj.apps.identity.auth_context import require_recent_auth, RecentAuthenticationRequired
 from dj.apps.identity.auth_context import federated, record_login
 from dj.apps.identity.methods import (
@@ -1013,10 +1013,11 @@ class TwitterCallbackView(OAuthCredentialDjangoResponseMixin, View):
         # with the account itself. Never fails the sign-in.
         # Keyed on the X user id (shared with the social X provider), so
         # unlinking and re-provisioning earns no second grant.
-        welcome_new_account(
+        grant = welcome_new_account(
             new_user, path="twitter",
             identity_key=identity_welcome_key("x", twitter_user['id']),
         )
+        remember_welcome_grant(request, grant)
         login(request, new_user)
         record_login(request, new_user, methods=[AMR_LEGACY_TWITTER])
         logger.info("twitter_oauth2_callback_success")

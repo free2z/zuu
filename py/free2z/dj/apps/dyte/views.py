@@ -948,6 +948,13 @@ def _acknowledge_unresolved_meeting(
 @transaction.atomic
 def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
     """Apply one validated delivery atomically with its unique claim."""
+    if event_data.event in ('meeting.started', 'meeting.ended'):
+        # The caller resolved this row before our transaction. Serialize both
+        # lifecycle events and compare against the current, locked session.
+        cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
+        if str(cm.meeting_id) != str(event_data.meeting.id):
+            logger.info("ignoring lifecycle event for replaced meeting_id=%s", event_data.meeting.id)
+            return
     if event_data.event == 'meeting.participantLeft' and cm.meeting_type in (BROADCAST, PAY_PER_VIEW):
         version=pin_supported_policy()
         if version==1 and cm.meeting_type==PAY_PER_VIEW and event_data.participant.customParticipantId==f'ph_{cm.creator.public_id.hex}':
@@ -992,7 +999,27 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.event,
             event_data.meeting.id,
         )
+        started_at = event_data.meeting.startedAt
+        # Provider retries and concurrent deliveries can arrive out of order.
+        # A session may only replace the current one when its provider start
+        # time is strictly later; ties are ambiguous, so preserve current state.
+        if (
+            cm.provider_session_started_at is not None
+            and started_at <= cm.provider_session_started_at
+        ):
+            logger.info(
+                "ignoring stale meeting started meeting_id=%s session_id=%s "
+                "started_at=%s current_session_id=%s current_started_at=%s",
+                event_data.meeting.id,
+                event_data.meeting.sessionId,
+                started_at,
+                cm.provider_session_id,
+                cm.provider_session_started_at,
+            )
+            return
         cm.live_now = True
+        cm.provider_session_id = event_data.meeting.sessionId
+        cm.provider_session_started_at = started_at
         # Stamp presence so the just-went-live room is inside the public
         # list's last_seen_at window and safe from the sweep's grace before
         # the first dyte.sweep_live_meetings probe runs.
@@ -1001,7 +1028,10 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         # event was processed, would write back a stale broadcaster seat
         # (host_session_id) over a start or take-over that committed in
         # between.
-        cm.save(update_fields=['live_now', 'last_seen_at'])
+        cm.save(update_fields=[
+            'live_now', 'last_seen_at', 'provider_session_id',
+            'provider_session_started_at',
+        ])
 
     elif event_data.event == "meeting.ended":
         logger.info(
@@ -1009,6 +1039,24 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.event,
             event_data.meeting.id,
         )
+        # Dyte can deliver the previous session's end after a host has
+        # restarted in the same room. Only the end for the session currently
+        # recorded by meeting.started may take that room offline.
+        if (
+            (cm.provider_session_started_at is not None
+             and event_data.meeting.startedAt < cm.provider_session_started_at)
+            or (cm.provider_session_id is not None
+                and cm.provider_session_id != event_data.meeting.sessionId)
+            or (cm.provider_session_id is None
+                and _seat_is_fresh(cm, timezone.now()))
+        ):
+            logger.info(
+                "ignoring stale meeting ended meeting_id=%s session_id=%s current_session_id=%s",
+                event_data.meeting.id,
+                event_data.meeting.sessionId,
+                cm.provider_session_id,
+            )
+            return
         cm.live_now = False
         cm.save(update_fields=['live_now'])
 
@@ -1480,6 +1528,9 @@ def live_meeting_status(request, username):
         # bring back count when dyte fixes regression
         # https://discord.com/channels/872824138048352277/1253228307227349004
         if count:
+            from .recording_control import public_recording
+
+            meeting['recording'] = public_recording(meeting['meeting_id'])
             resp[meeting['meeting_type']] = meeting
     return Response(resp)
 
@@ -1503,7 +1554,11 @@ def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting
     # session's late `meeting.ended` would take the new session offline (the
     # sweep only re-checks live rooms).  adds that session state; until
     # then an orphaned event is acknowledged and counted at the webhook.
-    cm.save(update_fields=['meeting_id'])
+    cm.provider_session_id = None
+    cm.provider_session_started_at = None
+    cm.save(update_fields=[
+        'meeting_id', 'provider_session_id', 'provider_session_started_at',
+    ])
     return cm
 
 

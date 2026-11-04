@@ -8,9 +8,9 @@
     liveStatusQueryKey,
     type StreamInfo,
   } from "$lib/services/stream";
-  import { useQueryClient } from "@tanstack/svelte-query";
+  import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
-  import { liveStreamStore } from "$lib/stores/liveStreamStore";
+  import { liveStreamStore, meetingStore } from "$lib/stores/liveStreamStore";
   import type { PublicStreamType } from "$lib/services/stream";
   import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
   import {
@@ -227,7 +227,7 @@
   }
 
   // Subscribe to store
-  $: meeting = $liveStreamStore.meeting;
+  $: meeting = $meetingStore;
   $: connectionStatus = $liveStreamStore.connectionStatus;
   $: isOffline = $liveStreamStore.isOffline;
   $: storeError = $liveStreamStore.error;
@@ -266,6 +266,23 @@
   }
 
   const creatorQuery = createCreatorRetrieve(username);
+  // The host starts recording through our API. RealtimeKit does not push that
+  // change to someone already on stage, so the viewer reads the flag the host
+  // control publishes onto live status.
+  const recordingQuery = createQuery({
+    queryKey: liveStatusQueryKey(username),
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      StreamService.fetchLiveStatus(username, signal),
+    enabled: browser && Boolean(username),
+    refetchInterval: 8000,
+    staleTime: 4000,
+    retry: false,
+  });
+  $: serverRecording = Boolean(
+    $recordingQuery.data?.streams?.some(
+      (stream) => stream.type === streamType && stream.recording === true,
+    ),
+  );
   $: creator = $creatorQuery.data;
   $: isSubscribed = $authStore.creator?.star_ids
     ? creator?.id !== undefined &&
@@ -667,7 +684,7 @@
     </div>
   {:else if meeting}
     <InlineRtkMeeting {meeting} translator={rtkTranslator} />
-    <MeetingRecordingNotice {meeting} />
+    <MeetingRecordingNotice {meeting} {serverRecording} />
     <RtkAudioHealth
       {meeting}
       mode={isHost ? "host" : "viewer"}

@@ -2803,6 +2803,35 @@ paths:
               schema:
                 $ref: '#/components/schemas/RecordingStatus'
           description: ''
+  /api/dyte/{username}/private/{secret}/recording-visibility:
+    get:
+      operationId: dyte_private_recording_visibility_retrieve
+      description: |-
+        Whether a private room is being recorded, for anyone holding its secret.
+
+        The owner recording API stays owner-only. Invitees on stage need the same
+        yes-or-no the public live status gives broadcast, subscribers-only, and
+        pay-per-view viewers.
+      parameters:
+      - in: path
+        name: secret
+        schema:
+          type: string
+          format: uuid
+        required: true
+      - in: path
+        name: username
+        schema:
+          type: string
+        required: true
+      tags:
+      - dyte
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          description: No response body
   /api/dyte/{username}/private/{secret}/recording/stop:
     post:
       operationId: dyte_private_recording_stop_create
@@ -10566,6 +10595,10 @@ components:
       description: 'Crate ``ModelControls``: signed narrowing of what a capability
         admits.'
       properties:
+        tools_require_effort_none:
+          type: boolean
+          description: With tools, explicit non-none reasoning effort is refused before
+            reservation. Omitted effort uses the provider default.
         effort_levels:
           type: array
           items:
@@ -11876,6 +11909,11 @@ components:
             as canonical decimal xmax:xip_count. Compare xmax ascending as an unsigned
             64-bit integer, then xip_count descending. Applies to read-only observations
             from the same database; absent on representations without a balance snapshot.
+        welcome_grant:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Confirmed welcome grant in this signup session; null otherwise.
       required:
       - can_stream
       - fans_count
@@ -11887,6 +11925,7 @@ components:
       - tuzis
       - twitter
       - username
+      - welcome_grant
       - zpages
     CreatorProfileUpdate:
       type: object

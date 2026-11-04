@@ -160,6 +160,7 @@ export interface Creator {
   can_stream?: boolean;
   tuzis?: string;
   balance_snapshot?: string;
+  welcome_grant?: string | null;
   total?: string;
   zpages?: number;
   stars?: string[];
@@ -303,6 +304,8 @@ function createAuthStore() {
       // A restored cluster may restart below a token saved by an older cluster.
       const cachedCreator = { ...state.creator };
       delete cachedCreator.balance_snapshot;
+      // A welcome receipt proves only the live signup session, never a cache.
+      delete cachedCreator.welcome_grant;
       localStorage.setItem(
         AUTH_CACHE_KEY,
         JSON.stringify({ ...state, creator: cachedCreator }),
@@ -1442,6 +1445,8 @@ function createAuthStore() {
         if (parsed.isAuthenticated && parsed.creator) {
           const cachedCreator = { ...parsed.creator };
           delete cachedCreator.balance_snapshot;
+          // Migrate caches written before welcome receipts became ephemeral.
+          delete cachedCreator.welcome_grant;
           store.hydrateFromSession(cachedCreator);
         } else {
           localStorage.removeItem(AUTH_CACHE_KEY);

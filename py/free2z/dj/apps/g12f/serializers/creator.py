@@ -615,8 +615,20 @@ class CreatorProfileDetailSerializer(CreatorProfileUpdateSerializer):
         ),
     )
 
+    welcome_grant = serializers.SerializerMethodField(
+        help_text="Confirmed welcome grant in this signup session; null otherwise.",
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_welcome_grant(self, instance):
+        request = self.context.get("request")
+        grant = getattr(request, "session", {}).get("welcome_grant")
+        if isinstance(grant, dict) and grant.get("creator_id") == instance.pk:
+            return grant.get("amount")
+        return None
+
     class Meta(CreatorProfileUpdateSerializer.Meta):
-        fields = [*CreatorProfileUpdateSerializer.Meta.fields, 'balance_snapshot']
+        fields = [*CreatorProfileUpdateSerializer.Meta.fields, 'balance_snapshot', 'welcome_grant']
 
 
 class CreatorProfileDetailSchema(OpenApiSerializerExtension):

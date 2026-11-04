@@ -3,7 +3,8 @@ from dj.free2z.routers import Free2zRouter
 
 from . import views
 from .recording_control import (RecordingControl, RecordingStopControl,
-                                PrivateRecordingControl, PrivateRecordingStopControl)
+                                PrivateRecordingControl, PrivateRecordingStopControl,
+                                PrivateRecordingVisibility)
 from .converters import PublicMeetingTypeConverter
 
 # The public meeting type is an enum, not free text — see converters.py and
@@ -16,6 +17,7 @@ router.register(r'public', views.PublicMeetingViewSet, basename='public-meeting'
 
 urlpatterns = [
     path('<str:username>/private/<uuid:secret>/recording/stop', PrivateRecordingStopControl.as_view(), name='private_recording_stop'),
+    path('<str:username>/private/<uuid:secret>/recording-visibility', PrivateRecordingVisibility.as_view(), name='private_recording_visibility'),
     path('<str:username>/private/<uuid:secret>/recording', PrivateRecordingControl.as_view(), name='private_recording_control'),
     path('<str:username>/recording/stop', RecordingStopControl.as_view(), name='recording_stop'),
     path('<str:username>/recording', RecordingControl.as_view(), name='recording_control'),

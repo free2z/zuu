@@ -434,7 +434,11 @@
           introWritten={intro.written}
         />
       {:else if cannotCoverAComment}
-        <PostingCostNotice balance={String($currentUser?.tuzis)} {intro} />
+        <PostingCostNotice
+          cost={tuzis}
+          balance={String($currentUser?.tuzis)}
+          {intro}
+        />
       {/if}
       <div class="relative">
         <label

@@ -1894,7 +1894,8 @@ const server = createServer(async (request, response) => {
 
   if (
     url.pathname.toLowerCase() === `/api/creator/${CURSOR_FIXTURE_USER}/` ||
-    url.pathname.toLowerCase() === `/api/creator/${CURSOR_FIXTURE_USER}`
+    url.pathname.toLowerCase() === `/api/creator/${CURSOR_FIXTURE_USER}` ||
+    url.pathname.toLowerCase() === "/api/creator/cursor-fixture-target/"
   ) {
     response.end(JSON.stringify(CURSOR_FIXTURE_CREATOR));
     return;
