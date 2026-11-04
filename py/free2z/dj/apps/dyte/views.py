@@ -2434,12 +2434,20 @@ class DyteMeeting(APIView):
                         _held_host_seat(creator), code='host_session_superseded')
                 if cm.meeting_id == original_meeting_id:
                     cm.meeting_id = proposed_id
+                    # A provider session belongs to its room generation. Keep
+                    # the host seat and start claim intact while clearing only
+                    # lifecycle identity for the newly adopted room.
+                    cm.provider_session_id = None
+                    cm.provider_session_started_at = None
                     cm.host_evictions = [
                         {**entry, 'meeting_id': proposed_id}
                         if entry.get('claim_id') == str(start_claim) else entry
                         for entry in cm.host_evictions
                     ]
-                    cm.save(update_fields=['meeting_id', 'host_evictions'])
+                    cm.save(update_fields=[
+                        'meeting_id', 'provider_session_id',
+                        'provider_session_started_at', 'host_evictions',
+                    ])
                     meeting_id = cm.meeting_id
                     room_reconciliation.delete()
                 else:
@@ -2504,12 +2512,20 @@ class DyteMeeting(APIView):
                         _held_host_seat(creator), code='host_session_superseded')
                 if cm.meeting_id == meeting_id:
                     cm.meeting_id = proposed_id
+                    # This CAS adoption is a new provider room generation;
+                    # retain the locked host-seat claim while dropping the
+                    # old room's recorded session.
+                    cm.provider_session_id = None
+                    cm.provider_session_started_at = None
                     cm.host_evictions = [
                         {**entry, 'meeting_id': proposed_id}
                         if entry.get('claim_id') == str(start_claim) else entry
                         for entry in cm.host_evictions
                     ]
-                    cm.save(update_fields=['meeting_id', 'host_evictions'])
+                    cm.save(update_fields=[
+                        'meeting_id', 'provider_session_id',
+                        'provider_session_started_at', 'host_evictions',
+                    ])
                     meeting_id = proposed_id
                     room_reconciliation.delete()
                 else:

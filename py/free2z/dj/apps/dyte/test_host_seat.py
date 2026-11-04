@@ -306,6 +306,54 @@ def test_an_aged_room_that_is_not_live_still_rotates(api_client, provider, host)
     assert started.data['meeting_id'] != 'yesterday'
 
 
+def test_rotating_room_resets_provider_session_and_keeps_host_seat(
+    api_client, provider, host,
+):
+    old_session = uuid.uuid4()
+    CreatorMeeting.objects.create(
+        creator=host, meeting_id='yesterday', meeting_type=BROADCAST,
+        live_now=False, created_at=timezone.now() - timedelta(days=3),
+        provider_session_id=old_session,
+        provider_session_started_at=timezone.now() - timedelta(hours=1),
+    )
+
+    tab = uuid.uuid4()
+    started = _start(api_client, host, session=tab)
+
+    assert started.status_code == 200, started.data
+    cm = CreatorMeeting.objects.get(creator=host, meeting_type=BROADCAST)
+    assert cm.meeting_id == started.data['meeting_id'] != 'yesterday'
+    assert cm.provider_session_id is None
+    assert cm.provider_session_started_at is None
+    assert cm.host_session_id == tab
+
+
+def test_missing_room_replacement_resets_provider_session_and_keeps_host_seat(
+    api_client, provider, host,
+):
+    tab = uuid.uuid4()
+    CreatorMeeting.objects.create(
+        creator=host, meeting_id='gone', meeting_type=BROADCAST, live_now=True,
+        host_session_id=tab, host_session_seen_at=timezone.now(),
+        provider_session_id=uuid.uuid4(),
+        provider_session_started_at=timezone.now() - timedelta(hours=1),
+    )
+    gone = _FakeResponse({'success': False, 'error': {'code': 404}})
+    gone.status_code = 404
+    provider.add_participant.side_effect = [
+        gone, _FakeResponse({'data': {'token': 'auth-token', 'id': 'p-new'}}),
+    ]
+
+    started = _start(api_client, host, session=tab)
+
+    assert started.status_code == 200, started.data
+    cm = CreatorMeeting.objects.get(creator=host, meeting_type=BROADCAST)
+    assert cm.meeting_id == started.data['meeting_id'] != 'gone'
+    assert cm.provider_session_id is None
+    assert cm.provider_session_started_at is None
+    assert cm.host_session_id == tab
+
+
 def test_only_the_owner_can_touch_the_seat(api_client, provider, host,
                                            creator_factory):
     tab = uuid.uuid4()
