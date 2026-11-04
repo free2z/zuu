@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
+  import { Radio, Ticket, Users } from "@lucide/svelte";
   import { tStore as t } from "$lib/i18n";
   import { streamWatchPath } from "$lib/utils/stream-path";
   import type { PublicMeetingList } from "$lib/api/f2z.schemas";
@@ -51,6 +52,14 @@
           ? `url(${JSON.stringify(img)}) center / cover`
           : fallbackTint(stream.username ?? ""),
       mode: modeLabel(stream),
+      // Same icons as the stream type everywhere else: free broadcast,
+      // subscribers-only, pay-per-view.
+      icon:
+        stream.meeting_type === "broadcast"
+          ? Radio
+          : stream.meeting_type === "subscribers-only"
+            ? Users
+            : Ticket,
       label: ariaLabel(stream),
     };
   });
@@ -180,9 +189,16 @@
                 >{it.name}</span
               >
               <span
-                class="relative font-mono text-[10.5px] whitespace-nowrap text-foreground/65 transition-colors group-hover:text-foreground/85"
-                >{it.mode}</span
+                class="relative flex items-center gap-1 font-mono text-[10.5px] whitespace-nowrap text-foreground/65 transition-colors group-hover:text-foreground/85"
               >
+                <svelte:component
+                  this={it.icon}
+                  class="size-3 shrink-0"
+                  strokeWidth={2.25}
+                  aria-hidden="true"
+                />
+                {it.mode}
+              </span>
             </a>
           </li>
         {/each}
