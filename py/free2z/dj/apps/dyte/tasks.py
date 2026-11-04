@@ -362,10 +362,10 @@ def sweep_live_meetings(timestamp: int):
     active-session endpoint for the live participant count and:
 
     - count > 0: presence confirmed -> refresh last_seen_at (stays live).
-    - count == 0: confirmed empty -> clear live_now, UNLESS last_seen_at is
-      within DYTE_LIVE_SWEEP_GRACE_SECONDS, which protects a room that just
-      went live (creator's client still connecting, provider still reporting
-      0). The grace only delays a real clear by at most that window.
+    - count == 0: start or continue a consecutive-zero window. Clear only
+      after DYTE_LIVE_SWEEP_GRACE_SECONDS of confirmed zeros; a positive or
+      failed probe resets that window. This protects established rooms from
+      one transient zero while keeping empty rooms boundedly reclaimable.
     - provider error: get_participants_count raises (network/5xx/auth/JSON).
       A transient error NEVER flips a live room off on its own — but it must
       not be able to pin live_now on forever either. If presence has not been
@@ -468,32 +468,60 @@ def sweep_live_meetings(timestamp: int):
             break
         last_reached = cm.pk
         checked += 1
+        # The row was read before the provider request. Only apply this
+        # response if neither last-seen nor zero-probe evidence changed while
+        # the request was in flight; another worker may have completed a
+        # newer probe first.
+        observed = CreatorMeeting.objects.filter(
+            pk=cm.pk,
+            live_now=True,
+            last_seen_at=cm.last_seen_at,
+            zero_probe_since=cm.zero_probe_since,
+        )
         try:
             count = dc.get_participants_count(cm.meeting_id)
         except Exception as exc:
             # Provider/network error: unknown state, not a confirmed zero.
             errors += 1
             error_kinds[f"{type(exc).__name__}: {exc}"] += 1
+            # A failed probe breaks a consecutive-zero run. Keep the existing
+            # stale-presence safety valve below, but require fresh zero
+            # evidence before clearing a recently seen room.
             # Safety valve: an unreachable provider must not pin a room
             # "live" indefinitely. Presence that has gone stale is cleared
             # even without a confirmed zero.
             if _is_stale(cm):
-                CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
-                stale_cleared += 1
+                stale_cleared += observed.update(
+                    live_now=False, zero_probe_since=None)
+            else:
+                observed.update(zero_probe_since=None)
             continue
 
         if count > 0:
-            CreatorMeeting.objects.filter(pk=cm.pk).update(last_seen_at=now)
-            refreshed += 1
+            refreshed += observed.update(
+                last_seen_at=now, zero_probe_since=None)
             continue
 
-        # Confirmed zero. Protect a room that just went live from being
-        # flipped off before its participants can register.
-        if cm.last_seen_at is not None and cm.last_seen_at > grace_cutoff:
+        # A single provider zero can be transient even for an established
+        # stream. Start a persisted, bounded grace on the first zero and only
+        # clear after consecutive confirmed zeros span the whole window.
+        if cm.zero_probe_since is None:
+            CreatorMeeting.objects.filter(
+                pk=cm.pk, live_now=True, zero_probe_since__isnull=True,
+                last_seen_at=cm.last_seen_at,
+            ).update(zero_probe_since=now)
+            continue
+        if cm.zero_probe_since > grace_cutoff:
             continue
 
-        CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
-        cleared += 1
+        # The provider call ran without a row lock. A newer sweep may have
+        # observed presence while this zero was in flight; compare both pieces
+        # of evidence we read before allowing this stale result to clear live.
+        cleared += CreatorMeeting.objects.filter(
+            pk=cm.pk, live_now=True, zero_probe_since=cm.zero_probe_since,
+            last_seen_at=cm.last_seen_at,
+        ).update(
+            live_now=False, zero_probe_since=None)
 
     # Advance the round robin. Written even when the sweep reached every
     # room, so the next tick starts after the last one it touched.
