@@ -3065,7 +3065,7 @@ export const RoleEnum = {
 export interface MeetingJoinRequestSchema {
   /** Original viewer account ID; required for a first-party paid PPV join under the active economic policy. */
   expected_actor_id?: number;
-  /** Stable per-join UUID; retry an ambiguous provider response with the same key. */
+  /** Stable UUID for one paid PPV join attempt. Reuse it when retrying an ambiguous provider response; generate a new one for a new join. */
   admission_idempotency_key?: string;
   /**
      * `host` starts (or resumes) the caller's own broadcast from this tab. `viewer` joins as an audience member, which is what the creator's own public stream page sends so it can never publish or claim the broadcaster seat. Omitted: legacy inference -- the creator is a host, anyone else a viewer. Only meaningful for the creator; everyone else is always a viewer.

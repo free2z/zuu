@@ -412,7 +412,7 @@ def test_livestream_ppv_replay_rejects_changed_admission_identity(
     cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
     cursor.fetchone.return_value = ('economy.settle_service_delivery',)
     key = str(uuid.uuid4())
-    admission = products.prepare_livestream_admission(
+    products.prepare_livestream_admission(
         host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
         price_per_minute=meeting.price_per_minute, idempotency_key=key,
         viewer_account_epoch=viewer.kt_account_epoch,
