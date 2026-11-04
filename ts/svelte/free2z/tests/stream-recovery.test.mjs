@@ -72,5 +72,10 @@ test("the live and private routes keep provider meetings mounted under overlays"
       privateRoute.indexOf("{#if isOffline}"),
     "the offline overlay must be independent of the mounted meeting branch",
   );
+  assert.match(
+    privateRoute,
+    /inert=\{isOffline \|\|\s*connectionStatus === "disconnected"/,
+  );
+  assert.match(privateRoute, /data-testid="private-call-reconnect"/);
   assert.match(privateRoute, /connectionStatus === "disconnected"/);
 });
