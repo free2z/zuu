@@ -1106,7 +1106,31 @@
       "libraryEmpty": "Você ainda não enviou documentos PDF.",
       "cloudImageAlt": "Documento PDF da sua nuvem",
       "imageAccessTitle": "Seus leitores não poderiam ver este documento PDF"
-    }
+    },
+    "aiTextTitle": "Criar texto com IA",
+    "aiTextPrompt": "Instrução (enviada ao provedor selecionado)",
+    "aiTextPromptPlaceholder": "Descreva o texto desejado. O rascunho nunca é enviado automaticamente.",
+    "aiTextModel": "Modelo",
+    "aiTextQuote": "Ver preço e destino",
+    "aiTextLoadError": "Os modelos de IA estão indisponíveis. Tente novamente mais tarde.",
+    "aiTextGenerateError": "A geração falhou. Confira a opção e tente novamente.",
+    "aiTextRetention": "Política de privacidade e retenção do provedor",
+    "aiTextWorking": "Gerando…",
+    "aiTextSubmit": "Gerar texto (até {price} 2Z)",
+    "aiTextPreview": "Prévia — nada foi inserido ainda",
+    "aiTextCharged": "Cobrado: {price} 2Z",
+    "aiTextAccept": "Inserir texto",
+    "aiTextDiscard": "Descartar",
+    "aiTextDestination": "Sua instrução será enviada para {destination}.",
+    "aiTextMaxCharge": "Cobrança máxima: {price} 2Z. A cobrança real é calculada pelo uso e pode ser menor.",
+    "aiTextAvailability": "Disponibilidade: {availability}. Fila: {queue}.",
+    "aiTextQuoteError": "Não foi possível calcular o preço. Confira a instrução e tente novamente.",
+    "aiTextRetryError": "O resultado é incerto. Repita exatamente a mesma solicitação para recuperá-lo com segurança.",
+    "aiTextRetry": "Repetir solicitação exata",
+    "aiTextPending": "Uma solicitação anterior pode ter sido concluída. Repita exatamente a mesma solicitação para recuperar o resultado; provedor e preço estão bloqueados.",
+    "aiTextEffectiveCap": "Limite da resposta: {tokens} tokens (solicitados: {requested}).",
+    "aiTextEmpty": "Nenhum modelo de texto está disponível no momento.",
+    "aiTextCatalogueRetry": "Recarregar lista de modelos"
   },
   "dashboard": {
     "pages": {
