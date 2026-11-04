@@ -1,0 +1,28 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: pip
+    directory: /py/free2z/requirements
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+  - package-ecosystem: npm
+    directories:
+      - /ts/svelte/free2z
+      - /ts/react/free2z
+      - /docs/about-free2z
+      - /docs/free2z/website
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: '*'
+        update-types: [version-update:semver-major]
+  - package-ecosystem: docker
+    directory: /build/free2z
+    schedule:
+      interval: weekly

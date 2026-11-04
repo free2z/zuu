@@ -18,7 +18,8 @@
 //!
 //! The name is client-chosen text, in the same class as `metadata`: it is
 //! stored only on the user's own call record and returned to the same app,
-//! and — like `metadata` — it is **never logged** (`crate::server`).
+//! and — like `metadata` — it is **never logged** (`crate::server`). For a
+//! child-directed app it is not stored either (`crate::meter`).
 
 use f2z_ai_proto::chat::{ChatRequest, MAX_RESPONSE_SCHEMA_NAME_CHARS, ResponseFormat};
 use serde::{Deserialize, Serialize};

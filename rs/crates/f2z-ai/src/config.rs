@@ -66,7 +66,7 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use secrecy::SecretString;
+use secrecy::{ExposeSecret as _, SecretString};
 use serde::Deserialize;
 
 /// 4 MiB: the body limit for a request without image parts (chat-api.md §1).
@@ -108,6 +108,10 @@ pub const ENV_AUTH_EPOCH_TOKEN: &str = "F2Z_AI_AUTH_EPOCH_TOKEN";
 pub const ENV_REDIS_URL: &str = "F2Z_AI_REDIS_URL";
 /// Ledger connection URL; accepted only as a secret.
 pub const ENV_LEDGER_URL: &str = "F2Z_AI_LEDGER_URL";
+/// The child-directed HMAC key ([`crate::meter::ChildDirectedKey`]).
+pub const ENV_CHILD_DIRECTED_KEY: &str = "F2Z_AI_CHILD_DIRECTED_KEY";
+/// The child-directed HMAC key in force before the last rotation.
+pub const ENV_CHILD_DIRECTED_KEY_PREVIOUS: &str = "F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS";
 
 /// Authentication, revocation and limits ([`crate::auth`]).
 #[derive(Clone)]
@@ -341,6 +345,16 @@ pub struct Config {
     /// migration is live. The `response` log line carries the features
     /// either way.
     pub ledger_features_meta: bool,
+    /// Server secret for child-directed call claims (at least 32 bytes),
+    /// from `child_directed_key_file` or `F2Z_AI_CHILD_DIRECTED_KEY`; never
+    /// inline. Absent: child-directed calls are refused with `503`.
+    pub child_directed_key: Option<SecretString>,
+    /// The key `child_directed_key` replaced, kept for the 24 hours after a
+    /// rotation (`child_directed_key_previous_file` or
+    /// `F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS`): a keyed retry of a call claimed
+    /// under it still replays that call (`meter::FormStore`). Requires
+    /// `child_directed_key`, and must differ from it.
+    pub child_directed_key_previous: Option<SecretString>,
 }
 
 impl Default for Config {
@@ -380,6 +394,8 @@ impl Default for Config {
             ledger_max_connections: 4,
             allowed_models: None,
             ledger_features_meta: false,
+            child_directed_key: None,
+            child_directed_key_previous: None,
         }
     }
 }
@@ -441,6 +457,8 @@ struct Raw {
     ledger_url_file: Option<PathBuf>,
     ledger_max_connections: Option<u64>,
     ledger_features_meta: Option<bool>,
+    child_directed_key_file: Option<PathBuf>,
+    child_directed_key_previous_file: Option<PathBuf>,
     allowed_models: Option<BTreeSet<String>>,
     listen: Option<String>,
     admin_listen: Option<String>,
@@ -510,6 +528,8 @@ const KEYS: &[(&str, Kind)] = &[
     ("ledger_url_file", Kind::Text),
     ("ledger_max_connections", Kind::Integer),
     ("ledger_features_meta", Kind::Boolean),
+    ("child_directed_key_file", Kind::Text),
+    ("child_directed_key_previous_file", Kind::Text),
     ("listen", Kind::Text),
     ("admin_listen", Kind::Text),
     ("max_concurrent_calls", Kind::Integer),
@@ -620,7 +640,12 @@ impl Config {
                 env_secret = Some(SecretString::from(value));
                 continue;
             }
-            if name == ENV_AUTH_EPOCH_TOKEN || name == ENV_REDIS_URL || name == ENV_LEDGER_URL {
+            if name == ENV_AUTH_EPOCH_TOKEN
+                || name == ENV_REDIS_URL
+                || name == ENV_LEDGER_URL
+                || name == ENV_CHILD_DIRECTED_KEY
+                || name == ENV_CHILD_DIRECTED_KEY_PREVIOUS
+            {
                 env_secrets.insert(name, SecretString::from(value));
                 continue;
             }
@@ -690,6 +715,45 @@ impl Config {
             "ledger_url_file",
             raw.ledger_url_file.take(),
         )?;
+        let child_directed_key = secret(
+            ENV_CHILD_DIRECTED_KEY,
+            env_secrets.remove(ENV_CHILD_DIRECTED_KEY),
+            "child_directed_key_file",
+            raw.child_directed_key_file.take(),
+        )?;
+        let child_directed_key_previous = secret(
+            ENV_CHILD_DIRECTED_KEY_PREVIOUS,
+            env_secrets.remove(ENV_CHILD_DIRECTED_KEY_PREVIOUS),
+            "child_directed_key_previous_file",
+            raw.child_directed_key_previous_file.take(),
+        )?;
+        for key in [&child_directed_key, &child_directed_key_previous]
+            .into_iter()
+            .flatten()
+        {
+            if key.expose_secret().len() < crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES {
+                return Err(err(format!(
+                    "the child-directed key must be at least {} bytes",
+                    crate::meter::MIN_CHILD_DIRECTED_KEY_BYTES
+                )));
+            }
+        }
+        match (&child_directed_key, &child_directed_key_previous) {
+            (None, Some(_)) => {
+                return Err(err(
+                    "the previous child-directed key needs a current one (`child_directed_key_file` \
+                     or F2Z_AI_CHILD_DIRECTED_KEY)",
+                ));
+            }
+            (Some(current), Some(previous))
+                if current.expose_secret() == previous.expose_secret() =>
+            {
+                return Err(err(
+                    "the previous child-directed key is the current one; a rotation needs a new key",
+                ));
+            }
+            _ => {}
+        }
         let defaults = Self::default();
         let addr = |key: &str, value: Option<String>, default: SocketAddr| match value {
             Some(text) => text
@@ -797,6 +861,8 @@ impl Config {
             auth,
             allowed_models: raw.allowed_models,
             ledger_features_meta: raw.ledger_features_meta.unwrap_or(false),
+            child_directed_key,
+            child_directed_key_previous,
             catalog_url: raw.catalog_url,
             catalog_keys_file: raw.catalog_keys_file,
             ledger_url,
@@ -1164,6 +1230,79 @@ mod tests {
                 "{invalid}"
             );
         }
+    }
+
+    #[test]
+    fn the_child_directed_key_is_a_secret_of_at_least_32_bytes() {
+        assert!(
+            Config::load(None, env(&[]))
+                .unwrap()
+                .child_directed_key
+                .is_none()
+        );
+        let long = "k".repeat(32);
+        let ok = Config::load(None, env(&[("F2Z_AI_CHILD_DIRECTED_KEY", &long)])).unwrap();
+        assert!(ok.child_directed_key.is_some());
+        assert!(!format!("{ok:?}").contains(&long), "redacted in Debug");
+        let short = "k".repeat(31);
+        assert!(Config::load(None, env(&[("F2Z_AI_CHILD_DIRECTED_KEY", &short)])).is_err());
+        // Never inline in the file: only the path of a file holding it.
+        assert!(Config::load(Some(file("child_directed_key = \"x\"").path()), env(&[])).is_err());
+    }
+
+    #[test]
+    fn the_previous_child_directed_key_needs_a_different_current_one() {
+        let current = "c".repeat(32);
+        let previous = "p".repeat(32);
+        let both = Config::load(
+            None,
+            env(&[
+                ("F2Z_AI_CHILD_DIRECTED_KEY", &current),
+                ("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &previous),
+            ]),
+        )
+        .unwrap();
+        assert!(both.child_directed_key_previous.is_some());
+        assert!(
+            !format!("{both:?}").contains(&previous),
+            "redacted in Debug"
+        );
+        // Alone, too short, or the same key twice: refused at startup.
+        assert!(
+            Config::load(
+                None,
+                env(&[("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &previous)])
+            )
+            .is_err()
+        );
+        let short = "p".repeat(31);
+        assert!(
+            Config::load(
+                None,
+                env(&[
+                    ("F2Z_AI_CHILD_DIRECTED_KEY", &current),
+                    ("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &short),
+                ]),
+            )
+            .is_err()
+        );
+        assert!(
+            Config::load(
+                None,
+                env(&[
+                    ("F2Z_AI_CHILD_DIRECTED_KEY", &current),
+                    ("F2Z_AI_CHILD_DIRECTED_KEY_PREVIOUS", &current),
+                ]),
+            )
+            .is_err()
+        );
+        assert!(
+            Config::load(
+                Some(file("child_directed_key_previous = \"x\"").path()),
+                env(&[])
+            )
+            .is_err()
+        );
     }
 
     fn env(pairs: &[(&str, &str)]) -> Vec<(String, String)> {

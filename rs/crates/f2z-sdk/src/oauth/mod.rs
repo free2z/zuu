@@ -279,6 +279,9 @@ pub struct SignedIn {
     pub scopes: Vec<String>,
     /// The verified ID token's claims, when `openid` was granted.
     pub id_token: Option<IdTokenClaims>,
+    /// The display identity, when `profile` was granted: the same value
+    /// [`Client::profile`](crate::Client::profile) reports afterwards.
+    pub profile: Option<crate::account::Profile>,
     /// Whether a refresh token was issued (`offline_access`) and so the
     /// session outlives the five-minute access token.
     pub refreshable: bool,
