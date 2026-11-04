@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, tick } from "svelte";
   import { tStore as t } from "$lib/i18n";
   import { streamWatchPath } from "$lib/utils/stream-path";
   import type { PublicMeetingList } from "$lib/api/f2z.schemas";
@@ -26,22 +27,62 @@
     return FALLBACK_TINTS[hash % FALLBACK_TINTS.length];
   }
 
+  // Avatars that fail to load fall back to initials instead of a broken image.
+  let failed: Record<string, true> = {};
+  function avatarFailed(key: string) {
+    failed = { ...failed, [key]: true };
+  }
+
   $: items = streams.map((stream) => {
+    const key = stream.username + ":" + stream.meeting_type;
     const img = imageUrl(stream.avatar);
+    const broken = Boolean(failed[key]);
     return {
-      key: stream.username + ":" + stream.meeting_type,
+      key,
       href: streamWatchPath(stream.username, stream.meeting_type),
       name: stream.username,
       initials: stream.username?.slice(0, 2).toUpperCase(),
       img,
       // The capsule is tinted by a blurred copy of the creator's own avatar,
       // so every pill carries that person's colours.
-      tint: img
-        ? `url(${JSON.stringify(img)}) center / cover`
-        : fallbackTint(stream.username ?? ""),
+      broken,
+      tint:
+        img && !broken
+          ? `url(${JSON.stringify(img)}) center / cover`
+          : fallbackTint(stream.username ?? ""),
       mode: modeLabel(stream),
       label: ariaLabel(stream),
     };
+  });
+
+  // Edge fades appear only where there is more to scroll, so the first and
+  // last capsules are never left half-faded.
+  let rail: HTMLUListElement | undefined;
+  let fadeStart = false;
+  let fadeEnd = false;
+  function updateFades() {
+    if (!rail) return;
+    const max = rail.scrollWidth - rail.clientWidth;
+    fadeStart = rail.scrollLeft > 1;
+    fadeEnd = rail.scrollLeft < max - 1;
+  }
+  $: if (rail && items) tick().then(updateFades);
+
+  // Tabbing through the rail must always land on a fully visible capsule,
+  // clear of the edge fades (scroll-padding-inline keeps that margin).
+  function revealFocused(event: FocusEvent) {
+    (event.target as HTMLElement).scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }
+  onMount(() => {
+    if (!rail || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateFades);
+    observer.observe(rail);
+    // Web fonts change capsule widths without resizing the rail itself.
+    document.fonts?.ready.then(updateFades);
+    return () => observer.disconnect();
   });
 </script>
 
@@ -85,6 +126,11 @@
       </div>
 
       <ul
+        bind:this={rail}
+        on:scroll|passive={updateFades}
+        on:focusin={revealFocused}
+        class:fade-start={fadeStart}
+        class:fade-end={fadeEnd}
         class="rail-scroll relative -mx-3 -my-2 flex min-w-0 items-center gap-2.5 overflow-x-auto px-3 py-2 sm:-mx-4 sm:px-4"
       >
         {#each items as it (it.key)}
@@ -108,24 +154,29 @@
               <span class="live-ring relative shrink-0 rounded-full">
                 <span
                   class="grid size-7 place-items-center overflow-hidden rounded-full text-[10px] font-bold text-white"
-                  style:background={it.img ? undefined : it.tint}
+                  style:background={it.img && !it.broken ? undefined : it.tint}
                 >
                   {#if it.img}
+                    <!-- Kept in the DOM when it fails (hidden), so the
+                         initials underneath show instead of a broken image. -->
                     <img
                       src={it.img}
+                      on:error={() => avatarFailed(it.key)}
                       alt=""
                       loading="lazy"
                       decoding="async"
-                      class="size-full object-cover"
+                      class="col-start-1 row-start-1 size-full object-cover"
+                      class:invisible={it.broken}
                     />
-                  {:else}
-                    {it.initials}
+                  {/if}
+                  {#if !it.img || it.broken}
+                    <span class="col-start-1 row-start-1">{it.initials}</span>
                   {/if}
                 </span>
               </span>
 
               <span
-                class="relative text-sm font-semibold whitespace-nowrap text-foreground"
+                class="relative max-w-44 truncate text-sm font-semibold text-foreground"
                 >{it.name}</span
               >
               <span
@@ -166,26 +217,26 @@
     }
   }
 
-  /* Red "on air" ring with a slow breathing glow. */
+  /* Red "on air" ring. The breathing glow lives on a pseudo-element and only
+     its opacity animates, so it stays on the compositor (no per-frame paint). */
   .live-ring {
     box-shadow:
       0 0 0 2px var(--background, #0a0c09),
       0 0 0 3.5px rgb(239 68 68);
+  }
+  .live-ring::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: 0 0 10px 6px rgb(239 68 68 / 0.35);
+    opacity: 0;
+    pointer-events: none;
     animation: live-breathe 2.4s ease-in-out infinite;
   }
   @keyframes live-breathe {
-    0%,
-    100% {
-      box-shadow:
-        0 0 0 2px var(--background, #0a0c09),
-        0 0 0 3.5px rgb(239 68 68),
-        0 0 0 3.5px rgb(239 68 68 / 0);
-    }
     50% {
-      box-shadow:
-        0 0 0 2px var(--background, #0a0c09),
-        0 0 0 3.5px rgb(239 68 68),
-        0 0 10px 3px rgb(239 68 68 / 0.35);
+      opacity: 1;
     }
   }
 
@@ -196,12 +247,24 @@
   }
 
   .rail-scroll {
+    --fade-start: 0px;
+    --fade-end: 0px;
     scrollbar-width: none;
+    /* Keyboard focus scrolls a capsule clear of the edge fades. */
+    scroll-padding-inline: 2.5rem;
     mask-image: linear-gradient(
       to right,
-      #000 calc(100% - 2.5rem),
+      transparent,
+      #000 var(--fade-start),
+      #000 calc(100% - var(--fade-end)),
       transparent
     );
+  }
+  .rail-scroll.fade-start {
+    --fade-start: 2.5rem;
+  }
+  .rail-scroll.fade-end {
+    --fade-end: 2.5rem;
   }
   .live-card {
     box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
@@ -212,7 +275,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .live-dot::after,
-    .live-ring {
+    .live-ring::after {
       animation: none;
     }
   }
