@@ -268,10 +268,7 @@ test("homepage live discovery uses one shared list for the rail and cards", () =
     /streamWatchPath\(stream\.username, stream\.meeting_type\)/,
   );
   assert.match(homepageSource, /homepage\.liveModeFree", "Free"/);
-  assert.match(
-    homepageSource,
-    /homepage\.liveModeSubscribers", "Subscribers"/,
-  );
+  assert.match(homepageSource, /homepage\.liveModeSubscribers", "Subscribers"/);
   assert.match(
     homepageSource,
     /stream\.pricePerMinuteShort", "\{amount\} 2Z\/min"/,
