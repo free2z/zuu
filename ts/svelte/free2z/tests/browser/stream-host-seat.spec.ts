@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
+import { devSourceModuleLoader } from "./dev-source-module";
 
 //  -- one broadcast at a time. The server owns the rule (a broadcaster
 // seat per creator, 409 `already_live_elsewhere` for anyone else); these pin
@@ -15,6 +16,9 @@ const SESSION = "stream-audience-owner-session";
 const USER = "streamaudienceowner";
 const STREAM_URL = `/${USER}/dashboard/stream`;
 const SEAT_PATH = `/api/dyte/${USER}/host-session`;
+const LIVE_STREAM_STORE_LOADER = devSourceModuleLoader(
+  "/src/lib/stores/liveStreamStore.ts",
+);
 
 async function authenticate(page: Page, session = SESSION) {
   await page.context().clearCookies();
@@ -217,4 +221,48 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
     "href",
     `/${OWNER}/dashboard/stream`,
   );
+});
+
+test("public recovery observes disconnected state without an error and connected cancels stale retry", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const owner = "recoveryfixture";
+  let joins = 0;
+  await page.route(`**/api/dyte/${owner}/broadcast`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    joins++;
+    return route.fulfill({ status: 503, body: "temporary provider outage" });
+  });
+  await page.route(`**/api/dyte/${owner}/live-status`, (route) =>
+    route.fulfill({ json: { is_live: false, streams: [] } }),
+  );
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await page.goto(`/${owner}/broadcast?lang=en`);
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      await page.waitForTimeout(1_000);
+    }
+  }
+  await expect.poll(() => joins).toBe(1);
+
+  const store = async (status: "connected" | "disconnected") =>
+    page.evaluate(
+      async ({ next, loader }) => {
+        const { liveStreamStore } = await new Function(loader)();
+        liveStreamStore.setError(null);
+        liveStreamStore.setConnectionStatus(next);
+      },
+      { next: status, loader: LIVE_STREAM_STORE_LOADER },
+    );
+
+  await store("connected");
+  await page.waitForTimeout(2_000);
+  expect(joins).toBe(1);
+
+  await store("disconnected");
+  await page.waitForTimeout(22_000);
+  await expect.poll(() => joins).toBe(2);
 });
