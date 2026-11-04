@@ -82,15 +82,14 @@ in: written Cantonese is overwhelmingly traditional-script, so the guess
 is right nearly always rather than half the time. ``yue-Hans`` stays a valid,
 named, non-sellable tag.
 
-**It carries the same repointing risk, and the risk is not zero.** ``yue`` was
-never sellable, but it has always been *writable* — a creator could label a
-source article or a human translation ``yue``, and the codex review of
-was right to reject "not sellable, therefore no rows" as an argument. Any such
-row is now addressed as ``yue-Hant`` while the column still says ``yue``, so
-``/variants/yue/`` 404s and ``/variants/yue-Hant/`` misses. The exposure is a
-handful of rows at most and the remedy is a one-line backfill, which belongs in
-the  migration wave rather than in a migration-free workstream. Tracked
-separately; do not assume it has happened.
+Stored ``yue`` labels are migrated to ``yue-Hant`` by g12f migration 0122,
+along with noncanonical ``yue-*`` spellings mapped by this registry. This
+repairs both ``/variants/yue/`` and ``/variants/yue-Hant/`` without replacing
+content or translation identity. The read-only ``plan_yue_language_migration``
+command reports changes and collisions first; the migration aborts before any
+writes if canonicalization would collapse distinct variants. Historical audit
+labels stay as recorded. See the backend README for the complete inventory
+and deployment-owner coordination; a registry default alone is not a backfill.
 
 Why ``f2z/`` and not ``dj/apps/g12f/``
 -------------------------------------
@@ -368,8 +367,8 @@ TRANSLATABLE = frozenset(
 #mechanism applied to a *script* rather than a region, and it is the only
 #place we do that. The module docstring explains why bare ``zh`` does NOT get
 #the same treatment: the Cantonese guess is right nearly always, the Chinese
-#one is a coin flip, and ``yue`` was not sellable before today so there is no
-#population of stored rows a default could repoint.
+#one is a coin flip. Writable legacy ``yue`` rows are repaired by g12f 0122;
+#not being sellable never implied that no stored rows existed.
 #
 #**Every value here must fit**:data:`MAX_TAG_LENGTH`. This map is applied
 #*after*:func:`normalize` re-checks the canonicalized length, so a long
