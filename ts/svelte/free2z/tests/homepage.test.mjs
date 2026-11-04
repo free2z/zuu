@@ -51,6 +51,10 @@ const homepageSource = readFileSync(
   new URL("../src/routes/+page.svelte", import.meta.url),
   "utf8",
 );
+const liveRailSource = readFileSync(
+  new URL("../src/lib/components/LiveRail.svelte", import.meta.url),
+  "utf8",
+);
 const authStoreSource = readFileSync(
   new URL("../src/lib/stores/auth.ts", import.meta.url),
   "utf8",
@@ -256,15 +260,25 @@ test("homepage live discovery uses one shared list for the rail and cards", () =
   );
   assert.match(homepageSource, /createLiveDiscoveryOptions\(apiBase\)/);
   assert.match(homepageSource, /setInterval\(refreshLiveNow, 45_000\)/);
-  assert.match(homepageSource, /data-testid="homepage-live-now"/);
+  assert.match(homepageSource, /<LiveRail/);
+  assert.match(homepageSource, /streams=\{liveNow\.results\}/);
+  assert.match(liveRailSource, /data-testid="homepage-live-now"/);
   assert.match(
-    homepageSource,
+    liveRailSource,
     /streamWatchPath\(stream\.username, stream\.meeting_type\)/,
   );
-  assert.match(homepageSource, /<Radio[\s\S]*?Free/);
-  assert.match(homepageSource, /<Users[\s\S]*?Subscribers/);
-  assert.match(homepageSource, /<Ticket[\s\S]*?2Z\/min/);
+  assert.match(homepageSource, /homepage\.liveModeFree", "Free"/);
+  assert.match(
+    homepageSource,
+    /homepage\.liveModeSubscribers", "Subscribers"/,
+  );
+  assert.match(
+    homepageSource,
+    /stream\.pricePerMinuteShort", "\{amount\} 2Z\/min"/,
+  );
+  assert.match(liveRailSource, /\{it\.mode\}/);
   assert.doesNotMatch(homepageSource, /DollarSign|\$\{?stream/);
+  assert.doesNotMatch(liveRailSource, /DollarSign|\$\{?stream/);
   assert.match(homepageSource, /liveStreams=\{/);
   assert.match(
     homepageSource,
