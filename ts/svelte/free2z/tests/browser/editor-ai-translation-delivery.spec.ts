@@ -265,7 +265,24 @@ test("insufficient funds after affordable quote removes stale Buy until refreshe
   await expect(
     page.getByRole("button", { name: "Refresh price and balance" }),
   ).toBeVisible();
+  await expect(page.getByTestId("insufficient-funds")).toContainText(
+    "You have not been charged.",
+  );
   await page.getByRole("button", { name: "Cancel", exact: true }).focus();
+  await page.keyboard.press("Shift+Tab");
+  await expect(page.getByTestId("credits-explanation")).toBeFocused();
+  await expect(page.getByTestId("credits-explanation")).toHaveAttribute(
+    "href",
+    "/buy-2z/about",
+  );
+  await expect(page.getByTestId("credits-explanation")).toHaveAttribute(
+    "target",
+    "_blank",
+  );
+  await expect(page.getByTestId("credits-explanation")).toHaveAttribute(
+    "rel",
+    "noopener",
+  );
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByTestId("insufficient-funds-buy")).toBeFocused();
   expect(writes.filter((w) => w.pathname.endsWith("/translate/")).length).toBe(
@@ -273,6 +290,9 @@ test("insufficient funds after affordable quote removes stale Buy until refreshe
   );
   await page.getByRole("button", { name: "Refresh price and balance" }).click();
   await expect(page.getByTestId("translate-ai-confirm")).toBeEnabled();
+  expect(writes.filter((w) => w.pathname.endsWith("/translate/")).length).toBe(
+    1,
+  );
 });
 
 test("an unaffordable quote has no disabled purchase action", async ({

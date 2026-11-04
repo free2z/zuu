@@ -26,7 +26,10 @@ test("credit explanation and welcome are short plain translated strings", () => 
 test("both credit notices share a reachable explanation without replacing the draft", () => {
   for (const component of ["PostingCostNotice", "InsufficientFunds"]) {
     const source = read(`src/lib/components/${component}.svelte`);
-    assert.match(source, /href="\/credits"\s+target="_blank"\s+rel="noopener"/);
+    assert.match(
+      source,
+      /href="\/buy-2z\/about"\s+target="_blank"\s+rel="noopener"/,
+    );
     assert.match(source, /credits\.title/);
   }
   const welcome = read("src/lib/components/WelcomeCredits.svelte");

@@ -45,7 +45,7 @@
         )}
       </p>
       <a
-        href="/credits"
+        href="/buy-2z/about"
         target="_blank"
         rel="noopener"
         class="font-medium text-primary underline underline-offset-2"

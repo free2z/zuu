@@ -85,7 +85,7 @@
       {$t("insufficientFunds.buy", "Buy 2Z")}
     </a>
     <a
-      href="/credits"
+      href="/buy-2z/about"
       target="_blank"
       rel="noopener"
       class="font-medium text-primary underline-offset-2 hover:underline"

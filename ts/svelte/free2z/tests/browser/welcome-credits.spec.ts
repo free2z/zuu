@@ -30,7 +30,10 @@ for (const amount of ["10.000", "3.000", null]) {
     await expect(welcome).toContainText("1 2Z");
     await expect(welcome).toContainText("free of ads");
     await expect(welcome).toContainText("discourage spam");
-    await expect(welcome.getByRole("link")).toHaveAttribute("href", "/credits");
+    await expect(welcome.getByRole("link")).toHaveAttribute(
+      "href",
+      "/buy-2z/about",
+    );
     await expect(welcome.getByRole("link")).toHaveAttribute("target", "_blank");
     await welcome
       .getByRole("button", { name: "Dismiss welcome message" })
@@ -76,7 +79,7 @@ test("credit explanation is reachable from both notices without losing the draft
   await page.getByRole("button", { name: "Post", exact: true }).click();
   await expect(
     page.getByTestId("insufficient-funds").getByTestId("credits-explanation"),
-  ).toHaveAttribute("href", "/credits");
+  ).toHaveAttribute("href", "/buy-2z/about");
   await expect(draft).toHaveValue("My introduction draft");
 });
 
