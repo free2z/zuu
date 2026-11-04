@@ -531,6 +531,8 @@ impl RelayState {
         let mut bytes = 0u64;
         let mut has_more = false;
         for stored in queue.messages.range(start..).map(|(_, stored)| stored) {
+            // `max_bytes` counts ciphertext payload bytes only; wire framing
+            // is a separate complete-frame limit in the relay.
             let size = u64::try_from(stored.payload.len()).unwrap_or(u64::MAX);
             if !messages.is_empty()
                 && (messages.len() >= message_limit || bytes.saturating_add(size) > byte_limit)

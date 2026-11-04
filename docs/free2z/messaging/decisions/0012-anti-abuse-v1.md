@@ -32,15 +32,15 @@ architecture has ([`../THREAT-MODEL.md` §4.4](../THREAT-MODEL.md#44-tail-trunca
 1. **Connection limits** — concurrent connections and new-connection rate per
    source, handshake timeout, maximum frame size, bounded in-flight window,
    per-connection command rate. All applied before any signature verification.
-2. **Per-queue quotas** — maximum messages, maximum bytes, append rate. Send-side
+2. **Per-queue storage quotas** — maximum messages and maximum bytes. Send-side
    refusals collapse to a single code so the sender learns nothing about queue
-   state.
+   state. V1 defines no separate per-queue append-rate limit.
 3. **Queue-creation control** — `open`, `pow`, or `token`, **defaulting to
    `pow`**: a proof-of-work stamp over a relay-issued, single-use, expiring
    challenge, verifiable in one hash. **`token` is reserved and unusable; see
    the amendment below.**
-4. **Global backpressure** — on crossing published high-water marks the relay
-   refuses, in order: queue creation, then appends, then new connections.
+4. **Global backpressure** — on crossing its configured storage high-water mark
+   the relay refuses, in order: queue creation, then appends, then new connections.
    `READ`, `ACK` and `DELETE_QUEUE` are **never** refused for backpressure.
 
 **And the rule that outranks all of them: a relay MUST NOT delete an
@@ -78,10 +78,15 @@ writes.**
   legitimately want it, it MUST be declared in the capability document, and
   clients SHOULD prefer `pow` relays and SHOULD say in the UI what a token-gated
   relay can correlate. **Withdrawn — see the amendment below.**
-- **Everything is published.** Limits, TTLs, creation mode, PoW parameters,
-  whether per-source limits are on, and the durability mode all live in the signed
-  capability document, so a client can choose a relay on policy rather than
-  discovering it by failing.
+- **Published policy is limited to the frozen v1 capability fields.** The
+  document publishes the per-queue message/byte caps, TTLs, creation mode and
+  PoW parameters, whether per-source limits are enabled, and the durability
+  mode. It does not publish the total queue ceiling, global connection ceiling,
+  numeric per-source or per-connection rates, outbound queue bound, or storage
+  high-water mark. V1 has no per-queue append-rate limit. Clients can choose
+  against the published fields, but these operator-local thresholds can only be
+  discovered by encountering them. See [WIRE.md §11.1](../WIRE.md#111-what-an-operator-publishes)
+  for the complete boundary.
 
 ### What is not closed — stated plainly
 
