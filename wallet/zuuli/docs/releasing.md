@@ -604,6 +604,14 @@ allowed to execute in a credential-bearing job.
    - the release commit itself changes that surface only in `STATUS.md` and the
      generated files owned by `release:bump`.
 
+   The re-derivation commit also records the document's new digest in
+   `../scripts/status-evidence-seals.json`, beside this document's own. That
+   file is excluded from the release-impacting surface exactly as `STATUS.md`
+   is, so recording the seal does not make the audit it seals stale: the
+   marker keeps naming the pre-edit `origin/main` SHA, and no later commit has
+   to re-point it. The checker's code in `../scripts/status-freshness.mjs`
+   stays inside the surface.
+
    Unrelated trunk merges therefore do not invalidate a completed audit. A
    merged application, shared-plugin, toolchain, packaging, or protected-release
    change does: re-run the affected evidence and record the new pre-edit

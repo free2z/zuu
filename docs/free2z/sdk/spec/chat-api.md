@@ -401,7 +401,7 @@ The provider-reported usage, once known — normally just before `done`.
 ```
 event: usage
 id: 5
-data: {"usage":{"input_tokens":1187,"cached_input_tokens":0,"cache_write_tokens":0,"output_tokens":342,"reasoning_tokens":0,"images":1,"tool_calls":1},"source":"provider"}
+data: {"usage":{"input_tokens":1187,"cached_input_tokens":0,"cache_write_tokens":0,"output_tokens":342,"reasoning_tokens":0,"images":1,"tool_calls":0},"source":"provider"}
 ```
 
 | Field | Meaning |
@@ -412,8 +412,8 @@ data: {"usage":{"input_tokens":1187,"cached_input_tokens":0,"cache_write_tokens"
 | `usage.output_tokens` | Output tokens **including** reasoning |
 | `usage.reasoning_tokens` | The part of `output_tokens` that was reasoning; informational, never priced a second time |
 | `usage.images` | Input images billed per image, where the model prices them so |
-| `usage.tool_calls` | Tool calls billed per call, where the catalogue prices them |
-| `source` | `provider` — the numbers are the provider's; or `estimated` — the provider reported none and the gateway estimated from streamed text ([metering.md](./metering.md) §5.4) |
+| `usage.tool_calls` | Provider-billed **server-side** tool invocations that the catalogue prices per call (for example, web search). Client function calls returned as `tool_call` events are not included: their generated names and arguments are part of `output_tokens`, with no additional per-call charge. The public `Usage` wire type has no separate `function_tool_calls` field |
+| `source` | `provider` — the numbers are the provider's; or `estimated` — the provider reported no usage and the gateway estimated from generated text and function-call names/arguments it observed ([metering.md](./metering.md) §5.4) |
 
 A missing `usage` field reads as `0`.
 

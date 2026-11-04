@@ -11,7 +11,19 @@ Only that evidence can bypass the worker heartbeat and estimated task runtime
 gates. The pre-body phase permits a bounded retry of otherwise-``NEVER`` work;
 an interrupted ``NEVER`` body stays excluded. If no lease exists, the worker
 heartbeat must be stale (or its row pruned). A missing lease alone never proves
-an attempt stopped.
+an attempt stopped. A missing ``worker_id`` is likewise ambiguous: a peer can
+prune a live worker. An ordinary attempt additionally waits for
+``max(JOB_RECLAIM_MIN_AGE_SECONDS, task runtime + budget margin)`` from its
+latest started event. Runtime metadata can be an estimate, so it does not
+justify bypassing a live heartbeat. ``NEVER`` bodies remain excluded.
+
+These are eligibility gates, not a one-minute recovery SLA. For ordinary
+leased attempts the latest of the age/runtime, lease-silence and worker-silence
+gates wins; matching abandonment proof bypasses the runtime/worker gates but
+not age or lease silence. Unleased attempts have no lease-silence gate.
+A nominal one-minute sweep can be delayed by queueing, tick coalescing, locks,
+row deadlines and the sweep time budget; there is no unconditional wall-clock
+healing bound. See ``docs/free2z/jobs/recovery.md`` for the full contract.
 
 A fresh lease past ``deadline_at`` is handled separately. The first sweep
 persists an abort-request marker and asks Procrastinate to abort. A later sweep
