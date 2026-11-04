@@ -37,6 +37,134 @@ const OPTIONS = {
   completion: [],
 };
 
+test("text completion quotes a chosen model and requires preview acceptance", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const calls: Record<string, unknown>[] = [];
+  const textChoices = [
+    {
+      id: "text-a",
+      provider: "openai",
+      display_name: "Text model A",
+      destination: "OpenAI",
+      privacy_policy_url: "https://openai.com/policies/privacy-policy/",
+      availability: "Configured",
+      queue: "Synchronous",
+    },
+    {
+      id: "text-b",
+      provider: "anthropic",
+      display_name: "Text model B",
+      destination: "Anthropic",
+      privacy_policy_url: "https://www.anthropic.com/legal/privacy",
+      availability: "Configured",
+      queue: "Synchronous",
+    },
+  ];
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "creator-ai-text-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  await page.route(
+    (url) => url.pathname.startsWith("/api/"),
+    async (route) => {
+      const request = route.request();
+      const { pathname } = new URL(request.url());
+      if (pathname === "/api/auth/user/")
+        await route.fulfill({ json: CREATOR });
+      else if (
+        pathname === "/api/ai/creator-options/" &&
+        request.method() === "GET"
+      )
+        await route.fulfill({ json: { cover: [], completion: textChoices } });
+      else if (
+        pathname === "/api/ai/creator-options/" &&
+        request.method() === "POST"
+      ) {
+        const body = JSON.parse(request.postData() || "{}");
+        calls.push(body);
+        const selected =
+          textChoices.find((choice) => choice.id === body.model) ??
+          textChoices[0];
+        await route.fulfill({
+          json: {
+            choice: selected,
+            model: selected.id,
+            max_output_tokens: 256,
+            requested_output_tokens: 256,
+            max_charge_2z: 4,
+            quote_token: "quote-bound-to-prompt",
+            availability: "Configured",
+            queue: "Synchronous",
+          },
+        });
+      } else if (
+        pathname === "/api/ai/prompt/" &&
+        request.method() === "POST"
+      ) {
+        const body = JSON.parse(request.postData() || "{}");
+        calls.push(body);
+        await route.fulfill({
+          json: {
+            response: "A reviewed paragraph.",
+            provider: "anthropic",
+            model: "text-b",
+            display_name: "Text model B",
+            tuzis_charged: 2,
+            input_tokens: 8,
+            output_tokens: 10,
+          },
+        });
+      } else await route.fulfill({ json: { count: 0, results: [] } });
+    },
+  );
+  await page.goto("/edit");
+  await expect(page.locator("textarea.writing-area-textarea")).toBeVisible({
+    timeout: 30_000,
+  });
+  const editor = page.locator("textarea.writing-area-textarea");
+  await editor.fill("Existing draft stays here.");
+  await page.getByText("Draft with AI").click();
+  await page
+    .getByLabel("Prompt (sent to the selected provider)")
+    .fill("Write one paragraph about gardens.");
+  const modelChoice = page.getByRole("combobox");
+  await expect(modelChoice.locator('option[value="text-b"]')).toHaveCount(1);
+  await modelChoice.selectOption("text-b");
+  await page
+    .getByRole("button", { name: "Show price and destination" })
+    .click();
+  await expect(page.getByText(/Maximum charge: 4 2Z/)).toBeVisible();
+  await expect(page.getByText(/prompt goes to Anthropic/)).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Provider privacy and retention policy" }),
+  ).toHaveAttribute("href", textChoices[1].privacy_policy_url);
+  expect(calls[0]).toMatchObject({
+    model: "text-b",
+    prompt: "Write one paragraph about gardens.",
+  });
+  await page
+    .getByRole("button", { name: "Generate text (up to 4 2Z)" })
+    .click();
+  await expect(page.getByText("A reviewed paragraph.")).toBeVisible();
+  await expect(editor).toHaveValue("Existing draft stays here.");
+  expect(calls.at(-1)).toMatchObject({
+    model: "text-b",
+    prompt: calls[0].prompt,
+    quote_token: "quote-bound-to-prompt",
+    max_output_tokens: 256,
+  });
+  await page.getByRole("button", { name: "Insert text" }).click();
+  await expect(editor).toHaveValue(
+    "Existing draft stays here.\n\nA reviewed paragraph.",
+  );
+});
+
 test("cover generation discloses destination and price and gates explicit fallback", async ({
   page,
 }) => {

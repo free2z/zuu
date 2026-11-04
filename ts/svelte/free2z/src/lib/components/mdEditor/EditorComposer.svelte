@@ -138,6 +138,12 @@
       {subscriberOnly}
       {isAbandoned}
     />
-    <EditorAITextCompletion draft={content} onInsert={(text) => { content = `${content}${content ? "\n\n" : ""}${text}`; onContentChange?.(); }} />
+    <EditorAITextCompletion
+      draft={content}
+      onInsert={(text) => {
+        content = `${content}${content ? "\n\n" : ""}${text}`;
+        onContentChange?.();
+      }}
+    />
   </div>
 </div>
