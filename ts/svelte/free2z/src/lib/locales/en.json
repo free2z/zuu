@@ -507,9 +507,9 @@
     "secondPageNeeds2z": "Your first zPage is free. To start another one you need at least {required} 2Z, and you have {balance} 2Z. This draft is not saved yet: keep this tab open, or copy your text, then save again once you have 2Z.",
     "createMayHaveDuplicated": "Your page is saved, but an earlier attempt that timed out may have made a second copy. Check your pages and delete any duplicate.",
     "saveBlockedConflict": "A newer version of this article was saved elsewhere. Reload to continue.",
-    "saveConflict": "Someone else saved this article while you were editing. Your changes are still here — reload to get the newer version, then re-apply them.",
-    "saveConflictAfterTimeout": "An earlier save that timed out may have gone through after all, so the server now has a newer version. Your changes are still here — reload to check, then re-apply anything missing.",
-    "createConflict": "A {language} version already exists — from another tab, an AI translation or an earlier save. Your text is still here; copy it before reloading, which shows the saved version.",
+    "saveConflict": "The server has a newer version. Your edits are still here. Reload to compare it with your recoverable draft.",
+    "saveConflictAfterTimeout": "The server has a newer version. Your edits are still here. Reload to compare it with your recoverable draft.",
+    "createConflict": "The server has a newer version. Your edits are still here. Reload to compare it with your recoverable draft.",
     "saveConflictReload": "Reload",
     "saveBlockedDeleting": "This translation is being deleted.",
     "saveBlockedSwitching": "The editor is opening another language.",
@@ -1106,7 +1106,12 @@
       "libraryEmpty": "You do not have any uploaded PDF documents yet.",
       "cloudImageAlt": "PDF document from your cloud",
       "imageAccessTitle": "Your readers would not see this PDF document"
-    }
+    },
+    "variantLoadFailed": "Could not safely load this version. Please reload to try again.",
+    "draftStorageFailed": "Could not preserve your draft in this browser. Reload was cancelled. Keep this tab open and copy your edits before leaving.",
+    "draftRecovery": "A rejected draft is available. You are viewing the server version. Restore your draft to edit it against this version, or discard it.",
+    "restoreDraft": "Restore draft",
+    "discardDraft": "Discard draft"
   },
   "dashboard": {
     "pages": {

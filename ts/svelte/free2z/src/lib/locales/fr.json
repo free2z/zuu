@@ -507,9 +507,9 @@
     "secondPageNeeds2z": "Votre première zPage est gratuite. Pour en commencer une autre, il vous faut au moins {required} 2Z, et vous avez {balance} 2Z. Ce brouillon n'est pas encore enregistré : gardez cet onglet ouvert, ou copiez votre texte, puis enregistrez à nouveau quand vous aurez des 2Z.",
     "createMayHaveDuplicated": "Votre page est enregistrée, mais une tentative précédente qui a expiré a peut-être créé une deuxième copie. Vérifiez vos pages et supprimez tout doublon.",
     "saveBlockedConflict": "Une version plus récente de cet article a été enregistrée ailleurs. Rechargez pour continuer.",
-    "saveConflict": "Quelqu'un d'autre a enregistré cet article pendant que vous le modifiiez. Vos modifications sont toujours là : rechargez pour récupérer la version plus récente, puis appliquez-les de nouveau.",
-    "saveConflictAfterTimeout": "Un enregistrement précédent qui a expiré a peut-être abouti malgré tout : le serveur a donc une version plus récente. Vos modifications sont toujours là : rechargez pour vérifier, puis réappliquez ce qui manque.",
-    "createConflict": "Une version {language} existe déjà : depuis un autre onglet, une traduction IA ou un enregistrement précédent. Votre texte est toujours là ; copiez-le avant de recharger, ce qui affichera la version enregistrée.",
+    "saveConflict": "Le serveur possède une version plus récente. Vos modifications sont toujours ici. Rechargez pour la comparer à votre brouillon récupérable.",
+    "saveConflictAfterTimeout": "Le serveur possède une version plus récente. Vos modifications sont toujours ici. Rechargez pour la comparer à votre brouillon récupérable.",
+    "createConflict": "Le serveur possède une version plus récente. Vos modifications sont toujours ici. Rechargez pour la comparer à votre brouillon récupérable.",
     "saveConflictReload": "Recharger",
     "saveBlockedDeleting": "Cette traduction est en cours de suppression.",
     "saveBlockedSwitching": "L’éditeur ouvre une autre langue.",
@@ -1106,7 +1106,12 @@
       "libraryEmpty": "Vous n’avez pas encore importé de documents PDF.",
       "cloudImageAlt": "Document PDF de votre cloud",
       "imageAccessTitle": "Vos lecteurs ne pourraient pas voir ce document PDF"
-    }
+    },
+    "variantLoadFailed": "Impossible de charger cette version en toute sécurité. Rechargez pour réessayer.",
+    "draftStorageFailed": "Impossible de conserver votre brouillon dans ce navigateur. Le rechargement a été annulé. Gardez cet onglet ouvert et copiez vos modifications avant de partir.",
+    "draftRecovery": "Un brouillon refusé est disponible. Vous consultez la version du serveur. Restaurez votre brouillon pour le modifier à partir de cette version, ou abandonnez-le.",
+    "restoreDraft": "Restaurer le brouillon",
+    "discardDraft": "Abandonner le brouillon"
   },
   "dashboard": {
     "pages": {

@@ -507,9 +507,9 @@
     "secondPageNeeds2z": "Sua primeira zPage é grátis. Para começar outra você precisa de pelo menos {required} 2Z, e você tem {balance} 2Z. Este rascunho ainda não foi salvo: mantenha esta aba aberta, ou copie seu texto, e salve de novo quando tiver 2Z.",
     "createMayHaveDuplicated": "Sua página foi salva, mas uma tentativa anterior que expirou pode ter criado uma segunda cópia. Confira suas páginas e exclua qualquer duplicata.",
     "saveBlockedConflict": "Uma versão mais recente deste artigo foi salva em outro lugar. Recarregue para continuar.",
-    "saveConflict": "Outra pessoa salvou este artigo enquanto você editava. Suas alterações continuam aqui — recarregue para obter a versão mais recente e aplique-as novamente.",
-    "saveConflictAfterTimeout": "Um salvamento anterior que excedeu o tempo pode ter sido concluído, então o servidor tem uma versão mais recente. Suas alterações continuam aqui — recarregue para conferir e aplique novamente o que faltar.",
-    "createConflict": "Já existe uma versão em {language}: de outra aba, uma tradução por IA ou um salvamento anterior. Seu texto continua aqui; copie-o antes de recarregar, o que mostrará a versão salva.",
+    "saveConflict": "O servidor tem uma versão mais recente. Suas alterações continuam aqui. Recarregue para compará-la com seu rascunho recuperável.",
+    "saveConflictAfterTimeout": "O servidor tem uma versão mais recente. Suas alterações continuam aqui. Recarregue para compará-la com seu rascunho recuperável.",
+    "createConflict": "O servidor tem uma versão mais recente. Suas alterações continuam aqui. Recarregue para compará-la com seu rascunho recuperável.",
     "saveConflictReload": "Recarregar",
     "saveBlockedDeleting": "Esta tradução está sendo excluída.",
     "saveBlockedSwitching": "O editor está abrindo outro idioma.",
@@ -1106,7 +1106,12 @@
       "libraryEmpty": "Você ainda não enviou documentos PDF.",
       "cloudImageAlt": "Documento PDF da sua nuvem",
       "imageAccessTitle": "Seus leitores não poderiam ver este documento PDF"
-    }
+    },
+    "variantLoadFailed": "Não foi possível carregar esta versão com segurança. Recarregue para tentar novamente.",
+    "draftStorageFailed": "Não foi possível preservar seu rascunho neste navegador. O recarregamento foi cancelado. Mantenha esta aba aberta e copie suas alterações antes de sair.",
+    "draftRecovery": "Há um rascunho rejeitado disponível. Você está vendo a versão do servidor. Restaure seu rascunho para editá-lo sobre esta versão ou descarte-o.",
+    "restoreDraft": "Restaurar rascunho",
+    "discardDraft": "Descartar rascunho"
   },
   "dashboard": {
     "pages": {
