@@ -10,6 +10,28 @@ fail() {
 
 [[ -r "$package_manifest" ]] || fail "missing package manifest"
 
+# Both explicit and default file paths must remain the verified public bundle.
+readonly ca_digest=796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe
+for bundle in /usr/local/share/zuuli-linux-image/ca-certificates.pem /etc/ssl/certs/ca-certificates.crt; do
+  printf '%s  %s\n' "$ca_digest" "$bundle" | sha256sum --check --status || fail "CA checksum mismatch"
+done
+[[ "$(find /etc/ssl/certs -mindepth 1 -maxdepth 1 | wc -l)" == 1 ]] || fail "unexpected default CA fallback"
+[[ -d /etc/ssl/verified-empty && ! -L /etc/ssl/verified-empty ]] || fail "missing exclusive CA directory"
+[[ -z "$(find /etc/ssl/verified-empty -mindepth 1 -print -quit)" ]] || fail "CA directory must be empty"
+for variable in SSL_CERT_FILE CURL_CA_BUNDLE GIT_SSL_CAINFO CARGO_HTTP_CAINFO; do
+  [[ -n "${!variable:-}" ]] || fail "missing $variable"
+  printf '%s  %s\n' "$ca_digest" "${!variable}" | sha256sum --check --status || fail "incorrect $variable"
+done
+for variable in SSL_CERT_DIR GIT_SSL_CAPATH; do
+  [[ -n "${!variable:-}" && -d "${!variable}" && ! -L "${!variable}" ]] || fail "incorrect $variable"
+  [[ -z "$(find "${!variable}" -mindepth 1 -print -quit)" ]] || fail "nonempty $variable"
+done
+for variable in NODE_EXTRA_CA_CERTS NODE_USE_SYSTEM_CA NODE_TLS_REJECT_UNAUTHORIZED GIT_SSL_NO_VERIFY; do
+  [[ -z "${!variable:-}" ]] || fail "custom trust or verification bypass requires review: $variable"
+done
+[[ "${NODE_OPTIONS:-}" == --use-openssl-ca ]] || fail "Node must select verified OpenSSL trust"
+[[ "${RUSTUP_USE_CURL:-}" == 1 ]] || fail "rustup must use the verified curl transport"
+
 # This is the canonical OS identity supplied by Ubuntu.
 # shellcheck disable=SC1091
 source /etc/os-release
@@ -46,6 +68,7 @@ for command in \
   fakeroot \
   file \
   patchelf \
+  python3 \
   readelf \
   rpm2archive \
   rpmbuild \

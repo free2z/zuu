@@ -1,5 +1,5 @@
 import * as React from "react"
-import { Routes, Route } from "react-router-dom"
+import { Routes, Route, useParams } from "react-router-dom"
 
 import CssBaseline from "@mui/material/CssBaseline"
 import {
@@ -25,6 +25,7 @@ import SimpleNav from "./components/SimpleNav"
 import CreatorLoginModal from "./CreatorLoginModal"
 import TryNewUIBanner from "./components/TryNewUIBanner"
 import { Helmet, HelmetProvider } from "react-helmet-async"
+import { isClassicStreamType } from "./classicRouteCompatibility"
 
 const FABNewConverse = React.lazy(() => import('./components/FABNewConverse'))
 const Home = React.lazy(() => import('./Home'))
@@ -55,6 +56,22 @@ const KYCPage = React.lazy(() => import('./components/KYCPage'))
 const EFMStart = React.lazy(() => import('./components/EFMStart'))
 const EFMMainSession = React.lazy(() => import('./components/EFMMainSession'))
 // const EFMSession = React.lazy(() => import('./components/EFMSession'))
+
+/** Keep canonical zPage URLs working in the pinned classic rollback image. */
+function CanonicalPageOrLive() {
+    const { id, type } = useParams()
+    if (isClassicStreamType(type)) {
+        return <CreatorLive />
+    }
+    return (
+        <>
+            <SimpleNav />
+            <NormalPage>
+                <PageDetail identifier={type} expectedCreator={id} />
+            </NormalPage>
+        </>
+    )
+}
 
 
 axios.defaults.withCredentials = true;
@@ -374,6 +391,20 @@ function App() {
                                             </>
                                         }
                                     />
+                                    {/* Cross-UI escape hatch for grandfathered
+                                        creators whose username owns a literal
+                                        two-segment product route. */}
+                                    <Route
+                                        path="/article/:id"
+                                        element={
+                                            <>
+                                                <SimpleNav />
+                                                <NormalPage>
+                                                    <PageDetail />
+                                                </NormalPage>
+                                            </>
+                                        }
+                                    />
                                     <Route
                                         path="/:username/zpage/:id"
                                         element={
@@ -387,9 +418,7 @@ function App() {
                                     />
                                     <Route
                                         path="/:id/:type"
-                                        element={
-                                            <CreatorLive />
-                                        }
+                                        element={<CanonicalPageOrLive />}
                                     />
                                     <Route
                                         path="/:owner/private/:uuid"

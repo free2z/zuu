@@ -1,6 +1,6 @@
-import { writable } from 'svelte/store';
-import type { ZPageListItem } from '$lib/types/zpage';
-import { fetchUserZPages } from '$lib/api/zpage';
+import { writable } from "svelte/store";
+import type { ZPageListItem } from "$lib/types/zpage";
+import { fetchUserZPages } from "$lib/api/zpage";
 
 interface ZPageStoreState {
   userZPages: ZPageListItem[];
@@ -42,10 +42,10 @@ function createZPageStore() {
           loading: false,
         }));
       } catch (error: any) {
-        console.error('Failed to load user zPages:', error);
+        console.error("Failed to load user zPages:", error);
         update((state) => ({
           ...state,
-          error: error.message || 'Failed to load articles',
+          error: error.message || "Failed to load articles",
           loading: false,
         }));
       }
@@ -65,7 +65,7 @@ function createZPageStore() {
       update((state) => ({
         ...state,
         userZPages: state.userZPages.map((zpage) =>
-          zpage.free2zaddr === updatedZPage.free2zaddr ? updatedZPage : zpage
+          zpage.free2zaddr === updatedZPage.free2zaddr ? updatedZPage : zpage,
         ),
       }));
     },
@@ -76,7 +76,7 @@ function createZPageStore() {
         ...state,
         userZPages: state.userZPages.filter(
           (zpage) =>
-            zpage.free2zaddr !== identifier && zpage.vanity !== identifier
+            zpage.free2zaddr !== identifier && zpage.vanity !== identifier,
         ),
         totalCount: Math.max(0, state.totalCount - 1),
       }));
