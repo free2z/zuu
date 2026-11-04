@@ -815,6 +815,8 @@ export interface CatalogModelCapabilities {
  * Crate ``ModelControls``: signed narrowing of what a capability admits.
  */
 export interface CatalogModelControls {
+  /** With tools, explicit non-none reasoning effort is refused before reservation. Omitted effort uses the provider default. */
+  tools_require_effort_none?: boolean;
   /** The reasoning_effort levels the model takes (non-empty, distinct). Present only when capabilities.reasoning_effort is true; absent = not narrowed. A level a gateway cannot express is ignored there. */
   effort_levels?: string[];
 }
