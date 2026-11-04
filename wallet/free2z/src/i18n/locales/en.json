@@ -148,6 +148,14 @@
       "transport": "The live service couldn't be reached. Switch networks or try again.",
       "unknown": "The live connection failed. Try again."
     },
+    "recording": {
+      "active": "This meeting is being recorded.",
+      "paused": "Recording is paused.",
+      "stagePaused": "You are on stage. Recording is paused.",
+      "stageRecording": "You are on stage and this meeting is being recorded.",
+      "stageStarting": "You are on stage. Recording is starting.",
+      "starting": "Recording is starting."
+    },
     "stage": {
       "connecting": "Connecting to stream…",
       "ended": "The stream has ended.",

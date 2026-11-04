@@ -24,7 +24,7 @@ export const SBadgeTop = styled(Badge)(({ theme }) => ({
         padding: "0 4px",
         zIndex: 100,
         fontWeight: "bolder",
-        // color: "#000000",
+        // color: "",
         // fontSize: "37%",
         background: `linear-gradient(to left, violet 0%, indigo 10%, blue 11%, green 20%, yellow 50%, orange 51%, red 90%)`,
         backgroundSize: "200% auto",

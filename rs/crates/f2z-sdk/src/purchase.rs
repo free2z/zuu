@@ -1,6 +1,16 @@
 //! Buying 2Z (`docs/free2z/sdk/spec/purchase.md`): create a purchase intent, open
 //! the surface its rail returns, poll until it settles.
 //!
+//! **Deprecated since 0.4.0 for apps.** Apps don't sell 2Z: a user who needs
+//! 2Z gets them on their Free2Z billing page — Zcash first, card second —
+//! which an app that may link to payment opens with
+//! [`Client::billing_url`]. [`Client::create_purchase`],
+//! [`Client::purchase`], [`Client::wait_for_purchase`], [`PurchaseRequest`]
+//! and [`ReturnListener`] keep working for apps built on 0.3.0, against an
+//! explicitly requested `purchase:create` scope (it is no longer in
+//! [`crate::DEFAULT_SCOPES`]). They take card payments only; Zcash is paid
+//! on Free2Z's billing page, never through this API.
+//!
 //! The app never handles a payment. For a card, it opens the intent's
 //! [`PurchaseIntent::checkout_url`] in the system browser (desktop) or the
 //! platform's browser surface (iOS, Android) and then polls with
@@ -158,6 +168,10 @@ impl PurchaseIntent {
 }
 
 /// `POST /purchases` (§2).
+#[deprecated(
+    since = "0.4.0",
+    note = "apps don't sell 2Z; link users to Free2Z billing with billing_url()"
+)]
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurchaseRequest {
@@ -176,6 +190,7 @@ pub struct PurchaseRequest {
     pub idempotency_key: Option<String>,
 }
 
+#[allow(deprecated)]
 impl PurchaseRequest {
     /// A card purchase.
     #[must_use]
@@ -245,8 +260,10 @@ const CREATE_TRANSPORT_RETRIES: u32 = 2;
 /// Re-sends while the server reports the original is still in flight.
 const CREATE_IN_FLIGHT_RETRIES: u32 = 4;
 
+#[allow(deprecated)]
 impl Client {
-    /// Create a purchase intent (§2). Needs `purchase:create`.
+    /// Create a purchase intent (§2). Needs `purchase:create`, which
+    /// [`crate::DEFAULT_SCOPES`] no longer asks for.
     ///
     /// The request carries an `Idempotency-Key`, and every re-send of it
     /// uses the **same** key — after a network failure, or while the server
@@ -258,6 +275,10 @@ impl Client {
     /// [`Error::Api`] with the envelope: `invalid_quantity` (with
     /// `details.min_2z` / `max_2z`), `rail_unavailable`, `invalid_request`,
     /// `idempotency_conflict`.
+    #[deprecated(
+        since = "0.4.0",
+        note = "apps don't sell 2Z; link users to Free2Z billing with billing_url()"
+    )]
     pub async fn create_purchase(
         &self,
         request: &PurchaseRequest,
@@ -351,6 +372,10 @@ impl Client {
     /// # Errors
     ///
     /// [`Error::Api`] (`404 purchase_not_found`, …).
+    #[deprecated(
+        since = "0.4.0",
+        note = "apps don't sell 2Z; link users to Free2Z billing with billing_url()"
+    )]
     pub async fn purchase(&self, id: &str) -> Result<PurchaseIntent, Error> {
         Ok(self.purchase_with_hint(id).await?.0)
     }
@@ -387,6 +412,10 @@ impl Client {
     ///
     /// As [`Client::purchase`]. A transport failure during the poll is
     /// retried on the schedule; it only surfaces if no intent was ever read.
+    #[deprecated(
+        since = "0.4.0",
+        note = "apps don't sell 2Z; link users to Free2Z billing with billing_url()"
+    )]
     pub async fn wait_for_purchase(
         &self,
         id: &str,
@@ -426,6 +455,10 @@ impl Client {
 /// open the checkout, then [`ReturnListener::wait`] for the browser — and
 /// poll the intent regardless: the redirect is a convenience, not the
 /// signal.
+#[deprecated(
+    since = "0.4.0",
+    note = "apps don't sell 2Z; link users to Free2Z billing with billing_url()"
+)]
 #[derive(Debug)]
 pub struct ReturnListener {
     listener: Listener,
@@ -442,6 +475,7 @@ pub struct PurchaseReturn {
     pub status: Option<String>,
 }
 
+#[allow(deprecated)]
 impl ReturnListener {
     /// Bind `127.0.0.1:<random><path>`.
     ///

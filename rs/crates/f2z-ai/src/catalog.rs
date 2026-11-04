@@ -10,8 +10,8 @@
 //!
 //! # A lower version, legitimately (zuu#1067)
 //!
-//! The platform derives `version` from timestamps (tuzi #2235,
-//! `dj.apps.pricing.catalog`): `version` is Unix **microseconds** — the later
+//! The platform derives `version` from timestamps
+//! (`dj.apps.pricing.catalog`): `version` is Unix **microseconds** — the later
 //! of the current one-minute re-issue window and the newest content
 //! revision — and `issued_at = version / 1_000_000`. So `issued_at` always
 //! moves **with** `version`: a lower version always has an equal-or-older

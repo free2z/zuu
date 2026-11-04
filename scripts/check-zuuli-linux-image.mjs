@@ -14,11 +14,16 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { bootstrapStep } from "./ci-trust-bootstrap.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const contextDir = ".github/containers/zuuli-linux";
 const contextFiles = [
   "Dockerfile",
+  "ca-certificates.pem",
+  "CA-NOTICE.md",
+  "install-tls-trust.sh",
+  "verify-tls-network.sh",
   "packages.txt",
   "verify-inventory.sh",
   "verify-libxdo.sh",
@@ -33,12 +38,12 @@ const consumerWorkflows = [
   ".github/workflows/zuuallet.yml",
 ];
 const imageRepository = "ghcr.io/free2z/zuuli-linux-ci";
-const lockedImageDigest = "sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406";
-const lockedImageSourceHash = "9a8236c68bcd1b740200b03aeb5b92a521da9c5095ff4075603f41e2ab6b9ba4";
-const lockedImageSourceCommit = "7f26cad2d9dfdbf2467f51af38c51412a5fa62dc";
-const lockedImagePublicationRun = "32642217313";
-const lockedImageAttestation = "42422072";
-const lockedImageRekorIndex = "2571737098";
+const lockedImageDigest = "sha256:bb07838e6e6c4a138943e1254a7f1613c4860e4bfabc87fd1e0d18073de1015f";
+const lockedImageSourceHash = "c98652088f45faddf23634079a5661e016e20ede36f4a52f1c47dc7911bc70c6";
+const lockedImageSourceCommit = "d3a2b6b502c4194a0336adf54088b8c21afb9fbb";
+const lockedImagePublicationRun = "39693000496";
+const lockedImageAttestation = "58431098";
+const lockedImageRekorIndex = "3367845952";
 const lockedImage = `${imageRepository}@${lockedImageDigest}`;
 const expectedConsumerCount = 8;
 const requiredConsumerJobs = new Set([
@@ -82,7 +87,7 @@ const pinnedActions = [
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
   "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0",
   "docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0",
-  "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0",
+  "docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0",
   "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2",
 ];
 const pinnedZuualletToolchain =
@@ -115,6 +120,7 @@ const requiredPackages = [
   "libxdo-dev",
   "patchelf",
   "pkg-config",
+  "python3",
   "rpm",
   "squashfs-tools",
   "tar",
@@ -229,9 +235,11 @@ function removeRequiredGateDependency(contents, dependency) {
 
 function validateConsumerJob(job, failures) {
   const exactTrust = 'git config --global --add safe.directory "$GITHUB_WORKSPACE"';
-  const inventoryFirst = job.contents.match(/steps:\s*\n\s*- name: Verify pinned Linux build image/);
-  if (!inventoryFirst) {
-    failures.push(`${job.name}: image inventory and Bash smoke must be the first step`);
+  const steps = job.contents.match(/^    steps:\s*\n/m);
+  const afterBootstrap = steps && job.contents.slice(steps.index + steps[0].length);
+  if (!afterBootstrap?.startsWith(bootstrapStep) ||
+      !afterBootstrap.slice(bootstrapStep.length).startsWith("      - name: Verify pinned Linux build image\n")) {
+    failures.push(`${job.name}: image inventory and Bash smoke must be the first step after the immutable trust bootstrap`);
   }
   if (countOccurrences(job.contents, "working-directory: /") !== 1) {
     failures.push(`${job.name}: pre-checkout inventory must run from an existing absolute directory`);
@@ -259,7 +267,7 @@ function validateConsumerJob(job, failures) {
     ["explicit Bash default", "shell: bash"],
     ["inventory invocation", "/usr/local/bin/verify-zuuli-linux-image"],
   ]) {
-    if (countOccurrences(job.contents, value) !== 1) {
+    if (countOccurrences(job.contents.replace(bootstrapStep, ""), value) !== 1) {
       failures.push(`${job.name}: require exactly one ${label}`);
     }
   }
@@ -302,9 +310,45 @@ function validate(root) {
     .split("\n")
     .filter(Boolean);
   const inventory = read(root, `${contextDir}/verify-inventory.sh`);
+  const workflow = read(root, workflowPath);
+  const trustInstaller = read(root, `${contextDir}/install-tls-trust.sh`);
+  const tlsNetwork = read(root, `${contextDir}/verify-tls-network.sh`);
+  const caHash = "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe";
+  if (createHash("sha256").update(read(root, `${contextDir}/ca-certificates.pem`)).digest("hex") !== caHash) {
+    failures.push("TLS trust: public CA checksum mismatch");
+  }
+  const installCommand = "bash /usr/local/bin/install-zuuli-linux-tls-trust";
+  if (countOccurrences(dockerfile, installCommand) !== 2 ||
+      dockerfile.indexOf(installCommand) > dockerfile.indexOf("timeout 10m apt-get") ||
+      dockerfile.lastIndexOf(installCommand) < dockerfile.indexOf("install -y --no-install-recommends")) {
+    failures.push("TLS trust: clean store required before apt network and after package postinst");
+  }
+  for (const expected of [caHash, "sha256sum --check --status", "rm -rf /etc/ssl/certs /etc/ssl/verified-empty", 'install -m 0644 "$bundle" /etc/ssl/certs/ca-certificates.crt']) {
+    if (!trustInstaller.includes(expected)) failures.push(`TLS trust: installer missing ${expected}`);
+  }
+  for (const expected of [
+    "ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+    "ENV SSL_CERT_DIR=/etc/ssl/verified-empty",
+    "ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt",
+    "ENV GIT_SSL_CAINFO=/etc/ssl/certs/ca-certificates.crt",
+    "ENV GIT_SSL_CAPATH=/etc/ssl/verified-empty",
+    "ENV CARGO_HTTP_CAINFO=/etc/ssl/certs/ca-certificates.crt",
+    "ENV RUSTUP_USE_CURL=1",
+    "ENV NODE_OPTIONS=--use-openssl-ca",
+  ]) {
+    if (!dockerfile.includes(expected)) failures.push(`TLS trust: Dockerfile missing ${expected}`);
+  }
+  for (const expected of [caHash, "unexpected default CA fallback", "CA directory must be empty", "Node must select verified OpenSSL trust", "rustup must use the verified curl transport", "for variable in NODE_EXTRA_CA_CERTS NODE_USE_SYSTEM_CA NODE_TLS_REJECT_UNAUTHORIZED GIT_SSL_NO_VERIFY", '[[ -z "${!variable:-}" ]]']) {
+    if (!inventory.includes(expected)) failures.push(`TLS trust: inventory missing ${expected}`);
+  }
+  for (const expected of ["for kind in dv ov ev", "for variant in g3b g3c", "for prefix in '' aaa-", '[[ "$status" == 60 ]]', "unable to get (local )?issuer certificate", "certificate revoked", "https://example.com/", "https://registry.k8s.io/v2/", "https://registry.k8s.io/v2/:401", "Unexpected valid-control HTTP response"]) {
+    if (!tlsNetwork.includes(expected)) failures.push(`TLS network: missing ${expected}`);
+  }
+  if (countOccurrences(workflow, "/usr/local/bin/verify-zuuli-linux-tls-network") !== 2) {
+    failures.push("TLS network: both candidate build and published digest require actual verification");
+  }
   const libxdoVerifier = read(root, `${contextDir}/verify-libxdo.sh`);
   const lock = parseLock(read(root, lockPath), failures);
-  const workflow = read(root, workflowPath);
   const documentation = read(root, documentationPath);
 
   const promotionStart = documentation.indexOf("The current promoted image");
@@ -405,6 +449,7 @@ function validate(root) {
     "desktop-file-validate",
     "dpkg-deb",
     "readelf",
+    "python3",
     "rpm2archive",
     "rpmbuild",
     "timeout",
@@ -642,6 +687,43 @@ function validateLibxdoVerifierRuntime(root) {
   return failures;
 }
 
+function validateTlsNetworkRuntime(root) {
+  const fixture = mkdtempSync(join(tmpdir(), "zuuli-tls-classifier-"));
+  try {
+    const curl = resolve(fixture, "curl");
+    writeFileSync(curl, `#!/usr/bin/env bash
+case "$*" in
+  *emudhra.we-have-a-problem.com*)
+    case "$TLS_CASE" in
+      issuer) echo 'SSL certificate problem: unable to get local issuer certificate' >&2; exit 60;;
+      revoked) echo 'SSL certificate problem: certificate revoked' >&2; exit 60;;
+      expired) echo 'SSL certificate problem: certificate has expired' >&2; exit 60;;
+      hostname) echo 'no alternative certificate subject name matches' >&2; exit 60;;
+      timeout) echo 'connection timed out' >&2; exit 28;;
+      accepted) exit 0;;
+      control|badstatus) echo 'SSL certificate problem: unable to get local issuer certificate' >&2; exit 60;;
+    esac;;
+  *) [[ "$TLS_CASE" != control ]] || exit 60; if [[ "$TLS_CASE" == badstatus ]]; then printf 500; else printf 200; fi;;
+esac
+`);
+    chmodSync(curl, 0o755);
+    for (const scenario of ["issuer", "revoked", "expired", "hostname", "timeout", "accepted", "control", "badstatus"]) {
+      const result = spawnSync("bash", [resolve(root, `${contextDir}/verify-tls-network.sh`)], {
+        env: { ...process.env, PATH: `${fixture}:${process.env.PATH}`, TLS_CASE: scenario },
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      const expected = scenario === "issuer" || scenario === "revoked";
+      if (result.error || (result.status === 0) !== expected ||
+          (expected && !result.stdout.includes("rejections=12 valid_controls=2"))) {
+        throw new Error(`TLS network classifier mishandled ${scenario}`);
+      }
+    }
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+}
+
 function runSelfTest() {
   const fixture = mkdtempSync(join(tmpdir(), "zuuli-linux-image-policy-"));
   const removeChangeDetectorPatterns = (value, outputName, targets) => {
@@ -687,12 +769,61 @@ function runSelfTest() {
     copyFixture(fixture);
     const baseline = validate(fixture);
     if (baseline.length > 0) throw new Error(`baseline fixture failed: ${baseline.join("; ")}`);
+    validateTlsNetworkRuntime(fixture);
     const runtimeBaseline = validateLibxdoVerifierRuntime(fixture);
     if (runtimeBaseline.length > 0) {
       throw new Error(`libxdo runtime fixture failed: ${runtimeBaseline.join("; ")}`);
     }
 
     const cases = [
+      {
+        name: "modified public roots",
+        path: `${contextDir}/ca-certificates.pem`,
+        mutate: (value) => `${value}\n`,
+        expected: "public CA checksum mismatch",
+      },
+      {
+        name: "missing pre-network trust installation",
+        path: `${contextDir}/Dockerfile`,
+        mutate: (value) => value.replace("RUN bash /usr/local/bin/install-zuuli-linux-tls-trust", "RUN true"),
+        expected: "before apt network and after package postinst",
+      },
+      {
+        name: "missing postinst trust installation",
+        path: `${contextDir}/Dockerfile`,
+        mutate: (value) => value.replace("&& bash /usr/local/bin/install-zuuli-linux-tls-trust", "&& true"),
+        expected: "before apt network and after package postinst",
+      },
+      {
+        name: "hashed alternate roots preserved",
+        path: `${contextDir}/install-tls-trust.sh`,
+        mutate: (value) => value.replace("rm -rf /etc/ssl/certs /etc/ssl/verified-empty", "true"),
+        expected: "TLS trust: installer missing",
+      },
+      {
+        name: "Node bundled roots selected",
+        path: `${contextDir}/Dockerfile`,
+        mutate: (value) => value.replace("ENV NODE_OPTIONS=--use-openssl-ca", "ENV NODE_OPTIONS=--use-bundled-ca"),
+        expected: "TLS trust: Dockerfile missing ENV NODE_OPTIONS",
+      },
+      {
+        name: "custom roots and verification bypass guard removed",
+        path: `${contextDir}/verify-inventory.sh`,
+        mutate: (value) => value.replace("for variable in NODE_EXTRA_CA_CERTS NODE_USE_SYSTEM_CA NODE_TLS_REJECT_UNAUTHORIZED GIT_SSL_NO_VERIFY", "for variable in UNUSED"),
+        expected: "TLS trust: inventory missing for variable in NODE_EXTRA_CA_CERTS",
+      },
+      {
+        name: "network rejection accepts a timeout",
+        path: `${contextDir}/verify-tls-network.sh`,
+        mutate: (value) => value.replace('[[ "$status" == 60 ]]', '[[ "$status" != 0 ]]'),
+        expected: "TLS network: missing",
+      },
+      {
+        name: "published image skips actual TLS proof",
+        path: workflowPath,
+        mutate: (value) => value.replaceAll("/usr/local/bin/verify-zuuli-linux-tls-network", "/bin/true"),
+        expected: "TLS network: both",
+      },
       {
         name: "mismatched lock digest",
         path: lockPath,
@@ -943,7 +1074,7 @@ function runSelfTest() {
       {
         name: "inventory is not first",
         path: consumerWorkflows[0],
-        mutate: (value) => value.replace("steps:\n      - name: Verify pinned Linux build image", "steps:\n      - run: true\n      - name: Verify pinned Linux build image"),
+        mutate: (value) => value.replace("      - name: Verify pinned Linux build image", "      - run: true\n      - name: Verify pinned Linux build image"),
         expected: "must be the first step",
       },
       {
@@ -1027,7 +1158,7 @@ function runSelfTest() {
     }
 
     console.log(
-      `ZUULI Linux image policy self-test passed (${cases.length} negative cases + libxdo runtime cases).`,
+      `ZUULI Linux image policy self-test passed (${cases.length} negative cases + TLS classifier/libxdo runtime cases).`,
     );
   } finally {
     rmSync(fixture, { recursive: true, force: true });

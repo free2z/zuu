@@ -1,0 +1,38 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <!--  Essential META Tags -->
+    <title>Comment by {{ comment.author }}</title>
+    <meta name="description" content="{{ comment.social_description }}" />
+
+    <meta property="og:title" content="Comment by {{ comment.author }}">
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="{{ comment.author.get_thumbnail }}">
+    <meta property="og:url" content="https://{{ request.META.HTTP_HOST }}{{ comment.get_url }}">
+    <meta property="og:description" content="{{ comment.social_description }}">
+    <meta property="og:site_name" content="Free2Z Converse - {{ comment.author }}">
+
+    <meta name="twitter:title" content="Comment by {{ comment.author }}">
+    <meta name="twitter:description" content="{{ comment.social_description }}">
+    <meta name="twitter:image" content="{{ comment.author.get_thumbnail }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@free2zcash">
+    <meta name="twitter:creator" content="@free2zcash">
+    <meta name="twitter:image:alt" content="Comment by {{ comment.author }}">
+
+    <meta property="fb:app_id" content="278755727751440" />
+    <meta itemprop="name" content="Comment by {{ comment.author }}">
+    <meta itemprop="description" content="{{ comment.social_description }}">
+    <meta itemprop="image" content="{{ comment.author.get_thumbnail }}">
+</head>
+
+<body>
+    <h1>Comment by {{ comment.author }}</h1>
+    {% if comment.display_headline %}<h2>{{ comment.display_headline }}</h2>{% endif %}
+    <pre>
+        {{ comment.content }}
+    </pre>
+</body>
+
+</html>

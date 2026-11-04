@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Select as SelectPrimitive } from 'bits-ui';
+  import { Select as SelectPrimitive } from "bits-ui";
 
   // Minimal passthrough wrapper for primitive Value - preserves slot API.
   // Render legacy `childrenProp` function or the default slot as fallback.

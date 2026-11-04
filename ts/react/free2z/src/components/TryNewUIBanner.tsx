@@ -3,6 +3,8 @@ import { useState } from "react"
 import { Button, IconButton, Snackbar } from "@mui/material"
 import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome"
 import CloseIcon from "@mui/icons-material/Close"
+import { useLocation } from "react-router-dom"
+import { newUiSwitchHref } from "../utils/uiSwitch"
 
 // Bump the version suffix to re-show the banner to users who dismissed it.
 const DISMISSED_KEY = "f2z-try-new-ui-banner-dismissed-v1"
@@ -11,6 +13,8 @@ const DISMISSED_KEY = "f2z-try-new-ui-banner-dismissed-v1"
 const SWITCH_HOSTS = /(^|\.)(free2z\.cash|free2z\.com|free2give\.xyz)$/
 
 export default function TryNewUIBanner() {
+    const location = useLocation()
+    const switchHref = newUiSwitchHref(location.pathname, location.search, location.hash)
     const [open, setOpen] = useState(() =>
         SWITCH_HOSTS.test(window.location.hostname) &&
         !localStorage.getItem(DISMISSED_KEY)
@@ -30,8 +34,9 @@ export default function TryNewUIBanner() {
                 <>
                     <Button
                         // Full page load on purpose: /try-new-ui is an nginx
-                        // route that sets the UI cookie and redirects to /.
-                        href="/try-new-ui"
+                        // route that sets the UI cookie and redirects to the
+                        // equivalent route (or / when no counterpart exists).
+                        href={switchHref}
                         color="primary"
                         size="small"
                         startIcon={<AutoAwesomeIcon />}
