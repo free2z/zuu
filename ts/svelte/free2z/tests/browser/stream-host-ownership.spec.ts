@@ -1434,6 +1434,100 @@ for (const [code, message] of [
   });
 }
 
+test("a private meeting stays mounted through offline and reconnecting overlays", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, true);
+  const secret = "private-meeting-survives-offline";
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, (route) =>
+    route.fulfill({
+      json: { auth_token: "private-offline-room", e2ee: false },
+    }),
+  );
+  await page.route(
+    `**/api/dyte/${USER}/private/${secret}/recording**`,
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      return route.fulfill({
+        json: path.endsWith("/recording-visibility")
+          ? { recording: false }
+          : { recording_state: "IDLE" },
+      });
+    },
+  );
+
+  await page.evaluate(
+    async ({ user, secret }) => {
+      const path =
+        "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+      const { goto } = await import(path);
+      await goto(`/${user}/private/${secret}?lang=en`);
+    },
+    { user: USER, secret },
+  );
+  const header = page.getByTestId("private-call-header");
+  const meeting = page.locator("rtk-meeting");
+  const recordButton = header.getByRole("button", {
+    name: "Record livestream",
+    exact: true,
+  });
+  await expect(header).toBeVisible();
+  await expect(recordButton).toBeVisible();
+  await expect(meeting).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    (window as any).__privateMeetingBeforeRecovery =
+      document.querySelector("rtk-meeting");
+    liveStreamStore.setOffline(true);
+    liveStreamStore.setConnectionStatus("disconnected");
+  }, LIVE_STREAM_STORE_LOADER);
+
+  await expect(
+    page.getByRole("heading", { name: "You are Offline" }),
+  ).toBeVisible();
+  await expect(header).toBeVisible();
+  await expect(recordButton).toBeVisible();
+  await expect(meeting).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__privateMeetingBeforeRecovery ===
+        document.querySelector("rtk-meeting"),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(false);
+    liveStreamStore.setConnectionStatus("disconnected");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(
+    page.getByRole("status").filter({ hasText: /Reconnecting/ }),
+  ).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__privateMeetingBeforeRecovery ===
+        document.querySelector("rtk-meeting"),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(
+    page.getByRole("status").filter({ hasText: /Reconnecting/ }),
+  ).toHaveCount(0);
+  await expect(header).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
+});
+
 test("a private-call recovery response cannot navigate a changed account", async ({
   page,
 }) => {

@@ -471,28 +471,6 @@
       <Loader2 class="h-10 w-10 animate-spin" />
       <p>{$t("privateCall.initializing", "Initializing private call...")}</p>
     </div>
-  {:else if isOffline}
-    <div
-      class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/80 p-8 text-center text-white"
-      role="status"
-    >
-      <WifiOff class="h-8 w-8 text-yellow-400" />
-      <h3 class="text-xl font-bold">
-        {$t("stream.offlineTitle", "You are Offline")}
-      </h3>
-      <p>
-        {$t(
-          "stream.offlineDescription",
-          "Please check your internet connection.",
-        )}
-      </p>
-      <Button onclick={recoverPrivateStream}
-        ><RefreshCw class="mr-2 h-4 w-4" />{$t(
-          "stream.reconnect",
-          "Reconnect",
-        )}</Button
-      >
-    </div>
   {:else if error || callNeedsReload}
     <div
       class="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center text-white"
@@ -565,6 +543,29 @@
           )}
         </div>
       {/if}
+    </div>
+  {/if}
+  {#if isOffline}
+    <div
+      class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/80 p-8 text-center text-white"
+      role="status"
+    >
+      <WifiOff class="h-8 w-8 text-yellow-400" />
+      <h3 class="text-xl font-bold">
+        {$t("stream.offlineTitle", "You are Offline")}
+      </h3>
+      <p>
+        {$t(
+          "stream.offlineDescription",
+          "Please check your internet connection.",
+        )}
+      </p>
+      <Button onclick={recoverPrivateStream}
+        ><RefreshCw class="mr-2 h-4 w-4" />{$t(
+          "stream.reconnect",
+          "Reconnect",
+        )}</Button
+      >
     </div>
   {/if}
   {#if meeting && (connectionStatus === "disconnected" || connectionStatus === "failed") && !isOffline}
