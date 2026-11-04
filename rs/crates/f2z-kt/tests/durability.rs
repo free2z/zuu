@@ -28,9 +28,10 @@
 use std::sync::Arc;
 
 use f2z_authority::types::AssertionNonce;
-use f2z_kt::testing::{AssertionOverrides, EntryBuilder, Harness, Identity, entry_bytes};
+use f2z_codec::types::Digest;
+use f2z_kt::testing::{AssertionOverrides, EntryBuilder, Harness, Identity};
+use f2z_kt::wire::SubmissionEnvelope;
 use f2z_kt_core::entry::{DirectoryEntry, EntryKind};
-use f2z_kt_core::labels;
 use f2z_kt_core::types::Handle;
 
 const NOW: u64 = 1_700_000_100_000;
@@ -56,6 +57,28 @@ async fn reopen(harness: &Harness) -> f2z_kt::Result<f2z_kt::LogService> {
 /// Build a fully valid first-entry envelope whose assertion uses an explicit
 /// nonce. Each call constructs and signs a new assertion, so two returned
 /// envelopes sharing a nonce are not copies of one another.
+/// `prev_entry_hash` of the entry the log actually stores.
+///
+/// An `InitialBind` builder still carries a placeholder assertion. The harness
+/// replaces that before submission, so hashing the builder does not chain.
+fn committed_chain_hash(
+    harness: &Harness,
+    entry: &DirectoryEntry,
+    identity: &Identity,
+    now_ms: u64,
+    overrides: AssertionOverrides,
+) -> Digest {
+    let envelope = harness.envelope_overriding(entry, identity, now_ms, overrides);
+    let submission = f2z_codec::decode_canonical::<SubmissionEnvelope>(&envelope)
+        .unwrap()
+        .into_value();
+    f2z_codec::decode_canonical::<DirectoryEntry>(submission.entry.as_slice())
+        .unwrap()
+        .into_value()
+        .chain_hash()
+        .unwrap()
+}
+
 fn envelope_with_nonce(
     harness: &Harness,
     entry: &DirectoryEntry,
@@ -457,26 +480,40 @@ async fn another_handle_cannot_lock_a_dormant_handle_out_of_account_recovery() {
     harness.log.publish_epoch(NOW).await.unwrap();
 
     let mut active_identity = original;
-    let mut active_entry = active_first;
+    let mut active_prev = committed_chain_hash(
+        &harness,
+        &active_first,
+        &original,
+        NOW,
+        AssertionOverrides::account_epoch(5),
+    );
     let mut now = NOW;
     for event in 1u8..=25 {
         now += 120_000;
         let next_identity = Identity::from_byte(event + 10);
         let version = u32::from(event) + 1;
+        let epoch = 5 + u32::from(event);
+        let effective_at = now + 60_000;
         let next_entry = EntryBuilder::first(harness.log_id, "active", &active_identity)
             .version(version)
             .kind(EntryKind::PlatformReset)
             .identity_pk(next_identity.isk.public)
             .directory_auth_pk(next_identity.dak.public)
-            .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&active_entry)))
+            .prev_entry_hash(active_prev)
             .created_at_ms(now)
             .platform_reset(
                 &harness.reset_authority,
                 active_identity.isk.public,
-                now + 60_000,
+                effective_at,
                 &next_identity.dak,
             );
-        let effective_at = now + 60_000;
+        active_prev = committed_chain_hash(
+            &harness,
+            &next_entry,
+            &next_identity,
+            effective_at,
+            AssertionOverrides::account_epoch(epoch),
+        );
         harness
             .log
             .submit(
@@ -484,7 +521,7 @@ async fn another_handle_cannot_lock_a_dormant_handle_out_of_account_recovery() {
                     &next_entry,
                     &next_identity,
                     effective_at,
-                    AssertionOverrides::account_epoch(5 + u32::from(event)),
+                    AssertionOverrides::account_epoch(epoch),
                 ),
                 effective_at,
             )
@@ -492,7 +529,6 @@ async fn another_handle_cannot_lock_a_dormant_handle_out_of_account_recovery() {
             .unwrap();
         harness.log.publish_epoch(effective_at).await.unwrap();
         active_identity = next_identity;
-        active_entry = next_entry;
         now = effective_at;
     }
 
@@ -505,7 +541,13 @@ async fn another_handle_cannot_lock_a_dormant_handle_out_of_account_recovery() {
         .kind(EntryKind::PlatformReset)
         .identity_pk(recovered.isk.public)
         .directory_auth_pk(recovered.dak.public)
-        .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&dormant_first)))
+        .prev_entry_hash(committed_chain_hash(
+            &harness,
+            &dormant_first,
+            &dormant_identity,
+            NOW,
+            AssertionOverrides::account_epoch(5),
+        ))
         .created_at_ms(now)
         .platform_reset(
             &harness.reset_authority,
@@ -556,7 +598,7 @@ async fn another_handle_cannot_lock_a_dormant_handle_out_of_account_recovery() {
         .kind(EntryKind::PlatformReset)
         .identity_pk(next_identity.isk.public)
         .directory_auth_pk(next_identity.dak.public)
-        .prev_entry_hash(labels::prev_entry_hash(&entry_bytes(&dormant_reset)))
+        .prev_entry_hash(recovered_entry.chain_hash().unwrap())
         .created_at_ms(now + 120_000)
         .platform_reset(
             &harness.reset_authority,
