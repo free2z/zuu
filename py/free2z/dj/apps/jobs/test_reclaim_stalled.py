@@ -3782,3 +3782,91 @@ def test_the_give_up_line_is_emitted_before_the_row_is_terminalized(
         'crash in that window loses the only page there is')
     assert events.index(reclaim.GAVE_UP_EVENT) < events.index(
         reclaim.ERROR_EVENT)
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('production_pool', [False, True],
+                         ids=['django-connector', 'production-pool'])
+@pytest.mark.parametrize('worker_shape', ['live', 'missing', 'stale'])
+def test_unleased_recovery_and_health_observe_the_same_runtime_boundary(
+    stalled_settings, production_pool, worker_shape,
+):
+    """NULL worker_id is ambiguous; a live heartbeat never proves body exit.
+
+    Controlled persisted timestamps measure the actual PG selection and health
+    clocks. Dropping the runtime guard makes the first sweep go red; bypassing
+    live heartbeat protection makes the last live-worker sweep go red.
+    """
+    from dj.apps.jobs import health
+
+    job_id = translate_zpage.defer(job_id='unleased-latency-boundary')
+    worker_id = None if worker_shape == 'missing' else _make_worker(timezone.now())
+    threshold = reclaim.task_threshold_seconds('g12f.translate_zpage')
+    assert threshold == 1200
+    _mark_doing(job_id, timezone.now(), worker_id=worker_id)
+    for age in (121, threshold - 2, threshold + 2):
+        now = timezone.now()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE procrastinate_events SET at=%s "
+                "WHERE job_id=%s AND type='started'",
+                [now - timedelta(seconds=age), job_id])
+            if worker_id is not None:
+                cursor.execute(
+                    "UPDATE procrastinate_workers SET last_heartbeat=%s "
+                    "WHERE id=%s",
+                    [now - timedelta(seconds=0 if worker_shape == 'live' else 181),
+                     worker_id])
+        expected = age > threshold and worker_shape != 'live'
+        queue = next(row for row in health.collect(now=now).queues
+                     if row.queue == 'translation')
+        assert queue.orphaned == int(expected), (worker_shape, age, queue)
+        if worker_shape == 'live' and age > threshold:
+            assert queue.oldest_over_budget_seconds > 0
+        summary = (_sweep_with_production_pool() if production_pool else _sweep())
+        assert summary['reclaimed_ids'] == ([job_id] if expected else [])
+        assert _status(job_id) == ('todo' if expected else 'doing')
+        assert _attempts(job_id) == int(expected)
+        assert not JobLease.objects.filter(job_id=job_id).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('production_pool', [False, True],
+                         ids=['django-connector', 'production-pool'])
+def test_prebody_latency_requires_both_age_and_lease_silence(
+    stalled_settings, settings, production_pool,
+):
+    """Safe pre-body recovery bypasses runtime/live heartbeat, not silence/age."""
+    from dj.apps.jobs import health
+
+    settings.JOB_LEASE_STALE_SECONDS = 180
+    job_id = translate_zpage.defer(job_id='prebody-latency-boundary')
+    worker_id = _make_worker(timezone.now())
+    _mark_doing(job_id, timezone.now(), worker_id=worker_id)
+    _lease(job_id, 'g12f.translate_zpage', 'translation',
+           last_beat_at=timezone.now())
+    _mark_lease_before_body(job_id)
+    # Independent clocks: stale lease with too-young started event, old enough
+    # attempt with a still-fresh lease, then both gates passed. Only the last
+    # state permits replay, well before the ordinary 1200-second runtime gate.
+    for age, silence, expected in ((118, 182, False), (182, 178, False),
+                                   (182, 182, True)):
+        now = timezone.now()
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE procrastinate_events SET at=%s "
+                "WHERE job_id=%s AND type='started'",
+                [now - timedelta(seconds=age), job_id])
+            cursor.execute(
+                "UPDATE procrastinate_workers SET last_heartbeat=%s WHERE id=%s",
+                [now, worker_id])
+        JobLease.objects.filter(job_id=job_id).update(
+            started_at=now - timedelta(seconds=age),
+            last_beat_at=now - timedelta(seconds=silence))
+        queue = next(row for row in health.collect(now=now).queues
+                     if row.queue == 'translation')
+        assert queue.orphaned == int(expected), (age, silence, queue)
+        summary = (_sweep_with_production_pool() if production_pool else _sweep())
+        assert summary['reclaimed_ids'] == ([job_id] if expected else [])
+        assert _attempts(job_id) == int(expected)
+        assert _status(job_id) == ('todo' if expected else 'doing')

@@ -163,6 +163,10 @@ LEFT JOIN LATERAL (
           AND l.phase_token = l.token
           AND l.phase_attempt = j.attempts) AS matches
 ) abandoned ON TRUE
+-- Keep these eligibility clocks aligned with reclaim._stalled_candidates:
+-- no lease / NULL worker_id is not proof of a pre-body abandonment. Ordinary
+-- unleased rows still wait for task runtime + margin and a stale/missing
+-- worker heartbeat. NEVER orphans remain diagnostic, not replay permission.
 LEFT JOIN LATERAL (
     SELECT GREATEST(
         e.started_at + %(orphan_min_age)s * INTERVAL '1 second',

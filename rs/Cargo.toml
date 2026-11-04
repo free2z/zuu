@@ -216,7 +216,7 @@ openmls_libcrux_crypto = { version = "0.4.0", default-features = false }
 # `f2z-msg-mls` implement `openmls_traits::signatures::Signer` itself instead of
 # taking `openmls_basic_credential`, which is #693.
 #
-# 0.0.10 matches the fixed upstream provider bridge below;
+# 0.0.10 matches the fixed, strict upstream provider source bridge below;
 # unifying is the point — a second copy would mean MLS framing signed by one
 # build of the primitive and verified by another. The preceding 0.0.9 train
 # fixed RUSTSEC-2026-0075: `generate_key_pair` now returns `Error::KeyGen`
@@ -336,9 +336,10 @@ rusqlite = { version = "0.37", features = ["bundled"] }
 # memory-storage source throughout the graph, not duplicate registry identities.
 # The disabled optional RustCrypto provider must also move HPKE off the
 # vulnerable KEM in the full lock; it remains banned in enabled graphs.
-# No local cryptographic algorithm modifications. See docs/DEPENDENCIES.md.
+# The strict Ed25519 point guard is maintained in the fork pending upstream PR2266.
+# See docs/DEPENDENCIES.md for both source bridges and retirement triggers.
 [patch.crates-io]
-openmls_libcrux_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
-openmls_traits = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
-openmls_memory_storage = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
-openmls_rust_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_libcrux_crypto = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }
+openmls_traits = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }
+openmls_memory_storage = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }
+openmls_rust_crypto = { git = "https://github.com/0bkevin/openmls", rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055" }

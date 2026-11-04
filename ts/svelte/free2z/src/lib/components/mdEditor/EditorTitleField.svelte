@@ -14,6 +14,8 @@
     direction?: "ltr" | "rtl" | "auto";
     /** The title's content language, or undefined for an unlabelled draft. */
     language?: string;
+    /** Optional local editor limit; ordinary publishing retains its defaults. */
+    maxlength?: number;
     onChange?: () => void;
     onSubmit?: () => void;
   }
@@ -23,6 +25,7 @@
     error,
     direction = "auto",
     language,
+    maxlength,
     onChange,
     onSubmit,
   }: Props = $props();
@@ -51,6 +54,9 @@
   }
 
   function handleInput() {
+    if (maxlength !== undefined && value.length > maxlength) {
+      value = value.slice(0, maxlength);
+    }
     // Titles are single-line; pasted text may carry newlines.
     if (value.includes("\n")) {
       value = value.replace(/\s*\n+\s*/g, " ");
@@ -107,6 +113,7 @@
     bind:value
     dir={direction}
     lang={language}
+    {maxlength}
     placeholder={$t("editor.titlePlaceholder", "Article title...")}
     class="font-inherit w-full resize-none overflow-hidden border-none bg-transparent text-4xl leading-tight font-bold outline-none md:text-5xl {error
       ? 'text-[#c00]'

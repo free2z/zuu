@@ -61,3 +61,11 @@ test('SockJS can use the patched UUID CommonJS v4 API', () => {
   assert.equal(uuid.validate(id), true);
   assert.equal(uuid.version(id), 4);
 });
+
+test('qs preserves nested parsing and encodes empty array keys', () => {
+  const qs = require('qs');
+  assert.deepEqual(qs.parse('filter%5Btag%5D=zcash&filter%5Btag%5D=privacy'), { filter: { tag: ['zcash', 'privacy'] } });
+  const encoded = qs.stringify({ 'x&admin=true': [] }, { allowEmptyArrays: true });
+  assert.equal(encoded, 'x%26admin%3Dtrue[]');
+  assert.deepEqual(qs.parse(encoded, { allowEmptyArrays: true }), { 'x&admin=true': [] });
+});

@@ -35,6 +35,13 @@ use crate::commands::Command;
 use crate::error::{CodecError, ErrorCode};
 use crate::types::{Body, Nonce, PublicKey, QueueAddress, Signature};
 
+/// Minimum bytes beyond a single payload for a successful one-message READ
+/// response frame. This includes the `RelayFrame`, `Response`, `ReadResponse`
+/// vector, and one `QueuedMessage`'s fixed-width fields and vector prefix.
+/// Relays use it to reject frame limits that could never return the largest
+/// published padding bucket without violating the frame cap.
+pub const MIN_READ_FRAME_OVERHEAD: u32 = 33;
+
 /// `enum { request(1), response(2), push(3), (255) } FrameKind;`
 ///
 /// The `(255)` in the specification fixes the width at one byte; it is not a

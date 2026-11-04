@@ -116,6 +116,9 @@ import asyncio
 import inspect
 import json
 import logging
+import subprocess
+import sys
+import textwrap
 import threading
 import time
 import uuid
@@ -479,6 +482,8 @@ def test_queued_acquire_timeouts_do_not_restart_while_active_batch_progresses(
     active.started = True
     active.batch_deadline = time.monotonic() + 0.5
     active_result = []
+    with beater._lock:
+        beater._active_batch_deadline = active.batch_deadline
 
     def finish_active_batch():
         time.sleep(0.05)
@@ -496,7 +501,7 @@ def test_queued_acquire_timeouts_do_not_restart_while_active_batch_progresses(
         queued = lease._Op(lambda _conn: None)
         with pytest.raises(lease.LeaseHandoffTimeout) as error:
             beater.wait(queued, timeout=0.01)
-        lease._record_acquire_outcome(error.value)
+        lease._record_acquire_outcome(error.value, beater=beater)
 
     finisher.join(timeout=1)
     waiter.join(timeout=1)
@@ -553,8 +558,26 @@ def test_queued_acquire_restarts_after_beat_or_release_batch_is_stuck(mocker):
     restart.assert_called_once_with()
 
 
-def test_parallel_fence_persist_wrapper_install_is_serialized():
+def test_parallel_fence_persist_wrapper_install_is_serialized(monkeypatch):
     calls = []
+    captured = threading.Event()
+    resume = threading.Event()
+    contended = threading.Event()
+
+    class ObservedLock:
+        def __init__(self):
+            self.lock = threading.Lock()
+
+        def __enter__(self):
+            if not self.lock.acquire(blocking=False):
+                contended.set()
+                assert self.lock.acquire(timeout=3)
+            return self
+
+        def __exit__(self, *args):
+            self.lock.release()
+
+    monkeypatch.setattr(lease._beater, '_lock', ObservedLock())
 
     class Worker:
         def __init__(self):
@@ -566,6 +589,8 @@ def test_parallel_fence_persist_wrapper_install_is_serialized():
         @property
         def _persist_job_status(self):
             self.captures += 1
+            captured.set()
+            assert resume.wait(3)
             return self.installed or self.original
 
         @_persist_job_status.setter
@@ -576,19 +601,31 @@ def test_parallel_fence_persist_wrapper_install_is_serialized():
             calls.append(kwargs)
 
     worker = Worker()
-    barrier = threading.Barrier(12)
+    errors = []
 
     def install():
-        barrier.wait(timeout=5)
-        lease._install_fence_aware_persist(worker)
+        try:
+            lease._install_fence_aware_persist(worker)
+        except BaseException as exc:
+            errors.append(exc)
 
-    installers = [threading.Thread(target=install) for _ in range(12)]
-    for thread in installers:
-        thread.start()
-    for thread in installers:
-        thread.join(timeout=5)
+    installers = [threading.Thread(target=install) for _ in range(2)]
+    installers[0].start()
+    try:
+        assert captured.wait(3)
+        installers[1].start()
+        # This is an actual competing installer, paused inside capture of the
+        # original method. Removing the installer's lock makes this go red;
+        # a barrier alone can accidentally serialize under the GIL.
+        assert contended.wait(1), 'the competing installer bypassed the lock'
+    finally:
+        resume.set()
+        for thread in installers:
+            if thread.ident is not None:
+                thread.join(timeout=3)
 
     assert all(not thread.is_alive() for thread in installers)
+    assert errors == []
     assert worker.captures == 1
     assert getattr(worker, lease._PERSIST_INSTALLED) is True
 
@@ -2627,3 +2664,117 @@ def test_retried_attempt_replaces_only_older_quarantine_marker(
         'operator hold for current attempt' if current_quarantine else
         f'recovery abandoned attempt before_body:{held.token}')
     assert marker.attempts == attempts
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('mode', ['ignored-term', 'suppressed-cancel', 'drained'])
+def test_wedged_batch_exits_even_if_shutdown_cannot_cancel_it(mode):
+    """A real blocked PG connection and failed cut cannot strand the process.
+
+    Only the child receives SIGTERM or os._exit. The ignored-TERM case goes red
+    with the original SIGTERM-only restart; the drain case detects an immediate
+    hard exit that would needlessly interrupt unrelated bodies.
+    """
+    from django.db import connection
+
+    params = connection.get_connection_params()
+    params.pop('cursor_factory', None)
+    params.pop('context', None)
+    program = textwrap.dedent(r"""
+        import asyncio
+        import json
+        import signal
+        import sys
+        import threading
+        import time
+        import psycopg
+        from dj.apps.jobs import lease
+
+        terminated = threading.Event()
+        signal.signal(signal.SIGTERM, lambda *_: terminated.set())
+        lease.RESTART_EXIT_GRACE_SECONDS = 0.4
+        lease.batch_deadline_seconds = lambda count: 0.15
+        lease.OUTCOME_MARGIN_SECONDS = 0.05
+        lease.beat_seconds = lambda: 60
+        lease._cut_batch = lambda *_: None  # driver's cancellation/cut failed
+        lease._connect = lambda params, name: psycopg.connect(
+            **params, application_name=name, autocommit=True)
+        beater = lease._Beater()
+        beater.submit(lambda conn: conn.execute('SELECT pg_sleep(2)'),
+                      json.loads(sys.argv[1]))
+        if sys.argv[2] == 'suppressed-cancel':
+            async def resistant_body():
+                task = asyncio.current_task()
+                loop = asyncio.get_running_loop()
+                signal.signal(signal.SIGTERM, lambda *_:
+                              loop.call_soon_threadsafe(task.cancel))
+                try:
+                    await asyncio.sleep(3)
+                except asyncio.CancelledError:
+                    print('SIGTERM received', flush=True)
+                    print('cancellation suppressed', flush=True)
+                    await asyncio.sleep(1)
+                    sys.exit(90)
+            asyncio.run(resistant_body())
+        assert terminated.wait(3), 'the stalled batch never requested shutdown'
+        print('SIGTERM received', flush=True)
+        if sys.argv[2] == 'drained':
+            time.sleep(0.05)  # unrelated body cooperates with graceful shutdown
+            print('unrelated body drained', flush=True)
+            sys.exit(0)
+        time.sleep(1)
+        sys.exit(90)  # SIGTERM alone did not cause the required process exit
+    """)
+    started = time.monotonic()
+    child = subprocess.run(
+        [sys.executable, '-c', program, json.dumps(params), mode],
+        capture_output=True, text=True, timeout=6, check=False)
+    elapsed = time.monotonic() - started
+    assert 'SIGTERM received' in child.stdout, child.stderr
+    assert child.returncode == (0 if mode == 'drained' else 75), child.stderr
+    assert elapsed < 4
+    assert ('unrelated body drained' in child.stdout) is (mode == 'drained')
+    assert ('cancellation suppressed' in child.stdout) is (
+        mode == 'suppressed-cancel')
+
+
+def test_restart_requests_arm_one_exit_before_signalling(monkeypatch):
+    """Concurrent requests cannot re-signal or extend an armed exit deadline."""
+    calls = []
+
+    class Timer:
+        def __init__(self, interval, function, args):
+            calls.append(('timer', interval, function, args))
+            self.daemon = False
+
+        def start(self):
+            assert self.daemon
+            calls.append(('armed',))
+
+    monkeypatch.setattr(lease, '_restart_exit_armed', False)
+    monkeypatch.setattr(lease.threading, 'Timer', Timer)
+    monkeypatch.setattr(lease.os, 'kill', lambda *args: calls.append(('signal', args)))
+    barrier = threading.Barrier(8)
+    errors = []
+
+    def request():
+        try:
+            barrier.wait(timeout=3)
+            lease._request_worker_restart()
+        except BaseException as exc:
+            errors.append(exc)
+
+    threads = [threading.Thread(target=request) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+    assert not errors
+    assert all(not thread.is_alive() for thread in threads)
+    lease._record_acquire_outcome(None)  # recovered handoff cannot undo shutdown
+    lease._request_worker_restart()
+    assert calls == [
+        ('timer', 30.0, os._exit, (75,)),
+        ('armed',),
+        ('signal', (os.getpid(), lease.signal.SIGTERM)),
+    ]
