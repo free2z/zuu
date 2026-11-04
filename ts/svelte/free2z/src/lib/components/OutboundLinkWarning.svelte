@@ -115,7 +115,8 @@
           />
           <Label
             for="outbound-link-trust-domain"
-            class="cursor-pointer leading-5 font-normal"
+            control
+            class="leading-5 font-normal"
           >
             {$t("privacy.outboundLinkTrustDomain", "Always trust this domain")}
           </Label>
@@ -127,7 +128,8 @@
           />
           <Label
             for="outbound-link-disable-warnings"
-            class="cursor-pointer leading-5 font-normal"
+            control
+            class="leading-5 font-normal"
           >
             {$t(
               "privacy.outboundLinkDisableWarnings",

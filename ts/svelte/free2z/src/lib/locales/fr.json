@@ -766,7 +766,11 @@
       "audioEmbed": "Audio intégré",
       "iframe": "Iframe",
       "qrCode": "Code QR",
-      "footnote": "Note de bas de page"
+      "footnote": "Note de bas de page",
+      "video": "Vidéo",
+      "audio": "Audio",
+      "document": "Document",
+      "embedLink": "Lien intégré"
     },
     "slashMenu": {
       "title": "Commandes",
@@ -1020,7 +1024,80 @@
     "insertVideo": "Insérer une vidéo",
     "uploadingVideo": "Importation de la vidéo…",
     "uploadingMedia": "Importation des fichiers…",
-    "checkingMediaAccess": "Vérification de l’accès au média…"
+    "checkingMediaAccess": "Vérification de l’accès au média…",
+    "embedLinkHint": "Collez une URL HTTP(S). L’aperçu utilise les mêmes contrôles d’intégration et de confidentialité que votre page publiée.",
+    "embedUrl": "URL",
+    "insertEmbed": "Insérer le contenu",
+    "insertEmbedLink": "Intégrer une URL HTTP(S)",
+    "invalidEmbedLink": "Saisissez une URL HTTP ou HTTPS complète.",
+    "publicMediaUpload": "Les fichiers importés ici sont publics. Toute personne disposant du lien peut les ouvrir.",
+    "restrictedEmbedLink": "Choisissez ce fichier dans Votre cloud pour que nous puissions vérifier l’accès et demander votre accord avant de le partager avec les lecteurs.",
+    "unsupportedMedia": "Certains fichiers ne sont pas pris en charge. Choisissez l’un des types de fichiers indiqués.",
+    "uploadProgress": "Progression de l’importation",
+    "cancelUpload": "Annuler l’importation",
+    "documentChanged": "Le document a changé. Choisissez à nouveau le point d’insertion.",
+    "insertLinkFailed": "Impossible d’insérer le lien.",
+    "insert": {
+      "video": "Importer ou choisir une vidéo",
+      "audio": "Importer ou choisir un fichier audio",
+      "document": "Importer ou choisir un PDF"
+    },
+    "mediaPicker": {
+      "imageAccessMakeMembersBody": "« {name} » est un fichier privé : même vos abonnés ne peuvent pas l’ouvrir. Partagez-le avec vos abonnés pour qu’ils puissent l’ouvrir sur cette page.",
+      "imageAccessMakePublicBody": "« {name} » n’est pas un fichier public : certains lecteurs ne peuvent pas l’ouvrir. Le rendre public permet à toute personne disposant du lien de l’ouvrir.",
+      "imageAccessMakeMembers": "Partager avec les abonnés",
+      "imageAccessMakePublic": "Le rendre public"
+    },
+    "audioPicker": {
+      "imageFallback": "Piste audio {id}",
+      "cloudImageOpenFailed": "Impossible d’ouvrir cette piste audio.",
+      "imageAccessCheckFailed": "Impossible de vérifier qui peut ouvrir cette piste audio. Réessayez.",
+      "imageAccessChangeUnknown": "Nous n’avons pas pu confirmer la modification. Vérifiez qui peut voir la piste audio dans votre bibliothèque actualisée avant de publier.",
+      "imageAccessChangeFailed": "Impossible de modifier qui peut voir cette piste audio.",
+      "addImage": "Ajouter une piste audio",
+      "imageDialogDescription": "Importez une piste audio depuis cet appareil ou choisissez-en une dans votre cloud Free2Z.",
+      "deviceImageDropzone": "Sélectionner des pistes audio de l’appareil",
+      "dropImagesNow": "Déposez des pistes audio pour les ajouter",
+      "dropImagesMultipleHint": "Vous pouvez ajouter plusieurs pistes audio à la fois.",
+      "dropImagesTitle": "Déposez des pistes audio n’importe où ici",
+      "selectImages": "Sélectionner des pistes audio",
+      "searchSelectedImages": "Rechercher les pistes audio sélectionnées",
+      "addMoreImages": "Ajouter d’autres pistes audio",
+      "removeImage": "Retirer la piste audio",
+      "noSelectedImagesFound": "Aucune piste audio correspondante",
+      "imageSelected": "piste audio sélectionnée",
+      "imagesSelected": "pistes audio sélectionnées",
+      "cloudImageResults": "Résultats des pistes audio importées",
+      "loadingLibrary": "Chargement des pistes audio importées…",
+      "libraryEmpty": "Vous n’avez pas encore importé de pistes audio.",
+      "cloudImageAlt": "Piste audio de votre cloud",
+      "imageAccessTitle": "Vos lecteurs ne pourraient pas voir cette piste audio"
+    },
+    "documentPicker": {
+      "imageFallback": "Document PDF {id}",
+      "cloudImageOpenFailed": "Impossible d’ouvrir ce document PDF.",
+      "imageAccessCheckFailed": "Impossible de vérifier qui peut ouvrir ce document PDF. Réessayez.",
+      "imageAccessChangeUnknown": "Nous n’avons pas pu confirmer la modification. Vérifiez qui peut voir le document PDF dans votre bibliothèque actualisée avant de publier.",
+      "imageAccessChangeFailed": "Impossible de modifier qui peut voir ce document PDF.",
+      "addImage": "Ajouter un document PDF",
+      "imageDialogDescription": "Importez un document PDF depuis cet appareil ou choisissez-en un dans votre cloud Free2Z.",
+      "deviceImageDropzone": "Sélectionner des documents PDF de l’appareil",
+      "dropImagesNow": "Déposez des documents PDF pour les ajouter",
+      "dropImagesMultipleHint": "Vous pouvez ajouter plusieurs documents PDF à la fois.",
+      "dropImagesTitle": "Déposez des documents PDF n’importe où ici",
+      "selectImages": "Sélectionner des documents PDF",
+      "searchSelectedImages": "Rechercher les documents PDF sélectionnés",
+      "addMoreImages": "Ajouter d’autres documents PDF",
+      "removeImage": "Retirer le document PDF",
+      "noSelectedImagesFound": "Aucun document PDF correspondant",
+      "imageSelected": "document PDF sélectionné",
+      "imagesSelected": "documents PDF sélectionnés",
+      "cloudImageResults": "Résultats des documents PDF importés",
+      "loadingLibrary": "Chargement des documents PDF importés…",
+      "libraryEmpty": "Vous n’avez pas encore importé de documents PDF.",
+      "cloudImageAlt": "Document PDF de votre cloud",
+      "imageAccessTitle": "Vos lecteurs ne pourraient pas voir ce document PDF"
+    }
   },
   "dashboard": {
     "pages": {
@@ -1492,6 +1569,9 @@
       "connectionRestored": "Connexion rétablie !",
       "copyLinkOnNextPage": "La diffusion a été créée. Sélectionnez « Copier le lien » sur la page suivante.",
       "copyViewerLink": "Copier le lien spectateur",
+      "shareToConverse": "Partager sur Converse",
+      "reviewLiveAnnouncement": "Relisez et modifiez votre annonce avant de la publier. Votre diffusion restera active pendant que vous écrivez.",
+      "notLivePublic": "Seule une diffusion publique en cours peut être partagée.",
       "earnMoreTuzis": "Gagnez davantage de 2Z en participant à la communauté.",
       "ended": "Diffusion terminée.",
       "leaveConfirmation": "La diffusion est en cours. Voulez-vous vraiment quitter la page ? Cela mettra fin à la diffusion.",
@@ -1725,7 +1805,7 @@
     "notCharged": "Vous n’avez pas été débité.",
     "writeIntro": "Écrire votre zPage d’introduction",
     "buy": "Acheter des 2Z",
-    "postCost": "Une publication coûte 1 2Z, environ un centime. C’est pour cela qu’il n’y a pas de spam ici. Vous avez {balance} 2Z.",
+    "postCost": "Cette publication coûte {cost} 2Z. Ce petit coût décourage le spam. Vous avez {balance} 2Z.",
     "giftIntro": "Écrivez une zPage pour vous présenter : les membres peuvent offrir des 2Z aux auteurs qu’ils veulent lire davantage.",
     "giftWaiting": "Votre zPage est votre présentation. Les membres peuvent offrir des 2Z aux auteurs qu’ils veulent lire davantage.",
     "yourPages": "Vos zPages",
@@ -3215,5 +3295,12 @@
       "invalid": "Ce lien a expiré. Reconnectez-vous pour garder votre compte.",
       "failed": "Votre compte n'a pas pu être gardé. Veuillez réessayer."
     }
+  },
+  "credits": {
+    "title": "Pourquoi un centime par publication ?",
+    "welcome": "Bienvenue ! Vous avez reçu {amount} 2Z en crédits de plateforme. Publier coûte à partir de 1 2Z, environ un centime de dollar, pour garder Free2Z sans publicité et décourager le spam.",
+    "dismiss": "Fermer le message de bienvenue",
+    "model": "Les 2Z sont des crédits pour les actions sur Free2Z. Publier coûte à partir de 1 2Z, environ un centime de dollar. Ce petit coût décourage le spam et aide à garder Free2Z sans publicité. Votre première zPage est gratuite ; en créer une autre nécessite un solde de 1 2Z sans le dépenser.",
+    "sources": "Les nouveaux comptes éligibles reçoivent des crédits de bienvenue. Vous pouvez acheter des 2Z ou recevoir des cadeaux de membres qui souhaitent vous lire davantage. Présentez-vous dans une zPage pour que les lecteurs vous découvrent."
   }
 }

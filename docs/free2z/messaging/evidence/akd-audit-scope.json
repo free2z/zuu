@@ -9,7 +9,7 @@
     "figure": "Figure 2: recursive_batch_insert_nodes() in akd/src/append_only_zks.rs"
   },
   "upstream": {
-    "repository": "https://github.com/facebook/akd",
+    "repository": "https://github.com/meta/akd",
     "path": "akd/src/append_only_zks.rs",
     "audited": {
       "release": "v0.9.0",
@@ -28,7 +28,7 @@
   },
   "fixes": {
     "q3u_publish_only": {
-      "url": "https://github.com/facebook/akd/pull/400",
+      "url": "https://github.com/meta/akd/pull/400",
       "number": 400,
       "node_id": "PR_kwDOFr0TCM5ZYVLW",
       "head_commit": "cd4fd180cd2774dba64dc2ec5ec46890f985a163",
@@ -36,7 +36,7 @@
       "patch_sha256": "c507b382007954a243fc467a92a457df69ebacdcef5cfe27f1dcd9e3b8e1a891"
     },
     "auditor_residual": {
-      "url": "https://github.com/facebook/akd/pull/495",
+      "url": "https://github.com/meta/akd/pull/495",
       "number": 495,
       "node_id": "PR_kwDOFr0TCM79zPta",
       "head_commit": "685e2a77e253fe49fad1ea191e75b5482f677e38",

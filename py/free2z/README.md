@@ -108,3 +108,67 @@ From the repository root, `PYTHONPATH=py/free2z DJANGO_SETTINGS_MODULE=pytest_se
 writer source inventory using the installed locked backend dependencies. This
 inventory identifies call sites requiring review; it is not financial approval
 or evidence about a deployed service.
+
+### Cantonese language repair (g12f 0122, #1284)
+
+The storage inventory is `g12f_zpage.source_language`,
+`g12f_zpage.detected_language` (the latest detector label),
+`g12f_zpagetranslation.language` (legacy reads/dual writes), and
+`g12f_zpagevariant.language` (source, human and AI variants). These four
+columns are repaired together. `language_source` records provenance, not a
+language tag. `g12f_zpagemutationactor.language` is immutable historical actor
+evidence and stays verbatim, as do deletion/export snapshots, job payloads,
+translation cache/quote state, idempotency hashes and financial history. A
+`TranslationQuote` is an in-memory dataclass, not another language column.
+
+The repair considers only bare `yue` and `yue-*` primary tags (case and edge
+whitespace included) that the current registry accepts. For example `yue` and
+`YUE` become `yue-Hant`, `yue-hant` becomes `yue-Hant`, and `yue-hans-cn`
+becomes `yue-Hans-CN`. Already canonical `yue-Hans`, `yue-Hant-HK` and
+`yue-Latn` remain unchanged; regions are not discarded or guessed. Invalid or
+unknown labels, NULL, empty values and all other languages are untouched.
+
+**Collision policy: abort, never choose a winner.** Before writing anything,
+check each affected page for two variants or two legacy translations that
+would have the same canonical language, and for a source/legacy-translation
+collision even without a variant mirror. Also check the page source against
+human/AI variants, even when both the source mirror and legacy translation
+are missing: neither rewriting a bare source onto a canonical translation nor
+rewriting a bare translation onto a canonical source is allowed. This includes
+two different aliases mapping to one destination, not only an existing
+`yue-Hant` destination. The
+source and its source-variant mirror, and a translation and its variant mirror,
+are intentionally allowed across tables. Only an `origin="source"` variant
+may mirror the page source; a human/AI variant at that identity is distinct
+content and blocks the repair whenever either label would change.
+Pre-existing collisions unaffected by the repair are not reconciled. Errors identify page, model, row IDs and labels;
+no content is printed. Owners must explicitly reconcile conflicting content
+outside this migration; no row is silently merged, overwritten or deleted.
+
+Deployment owners can run this read-only, repeatable preflight in their own
+environment before applying migrations:
+
+```sh
+python dj/free2z/manage.py plan_yue_language_migration --database default
+```
+
+It uses a repeatable-read, read-only transaction, reports field counts by
+old/new label, and exits unsuccessfully on collisions. It is advisory: actual
+migration 0122 repeats preflight while holding PostgreSQL SHARE ROW EXCLUSIVE
+locks on the three tables, blocking writers but permitting ordinary readers.
+A three-second lock acquisition budget fails/retries rather than waiting
+indefinitely. Plan a quiet deployment window and pause/drain writers and paid
+translation jobs first: old in-flight payloads must not recreate aliases after
+the repair. Apply via the normal `migrate` deployment step, rerun the preflight
+(expect zero updates), and check both published variant URL spellings. Capture
+counts, collision resolutions, deployment and URL-check evidence in the
+operators' external deployment record; repository tests are not that evidence.
+No cloud access or external execution is needed to implement this change.
+
+Only language columns change, in one transaction. IDs, slugs/addresses, content,
+publication/lifecycle dates, timestamps, model provenance, source digests,
+paid balances, reservations, receipts and audit rows stay intact. Thus old
+`/variants/yue/` links and canonical `/variants/yue-Hant/` links both resolve
+through existing URL normalization after migration. Rerunning is a no-op.
+Reversing the migration leaves canonical labels in place: there is no safe
+way to infer which spelling an originally canonical row used.
