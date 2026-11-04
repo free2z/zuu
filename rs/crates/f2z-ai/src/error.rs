@@ -134,6 +134,12 @@ impl ApiFailure {
         self.details.as_ref().and_then(|d| d.get(key))
     }
 
+    /// The human-readable message.
+    #[must_use]
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
     /// The HTTP status.
     #[must_use]
     pub const fn status(&self) -> StatusCode {

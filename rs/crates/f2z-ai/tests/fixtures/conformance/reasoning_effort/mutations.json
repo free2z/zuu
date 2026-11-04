@@ -1,0 +1,48 @@
+{
+  "feature": "reasoning_effort",
+  "mutations": [
+    {
+      "name": "drop reasoning_effort on Chat Completions",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/reasoning_effort"
+    },
+    {
+      "name": "send a different effort",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/reasoning_effort",
+      "value": "medium",
+      "fixtures": [
+        "openai_chat_effort_low",
+        "xai_chat_effort_high_listed"
+      ]
+    },
+    {
+      "name": "drop reasoning on Responses",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/reasoning"
+    },
+    {
+      "name": "send a different Responses effort",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/reasoning/effort",
+      "value": "high",
+      "fixtures": [
+        "openai_responses_effort_medium"
+      ]
+    },
+    {
+      "name": "send the Chat Completions member to Responses",
+      "target": "provider_request",
+      "op": "add",
+      "path": "/reasoning_effort",
+      "value": "medium",
+      "fixtures": [
+        "openai_responses_effort_medium"
+      ]
+    }
+  ]
+}

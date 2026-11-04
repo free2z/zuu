@@ -35,6 +35,11 @@
       "path": "docs/PARALLEL-AGENTS.md",
       "owner": "zuu",
       "scope": "Repository contribution workflow"
+    },
+    {
+      "path": "docs/zcash-payment-hooks",
+      "owner": "zcash-payment-hooks",
+      "scope": "Receive-only shielded payment events and executable hooks"
     }
   ],
   "retired": [

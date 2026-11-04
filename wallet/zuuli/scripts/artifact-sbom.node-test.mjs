@@ -40,7 +40,10 @@ import {
   REQUIRE_LINUX_ARTIFACT_FIXTURES,
   runLinuxArtifactFixtures,
 } from "./run-linux-artifact-fixtures.mjs";
-import { REVIEWED_GIT_SOURCES } from "./linux-cargo-runtime.mjs";
+import {
+  REVIEWED_GIT_SOURCES,
+  collectLinuxCargoRuntime,
+} from "./linux-cargo-runtime.mjs";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const appRoot = resolve(scriptDirectory, "..");
@@ -1201,13 +1204,12 @@ test("real cargo-auditable executable evidence installer is exact and fail-close
 
 test("the reviewed git source is exactly the rev the app actually patches", () => {
   // `sourceKind` refuses any package source that is not crates.io, a path, or
-  // one exactly-reviewed git revision. Without this test the only thing that
+  // an exactly-reviewed git revision. Without this test the only thing that
   // notices a drifted `rev` is the Linux packaging job, twenty minutes into a
   // release build, with a message about a "non-shipping package source".
   //
-  // TRANSIENT with the patch itself: when `bip32 0.6.0` is published and the
-  // Zcash stack moves to secp256k1 0.31, `REVIEWED_GIT_SOURCES` empties and
-  // this test asserts that it is empty.
+  // TRANSIENT with the registered patches themselves: retirement removes only
+  // the corresponding source. The exact manifest/lock pairing stays enforced.
   const manifest = readFileSync(
     new URL("../src-tauri/Cargo.toml", import.meta.url),
     "utf8",
@@ -1234,6 +1236,74 @@ test("the reviewed git source is exactly the rev the app actually patches", () =
       lock.includes(`source = "${source}"`),
       `the lockfile does not resolve anything from ${source}`,
     );
+  }
+});
+
+test("the runtime SBOM binder accepts only exact reviewed Git identities", () => {
+  const temporary = mkdtempSync(resolve(tmpdir(), "zuuli-sbom-git-source-"));
+  try {
+    const manifest = resolve(temporary, "Cargo.toml");
+    const lock = resolve(temporary, "Cargo.lock");
+    const executable = resolve(temporary, "usr/bin/zuuli");
+    mkdirSync(dirname(executable), { recursive: true });
+    writeFileSync(manifest, '[package]\nname="zuuli"\nversion="0.1.0"\n');
+    writeFileSync(lock, "version = 4\n");
+    writeFileSync(executable, "hermetic executable fixture\n");
+    chmodSync(executable, 0o755);
+    // Exercise the production collector through its existing subprocess seam.
+    // Source classification must finish before embedded evidence is consulted.
+    const collect = (source) => {
+      const name = source.includes("/openmls?") ? "openmls_libcrux_crypto" : "bip32";
+      const version = name === "bip32" ? "0.6.0-pre.1" : "0.4.0";
+      return collectLinuxCargoRuntime({
+        root: temporary,
+        cargoLock: lock,
+        cargoManifest: manifest,
+        cargoTarget: "x86_64-unknown-linux-gnu",
+        cargoFeatures: "default",
+        execute(command, args) {
+          if (command === "cargo" && args[0] === "metadata") {
+            return JSON.stringify({
+              packages: [
+                { name: "zuuli", version: "0.1.0", source: null },
+                { name, version, source },
+              ],
+            });
+          }
+          if (command === "cargo" && args[0] === "tree") {
+            return `0zuuli v0.1.0|default\n1${name} v${version}|\n`;
+          }
+          assert.equal(command, "objcopy");
+          const destination = args[1].slice(".dep-v0=".length);
+          writeFileSync(destination, deflateSync(JSON.stringify({
+            format: 8,
+            packages: [
+              { name: "zuuli", version: "0.1.0", source: "local", root: true, dependencies: [1] },
+              { name, version, source: "git", dependencies: [] },
+            ],
+          })));
+          return "";
+        },
+      });
+    };
+    for (const source of REVIEWED_GIT_SOURCES) {
+      const accepted = collect(source);
+      assert.ok(accepted.packages.some((entry) =>
+        entry.name !== "zuuli" && entry.source === "git"));
+      for (const mutated of [
+        source.replace(/rev=[0-9a-f]{40}/, `rev=${"0".repeat(40)}`),
+        source.replace(/#[0-9a-f]{40}$/, `#${"0".repeat(40)}`),
+        source.replace("github.com/free2z/", "github.com/unreviewed/"),
+        source.replace("https://", "http://"),
+        source.replace(/#[0-9a-f]{40}$/, ""),
+        `${source}-suffix`,
+      ]) {
+        assert.throws(() => collect(mutated), /non-shipping package source/,
+          `the runtime binder must refuse ${mutated}`);
+      }
+    }
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
   }
 });
 

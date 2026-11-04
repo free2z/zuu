@@ -118,7 +118,7 @@ the charge exactly:
 
 ```
 provider_milli  = ceil(cost_nusd / 10⁴)                            what the call cost
-developer_milli = floor(cost_nusd × (10000 + m) × b / 10¹²)        the markup, credited to the developer
+developer_milli = floor(cost_nusd × (10000 + m) × b / 10¹²)        the markup: the developer allocation
 platform_milli  = total_milli − provider_milli − developer_milli    the rest, including the round-up
 ```
 
@@ -152,22 +152,27 @@ The `platform_milli ≥ 0` property holds only when `collected_milli_2z =
 total_milli`; a shortfall is the one case where it does not, and the call
 record says so.
 
-The developer's `developer_milli` is credited to the developer's own Free2Z
-account **as 2Z platform credits, and nothing else in v1**: there is no
-cash-out, and the credit is spendable exactly as any other 2Z. A markup
+The developer's `developer_milli` is the per-call **developer allocation**.
+How the developer is compensated for it is defined by the **Free2Z Creator
+Compensation Agreement** (cc-2026-10-v2, schedule `sdk-application-2026-10-v2`), which
+is canonical and which this contract does not restate. Under that agreement
+2Z Inc. owes compensation in USD from its own funds, and it is not a
+redemption of usage credits. It applies only after the developer's
+authenticated acceptance, a verified legal-payee binding and activation;
+publication alone does not activate it. 2Z remain usage credits throughout:
+there is no cash-out of a 2Z balance. A markup
 above `0` is only ever applied for an app the platform has **manually
 approved** for markup, and never above the approved value: `b` is
 bounded by `approved_markup_bps` at every hold ([oidc.md](./oidc.md)
 §2, §2.2 above), so an unapproved app is priced as if `b = 0` and an
 app whose approval was withdrawn stops earning on the next hold.
 **v1 has no automatic reversal of markup**: when a
-user's purchase is refunded or charged back, the developer's credit is
-not touched by the ledger. Earnings are recorded **per (user,
-developer)**, so a manual, administrative clawback under the developer
-terms is possible, and the approval gate is what makes that tractable.
+user's purchase is refunded or charged back, the developer allocations
+already recorded are not touched by the ledger. Allocations are recorded
+**per (user, developer)**, so a manual adjustment under the agreement's §4
+is possible, and the approval gate is what makes that tractable.
 Automatic reversal is a v2 item ([purchase.md](./purchase.md) §3.1).
-Anything beyond that is governed by the developer terms, not this
-contract.
+Anything beyond that is governed by the agreement, not this contract.
 
 ### 2.4 What `/v1/models` publishes
 
@@ -280,7 +285,7 @@ Two invariants a user can observe:
 Before the provider is called, the gateway computes the **worst case**:
 
 ```
-input_est   = ceil(tokenise(messages + tools + provider framing) × safety_factor_bps / 10⁴)   (exact tokeniser ⇒ 10,000 bps)
+input_est   = ceil(tokenise(messages + tools + provider framing) × safety_factor_bps / 10⁴)   (the model's catalogue `safety_factor_bps`, applied to a tokenised count as to a bound; the catalogue sets a smaller margin on rows the gateway tokenises exactly)
 out_cap     = min(max_output_tokens, context_window − input_est, affordable)
 hold_2z     = price(input_est at the dearest input rate, out_cap, images, tool_budget)        by §2.1 then §2.2
 ```
@@ -293,9 +298,21 @@ What the estimate covers, so that no implementation leaves a predictable
 part of the bill out of the hold:
 
 - `tokenise(…)` counts the messages **and** the serialised tool
-  definitions **and** the per-message framing the provider adds; image
-  parts are counted at the model's documented tokens-per-image when the
-  model bills images as tokens.
+  definitions **and** the `response_format` schema **and** the per-message
+  framing the provider adds; image parts are counted at the model's
+  documented tokens-per-image when the model bills images as tokens.
+  For an OpenAI model the gateway runs the provider's own BPE
+  (`o200k_base` / `cl100k_base`, vendored) over the prompt and adds the
+  framing OpenAI's API measurably adds per message, per tool definition
+  and per schema — a JSON schema is billed as a compact rendering of its
+  keys, type words, descriptions and enum values, not as its JSON text, and
+  its validation keywords cost nothing. The framing constants are measured
+  values rounded up (`f2z-ai/src/estimate.rs`), and `f2z-ai/tests/estimate.rs`
+  holds the recorded corpus they are checked against: the estimate is
+  never below what the provider billed and within 15 % of it on real
+  prompts. Every other provider gets the UTF-8 **byte bound** of the same
+  serialised input (a byte is never less than a token) until it has a
+  vendored tokeniser; it over-reserves by roughly 4–5×.
 - **The dearest input rate** applies: when the model has a cache-write
   price above its input price, the hold prices every input token at the
   cache-write rate (the worst case is that the whole prompt is written to
@@ -338,17 +355,22 @@ cap and settle up to their reservation; the lowered cap only makes
 
 A clamped `out_cap` is reported in `meta.max_output_tokens` so the app can
 tell the user why a long answer stopped early, and `finish_reason: length`
-marks the stop.
+marks the stop. A request with `max_output_tokens_strict` is never clamped:
+if the hold for its full `max_output_tokens` does not fit, it is refused
+before the hold ([chat-api.md](./chat-api.md) §2.2 step 5), so nothing is
+reserved or charged.
 
 ## 5. Every edge case, and what is charged
 
 | # | Case | Charged | `usage.source` | Call `status` |
 |---|---|---|---|---|
 | 5.1 | Normal completion | `price(usage)` from provider usage | `provider` | `settled` |
-| 5.2 | Provider error **before** any output | **0** — hold released | — | `released` |
+| 5.2 | Provider **refuses** the request — no connection, a non-2xx head, no response head within `ttfb_timeout_ms` — so it cannot have billed | **0** — hold released | — | `released` |
+| 5.2 | Provider **accepted** the request (a 2xx head) and then **declared an error itself before any output** — its own in-stream `error` event (Anthropic's `overloaded_error` is its 529 in stream form; OpenAI's `{"error": …}` chunk) — which it does not bill | **0** — hold released | — | `released` |
+| 5.2 | Provider **accepted** the request (a 2xx head) and the stream then **went silent or was cut before any output** — no body byte within `ttfb_timeout_ms` after the head, the idle limit during silent reasoning, the hard limit, a transport cut, a body the gateway could not parse | `price(usage)` if the provider reported usage on the failed stream, else §5.4 with `output_tokens = 0`: the input estimate is charged, because the provider bills an accepted request whether or not it produced anything the gateway could see. The stream is `meta` then `error` with the settlement — never a lone `error` with `charged_2z: 0` (chat-api.md §2.3) | `provider` / `estimated` | `settled` |
 | 5.2 | Provider error **after** output began | `price(usage)` if the provider reported usage on the failed stream, else §5.4 | `provider` / `estimated` | `settled_partial` |
 | 5.3 | Client disconnects, stalls, or reads too slowly | The gateway does **not** abort the provider, and **the client's read rate never throttles the upstream read**: the provider is read at its own speed to completion — bounded by the `out_cap` already held and the 300 s hard limit — with undelivered output buffered per stream (256 KiB; [chat-api.md](./chat-api.md) §2.4), and the call settles on the usage the provider reports, exactly as if the client had read everything: `finish_reason: cancelled` on a disconnect, `price(usage)`. The provider bills for the generation whether or not anyone reads it, and only its usage frame carries the reasoning tokens a stream never shows; letting a slow reader stall the upstream into a timeout would trade that known charge for an estimate that cannot see them — the under-charge a slow mobile link would otherwise produce by accident. A disconnect **before `meta`** follows the same rule when the upstream request was already sent; when it was not yet sent, the hold is released and nothing is charged | `provider` | `settled` (`finish_reason: cancelled` on a disconnect) or `released` |
-| 5.4 | Provider reports **no usage** — the upstream stream ended, or failed, without a usage frame even after being read to completion | Estimated as a full usage vector: `input_tokens = input_est` (the hold's estimate, all in the uncached bucket; `cached_input_tokens` and `cache_write_tokens` are `0`), `output_tokens = ceil(tokenise(generated text + tool-call arguments) × 11000 / 10⁴)` over everything the provider produced, delivered or not, `images` = the request's image parts, `tool_calls` = the tool calls produced. Reasoning tokens are not streamed and **cannot be estimated**: a reasoning model whose usage frame was lost is under-charged, and that loss is the platform's. This is the one case where "never priced below cost" does not hold, because the cost is unknown; the record says `estimated` so it can be counted | `estimated` | as above |
+| 5.4 | Provider reports **no usage** on an **accepted** request — the upstream stream ended, or failed, without a usage frame even after being read to completion (a Chat Completions stream without its usage chunk, a stream cut by the provider, the model's `idle_timeout_ms` or the 300 s hard limit, a drain that aborted the read) | Estimated as a full usage vector. **Input:** the counts the provider did report before the stream ended, when it reported any and they fit under the hold's estimate (Anthropic's `message_start` carries the uncached, cached and cache-write counts), else `input_tokens = input_est` — the hold's estimate, all in the uncached bucket, `cached_input_tokens` and `cache_write_tokens` `0`. For a model whose tokeniser the gateway has (every OpenAI model) `input_est` is the tokenised count — measured within 8 % of what OpenAI bills — times the model's `safety_factor_bps` (11,000 on OpenAI rows), so an interrupted call's input is charged at roughly 1.1–1.2× the billed count; for a provider without a tokeniser it is the byte bound of §4 (4–5× the billed count, times the margin), so an interrupted call there is charged up to the bound — the gateway logs every such settlement (`estimated_input_byte_bound`), and no such provider is sold through the gateway today. **Output:** `min(ceil(tokenise(generated text + tool-call names and arguments) × 11000 / 10⁴), out_cap)` over everything the provider produced, delivered or not — a tool call cut mid-stream counts its streamed fragments — tokenised with the model's encoding (`o200k_base` as the approximation for a provider without one). `images` = the request's image parts; `tool_calls = 0` (it counts provider-billed server-side tool invocations, which only a usage frame can report; client-executed function calls are never priced). **The charge can never exceed the hold**: every bucket is bounded by the two numbers the hold was priced from at the dearest input rate. Reasoning tokens are not streamed and **cannot be estimated**: a reasoning model whose usage frame was lost is under-charged, and that loss is the platform's. This is the one case where "never priced below cost" does not hold, because the cost is unknown; the record's `usage_source: "estimated"` (the `usage` event's `source`) says so, so it can be counted | `estimated` | `settled` / `settled_partial` |
 | 5.5 | Actual **exceeds** the hold | Settle does not fail. The excess is taken from what the user could have reserved under this hold — **the lesser of the available balance and the remaining cap of the hold's period** (§4) — so the cap the user consented to bounds the collection exactly as it bounds a hold. Whatever cannot be taken is recorded as `shortfall_milli_2z` and **written off** — the user is never taken below zero, never past the cap, and never put in debt by an AI call. The gateway alerts on every non-zero shortfall; the write-off is the platform's cost of a bad estimate, not the user's | `provider` | `settled`, `shortfall_milli_2z > 0` |
 | 5.6 | Gateway dies mid-stream (no settle) | The hold expires **300 s** after its last extension and is released by a sweeper. If the provider had generated output, the platform pays for it; the user is charged nothing, because nothing was recorded. A settle that arrives after the expiry answers `not_open` and charges nothing; a live gateway that gets that answer (its settler was delayed past expiry) ends the stream with `settlement: "released"` and `charged_2z: 0`. `GET /v1/calls/{id}` shows `released` with `error: {code: "unavailable", message: "hold expired unsettled"}`, written by the sweeper. Every late settle is a **platform write-off**, counted by an alerting metric (`f2z_ai_unbilled_late_settle_total`, with the unbilled price as a second series) so that it is seen and made rare rather than tolerated: the settler retries the ledger durably while the instance lives (a draining instance stops at the end of its grace period, §5.11), and `extend` pushes the expiry every 60 s while a stream is alive, so a hold expires under a settle only when a gateway instance died or the ledger was unreachable for the rest of the hold's TTL | — | `released` |
 | 5.7 | `fallback` used | `fallback` is an **ordered list**, tried in order. For each retry the previous attempt's hold is released and a new hold (the next attempt number) is taken at that model's price — its own `out_cap`, its own snapshot — before the request is sent; a hold that cannot be taken (`insufficient_balance`, `cap_exceeded`, `revoked`) ends the call with that code and nothing charged. `meta` carries the model that finally answered. One charge | `provider` | `settled` |

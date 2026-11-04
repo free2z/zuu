@@ -47,6 +47,34 @@ test("grant proof is fresh, scoped and rejects missing enforcement or unknown pe
     await assert.rejects(transport.grant(), { code: "invalid_response" });
   }
 });
+test("enforcement reason is optional, tolerant of new codes, and consistent", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  mock.api = () => mock.json(wire);
+  assert.equal("enforcement_reason" in (await transport.grant()), false);
+  for (const [code, enforced, expected] of [
+    ["ok", true, "ok"],
+    ["platform_disabled", false, "platform_disabled"],
+    ["ledger_cutover_pending", false, "ledger_cutover_pending"],
+    ["ledger_cap_pending", false, "ledger_cap_pending"],
+    ["some_future_code", false, "unknown"],
+  ]) {
+    mock.api = () => mock.json({ ...wire, enforced, enforcement_reason: code });
+    const g = await transport.grant();
+    assert.equal(g.enforcement_reason, expected, code);
+    assert.equal(g.enforced, enforced, code);
+  }
+  for (const [code, enforced] of [
+    ["ok", false],
+    ["platform_disabled", true],
+    ["some_future_code", true],
+    [3, false],
+  ]) {
+    mock.api = () => mock.json({ ...wire, enforced, enforcement_reason: code });
+    await assert.rejects(transport.grant(), { code: "invalid_response" });
+  }
+});
 test("native grant integers stay exact and old session proof is refused", async () => {
   let generation = "1",
     subject = "alice";

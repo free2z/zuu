@@ -116,6 +116,14 @@ pub struct ProviderUpstream {
     retry: RetryPolicy,
     /// The request's image parts: `usage.images` (no provider reports it).
     images: u64,
+    /// See [`Prepared::tool_deltas`].
+    tool_deltas: bool,
+    /// A 2xx head arrived: the provider accepted, and bills, the request.
+    accepted: bool,
+    /// See [`ProviderOutcome::tool_fragments`]: by call index, the name
+    /// (as the parser last reported it — accumulated, so a later fragment
+    /// replaces it) and the arguments so far.
+    tool_fragments: std::collections::BTreeMap<u32, (String, String)>,
     state: State,
     queue: VecDeque<Event>,
     attempts: u32,
@@ -151,6 +159,11 @@ pub(crate) struct Prepared {
     pub(crate) hard_deadline: Instant,
     pub(crate) retry: RetryPolicy,
     pub(crate) images: u64,
+    /// Relay `tool_call_delta` fragments: the request asked for a stream.
+    /// A `stream: false` call has no use for them, so they are dropped
+    /// before they count as output — its fallback and partial-output rules
+    /// stay exactly what they were before fragments existed.
+    pub(crate) tool_deltas: bool,
 }
 
 impl ProviderUpstream {
@@ -167,6 +180,9 @@ impl ProviderUpstream {
             hard_deadline: p.hard_deadline,
             retry: p.retry,
             images: p.images,
+            tool_deltas: p.tool_deltas,
+            accepted: false,
+            tool_fragments: std::collections::BTreeMap::new(),
             state: State::Start,
             queue: VecDeque::new(),
             attempts: 0,
@@ -177,6 +193,14 @@ impl ProviderUpstream {
             events: Vec::new(),
             content: Vec::new(),
         }
+    }
+
+    /// Each tool call's fragments so far, name then arguments, by index.
+    fn tool_fragments(&self) -> Vec<String> {
+        self.tool_fragments
+            .values()
+            .map(|(name, arguments)| format!("{name}{arguments}"))
+            .collect()
     }
 
     /// The outcome, once the stream has ended.
@@ -236,6 +260,7 @@ impl ProviderUpstream {
                         );
                     }
                     Ok(Ok(response)) if response.status().is_success() => {
+                        self.accepted = true;
                         // Accepted: nothing after this is ever re-sent, so
                         // the request body (up to 20 MiB of prompt and
                         // images) is not kept for the rest of the stream.
@@ -391,9 +416,26 @@ impl ProviderUpstream {
     /// Move parsed content into the event queue.
     fn drain_content(&mut self) {
         for content in self.content.drain(..) {
+            if let Content::ToolCallDelta(fragment) = &content {
+                // Recorded before the relay decision: a `stream: false`
+                // call drops the fragments on the wire, not from the bill.
+                let entry = self.tool_fragments.entry(fragment.index).or_default();
+                if let Some(name) = &fragment.name {
+                    entry.0.clone_from(name);
+                }
+                entry.1.push_str(&fragment.arguments);
+            }
+            // Produced output is produced output in every mode: a fragment
+            // the model generated commits the call (no retry, after-content
+            // phase, settled rather than released on a later failure) even
+            // when `stream: false` keeps it off the wire.
             self.output_produced = true;
+            if matches!(content, Content::ToolCallDelta(_)) && !self.tool_deltas {
+                continue;
+            }
             self.queue.push_back(match content {
                 Content::Text(text) => Event::Delta(Delta { text }),
+                Content::ToolCallDelta(fragment) => Event::ToolCallDelta(fragment),
                 Content::ToolCall(call) => {
                     self.function_tool_calls = self.function_tool_calls.saturating_add(1);
                     Event::ToolCall(call)
@@ -470,8 +512,19 @@ impl ProviderUpstream {
         // A stream exists, so the provider answered 2xx: it accepted the
         // request and bills for it whatever happens next. Never retried —
         // the attempt's own usage (or its absence) is what the call has.
+        // An error the provider itself declared in the stream outranks
+        // whatever ended the body afterwards (a stall, a reset, a drain):
+        // it is the provider's verdict on the request, and before any
+        // content it is a refusal the provider does not bill.
+        let declared = stream_failure
+            .as_ref()
+            .is_some_and(ProviderFailure::declared_by_provider);
         self.finish(
-            failure.or(stream_failure),
+            if declared {
+                stream_failure
+            } else {
+                failure.or(stream_failure)
+            },
             finish_reason,
             usage,
             cache_write_1h_tokens,
@@ -595,6 +648,8 @@ impl ProviderUpstream {
             cache_write_1h_tokens,
             failure,
             output_produced: self.output_produced,
+            accepted: self.accepted,
+            tool_fragments: self.tool_fragments(),
             function_tool_calls: self.function_tool_calls,
             attempts: self.attempts,
         });
@@ -660,7 +715,29 @@ impl Upstream for ProviderUpstream {
     }
 
     fn outcome(&mut self) -> Option<ProviderOutcome> {
+        if self.outcome.is_none() && matches!(self.state, State::Streaming { .. }) {
+            // Asked for the outcome while the stream is still open: only a
+            // drain does this (`call::run`, before it drops the upstream).
+            // The provider accepted the request and bills it, so what the
+            // stream has said so far — Anthropic's `message_start` input
+            // counts, the tool arguments generated — must reach the
+            // settler rather than be dropped with the parser. Not the
+            // provider's fault: the breaker sees a neutral verdict.
+            if let Some(permit) = self.permit.take() {
+                permit.record(Verdict::Neutral);
+            }
+            let failure = ProviderFailure::new(ErrorCode::Unavailable, "drained", false);
+            self.stream_over(false, Some(failure));
+        }
         self.outcome.clone()
+    }
+
+    fn accepted(&self) -> bool {
+        self.accepted
+    }
+
+    fn tool_fragments(&self) -> Vec<String> {
+        Self::tool_fragments(self)
     }
 
     fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {

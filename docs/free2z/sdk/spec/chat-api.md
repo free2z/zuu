@@ -72,16 +72,22 @@ checked by each terminal type's `check()`.
 | `messages[].content[]` | part | `{"type":"text","text":…}` or `{"type":"image","media_type":…,"data":<standard base64>}`. Image `media_type` ∈ `image/png`, `image/jpeg`, `image/webp`, `image/gif`; at most 20 images per request. **URLs are not accepted**: there is no URL part type, because the gateway never fetches a client-supplied URL. Image parts on a model without `capabilities.vision` → `400 invalid_request` |
 | `messages[].tool_calls` | array | On an `assistant` message: the tool calls the assistant previously made, each `{id, name, arguments}` with `arguments` a JSON string |
 | `messages[].tool_call_id` | string | Required on a `tool` message |
-| `tools` | array | Function tools, each `{name, description?, parameters}` with `parameters` a JSON Schema object. Tools or tool-result history on a model without `capabilities.tools` → `400 invalid_request`. The gateway **never executes a tool**: it relays the model's call to the client and the client's result back on the next request. Provider-hosted tools (web search, code execution, file search) are not available on this endpoint in v1 ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)) |
+| `tools` | array | Function tools, each `{name, description?, parameters, strict?}`: `name` 1–64 characters of `A-Z a-z 0-9 _ -`, unique in the request; `parameters` a JSON Schema **object** of at most 32 768 bytes serialized (members reach the provider in the order sent); at most 128 tools. The gateway adds the provider's own wrapper (OpenAI's `{"type":"function","function":{…}}`). Tools or tool-result history on a model without `capabilities.tools` → `400 invalid_request`, `field: "tools"`, `reason: "tools_unsupported"`, before any hold. A limit broken → `400 invalid_request` naming the field (`tools[2].name`, `reason` one of `empty`, `too_long`, `invalid_characters`, `duplicate`, `not_object`, `too_large`, `too_many`). The gateway **never executes a tool**: it relays the model's call to the client and the client's result back on the next request. Provider-hosted tools (web search, code execution, file search) are not available on this endpoint in v1 ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)) |
+| `tools[].strict` | boolean | Optional. `true` asks the provider to make the arguments match `parameters` exactly (OpenAI strict function calling, which also wants `additionalProperties: false` and every property `required`). On a model without `capabilities.strict_tools` → `400 invalid_request`, `field: "tools[i].strict"`, `reason: "tools_unsupported"`, before any hold — never sent without it. Absent or `false` is the providers' default; `null` is refused |
+| `tool_choice` | string or object | Optional, OpenAI's shape: `"auto"` (the default when `tools` is set), `"none"`, `"required"` (call at least one), or `{"type":"function","function":{"name":"…"}}` (call that one, which must be in `tools`, else `field: "tool_choice.function.name"`, `reason: "unknown_tool"`). Requires `tools` (`reason: "requires_tools"`). Any other shape, including Anthropic's `"any"` → `400 invalid_request`, `field: "tool_choice"`, `reason: "unsupported"`; `null` → `reason: "null"`. On a model whose adapter cannot express it → `400 invalid_request`, `field: "tool_choice"`, `reason: "tools_unsupported"`, before any hold |
+| `parallel_tool_calls` | boolean | Optional. `false`: at most one tool call per turn; `true` (the providers' default) allows several. Requires `tools`. Refused like `tool_choice` where the adapter cannot express it; Anthropic Messages sends `disable_parallel_tool_use: true` on its `tool_choice`. OpenAI notes strict schemas are not guaranteed on parallel calls; set `false` beside `strict: true` when that matters |
 | `max_output_tokens` | integer | 1 … the model's `max_output_tokens`, which is also the default when omitted. It bounds **total** generated tokens, reasoning included. The gateway may **clamp** it lower for affordability (§2.2) and never raises it; the effective value is reported in `meta` |
+| `max_output_tokens_strict` | boolean | Default `false` (and omitted). `true` makes `max_output_tokens` a requirement: wherever §2.2 would lower it — the model's ceiling, the context window, the balance or the grant's cap — the request is refused before any hold, charge or provider request (`400 invalid_request`, `400 context_length_exceeded`, `402 insufficient_balance`, `403 cap_exceeded`, each with `details.reason: "max_output_tokens_strict"`). Requires `max_output_tokens` (`400 invalid_request`, `reason: "required"`). For an app that discards a length-truncated answer ([INTEGRATION.md](../INTEGRATION.md)) |
 | `stream` | boolean | Default `true`. `false` returns one JSON document (§4) |
 | `fallback` | array of model ids | Opt-in, **ordered**: tried in order, at most once each. If the current model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway releases that attempt's hold, takes a new hold at the next model's price, and tries it; a hold it cannot take ends the call with that code ([metering.md](./metering.md) §5.7). Never after `meta`. The model actually used is in `meta` |
-| `metadata` | object | Up to 16 string keys, each key ≤ 64 and value ≤ 256 characters. Stored with the call record and returned by `GET /v1/calls/{id}`; never sent to a provider |
+| `metadata` | object | Up to 16 string keys, each key ≤ 64 and value ≤ 256 characters. Stored with the call record and returned by `GET /v1/calls/{id}`; never sent to a provider. A **child-directed** app (access-token claim `child_directed`, [CHILD-DIRECTED.md](../CHILD-DIRECTED.md)) may not send it: `400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`, on `/v1/chat` and `/v1/chat/estimate`, before any hold or provider request. A child-directed call must also name only catalogue models (`404 model_not_found`) whose provider is sent `store: false` — OpenAI (`403 model_disabled`, `reason: "child_directed"`), fallbacks included; its fingerprint and `Idempotency-Key` are stored only as keyed HMACs, and a gateway without that key refuses it (`503 unavailable`, `reason: "child_directed_unconfigured"`). Its call records then hold numbers only |
+| `response_format` | object | Optional, opt-in structured output; omitted when absent. `{"type":"json_schema","json_schema":{"name":…,"schema":{…},"strict":true}}` constrains the reply to JSON matching `schema`; `{"type":"json_object"}` to any JSON object (OpenAI also requires the word "JSON" in the messages). `name`: 1–64 characters of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema **object** of at most 32 768 bytes serialized; `strict`: optional boolean (absent = the provider's default; `null` refused); no other members. The schema's object members reach the provider in the order sent (as do a tool's `parameters`, and on Anthropic the forced tool's `input_schema`), so a provider that emits keys in schema order (OpenAI) replies in the declared order; a repeated member name keeps its first position and its last value. A present `"response_format": null` is refused (`field: "response_format"`, `reason: "null"`), never read as absent. Any other `type` (including `text`, the default — omit the field instead) → `400 invalid_request`, `field: "response_format.type"`, `reason: "unsupported"`; a limit broken → `400 invalid_request` naming the field. On a model without `capabilities.structured_output` → `400 invalid_request`, `field: "response_format"`, `reason: "response_format_unsupported"`, before any hold, charge or provider request — never sent without the constraint. On Anthropic Messages the model must be declared (absence is not support) and the format is sent as a forced single tool whose `input_schema` is the schema (`strict` carried onto the tool), unwrapped back into `delta` text with `finish_reason: "stop"`; there it cannot be combined with `tools`, `tool_choice` or `parallel_tool_calls` (`reason: "response_format_unsupported"`, `details.conflict` naming the field), since the forced tool would leave the caller's tools uncallable. The reply is ordinary `delta` text (a provider refusal arrives as text too); `finish_reason: "length"` means truncated JSON. Pricing is unchanged: the schema is input the provider reads, so it enters the input reservation like a tool definition, and the charge is provider-reported usage |
+| `reasoning_effort` | string | Optional, OpenAI's `reasoning_effort`; omitted when absent (the provider's default). Exactly `"minimal"`, `"low"`, `"medium"` or `"high"`; any other value (including provider extensions such as `"none"` or `"xhigh"`) → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "unsupported"`; a present `null` → `reason: "null"`. On a model without `capabilities.reasoning_effort`, or at a level outside its `controls.effort_levels` when the catalogue lists them, → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"` (with `details.effort_levels` for a level outside the list), before any hold, charge or provider request — never sent without it. Translated by Chat Completions as `reasoning_effort` (OpenAI and xAI) and by Responses as `reasoning.effort`; Anthropic Messages has no effort control (its `thinking` takes a budget) and refuses it. OpenAI documents that from GPT-5.4 on, Chat Completions does not combine function tools with a `reasoning_effort` other than `none`; the signed `controls.tools_require_effort_none: true` on affected tool-enabled rows rejects such a call locally with `400 invalid_request`, `reason: "reasoning_effort_unsupported"`, `field: "reasoning_effort"`, `conflict: "tools"`, before any hold or provider call. Omitted effort retains the provider default (`none` on those rows). Pricing and the hold are unchanged: reasoning tokens are billed as output tokens and the hold already reserves the whole output cap. On OpenAI that cap (`max_completion_tokens` / `max_output_tokens`) **includes** reasoning, so a small `max_output_tokens` can be spent thinking before any text (`finish_reason: "length"`); leave room. On xAI it does **not** (docs.x.ai: `max_completion_tokens` "only applies to visible output tokens"), so an xAI reasoning model's charge can exceed its hold — a pre-existing property of every xAI reasoning model, effort or not (xAI's default effort is already `high`); the shortfall is written off, never debt (metering.md) |
 
 Anything not listed is rejected with `400 invalid_request` naming the field;
 the gateway does not pass unknown fields through. **Not in v1**, and
 therefore refused rather than ignored: `temperature` and other sampling
-controls, `tool_choice`, response-format modes, audio and file parts.
+controls, audio and file parts.
 Each arrives, if it does, as a priced, documented addition.
 
 ### 2.2 What happens before the first byte
@@ -110,15 +116,26 @@ received `meta` knows every step passed.
    worst-case price fits the user's available balance *and* the grant's
    remaining cap ([metering.md](./metering.md) §4). If even the model's
    minimum charge is unaffordable → `402 insufficient_balance` or
-   `403 cap_exceeded`.
+   `403 cap_exceeded`. With `max_output_tokens_strict`, there is no clamp:
+   `out_cap` must equal `max_output_tokens`, or the request is refused here
+   with the code of whichever bound was short (§2.1) and
+   `details.reason: "max_output_tokens_strict"`. Affordability is judged
+   at the grant's consented markup — the most step 6 can apply — and the
+   hold is taken at that bound, so it never needs an extension the balance
+   cannot cover.
 6. **Hold.** The ledger reserves the worst-case price for `out_cap`. The
    ledger's own answer decides: `402`, `403 cap_exceeded`,
    `403 account_frozen`, `403 account_in_debt`, `409 too_many_holds`.
-7. **Provider request.** A provider error here, on the primary and any
-   `fallback`, releases the hold and ends the (already open) stream with
-   a lone `error` event carrying `provider_error`, `unavailable` or
-   `provider_timeout` and `charged_2z: 0`. Nothing was charged. In
-   non-streamed mode the same failure is the HTTP `502`, `503` or `504`.
+7. **Provider request.** A provider **refusal** here — no connection, a
+   non-2xx head, no response head in time, or the provider's own `error`
+   event before any output — on the primary and any `fallback`, releases
+   the hold and ends the (already open) stream with a lone `error` event
+   carrying `provider_error`, `unavailable` or `provider_timeout` and
+   `charged_2z: 0`. Nothing was charged. In non-streamed mode the same
+   failure is the HTTP `502`, `503` or `504`. A request the provider
+   **accepted** (a 2xx head) that then went silent or was cut is billed by
+   the provider and settled on the estimate: `meta`, then the `error`
+   with its settlement ([metering.md](./metering.md) §5.2).
 
 The HTTP response headers (§2.3) are sent as soon as the hold exists —
 step 6 — so that the client's connection is established and `: ping`
@@ -128,8 +145,13 @@ point is `meta`**, sent when the provider's first content event arrives
 is handled as step 7: `fallback` may switch models, and because no `meta`
 has been sent the switch is invisible except through `meta.requested_model`.
 A provider failure that cannot be recovered before `meta` is delivered as
-an `error` event (§3.7) with `charged_2z: 0` — the stream has already
-begun at the HTTP level, so an HTTP status can no longer carry it.
+an `error` event (§3.7) — the stream has already begun at the HTTP level,
+so an HTTP status can no longer carry it. When the provider **refused** the
+request (no 2xx head, or its own `error` event before any output) that is
+a lone `error` with `charged_2z: 0`. When the provider **accepted** the
+request and the stream then went silent or was cut before any output, the
+provider bills the call: the gateway sends `meta` and then the `error`
+with the settlement ([metering.md](./metering.md) §5.2, §5.4).
 
 ### 2.3 Streamed response
 
@@ -202,7 +224,7 @@ hours** returns the *same* call — the same `call_id`, and:
   does not retain completions (§7), so idempotency protects the charge,
   not the delivery. A client that lost the stream re-asks with a new key,
   and that is a new call;
-- if the body differs from the original, `409 idempotency_conflict`.
+- if the body differs from the original, `409 idempotency_conflict`. "Differs" is judged on the decoded request with every `parameters` and `response_format` schema object's members sorted by name: a retry that only reorders a schema's members is the same call, and is replayed.
 
 Without a key, every request is a new call. SDKs generate a key per logical
 call so that a retried request after a network failure never double-charges.
@@ -227,21 +249,25 @@ waiting on the provider and MUST be ignored.
 ### 3.1 Grammar
 
 ```
-stream   := meta (delta | tool_call)* usage? (done | error)
+stream   := meta (delta | tool_call_delta | tool_call)* usage? (done | error)
           | error
 ```
 
 - Exactly one `meta`, always first — except that a stream whose provider
-  attempt (and any `fallback`) failed before the gateway could commit
-  consists of a single `error` event with `charged_2z: 0` (§2.2). That
+  attempt (and any `fallback`) was refused before the gateway could commit
+  consists of a single `error` event with `charged_2z: 0` (§2.2); an
+  accepted attempt that failed before any output is `meta` then `error`
+  with its settlement, never a lone `error`. That
   lone `error` may carry any code the pre-stream steps can produce —
   `provider_error`, `provider_timeout`, `unavailable`, `internal`, and,
   when a `fallback` hold could not be taken, `insufficient_balance`,
   `cap_exceeded` or `token_revoked` — because the HTTP status is already
   `200` by then.
-- Zero or more `delta` and `tool_call`, in the order the model produced them.
+- Zero or more `delta`, `tool_call_delta` and `tool_call`, in the order the
+  model produced them; every `tool_call_delta` of a call precedes its
+  `tool_call`.
 - At most one `usage`, and if present it comes after the last `delta` /
-  `tool_call` and before the terminal event.
+  `tool_call_delta` / `tool_call` and before the terminal event.
 - Exactly one terminal event, `done` or `error`, after which the gateway
   closes the connection. A stream that ends without a terminal event was
   cut by the network; the client treats it as `error stream_interrupted`
@@ -306,10 +332,12 @@ field set of `delta` will grow (`kind`) rather than change if that changes.
 
 ### 3.4 `tool_call`
 
-One **complete** tool call. The gateway buffers a provider's argument
+One **complete** tool call. The gateway assembles a provider's argument
 fragments and emits the call once the provider has finished producing
-them, so a client never sees a fragment; whether the finished text is
-valid JSON is the model's doing, not the gateway's promise.
+them; whether the finished text is valid JSON is the model's doing, not the
+gateway's promise. This is the event to **run** a tool from. (Where the
+adapter streams them, the fragments are also relayed first as
+`tool_call_delta`, §3.4.1, for display.)
 
 ```
 event: tool_call
@@ -327,9 +355,44 @@ Tool calls arrive in the order the model produced them; a client that
 needs a position counts.
 
 A response with tool calls normally ends with `done.finish_reason =
-"tool_calls"`. The client executes the tools, appends an `assistant` message
+"tool_calls"` (OpenAI may end a call forced by a named `tool_choice` with
+`"stop"`). A turn that ended at `"length"` — the output cap, possibly lowered
+for affordability — may carry a `tool_call` whose `arguments` were cut off:
+do not run calls from a turn that did not finish normally. The client executes the tools, appends an `assistant` message
 carrying `tool_calls` and one `tool` message per result, and makes a **new**
 `/v1/chat` call — which is a new hold and a new charge.
+
+#### 3.4.1 `tool_call_delta`
+
+A fragment of a tool call still being generated, relayed as the provider
+streamed it — for a client that wants to show a call taking shape. Sent on
+streamed calls only (never in a §4 response), by the Chat Completions
+adapter today (OpenAI and xAI; xAI sends each call whole, so one fragment per
+call). A client that ignores this event loses nothing: the complete
+`tool_call` follows and is authoritative.
+
+```
+event: tool_call_delta
+data: {"index":0,"id":"call_9a1","name":"lookup_formula","arguments":""}
+
+event: tool_call_delta
+data: {"index":0,"arguments":"{\"name\":\"quadratic\"}"}
+
+```
+
+| Field | Meaning |
+|---|---|
+| `index` | The call's position among this turn's calls, from `0`; fragments with one `index` are one call |
+| `id`, `name` | On the fragment that first carries them (normally the first); a later value replaces an earlier one |
+| `arguments` | JSON text to **append**; possibly empty. Concatenated, a call's fragments equal its `tool_call.arguments` — unless some were dropped (below) |
+
+A stream that fails mid-call leaves fragments with no `tool_call`: that call
+never completed and must not be run. Fragments are best effort: when a client
+reads too slowly and the gateway's delivery buffer is half full, further
+fragments are dropped (never the `tool_call`), so a display built from them
+can be incomplete; the `tool_call` is always the whole call. A fragment counts as output: after one,
+the call is committed to its model (no `fallback`) and an `error` carries
+`partial: true`.
 
 ### 3.5 `usage`
 
@@ -399,7 +462,7 @@ data: {"code":"provider_error","message":"The provider closed the stream before 
 | `message` | For a log, not for the user; SDKs map `code` to user-facing copy. Never contains prompt or completion text |
 | `settlement` | As in `done`, and **`settlement` means final**: `settled` (default) or `released` is the ledger's last word on this call, and only `pending` leaves anything to read from the record. `settled` with `charged_2z: 0` and no `receipt_id` is an **uncharged** call — the provider failed before producing anything ([metering.md](./metering.md) §5.2) — not a pending one. `released` is the settler finding the hold expired ([metering.md](./metering.md) §5.6): `charged_2z: 0`, a platform write-off. An error after output is settled for what was produced, and the ledger can be unreachable or the hold expired then too |
 | `charged_2z`, `receipt_id`, `collected_milli_2z`, `shortfall_milli_2z` | What this failed call still cost, as in `done`. `charged_2z: 0` and no `receipt_id` when the provider failed before producing anything ([metering.md](./metering.md) §5.2); absent when `settlement` is `pending` |
-| `partial` | `true` when the client received at least one `delta` or `tool_call` before the error |
+| `partial` | `true` when the client received at least one `delta`, `tool_call_delta` or `tool_call` before the error |
 
 The payload is the crate's `ErrorEvent`; `ErrorEvent::check()` also
 enforces that `delivery_aborted` is `pending` and that a `partial` settled
@@ -533,7 +596,8 @@ without arithmetic. Requires `ai:invoke`.
       "display_name": "Example model (small)",
       "context_window": 400000,
       "max_output_tokens": 128000,
-      "capabilities": { "vision": true, "tools": true, "reasoning": true },
+      "capabilities": { "vision": true, "tools": true, "reasoning": true, "structured_output": true, "strict_tools": true, "reasoning_effort": true },
+      "controls": { "effort_levels": ["low", "medium", "high"] },
       "prices": {
         "input_milli_2z_per_mtok": 300000,
         "cached_input_milli_2z_per_mtok": 30000,
@@ -555,6 +619,14 @@ the same models, with provider prices replaced by marked-up 2Z rates, and
 only callable models listed. The catalogue's internal fields (provider
 model ids, API styles, safety factors) are not projected.
 
+For a **child-directed** app (access-token claim `child_directed`,
+[CHILD-DIRECTED.md](../CHILD-DIRECTED.md)) the list holds only the models
+that token may call: those whose `provider` is sent `store: false` — OpenAI
+today. Every other model is absent rather than listed and then refused, so
+the list is exactly what `/v1/chat` and `/v1/chat/estimate` will accept from
+it (anything else answers `403 model_disabled`, `reason: "child_directed"`).
+`catalog_version` is the same for both audiences; the list is not.
+
 | Field | Meaning |
 |---|---|
 | `catalog_version` | The signed catalogue's `version`: an integer that only increases. A `meta` event does not carry it; `GET /v1/calls/{id}` does |
@@ -563,10 +635,16 @@ model ids, API styles, safety factors) are not projected.
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
 | `ttfb_timeout_ms` | How long the gateway waits for the provider's first byte before `504 provider_timeout` |
-| `capabilities` | A projection field, not in the signed catalogue's v1 schema: derived by the gateway from the model's API style and provider until the catalogue carries it |
+| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions and Anthropic Messages today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false`. `strict_tools` (`tools[].strict: true`) likewise requires the Chat Completions adapter and the catalogue's `capabilities.strict_tools`, with the same interim rule (OpenAI: yes; xAI and every other provider: no — docs.x.ai documents no `strict` on a function), and is `false` whenever `tools` is. `tool_choice` and `parallel_tool_calls` are accepted wherever `tools` is on a Chat Completions or Anthropic Messages model. `reasoning_effort` (`ChatRequest.reasoning_effort`) is the catalogue's `capabilities.reasoning_effort` on an adapter that translates it (Chat Completions, Responses); it is not implied by `reasoning`, which says only that the model reasons. Each member is a JSON boolean (the SDKs refuse another type as an invalid response); a member a client does not know is ignored, never an error |
+| `controls` | Signed narrowing of what a capability admits; always an object, `{}` when nothing is narrowed (absent in an older gateway's answer: read as `{}`). `effort_levels`: the `reasoning_effort` levels the model takes, as strings, present only where `capabilities.reasoning_effort` is `true` and the catalogue lists them; absent means any level is forwarded and one the provider rejects fails before any output, uncharged. A level string a client does not know is ignored. `tools_require_effort_none: true`: tools require non-reasoning effort; an explicit non-none effort with non-empty `tools` is refused before reservation (`reasoning_effort_unsupported`, `conflict: "tools"`). Absent/false adds no restriction; omitted effort keeps the provider default. This control grants neither tools nor reasoning effort |
 
 Responses carry `ETag`; `If-None-Match` → `304`. Clients SHOULD cache for
-the `Cache-Control: max-age` given (60 s).
+the `Cache-Control: max-age` given (60 s). The `ETag` is a hash of the body
+served to that caller, so it revalidates only an identical list: an `ETag`
+read by a child-directed app never earns a `304` for a list that differs
+from the one it was read from, nor the reverse. The
+response is `Cache-Control: private` with `Vary: Authorization`: a cache
+keys it by the token, never by `catalog_version` alone.
 
 ## 6. `POST /v1/chat/estimate`
 
@@ -596,7 +674,12 @@ would** — `401`, `403 insufficient_scope`, `429`, `404`,
 `402 insufficient_balance` or `403 cap_exceeded` with the same `details`
 (`available_milli_2z`, `required_2z`, `cap_remaining_milli_2z`, …) — so an
 app that handles `/v1/chat`'s errors handles the estimate's with the same
-code, and can show "you need N more 2Z" from `details`. An estimate is not
+code, and can show "you need N more 2Z" from `details`. An app that must not
+run a shortened call sends the estimate **with** `max_output_tokens_strict`:
+it then answers exactly as the strict call would (same bounds, and
+affordability at the consented markup), whereas a non-strict estimate prices at
+the current effective markup and can disagree. It sends the call itself with the
+flag too, so that a balance change between the two cannot shorten it either. An estimate is not
 a quotation: the price is the catalogue's at call time.
 
 ## 7. `GET /v1/calls/{id}`
@@ -635,8 +718,10 @@ can read it. Requires `ai:invoke`.
 `status` ∈ `streaming` (hold exists, call in progress), `settling`
 (provider finished, ledger not yet confirmed — [metering.md](./metering.md)
 §5.11), `settled` (charged; `charged_2z` ≥ `min_charge_2z`), `released`
-(nothing charged — the provider failed before output, or the hold expired
-unsettled), `settled_partial` (an error after output; charged for what
+(nothing charged — the provider refused the request, or the hold expired
+unsettled; an accepted request that went silent before output is
+`settled` on the estimate, [metering.md](./metering.md) §5.2),
+`settled_partial` (an error after output; charged for what
 was produced — a client disconnect is **not** this: the upstream is read
 to completion and the call is `settled` with `finish_reason: cancelled`,
 unless the provider then fails, which is `settled_partial` like any
@@ -649,10 +734,121 @@ actually taken (`charged_2z × 1000 − shortfall_milli_2z`). `replayed` is
 Records are readable for 90 days. Prompts and completions are **not** in
 the record. The gateway keeps no copy of either except under a grant whose
 user consented to debug capture ([oidc.md](./oidc.md) §5), and that copy
-is never served by this endpoint.
+is never served by this endpoint. Debug capture is never available to a child-directed
+app ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)).
+
+**`features`** (optional, additive). A record may carry a content-free
+description of which request features the call asked for — never what they
+contained (for a child-directed app, not even the schema name):
+
+```json
+"features": {
+  "response_format": "json_schema",
+  "response_format_strict": true,
+  "response_format_schema_name": "activity_spec",
+  "response_format_schema_bytes": 1834,
+  "tools": 0,
+  "max_output_tokens_strict": true,
+  "stream": false,
+  "fallback": 0
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `response_format` | `"json_schema"`, `"json_object"`, or `null` when the request sent none |
+| `response_format_strict` | `json_schema.strict` as sent; `null` when absent |
+| `response_format_schema_name` | `json_schema.name` (`[A-Za-z0-9_-]{1,64}`); `null` when absent |
+| `response_format_schema_bytes` | compact serialized size of `json_schema.schema`; `0` when absent |
+| `tools`, `fallback` | how many tool definitions and fallback models the request named |
+| `max_output_tokens_strict`, `stream` | as sent |
+
+It exists so that "did my request ask for structured output?" has an answer
+after the fact. It holds no schema body, prompt or tool definition. It is
+**absent** on records of calls made before a gateway recorded it, or while a
+deployment has it switched off — a client must treat absence as "not
+recorded", never as "not requested", and must ignore members it does not
+know.
 
 `404 call_not_found` for an id that does not exist or belongs to another
 (user, app).
+
+### 7.1 Reporting a call's output — `POST free2z.cash/api/sdk/v1/calls/{id}/report`
+
+The user flags what one call produced as wrong or harmful, **from inside the
+app**. Google Play's AI-Generated Content policy requires in-app reporting or
+flagging of AI output that does not make the user leave the app, and App Store
+Review Guideline 4.7 expects the same. SDK apps run no backend, so the report
+goes to Free2Z: the app's developer sees it, Free2Z moderation sees it, and an
+`unsafe` report alerts Free2Z staff.
+
+Served by the **account API** (`https://free2z.cash/api/sdk/v1`), not the
+gateway. Accepts an OAuth access token with audience `f2z-api` and scope
+`ai:invoke`, the session the call was made with; the standard error envelope;
+`Cache-Control: no-store`. `{id}` is the gateway's `call_id` (§3.2, the
+`X-F2Z-Call-Id` header, or §7's record) in its lowercase hyphenated UUID form;
+the SDKs lowercase it. Nothing else about the call is sent —
+never the prompt or the output.
+
+```json
+{ "reason": "incorrect", "detail": "wrong_grade" }
+```
+
+| Field | Rule |
+|---|---|
+| `reason` | Required. `incorrect` (a wrong answer or grade, nonsense), `inappropriate` (not suitable for the audience), `unsafe` (harmful or dangerous; alerts Free2Z staff), or `other` |
+| `detail` | Optional. 1–200 Unicode characters on one line: no C0 or C1 control characters (so no newline or tab), no U+2028/U+2029 separators, no bidi controls (U+202A–U+202E, U+2066–U+2069); ZWJ/ZWNJ are fine. Omit it rather than send `""`. A child-directed app should always omit it |
+
+**Prefer presets to free text.** Show the report as one tap on the output with
+the four reasons as choices. For more precision pass an app-defined code in
+`detail` (`wrong_grade`, `off_topic`), not text the user types. Apps that
+children may use should not offer a free-text box at all: Free2Z stores
+`detail` as sent. A child-directed app must omit `detail`: the server refuses
+it there with `400 invalid_request` (`details.field: "detail"`). Declare the
+app child-directed to the SDK — Rust `Config::with_child_directed(true)` (which
+the Tauri plugin inherits), web `FetchConfig.childDirected: true`, matching the
+app's Free2Z registration — and the SDK refuses a `detail` locally, before any
+network call (`invalid_request` with `details.field: "detail"`; Rust
+`Error::Config`).
+
+`201 Created` for a new report; `200 OK` when this user already reported this
+call. There is **one report per call and user**: a repeat replaces `reason` and
+`detail` with the latest and returns the same `report_id`, so a retry after a
+lost response is safe. Both carry the receipt; ignore members you do not know:
+
+```json
+{
+  "report_id": "0199c0de-4b1f-7e21-8a3d-4b5e6f7a8b9c",
+  "call_id": "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c",
+  "reason": "incorrect",
+  "created_at": "2026-10-14T12:00:00Z"
+}
+```
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `invalid_request` | An unknown `reason`, or `detail` outside the rule above; also any non-empty `detail` sent by a child-directed app (`details.field: "detail"`) |
+| 401 | `invalid_token`, `token_revoked` | As in [errors.md](./errors.md) §2 |
+| 403 | `insufficient_scope` | The token lacks `ai:invoke` |
+| 404 | `not_found` | No such call for this user and app: unknown, another user's or app's, or past the call record's 90-day retention. This endpoint answers the account API's generic `not_found`, not §7's `call_not_found`; treat the two alike |
+| 429 | `rate_limited` | Too many reports; honour `Retry-After`. Two rolling-hour caps per account: 30 reports (new reports plus the first escalation of an existing report to `unsafe`) and, separately, 5 `unsafe` reports (new `unsafe` reports plus first escalations to `unsafe`). Any other repeat is never capped |
+
+The SDKs check `reason` and `detail` before sending, so a value the server would
+refuse never leaves the device: Rust `Error::Config`; TypeScript and the Tauri
+plugin `invalid_request` with `details.field`.
+
+**What Free2Z keeps, and who sees it.** The reference — call id, app, user —
+plus `reason`, `detail` and the time; never the AI content. The app's developer
+reads their app's reports via
+`GET https://free2z.cash/api/oauth/apps/{app_id}/reports/` — the call, reason,
+`detail` and time, never who reported it. Free2Z moderation sees every report in
+its review queue, and `unsafe` alerts Free2Z staff.
+
+| SDK | Call |
+|---|---|
+| Rust `f2z-sdk` | `client.ai().report_call(call_id, ReportReason::Incorrect, Some("wrong_grade")).await?` → `CallReport` (wire types: `f2z_ai_proto::report`) |
+| Tauri plugin guest-js | `nativeBridge.reportCall(callId, 'incorrect', 'wrong_grade')` → `CallReport`; the window needs `f2z:allow-report-call` |
+| TypeScript `@free2z/sdk` | `client.reportCall(callId, "incorrect", "wrong_grade")` → `CallReport` |
 
 ## 8. Rate-limit and concurrency responses
 

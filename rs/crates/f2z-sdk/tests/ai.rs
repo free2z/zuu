@@ -391,6 +391,64 @@ async fn models_and_estimate() {
     assert_eq!(estimate.cap_remaining_milli_2z, Some(None), "null = no cap");
 }
 
+#[tokio::test]
+async fn preflight_maps_strict_refusals_to_the_recovery_to_offer() {
+    use f2z_sdk::ai::Preflight;
+    use f2z_sdk::proto::Milli2z;
+    let fake = Fake::start().await;
+    let ai = signed_in(&fake).await.ai();
+    let strict = |model: &str| chat_request(model).with_max_output_tokens(1800).strict();
+
+    // Not strict: refused locally, before any request.
+    let err = ai.preflight(&chat_request("settled")).await.unwrap_err();
+    assert!(
+        matches!(err, Error::Config(ref m) if m.contains("strict")),
+        "{err:?}"
+    );
+
+    assert!(
+        matches!(ai.preflight(&strict("settled")).await.unwrap(), Preflight::Ready(e) if e.hold_2z == Whole2z::new(2))
+    );
+    let Preflight::NeedsTopUp {
+        required_2z,
+        available_milli_2z,
+        error,
+    } = ai.preflight(&strict("needs-top-up")).await.unwrap()
+    else {
+        panic!("not NeedsTopUp")
+    };
+    assert_eq!(required_2z, Some(Whole2z::new(12)));
+    assert_eq!(available_milli_2z, Some(Milli2z::new(500)));
+    assert_eq!(error.detail_str("reason"), Some("max_output_tokens_strict"));
+    let Preflight::NeedsBudget {
+        cap_remaining_milli_2z,
+        resets_at,
+        ..
+    } = ai.preflight(&strict("needs-budget")).await.unwrap()
+    else {
+        panic!("not NeedsBudget")
+    };
+    assert_eq!(cap_remaining_milli_2z, Some(Milli2z::ZERO));
+    assert_eq!(resets_at.as_deref(), Some("2026-10-12T00:00:00Z"));
+    assert!(matches!(
+        ai.preflight(&strict("too-large")).await.unwrap(),
+        Preflight::TooLarge(_)
+    ));
+    assert!(matches!(
+        ai.preflight(&strict("above-model-max")).await.unwrap(),
+        Preflight::TooLarge(_)
+    ));
+    // Same field, not a size problem: returned as the error it is.
+    assert!(matches!(
+        ai.preflight(&strict("out-of-range")).await,
+        Err(Error::Api(ref e)) if e.detail_str("reason") == Some("out_of_range")
+    ));
+    assert!(
+        fake.chat_calls().is_empty(),
+        "a preflight never starts a call"
+    );
+}
+
 /// A Stop pressed during a retry's backoff must not start the retry: the
 /// gateway would bill a call begun after the user cancelled.
 #[tokio::test]
@@ -634,4 +692,174 @@ async fn cancelling_a_new_key_retry_during_refresh_sends_no_new_call() {
         "Stop started a billable retry"
     );
     client.balance().await.unwrap();
+}
+
+// zuu#1128: the tool round trip keeps every paid round and tool result when
+// a later round fails, and reports each round's key.
+#[tokio::test]
+async fn a_failed_later_round_keeps_the_paid_rounds_and_tool_results() {
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let mut request = chat_request("tool-turn");
+    request.tools = vec![f2z_sdk::ai::tools::function_tool(
+        "check_answer",
+        "Grade an answer.",
+        serde_json::json!({"type": "object"}),
+    )];
+    let mut ran = Vec::new();
+    let run = client
+        .ai()
+        .run_tools_with(
+            request,
+            4,
+            |round| fast().with_idempotency_key(format!("tutor-round-{round}")),
+            |call| {
+                ran.push(call.clone());
+                async move { "{\"correct\":true}".to_owned() }
+            },
+        )
+        .await;
+    assert_eq!(ran.len(), 1, "the tool ran once");
+    assert_eq!(run.rounds.len(), 1, "round 1 was paid and is kept");
+    assert_eq!(run.rounds[0].tool_calls[0].id, "call_q1");
+    assert!(matches!(run.rounds[0].charge, Charge::Charged { .. }));
+    assert_eq!(run.keys, vec!["tutor-round-0", "tutor-round-1"]);
+    assert!(matches!(&run.error, Some(Error::Api(e)) if e.code == "insufficient_balance"));
+    assert!(!run.finished());
+    // The history holds the call and its result, ready to resume from.
+    let last = run.messages.last().unwrap();
+    assert_eq!(last.tool_call_id.as_deref(), Some("call_q1"));
+    assert_eq!(
+        run.messages[run.messages.len() - 2].tool_calls[0].id,
+        "call_q1"
+    );
+    assert_eq!(
+        fake.chat_calls()
+            .iter()
+            .map(|(_, key)| key.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tutor-round-0", "tutor-round-1"]
+    );
+}
+
+/// The loop is bound to the session it started in: an account switch while
+/// a tool runs stops it before the next paid call carries the history (and
+/// the charge) to the new session.
+#[tokio::test]
+async fn a_tool_loop_never_continues_as_another_session() {
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let mut request = chat_request("tool-turn");
+    request.tools = vec![f2z_sdk::ai::tools::function_tool(
+        "check_answer",
+        "Grade an answer.",
+        serde_json::json!({"type": "object"}),
+    )];
+    let during = client.clone();
+    let run = client
+        .ai()
+        .run_tools(request, 4, move |_call| {
+            let during = during.clone();
+            async move {
+                // The user switches account while the tool runs.
+                during.sign_out().await.unwrap();
+                during
+                    .sign_in(
+                        &ScriptedBrowser::new("com.example.tutor:/oauth/callback"),
+                        SignInOptions::default(),
+                    )
+                    .await
+                    .unwrap();
+                "{}".to_owned()
+            }
+        })
+        .await;
+    assert_eq!(run.rounds.len(), 1);
+    assert!(
+        matches!(&run.error, Some(Error::SignedOut(_))),
+        "{:?}",
+        run.error
+    );
+    assert_eq!(fake.chat_calls().len(), 1, "a call was sent after sign-out");
+}
+
+/// The loop's round bound is a hard ceiling: `0`, or more than
+/// `MAX_TOOL_ROUNDS`, is refused before any paid call is sent.
+#[tokio::test]
+async fn a_tool_loop_round_bound_outside_the_ceiling_sends_nothing() {
+    use f2z_sdk::ai::tools::MAX_TOOL_ROUNDS;
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let mut request = chat_request("tool-turn");
+    request.tools = vec![f2z_sdk::ai::tools::function_tool(
+        "check_answer",
+        "Grade an answer.",
+        serde_json::json!({"type": "object"}),
+    )];
+    for bad in [0, MAX_TOOL_ROUNDS + 1, u32::MAX] {
+        let run = client
+            .ai()
+            .run_tools(request.clone(), bad, |_call| async { "{}".to_owned() })
+            .await;
+        assert!(matches!(&run.error, Some(Error::Config(_))), "{bad}");
+        assert!(run.rounds.is_empty() && run.keys.is_empty(), "{bad}");
+    }
+    assert!(fake.chat_calls().is_empty(), "a refused bound sent a call");
+    // Negative control: the ceiling itself is accepted and calls.
+    let run = client
+        .ai()
+        .run_tools(request, MAX_TOOL_ROUNDS, |_call| async { "{}".to_owned() })
+        .await;
+    assert!(!run.rounds.is_empty());
+    assert!(!fake.chat_calls().is_empty());
+}
+
+/// The catalogue (and its ETag) read under one session is never revalidated
+/// or installed for the next, even when its answer arrives after the switch.
+#[tokio::test]
+async fn the_model_cache_never_crosses_a_session_change() {
+    let fake = Fake::start().await;
+    let client = signed_in(&fake).await;
+    let switch = || async {
+        client
+            .sign_in(
+                &ScriptedBrowser::new("com.example.tutor:/oauth/callback"),
+                SignInOptions::default(),
+            )
+            .await
+            .unwrap();
+    };
+    let seen = || fake.models_if_none_match.lock().unwrap().len();
+    client.ai().models().await.unwrap();
+    switch().await;
+    // A slow 200 (with an ETag) read under this session...
+    *fake.models_delay.lock().unwrap() = Duration::from_millis(1500);
+    let slow = tokio::spawn({
+        let ai = client.ai();
+        async move { ai.models().await }
+    });
+    while seen() < 2 {
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    *fake.models_delay.lock().unwrap() = Duration::ZERO;
+    // ...lands after the next session has cached its own catalogue.
+    switch().await;
+    client.ai().models().await.unwrap();
+    slow.await.unwrap().unwrap();
+    client.ai().models().await.unwrap();
+    // Sign-out forgets it too.
+    client.sign_out().await.unwrap();
+    switch().await;
+    client.ai().models().await.unwrap();
+    let etag = Some("\"v7\"".to_owned());
+    assert_eq!(
+        *fake.models_if_none_match.lock().unwrap(),
+        vec![
+            None, // first session
+            None, // after a switch: fresh (the slow one)
+            None, // after the next switch: fresh, caches its own
+            etag, // the late answer did not replace it
+            None, // after sign-out and a new sign-in
+        ]
+    );
 }

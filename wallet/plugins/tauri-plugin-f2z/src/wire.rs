@@ -29,6 +29,13 @@ pub struct ErrorBody {
     pub step_up: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<Value>,
+    /// The envelope's documented `details` (`errors.md`): what a refusal
+    /// needs for its recovery UX (`required_2z`, `available_milli_2z`,
+    /// `cap_remaining_milli_2z`, `resets_at`, `reason`, `field`, …), with
+    /// integers as decimal strings. Only members `errors.md` documents are
+    /// passed; anything else stays native.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
 }
 impl std::ops::Deref for NativeError {
     type Target = ErrorBody;
@@ -52,6 +59,7 @@ impl NativeError {
             idempotency_key: None,
             step_up: None,
             record: None,
+            details: None,
         }))
     }
     pub fn key(mut self, key: &str) -> Self {
@@ -86,6 +94,7 @@ impl From<Error> for NativeError {
                 result.retryable = e.retryable();
                 result.status = Some(e.status);
                 result.retry_after_seconds = e.retry_after.map(|d| d.as_secs().to_string());
+                result.details = api_details(e.details.as_ref());
                 result.call_id = e.call_id;
             }
             Error::StepUpRequired(e) => {
@@ -120,6 +129,8 @@ impl From<Error> for NativeError {
             Error::Transport(_) => result.code = "transport_error".into(),
             Error::Timeout(_) => result.code = "timeout".into(),
             Error::Authorization(e) | Error::Token(e) => result.code = safe_code(&e.error),
+            Error::UserCancelled => result.code = "user_cancelled".into(),
+            Error::BrowserUnavailable(_) => result.code = "browser_unavailable".into(),
             Error::Browser(_) => result.code = "browser_error".into(),
             Error::StateMismatch | Error::IssuerMismatch { .. } | Error::IdToken(_) => {
                 result.code = "invalid_authentication_response".into()
@@ -130,6 +141,25 @@ impl From<Error> for NativeError {
         }
         result
     }
+}
+/// `details` members safe and useful in JavaScript: those `errors.md`
+/// documents for a refusal, plus the idempotency conflict's `call_id` and
+/// `in_flight`. Never a provider message or a settlement blob.
+fn api_details(details: Option<&serde_json::Map<String, Value>>) -> Option<Value> {
+    let kept: serde_json::Map<String, Value> = details?
+        .iter()
+        .filter(|(k, _)| {
+            f2z_sdk::proto::error::PRE_CALL_DETAILS.contains(&k.as_str())
+                || matches!(k.as_str(), "call_id" | "in_flight")
+        })
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if kept.is_empty() {
+        return None;
+    }
+    let mut value = Value::Object(kept);
+    decimalize(&mut value);
+    Some(value)
 }
 /// Preserve every unsigned integer exactly at the JavaScript boundary.
 fn decimalize(value: &mut Value) {
@@ -220,11 +250,69 @@ pub fn decimal(input: &str) -> Result<u64> {
         .parse()
         .map_err(|_| NativeError::new("invalid_integer"))
 }
+/// A report's arguments, checked before the network: an unknown reason or a
+/// `detail` the server would refuse — including any `detail` from a
+/// child-directed app — is `invalid_request` naming the field.
+pub fn report_request(
+    call_id: &str,
+    reason: &str,
+    detail: Option<&str>,
+    child_directed: bool,
+) -> Result<f2z_sdk::ai::ReportReason> {
+    use f2z_sdk::ai::ReportReason;
+    let invalid = |field: &str| {
+        let mut error = NativeError::new("invalid_request");
+        error.details = Some(json!({ "field": field }));
+        error
+    };
+    if f2z_sdk::proto::report::check_call_id(call_id).is_err() {
+        return Err(invalid("call_id"));
+    }
+    let reason = match reason {
+        "incorrect" => ReportReason::Incorrect,
+        "inappropriate" => ReportReason::Inappropriate,
+        "unsafe" => ReportReason::Unsafe,
+        "other" => ReportReason::Other,
+        _ => return Err(invalid("reason")),
+    };
+    if let Some(detail) = detail {
+        if child_directed {
+            return Err(invalid("detail"));
+        }
+        f2z_sdk::proto::report::check_detail(detail).map_err(|_| invalid("detail"))?;
+    }
+    Ok(reason)
+}
 pub fn key(input: &str) -> Result<()> {
     if input.is_empty() || input.len() > 128 || !input.bytes().all(|b| (33..=126).contains(&b)) {
         return Err(NativeError::new("invalid_operation_key"));
     }
     Ok(())
+}
+/// What `session` reports. Profile members are omitted, not `null`, when
+/// absent: an app on an older guest API never sees a new key's `null`.
+pub struct SessionView {
+    pub signed_in: bool,
+    pub subject: Option<String>,
+    pub scopes: Vec<String>,
+    pub profile: Option<f2z_sdk::Profile>,
+    pub persistent: bool,
+    pub generation: u64,
+}
+pub fn session(view: &SessionView) -> Value {
+    let mut result = json!({"signedIn":view.signed_in,"subject":view.subject,
+        "grantedScopes":view.scopes,
+        "persistence":if view.persistent { "persistent" } else { "memory_only" },
+        "generation":view.generation.to_string()});
+    if let Some(profile) = view.profile.as_ref().filter(|_| view.signed_in) {
+        if let Some(username) = &profile.preferred_username {
+            result["preferredUsername"] = Value::String(username.clone());
+        }
+        if let Some(name) = &profile.name {
+            result["name"] = Value::String(name.clone());
+        }
+    }
+    result
 }
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -234,6 +322,15 @@ pub struct SignInOptions {
     pub acr_values: Option<String>,
     pub login_hint: Option<String>,
     pub ui_locales: Option<String>,
+    /// Whole 2Z as a decimal string.
+    pub spend_cap: Option<String>,
+    /// `day` | `week` | `month` | `total`; only with `spend_cap`.
+    pub spend_period: Option<String>,
+    /// iOS: `prefersEphemeralWebBrowserSession`; Android: an ephemeral Custom
+    /// Tab where the browser supports one. No shared browser cookies, so the
+    /// sign-in page never reuses another account's web session. Not an OIDC
+    /// parameter; desktop ignores it.
+    pub ephemeral: Option<bool>,
 }
 impl SignInOptions {
     pub fn into_core(self) -> Result<f2z_sdk::SignInOptions> {
@@ -249,6 +346,25 @@ impl SignInOptions {
         out.acr_values = self.acr_values;
         out.login_hint = self.login_hint;
         out.ui_locales = self.ui_locales;
+        out.spend_cap = match (self.spend_cap.as_deref(), self.spend_period.as_deref()) {
+            (None, None) => None,
+            (None, Some(_)) => return Err(NativeError::new("invalid_request")),
+            (Some(cap), period) => {
+                let cap = decimal(cap)?;
+                if cap == 0 || cap > f2z_sdk::oauth::MAX_SPEND_CAP_HINT_2Z {
+                    return Err(NativeError::new("invalid_request"));
+                }
+                let hint = f2z_sdk::SpendCapHint::new(cap);
+                match period {
+                    None => Some(hint),
+                    Some("day") => Some(hint.with_period(f2z_sdk::CapPeriod::Day)),
+                    Some("week") => Some(hint.with_period(f2z_sdk::CapPeriod::Week)),
+                    Some("month") => Some(hint.with_period(f2z_sdk::CapPeriod::Month)),
+                    Some("total") => Some(hint.with_period(f2z_sdk::CapPeriod::Total)),
+                    Some(_) => return Err(NativeError::new("invalid_request")),
+                }
+            }
+        };
         Ok(out)
     }
 }
@@ -264,6 +380,12 @@ pub struct PurchaseRequest {
 pub struct ChatOperation {
     pub operation_id: String,
     pub idempotency_key: String,
+    /// The session generation (`session().generation`) the caller expects:
+    /// registration refuses with `session_changed` if the session is no
+    /// longer that one, under the same lock that pins the call to it.
+    /// Absent: no expectation (the call joins the current session).
+    #[serde(default)]
+    pub session_generation: Option<String>,
 }
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -296,12 +418,212 @@ pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
                 .ok_or_else(|| NativeError::new("invalid_integer"))?
         )?);
     }
-    serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))
+    let request: f2z_sdk::proto::ChatRequest =
+        serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))?;
+    // The gateway's limits, before the call is registered or sent.
+    request
+        .check_tools()
+        .map_err(|_| NativeError::new("invalid_request"))?;
+    if let Some(format) = &request.response_format {
+        format
+            .check()
+            .map_err(|_| NativeError::new("invalid_request"))?;
+    }
+    Ok(request)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn a_report_is_refused_before_the_network_naming_the_field() {
+        let call = "019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c";
+        assert_eq!(
+            report_request(call, "unsafe", Some("wrong_grade"), false).unwrap(),
+            f2z_sdk::ai::ReportReason::Unsafe
+        );
+        for (call_id, reason, detail, field) in [
+            (call, "spam", None, "reason"),
+            (call, "unknown", None, "reason"),
+            (call, "other", Some(""), "detail"),
+            (call, "other", Some("two\nlines"), "detail"),
+            (call, "other", Some("rtl\u{202E}"), "detail"),
+            (call, "other", Some("para\u{2029}"), "detail"),
+            ("not-a-uuid", "other", None, "call_id"),
+            ("", "other", None, "call_id"),
+            ("../grant", "other", None, "call_id"),
+        ] {
+            let error = report_request(call_id, reason, detail, false).unwrap_err();
+            assert_eq!(error.code, "invalid_request");
+            assert_eq!(error.details, Some(json!({ "field": field })));
+        }
+        let long = "x".repeat(201);
+        assert!(report_request(call, "other", Some(&long), false).is_err());
+        // A child-directed app sends no detail at all; the reason alone is fine.
+        let error = report_request(call, "other", Some("wrong_grade"), true).unwrap_err();
+        assert_eq!(error.details, Some(json!({ "field": "detail" })));
+        assert!(report_request(call, "unsafe", None, true).is_ok());
+    }
+    #[test]
+    fn strict_output_flag_passes_through_as_a_boolean_only() {
+        let base = json!({"model":"m","messages":[],"max_output_tokens":"1800"});
+        let plain = chat_request(base.clone()).unwrap();
+        assert!(!plain.max_output_tokens_strict);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("max_output_tokens_strict")
+        );
+        let mut strict = base.clone();
+        strict["max_output_tokens_strict"] = json!(true);
+        let strict = chat_request(strict).unwrap();
+        assert!(strict.max_output_tokens_strict);
+        assert_eq!(strict.max_output_tokens, Some(1800));
+        let mut bad = base;
+        bad["max_output_tokens_strict"] = json!("true");
+        assert!(chat_request(bad).is_err());
+    }
+    #[test]
+    fn response_format_passes_through_as_plain_json_only_when_set() {
+        let base = json!({"model":"m","messages":[]});
+        let plain = chat_request(base.clone()).unwrap();
+        assert_eq!(plain.response_format, None);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("response_format")
+        );
+        let format = json!({"type":"json_schema","json_schema":{"name":"activity_spec",
+            "schema":{"type":"object","properties":{"n":{"maximum":9}}},"strict":true}});
+        let mut with = base.clone();
+        with["response_format"] = format.clone();
+        let with = chat_request(with).unwrap();
+        // Unlike max_output_tokens, schema numbers are ordinary JSON.
+        assert_eq!(
+            serde_json::to_value(&with).unwrap()["response_format"],
+            format
+        );
+        let too_big = json!({"type":"json_schema","json_schema":{"name":"n",
+            "schema":{"d":"x".repeat(32 * 1024)}}});
+        let bad_name = json!({"type":"json_schema","json_schema":{"name":"has space",
+            "schema":{"type":"object"}}});
+        for format in [
+            json!({"type":"text"}),
+            serde_json::Value::Null,
+            too_big,
+            bad_name,
+        ] {
+            let mut bad = base.clone();
+            bad["response_format"] = format;
+            assert!(chat_request(bad).is_err());
+        }
+    }
+    /// zuu#1132: the app's schema member order survives the IPC `Value` and
+    /// reaches the SDK request as written.
+    #[test]
+    fn schema_member_order_survives_the_bridge() {
+        let schema = r#"{"type":"object","properties":{"reasoning":{"type":"string"},"answer":{"type":"number"}},"required":["reasoning","answer"]}"#;
+        let input: Value = serde_json::from_str(&format!(
+            r#"{{"model":"m","messages":[],"tools":[{{"name":"f","parameters":{schema}}}],"response_format":{{"type":"json_schema","json_schema":{{"name":"n","schema":{schema}}}}}}}"#
+        ))
+        .unwrap();
+        let mut sorted = input.clone();
+        let sent = serde_json::to_string(&chat_request(input).unwrap()).unwrap();
+        assert!(
+            sent.contains(&format!(r#""parameters":{schema}"#)),
+            "{sent}"
+        );
+        assert!(sent.contains(&format!(r#""schema":{schema}"#)), "{sent}");
+        // Negative control: the sorted `Value` a build without
+        // `preserve_order` hands the command does not survive, so the
+        // assertions above can fail.
+        sorted.sort_all_objects();
+        let control = serde_json::to_string(&chat_request(sorted).unwrap()).unwrap();
+        assert!(!control.contains(schema), "{control}");
+    }
+    #[test]
+    fn refusal_details_reach_javascript_documented_members_only() {
+        let details = json!({"reason":"max_output_tokens_strict","required_2z":12,
+            "available_milli_2z":500,"resets_at":null,"provider_message":"secret"});
+        let kept = api_details(details.as_object()).unwrap();
+        assert_eq!(
+            kept,
+            json!({"reason":"max_output_tokens_strict","required_2z":"12",
+                "available_milli_2z":"500","resets_at":null})
+        );
+        assert_eq!(api_details(json!({"x":1}).as_object()), None);
+        assert_eq!(api_details(None), None);
+    }
+    #[test]
+    fn reasoning_effort_passes_through_only_when_set_and_only_known_levels() {
+        let base = json!({"model":"m","messages":[]});
+        let plain = chat_request(base.clone()).unwrap();
+        assert_eq!(plain.reasoning_effort, None);
+        assert!(
+            !serde_json::to_string(&plain)
+                .unwrap()
+                .contains("reasoning_effort")
+        );
+        for level in ["minimal", "low", "medium", "high"] {
+            let mut with = base.clone();
+            with["reasoning_effort"] = json!(level);
+            let with = chat_request(with).unwrap();
+            assert_eq!(
+                serde_json::to_value(&with).unwrap()["reasoning_effort"],
+                json!(level)
+            );
+        }
+        for bad in [
+            json!("xhigh"),
+            json!("none"),
+            json!("High"),
+            json!(1),
+            Value::Null,
+        ] {
+            let mut with = base.clone();
+            with["reasoning_effort"] = bad;
+            assert!(chat_request(with).is_err());
+        }
+    }
+    #[test]
+    fn tool_controls_pass_through_as_plain_json_and_limits_hold() {
+        let base = json!({"model":"m","messages":[],
+            "tools":[{"name":"check_answer","parameters":{"type":"object"},"strict":true}]});
+        let mut with = base.clone();
+        with["tool_choice"] = json!({"type":"function","function":{"name":"check_answer"}});
+        with["parallel_tool_calls"] = json!(false);
+        let sent = serde_json::to_value(chat_request(with.clone()).unwrap()).unwrap();
+        for member in ["tools", "tool_choice", "parallel_tool_calls"] {
+            assert_eq!(sent[member], with[member], "{member}");
+        }
+        let plain = serde_json::to_string(&chat_request(base.clone()).unwrap()).unwrap();
+        assert!(!plain.contains("tool_choice") && !plain.contains("parallel_tool_calls"));
+        for (member, value) in [
+            ("tool_choice", json!("any")),
+            ("tool_choice", serde_json::Value::Null),
+            (
+                "tool_choice",
+                json!({"type":"function","function":{"name":"other"}}),
+            ),
+            ("parallel_tool_calls", json!("false")),
+        ] {
+            let mut bad = base.clone();
+            bad[member] = value;
+            assert!(chat_request(bad).is_err(), "{member}");
+        }
+        assert!(chat_request(json!({"model":"m","messages":[],"tool_choice":"auto"})).is_err());
+    }
+    #[test]
+    fn a_tool_call_fragment_crosses_ipc_with_a_decimal_index() {
+        let fragment: Event = serde_json::from_value(json!({"type":"tool_call_delta",
+            "index":2,"id":"call_q1","name":"check_answer","arguments":"{"}))
+        .unwrap();
+        assert_eq!(
+            event(&fragment).unwrap(),
+            json!({"type":"tool_call_delta","index":"2","id":"call_q1",
+                "name":"check_answer","arguments":"{"})
+        );
+    }
     #[test]
     fn integers_are_lossless_and_strict() {
         assert_eq!(value(&u64::MAX).unwrap(), json!("18446744073709551615"));
@@ -309,6 +631,37 @@ mod tests {
             assert!(decimal(bad).is_err());
         }
         assert_eq!(decimal("18446744073709551615").unwrap(), u64::MAX);
+    }
+    #[test]
+    fn model_capabilities_stay_booleans_while_limits_and_prices_become_decimals() {
+        // The live gpt-4o entry of GET /v1/models (2026-10-05), plus an
+        // unknown capability and an older entry with no capabilities at all.
+        let models: f2z_sdk::ai::Models = serde_json::from_value(json!({
+            "catalog_version": 1_791_205_020_000_000u64, "includes_markup_bps": 0,
+            "models": [{"id":"gpt-4o","provider":"openai","display_name":"gpt-4o",
+                "context_window":128000,"max_output_tokens":16384,
+                "capabilities":{"vision":false,"tools":false,"reasoning":false,
+                    "structured_output":true,"audio":true},
+                "prices":{"input_milli_2z_per_mtok":300000,"image_milli_2z":0},
+                "min_charge_2z":1,"ttfb_timeout_ms":60000},
+                {"id":"old"}]
+        }))
+        .unwrap();
+        let v = value(&models).unwrap();
+        assert_eq!(v["catalog_version"], "1791205020000000");
+        let m = &v["models"][0];
+        assert_eq!(m["capabilities"]["structured_output"], true);
+        assert_eq!(m["capabilities"]["tools"], false);
+        assert_eq!(m["context_window"], "128000");
+        assert_eq!(m["prices"]["input_milli_2z_per_mtok"], "300000");
+        assert_eq!(m["min_charge_2z"], "1");
+        assert_eq!(m["ttfb_timeout_ms"], "60000");
+        // The typed Rust catalogue carries only the declared capabilities.
+        assert!(m["capabilities"].get("audio").is_none());
+        // Absent upstream: explicit `false` and `null` across IPC.
+        let old = &v["models"][1];
+        assert_eq!(old["capabilities"]["structured_output"], false);
+        assert!(old["provider"].is_null() && old["min_charge_2z"].is_null());
     }
     #[test]
     fn record_metadata_is_opaque_while_receipt_integers_are_exact() {
@@ -370,11 +723,79 @@ mod tests {
         assert!(!value.to_string().contains("SECRET"));
     }
     #[test]
+    fn sign_in_spend_cap_hint_is_optional_and_strict() {
+        let parse = |v: Value| {
+            serde_json::from_value::<SignInOptions>(v)
+                .unwrap()
+                .into_core()
+        };
+        assert_eq!(parse(json!({})).unwrap().spend_cap, None);
+        let total = parse(json!({"spendCap":"500","spendPeriod":"total"})).unwrap();
+        assert_eq!(total.spend_cap, Some(f2z_sdk::SpendCapHint::total(500)));
+        let bare = parse(json!({"spendCap":"7"})).unwrap();
+        assert_eq!(bare.spend_cap, Some(f2z_sdk::SpendCapHint::new(7)));
+        for bad in [
+            json!({"spendCap":"0"}),
+            json!({"spendCap":"2147483648"}),
+            json!({"spendCap":"01"}),
+            json!({"spendCap":"5","spendPeriod":"year"}),
+            json!({"spendPeriod":"total"}),
+        ] {
+            assert!(parse(bad).is_err());
+        }
+        // An older guest that knows nothing of the hint is unaffected.
+        assert!(parse(json!({"prompt":"consent","maxAge":"0"})).is_ok());
+    }
+    #[test]
+    fn session_reports_the_profile_only_when_signed_in_with_one() {
+        let mut profile = f2z_sdk::Profile::default();
+        profile.preferred_username = Some("ada".into());
+        let view = |signed_in, profile| SessionView {
+            signed_in,
+            subject: signed_in.then(|| "sub".to_owned()),
+            scopes: vec!["openid".into(), "profile".into()],
+            profile,
+            persistent: true,
+            generation: 3,
+        };
+        let full = session(&view(true, Some(profile.clone())));
+        assert_eq!(
+            full,
+            json!({"signedIn":true,"subject":"sub","grantedScopes":["openid","profile"],
+                "persistence":"persistent","generation":"3","preferredUsername":"ada"})
+        );
+        // `name` absent: the key is absent too, never `null`.
+        assert!(full.get("name").is_none());
+        profile.name = Some("Ada L.".into());
+        assert_eq!(
+            session(&view(true, Some(profile.clone())))["name"],
+            "Ada L."
+        );
+        // The pre-profile shape, byte for byte, without one.
+        for none in [view(true, None), view(false, Some(profile))] {
+            let value = session(&none);
+            assert_eq!(value.as_object().unwrap().len(), 5, "{value}");
+        }
+    }
+    #[test]
+    fn ephemeral_is_an_optional_boolean_that_is_not_sent_to_the_issuer() {
+        let parse = |v: Value| serde_json::from_value::<SignInOptions>(v);
+        assert_eq!(parse(json!({})).unwrap().ephemeral, None);
+        let options = parse(json!({"prompt":"login","ephemeral":true})).unwrap();
+        assert_eq!(options.ephemeral, Some(true));
+        let core = options.into_core().unwrap();
+        assert_eq!(core.prompt, Some(f2z_sdk::oauth::Prompt::Login));
+        for bad in [json!({"ephemeral":"true"}), json!({"ephemeral":1})] {
+            assert!(parse(bad).is_err());
+        }
+    }
+    #[test]
     fn raw_errors_never_cross_ipc() {
         for e in [
             Error::Storage("SECRET".into()),
             Error::Protocol("SECRET".into()),
             Error::Browser("SECRET".into()),
+            Error::BrowserUnavailable("SECRET".into()),
         ] {
             assert!(
                 !serde_json::to_string(&NativeError::from(e))

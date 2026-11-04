@@ -9,9 +9,11 @@
 //! sets it. A stream that ends without that chunk is
 //! [`UsageReport::Missing`].
 //!
-//! `prompt_tokens` **includes** `prompt_tokens_details.cached_tokens`, and
-//! there is no cache-write count. What `completion_tokens` means differs by
-//! provider, and getting it wrong under-charges every reasoning call:
+//! `prompt_tokens` includes disjoint `prompt_tokens_details.cached_tokens`
+//! and `cache_write_tokens` subsets. Missing cache fields on legacy responses
+//! mean zero. See the [official usage schema](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create).
+//! What `completion_tokens` means differs by provider, and getting it wrong
+//! under-charges every reasoning call:
 //!
 //! * OpenAI: `completion_tokens` **includes** `reasoning_tokens`;
 //!   `total_tokens = prompt + completion`.
@@ -29,15 +31,31 @@
 //!
 //! `choices[0].delta.content` → `delta`. `delta.tool_calls` arrive as
 //! fragments keyed by `index` (the first carries `id` and `function.name`,
-//! later ones `function.arguments` pieces); they are assembled and emitted as
-//! complete `tool_call`s, in index order, when the choice's `finish_reason`
-//! arrives. A stream cut before that emits none of them.
+//! later ones `function.arguments` pieces). Each fragment is relayed at once
+//! as a `tool_call_delta`, and the fragments are also assembled and emitted
+//! as complete `tool_call`s, in index order, when the choice's
+//! `finish_reason` arrives. A stream cut before that emits no `tool_call`.
+//! xAI sends each call whole, in one fragment (docs.x.ai: "the function call
+//! is returned in whole in a single chunk"), which is simply one
+//! `tool_call_delta` per call.
+//!
+//! # Tools
+//!
+//! The unified [`f2z_ai_proto::chat::Tool`] gains OpenAI's
+//! `{"type":"function","function":{…}}` wrapper; `strict: true` is sent as
+//! the function's `strict` (only where [`super::strict_tools_supported`]
+//! allows; `false` is the default and is not sent). `tool_choice` and
+//! `parallel_tool_calls` are Chat Completions' own fields and pass through
+//! in its shape — the same shape xAI documents.
 
 use std::collections::BTreeMap;
 
-use f2z_ai_proto::ErrorCode;
 use f2z_ai_proto::catalog::{ApiStyle, CatalogModel};
-use f2z_ai_proto::chat::{ChatRequest, ContentPart, FinishReason, Role, ToolCall, Usage};
+use f2z_ai_proto::chat::{
+    ChatRequest, ContentPart, FinishReason, ResponseFormat, Role, ToolCall, ToolChoice, Usage,
+};
+use f2z_ai_proto::event::ToolCallDelta;
+use f2z_ai_proto::{ErrorCode, OrderedJson};
 use reqwest::header::HeaderMap;
 use secrecy::SecretString;
 use serde_json::{Map, Value, json};
@@ -103,10 +121,15 @@ impl Provider for OpenAiChat {
         request: &ChatRequest,
         model: &CatalogModel,
         max_output_tokens: u64,
-    ) -> Result<Value, ApiFailure> {
+    ) -> Result<OrderedJson, ApiFailure> {
         // A system or tool message is text here, and an assistant turn
         // carries no image.
         super::images_only_on(request, &[Role::User])?;
+        super::check_response_format(request, model)?;
+        super::check_tool_translation(request, model)?;
+        // Only where the catalogue declares it (and the level, where listed):
+        // refused, never dropped.
+        super::check_reasoning_effort(request, model)?;
         let messages: Vec<Value> = request
             .messages
             .iter()
@@ -163,32 +186,88 @@ impl Provider for OpenAiChat {
             .collect();
         let mut body = Map::new();
         body.insert("model".into(), json!(model.provider_model_id));
+        // Signed prices describe standard processing; omission would select
+        // the OpenAI project's mutable default (including premium tiers).
+        if model.provider == "openai" {
+            body.insert("service_tier".into(), json!("default"));
+            // The gateway keeps no completions (chat-api.md §7); neither
+            // should OpenAI on its behalf. Chat Completions' default is
+            // already `false`, but a default is a provider's to change. Only
+            // for OpenAI: other compatible providers do not document it.
+            body.insert("store".into(), json!(false));
+        }
         body.insert("messages".into(), Value::Array(messages));
         body.insert("max_completion_tokens".into(), json!(max_output_tokens));
         body.insert("stream".into(), json!(true));
         // Without this a streamed Chat Completion reports no usage at all.
         body.insert("stream_options".into(), json!({"include_usage": true}));
+        // OpenAI's and xAI's Chat Completions both name it
+        // `reasoning_effort`, a top-level string. Only when set: a request
+        // without it is byte-for-byte what it was before the field existed.
+        if let Some(effort) = request.reasoning_effort {
+            body.insert("reasoning_effort".into(), json!(effort.as_str()));
+        }
+        let mut caller = Vec::new();
         if !request.tools.is_empty() {
+            caller.push((
+                "tools",
+                OrderedJson::array(request.tools.iter().map(|tool| {
+                    let mut function = super::tool_members(tool, "parameters");
+                    // `check_tool_translation` refused `true` where it cannot
+                    // be honoured; `false` is the default everywhere.
+                    if tool.strict == Some(true) {
+                        function.push(("strict", OrderedJson::from(true)));
+                    }
+                    OrderedJson::object([
+                        ("type", OrderedJson::from("function")),
+                        ("function", OrderedJson::object(function)),
+                    ])
+                })),
+            ));
+        }
+        if let Some(choice) = &request.tool_choice {
             body.insert(
-                "tools".into(),
-                Value::Array(
-                    request
-                        .tools
-                        .iter()
-                        .map(|tool| {
-                            let mut f = Map::new();
-                            f.insert("name".into(), json!(tool.name));
-                            if let Some(d) = &tool.description {
-                                f.insert("description".into(), json!(d));
-                            }
-                            f.insert("parameters".into(), tool.parameters.clone());
-                            json!({"type": "function", "function": Value::Object(f)})
-                        })
-                        .collect(),
-                ),
+                "tool_choice".into(),
+                match choice {
+                    ToolChoice::Auto => json!("auto"),
+                    ToolChoice::None => json!("none"),
+                    ToolChoice::Required => json!("required"),
+                    ToolChoice::Function { name } => {
+                        json!({"type": "function", "function": {"name": name}})
+                    }
+                },
             );
         }
-        Ok(Value::Object(body))
+        if let Some(parallel) = request.parallel_tool_calls {
+            body.insert("parallel_tool_calls".into(), json!(parallel));
+        }
+        if let Some(format) = &request.response_format {
+            // The unified shape IS Chat Completions' shape; it is rebuilt
+            // member by member anyway, so nothing the proto type does not
+            // name can reach the provider. The schema itself goes as the
+            // caller ordered it (zuu#1132): OpenAI emits the reply's keys in
+            // schema order.
+            let wire = match format {
+                ResponseFormat::JsonObject {} => {
+                    OrderedJson::object([("type", OrderedJson::from("json_object"))])
+                }
+                ResponseFormat::JsonSchema { json_schema } => {
+                    let mut schema = vec![
+                        ("name", OrderedJson::from(json_schema.name.as_str())),
+                        ("schema", json_schema.schema.clone()),
+                    ];
+                    if let Some(strict) = json_schema.strict {
+                        schema.push(("strict", OrderedJson::from(strict)));
+                    }
+                    OrderedJson::object([
+                        ("type", OrderedJson::from("json_schema")),
+                        ("json_schema", OrderedJson::object(schema)),
+                    ])
+                }
+            };
+            caller.push(("response_format", wire));
+        }
+        Ok(super::ordered_body(body, caller))
     }
 
     fn parser(&self) -> Box<dyn StreamParser> {
@@ -234,6 +313,19 @@ fn usage_of(usage: &Value, convention: UsageConvention) -> Result<Usage, Malform
         "usage.prompt_tokens_details.cached_tokens",
     )?
     .unwrap_or(0);
+    let written = count(
+        usage
+            .get("prompt_tokens_details")
+            .and_then(|d| d.get("cache_write_tokens")),
+        "usage.prompt_tokens_details.cache_write_tokens",
+    )?
+    .unwrap_or(0);
+    // Both cache counts are disjoint subsets of the provider's total input.
+    // Chained subtraction also rejects a sum that would overflow u64.
+    let ordinary = prompt
+        .checked_sub(cached)
+        .and_then(|rest| rest.checked_sub(written))
+        .ok_or(Malformed("cache token subsets exceed input total"))?;
     let reasoning = count(
         usage
             .get("completion_tokens_details")
@@ -274,9 +366,9 @@ fn usage_of(usage: &Value, convention: UsageConvention) -> Result<Usage, Malform
             .ok_or(Malformed("output overflows"))?,
     };
     Ok(Usage {
-        input_tokens: prompt.saturating_sub(cached),
+        input_tokens: ordinary,
         cached_input_tokens: cached,
-        cache_write_tokens: 0,
+        cache_write_tokens: written,
         output_tokens: output,
         reasoning_tokens: reasoning,
         images: 0,
@@ -394,8 +486,18 @@ impl StreamParser for Parser {
                                 return Err(Malformed("tool call arguments too large"));
                             }
                             let tool = self.tools.entry(index).or_default();
-                            if let Some(id) = id {
+                            let mut fragment = ToolCallDelta {
+                                index: u32::try_from(index)
+                                    .map_err(|_| Malformed("tool call index out of range"))?,
+                                id: None,
+                                name: None,
+                                arguments: String::new(),
+                            };
+                            if let Some(id) = id
+                                && tool.id != id
+                            {
                                 id.clone_into(&mut tool.id);
+                                fragment.id = Some(id.to_owned());
                             }
                             let function = call.get("function");
                             if let Some(name) =
@@ -406,6 +508,7 @@ impl StreamParser for Parser {
                                 // A repeat is not a second half.
                                 if tool.name != name {
                                     tool.name.push_str(name);
+                                    fragment.name = Some(tool.name.clone());
                                 }
                             }
                             if let Some(args) = function
@@ -413,6 +516,13 @@ impl StreamParser for Parser {
                                 .and_then(Value::as_str)
                             {
                                 tool.arguments.push_str(args);
+                                args.clone_into(&mut fragment.arguments);
+                            }
+                            if fragment.id.is_some()
+                                || fragment.name.is_some()
+                                || !fragment.arguments.is_empty()
+                            {
+                                out.push(Content::ToolCallDelta(fragment));
                             }
                         }
                     }
@@ -457,6 +567,70 @@ impl StreamParser for Parser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn complete(out: &[Content]) -> Vec<Content> {
+        out.iter()
+            .filter(|c| matches!(c, Content::ToolCall(_)))
+            .cloned()
+            .collect()
+    }
+
+    fn fragments(out: &[Content]) -> Vec<ToolCallDelta> {
+        out.iter()
+            .filter_map(|c| match c {
+                Content::ToolCallDelta(d) => Some(d.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn cache_writes_are_exclusive_and_charge_at_the_write_rate() {
+        // Official wire fields; input is ordinary + cache reads + cache writes.
+        let wire = json!({"prompt_tokens":100,"completion_tokens":4,
+            "prompt_tokens_details":{"cached_tokens":20,"cache_write_tokens":30}});
+        let usage = usage_of(&wire, UsageConvention::CompletionIncludesReasoning).unwrap();
+        assert_eq!(
+            (
+                usage.input_tokens,
+                usage.cached_input_tokens,
+                usage.cache_write_tokens
+            ),
+            (50, 20, 30)
+        );
+        let prices = f2z_ai_proto::pricing::ModelPrices {
+            input_nusd_per_mtok: 2_000_000_000,
+            cached_input_nusd_per_mtok: 200_000_000,
+            cache_write_nusd_per_mtok: 2_500_000_000,
+            output_nusd_per_mtok: 10_000_000_000,
+            ..Default::default()
+        };
+        assert_eq!(
+            f2z_ai_proto::pricing::metered_cost_nusd(&usage, &prices)
+                .unwrap()
+                .get(),
+            219_000
+        );
+    }
+
+    #[test]
+    fn impossible_or_malformed_cache_writes_are_rejected() {
+        for (input, cached, written) in [
+            (100_u64, 20_u64, json!(81)),
+            (100, 0, json!(101)),
+            (u64::MAX, u64::MAX, json!(1)),
+            (100, 0, json!(-1)),
+            (100, 0, json!(1.5)),
+            (100, 0, json!("30")),
+        ] {
+            let wire = json!({"prompt_tokens":input,"completion_tokens":4,
+                "prompt_tokens_details":{"cached_tokens":cached,"cache_write_tokens":written}});
+            assert!(
+                usage_of(&wire, UsageConvention::CompletionIncludesReasoning).is_err(),
+                "accepted invalid cache usage: {wire}"
+            );
+        }
+    }
 
     #[test]
     fn total_tokens_decides_the_reasoning_convention() {
@@ -505,8 +679,32 @@ mod tests {
             )
             .unwrap();
         }
+        // The repeated name is not relayed as a second fragment's name.
         assert_eq!(
-            out,
+            fragments(&out),
+            vec![
+                ToolCallDelta {
+                    index: 0,
+                    id: Some("a".into()),
+                    name: Some("f".into()),
+                    arguments: "{\"x\"".into()
+                },
+                ToolCallDelta {
+                    index: 0,
+                    id: None,
+                    name: None,
+                    arguments: ":1}".into()
+                },
+                ToolCallDelta {
+                    index: 1,
+                    id: Some("b".into()),
+                    name: Some("g".into()),
+                    arguments: "{}".into()
+                },
+            ]
+        );
+        assert_eq!(
+            complete(&out),
             vec![
                 Content::ToolCall(ToolCall {
                     id: "a".into(),
@@ -555,7 +753,22 @@ mod tests {
             )
             .unwrap();
         }
-        assert!(out.is_empty());
+        // Each fragment is relayed as it arrives; no call is complete yet.
+        assert!(complete(&out).is_empty());
+        let pieces: String = fragments(&out)
+            .iter()
+            .map(|d| d.arguments.as_str())
+            .collect();
+        assert_eq!(pieces, "{\"a\":1}");
+        let first = &fragments(&out)[0];
+        assert_eq!(
+            (first.id.as_deref(), first.name.as_deref()),
+            (Some("call_1"), Some("f"))
+        );
+        // `"arguments": ""` on the opening fragment still relays the id+name;
+        // an empty continuation relays nothing.
+        assert_eq!(fragments(&out).len(), 3);
+        out.clear();
         p.feed(
             &SseEvent {
                 event: String::new(),

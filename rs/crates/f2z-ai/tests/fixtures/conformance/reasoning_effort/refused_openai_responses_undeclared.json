@@ -1,0 +1,36 @@
+{
+  "name": "refused_openai_responses_undeclared",
+  "feature": "reasoning_effort",
+  "source": "provider::check_reasoning_effort on Responses: capabilities.reasoning_effort absent is unsupported.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {}
+  },
+  "request": {
+    "model": "m-openai-responses",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Think, then answer."
+          }
+        ]
+      }
+    ],
+    "reasoning_effort": "high"
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "reasoning_effort_unsupported",
+        "field": "reasoning_effort"
+      }
+    },
+    "encodings": {}
+  }
+}

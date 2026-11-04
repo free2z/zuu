@@ -29,8 +29,8 @@ A pending or unknown settlement is not a zero charge. This crate does not
 perform authorization, reserve balances, settle ledger entries, or certify
 that a service endpoint is deployed.
 
-The planned release dependency is `f2z-ai-proto = "0.1"`; it is not available
-on crates.io yet. Source verification uses Rust 1.97.1:
+The current release is `0.3.0`, Git tag `sdk-v0.3.0`; it is not available
+on crates.io yet, so pin the tag. Source verification uses Rust 1.97.1:
 
 ```text
 cargo +1.97.1 test --locked -p f2z-ai-proto --all-targets
@@ -41,3 +41,26 @@ Repository tests compare fixtures and public prose; they are intentionally
 excluded from the reusable library tarball because they require repository
 files. See the [release guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASING.md)
 for package ordering and isolated consumer checks.
+
+`catalog_v2` provides an opt-in signed schema-2 reader and context-tier pricing
+primitives. The gateway still uses `catalog::verify_catalog` (schema 1); these
+primitives do not enable models or change HTTP/SDK model lists. The existing
+reader rejects a `long_context_pricing` field even when its value is `null`.
+
+A schema-2 model keeps the base `prices` and may add
+`long_context_pricing: { input_tokens_gt, prices }`. Above the threshold,
+the complete second table applies to all usage, including output. Tier input
+is the checked sum of exclusive ordinary, cache-read and cache-write tokens;
+reasoning is already included in output. Each tier rate must be no lower than
+its base rate; individual zero-price dimensions remain valid. The existing
+signature envelope label stays `free2z/ai-catalog/v1` because schema and tier
+rules are inside its signed payload.
+
+Adoption requires authoritative immutable ledger terms and a versioned, typed
+model-list API. Legacy `/v1/models` must omit tier-priced models; adding an
+extra field to its flat price map is not safe for older SDKs. Consumers must
+preserve publication anti-replay state across schema changes and retain the
+original terms for admitted calls and replays. Token reservation helpers need
+certified input/output upper bounds, including provider framing and hidden
+input; use the entire model context when no tighter input bound is proven.
+They do not establish context admission or authorize paid images/tools.

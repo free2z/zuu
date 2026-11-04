@@ -145,12 +145,19 @@ impl Engine {
             .map_err(NativeError::from)?;
         let subject = self.client.subject().await;
         let scopes = self.client.granted_scopes().await;
+        let profile = self.client.profile().await;
         self.check(generation)?;
-        Ok(
-            json!({"signedIn":signed_in,"subject":subject,"grantedScopes":scopes,
-            "persistence":match self.client.token_persistence() { f2z_sdk::Persistence::Persistent => "persistent", _ => "memory_only" },
-            "generation":generation.to_string()}),
-        )
+        Ok(wire::session(&wire::SessionView {
+            signed_in,
+            subject,
+            scopes,
+            profile,
+            persistent: matches!(
+                self.client.token_persistence(),
+                f2z_sdk::Persistence::Persistent
+            ),
+            generation,
+        }))
     }
     pub async fn read<T, F>(&self, future: F) -> Result<T>
     where
@@ -176,6 +183,16 @@ impl Engine {
             }
             if state.operations.len() >= MAX_OPERATIONS {
                 return Err(NativeError::new("too_many_operations").key(&spec.idempotency_key));
+            }
+            // Checked under the lock that pins the operation to
+            // `state.generation`: a caller (the tool loop) that read the
+            // session earlier never has its call made as another user.
+            if spec
+                .session_generation
+                .as_deref()
+                .is_some_and(|expected| expected != state.generation.to_string())
+            {
+                return Err(NativeError::new("session_changed").key(&spec.idempotency_key));
             }
             let op = Arc::new(Operation {
                 owner: owner.into(),
@@ -367,7 +384,25 @@ mod tests {
         wire::ChatOperation {
             operation_id: id.into(),
             idempotency_key: format!("key-{id}"),
+            session_generation: None,
         }
+    }
+    #[test]
+    fn a_call_pinned_to_an_old_session_is_refused_at_registration() {
+        let engine = engine();
+        let (old, _) = engine.snapshot().unwrap();
+        let pinned = |generation: u64| wire::ChatOperation {
+            session_generation: Some(generation.to_string()),
+            ..spec(&format!("pinned-{generation}"))
+        };
+        engine.register("main", &pinned(old)).unwrap();
+        engine.invalidate().unwrap();
+        assert_eq!(
+            engine.register("main", &pinned(old)).err().unwrap().code,
+            "session_changed"
+        );
+        let (now, _) = engine.snapshot().unwrap();
+        engine.register("main", &pinned(now)).unwrap();
     }
     #[test]
     fn operations_are_bounded_owned_and_keys_are_preserved() {

@@ -52,6 +52,7 @@ TOOLCHAIN_FILE=rust-toolchain.toml
 # invocation, including the bare one the required gate runs, which passes no
 # flags at all and would fail on anything registered only elsewhere.
 MANIFESTS=(
+  rs/zcash-payment-hooks/Cargo.toml
   wallet/zuuli/wasm-spike/Cargo.toml
   wallet/zuuli/crypto-target-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml
@@ -109,6 +110,7 @@ MANIFESTS=(
 # check_census
 # holds this array to the tracked tree the same way it holds MANIFESTS.
 TOOLCHAIN_RESTATEMENTS=(
+  rs/zcash-payment-hooks/rust-toolchain.toml
   wallet/rust-toolchain.toml
   rs/rust-toolchain.toml
 )
@@ -133,6 +135,8 @@ RUST_VERSION_ENV_WORKFLOWS=(
 # exact expected text rather than by pattern so the failure message tells the
 # next person precisely what to write.
 DOC_PINS=(
+  $'build/free2z/host-tools.json\t  "rust_version": "%CHANNEL%",'
+  $'build/free2z/host-tools.json\t      "url": "https://static.rust-lang.org/dist/rust-%CHANNEL%-x86_64-unknown-linux-gnu.tar.xz",'
   $'wallet/zuuallet/README.md\t- [Rust](https://rustup.rs/) %MSRV%+ (edition 2024)'
   $'wallet/plugins/tauri-plugin-zcash/README.md\tcargo +%CHANNEL% check --locked'
   $'wallet/plugins/tauri-plugin-zcash/README.md\tcargo +%CHANNEL% test --locked'

@@ -56,9 +56,13 @@ const BoostForm: React.FC<BoostFormProps> = ({ page, setPage, onClose }) => {
                 duration: null,
             })
             refreshCreator()
+            const serverScore =
+                res.data && typeof res.data === "object" && "f2z_score" in res.data
+                    ? res.data.f2z_score
+                    : res.data
             setPage({
                 ...page,
-                f2z_score: res.data,
+                f2z_score: serverScore,
             })
             setLoading(false)
         }).catch((res) => {

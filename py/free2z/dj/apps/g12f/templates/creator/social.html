@@ -1,0 +1,42 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <!--  Essential META Tags -->
+    <title>{{ creator.best_name }}</title>
+    <meta name="description" content="{{ creator.html_description|striptags|truncatechars:255 }}" />
+    {# `creator.username` is the true-case value from the row, not the requested
+       spelling, so `/Skylar` and `/skylar` both canonicalise to one URL. It is
+       the same expression `og:url` below already uses -- this tag exists so the
+       two tiers agree, since SvelteKit's SSR emits a canonical here and this
+       template did not. #}
+    <link rel="canonical" href="https://{{ request.META.HTTP_HOST }}/{{ creator.username }}">
+    <meta property="og:title" content="{{ creator.best_name }}">
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://{{ request.META.HTTP_HOST }}{{ creator.get_avatar_url_safe }}">
+    <meta property="og:description" content="{{ creator.html_description|striptags|truncatechars:255 }}">
+    <meta property="og:site_name" content="Free2Z - {{ creator.best_name }}">
+    <meta property="og:url" content="https://{{ request.META.HTTP_HOST }}/{{ creator.username }}">
+
+    <meta name="twitter:title" content="{{ creator.best_name }}">
+    <meta name="twitter:image" content="https://{{ request.META.HTTP_HOST }}{{ creator.get_avatar_url_safe }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:description" content="{{ creator.html_description|striptags|truncatechars:255 }}">
+    <meta name="twitter:image:alt" content="{{ creator.best_name }}">
+    <meta name="twitter:site" content="@free2zcash">
+    <meta name="twitter:creator" content="@free2zcash">
+
+    <meta name="fb:app_id" content="278755727751440">
+
+    <meta itemprop="name" content="{{ creator.best_name }}">
+    <meta itemprop="description" content="{{ creator.html_description|striptags|truncatechars:255 }}">
+    <meta itemprop="image" content="https://{{ request.META.HTTP_HOST }}{{ creator.get_avatar_url_safe }}">
+</head>
+
+<body>
+    <pre>
+        {{ creator.description }}
+    </pre>
+</body>
+
+</html>

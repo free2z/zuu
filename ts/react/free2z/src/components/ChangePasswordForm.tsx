@@ -13,6 +13,7 @@ type ChangePasswordFormProps = {
 const ChangePasswordForm: React.FC<ChangePasswordFormProps> = () => {
     const [oldPassword, setOldPassword] = useState<string>('');
     const [newPassword, setNewPassword] = useState<string>('');
+    const [otpToken, setOtpToken] = useState<string>('');
     const [passwordVisible, setPasswordVisible] = useState<boolean>(false);
     const [snackbar, setSnackbar] = useGlobalState('snackbar');
 
@@ -24,15 +25,17 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = () => {
     const passwordIsSet = passwordIsSetData?.data?.password_set;
 
     const changePasswordMutation = useMutation(() => {
-        const payload = passwordIsSet ? {
+        const payload: { old_password?: string; new_password: string; otp_token?: string } = passwordIsSet ? {
             old_password: oldPassword,
             new_password: newPassword,
         } : { new_password: newPassword };
+        if (otpToken.trim()) payload.otp_token = otpToken.trim();
         return axios.post('/api/emails/change-password', payload);
     }, {
         onSuccess: () => {
             setOldPassword('');
             setNewPassword('');
+            setOtpToken('');
             setSnackbar({
                 open: true,
                 severity: 'success',
@@ -133,6 +136,19 @@ const ChangePasswordForm: React.FC<ChangePasswordFormProps> = () => {
                             </InputAdornment>
                         ),
                     }}
+                />
+                <TextField
+                    margin="dense"
+                    id="change-password-otp-token"
+                    label="Authenticator code (if MFA is enabled)"
+                    type="text"
+                    fullWidth
+                    variant="standard"
+                    color="warning"
+                    value={otpToken}
+                    inputProps={{ inputMode: 'numeric', maxLength: 10 }}
+                    autoComplete="one-time-code"
+                    onChange={(e) => setOtpToken(e.target.value)}
                 />
             </Stack>
             <Button

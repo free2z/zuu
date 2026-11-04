@@ -82,6 +82,11 @@ impl Aggregate {
                         .push(OutputPart::Text { text: delta.text });
                 }
             }
+            // Fragments are for a stream; the complete `tool_call` that
+            // follows them is what the response carries. (The backend does
+            // not relay them on a `stream: false` call; one arriving anyway
+            // changes nothing.)
+            Event::ToolCallDelta(_) if self.meta.is_some() && self.usage.is_none() => {}
             Event::ToolCall(tool) if self.meta.is_some() && self.usage.is_none() => {
                 self.message.tool_calls.push(tool)
             }

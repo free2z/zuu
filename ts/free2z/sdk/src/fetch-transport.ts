@@ -9,12 +9,22 @@ import {
   secureUrl,
   withOperation,
 } from "./http.js";
-import { parseJson, stringifyJson, uint } from "./json.js";
+import {
+  parseJson,
+  reasoningEffort,
+  responseFormat,
+  strictOutput,
+  toolOptions,
+  stringifyJson,
+  uint,
+} from "./json.js";
 import { WebSession, type FetchConfig } from "./oauth.js";
+import { reportBody } from "./report.js";
 import { frames } from "./sse.js";
 import type {
   Balance,
   CallRecord,
+  CallReport,
   ChatEvent,
   ChatOptions,
   ChatRequest,
@@ -25,6 +35,7 @@ import type {
   OperationOptions,
   Purchase,
   PurchaseRequest,
+  ReportReason,
   Session,
   SignInOptions,
   Transport,
@@ -35,6 +46,7 @@ export class FetchTransport implements Transport {
   #purchaseReturn: string;
   #api: string;
   #ai: string;
+  #web: string;
   #streams = new Set<AbortController>();
   #checkouts = new Map<string, { generation: string; url: string }>();
   #catalog:
@@ -61,6 +73,17 @@ export class FetchTransport implements Transport {
     ).href.replace(/\/$/, "");
     if (new URL(this.#api).search || new URL(this.#ai).search)
       failure("invalid_config");
+    // The issuer is the Free2Z website; an explicit origin has no path.
+    const web =
+      config.webOrigin === undefined
+        ? this.#auth.issuer
+        : secureUrl(config.webOrigin, config.allowInsecureLoopback);
+    if (
+      config.webOrigin !== undefined &&
+      (web.pathname !== "/" || web.search || web.hash)
+    )
+      failure("invalid_config");
+    this.#web = web.origin;
     const idle = config.streamIdleTimeoutMs ?? 45_000;
     if (!Number.isSafeInteger(idle) || idle <= 0 || idle > 3_600_000)
       failure("invalid_config");
@@ -233,6 +256,9 @@ export class FetchTransport implements Transport {
   ): Promise<Estimate> {
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
+    request = reasoningEffort(
+      toolOptions(responseFormat(strictOutput(request))),
+    );
     return decode.estimate(
       await this.#json(
         `${this.#ai}/chat/estimate`,
@@ -252,6 +278,7 @@ export class FetchTransport implements Transport {
     }
     return intent;
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   async createPurchase(
     request: PurchaseRequest,
     options: OperationOptions,
@@ -284,6 +311,7 @@ export class FetchTransport implements Transport {
       throw withOperation(error, options.idempotencyKey);
     }
   }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `billingUrl`. */
   async purchase(id: string, signal?: AbortSignal): Promise<Purchase> {
     const generation = this.#auth.generation;
     return this.#remember(
@@ -297,6 +325,34 @@ export class FetchTransport implements Transport {
       generation,
     );
   }
+  async manageAccountUrl(): Promise<string> {
+    const url = new URL("/account/apps", this.#web);
+    url.searchParams.set("client_id", this.config.clientId);
+    return url.href;
+  }
+  async deleteAccountUrl(): Promise<string> {
+    return new URL("/account/delete", this.#web).href;
+  }
+  /** `{web origin}/buy-2z?client_id=…`: Free2Z billing, never Manage. */
+  async billingUrl(): Promise<string> {
+    const url = new URL("/buy-2z", this.#web);
+    url.searchParams.set("client_id", this.config.clientId);
+    return url.href;
+  }
+  /** Through `config.openExternal`, like checkout: a new top-level browsing context, never an iframe. */
+  async openManageAccount(): Promise<void> {
+    if (!this.config.openExternal) failure("external_opener_required");
+    await this.config.openExternal(await this.manageAccountUrl());
+  }
+  async openDeleteAccount(): Promise<void> {
+    if (!this.config.openExternal) failure("external_opener_required");
+    await this.config.openExternal(await this.deleteAccountUrl());
+  }
+  async openBilling(): Promise<void> {
+    if (!this.config.openExternal) failure("external_opener_required");
+    await this.config.openExternal(await this.billingUrl());
+  }
+  /** @deprecated Since 0.4.0: apps don't sell 2Z; see `openBilling`. */
   async openCheckout(id: string): Promise<void> {
     if (!this.config.openExternal) failure("external_opener_required");
     if (!this.#checkouts.has(id)) await this.purchase(id);
@@ -314,14 +370,46 @@ export class FetchTransport implements Transport {
       ),
     );
   }
+  async reportCall(
+    callId: string,
+    reason: ReportReason,
+    detail?: string,
+    signal?: AbortSignal,
+  ): Promise<CallReport> {
+    const body = reportBody(
+      callId,
+      reason,
+      detail,
+      this.config.childDirected === true,
+    );
+    // The server routes the canonical lowercase UUID only.
+    callId = callId.toLowerCase();
+    return decode.callReport(
+      await this.#json(
+        `${this.#api}/calls/${callId}/report`,
+        "ai:invoke",
+        signal,
+        body,
+      ),
+      callId,
+    );
+  }
   async chat(request: ChatRequest, options: ChatOptions): Promise<ChatStream> {
     key(options.idempotencyKey);
     identifier(options.operationId);
     cancelled(options.signal);
     if (request.max_output_tokens !== undefined)
       uint(request.max_output_tokens);
+    request = reasoningEffort(
+      toolOptions(responseFormat(strictOutput(request))),
+    );
     const generation = this.#auth.generation,
       control = new AbortController();
+    if (
+      options.sessionGeneration !== undefined &&
+      options.sessionGeneration !== generation
+    )
+      failure("signed_out");
     const abort = () => control.abort();
     options.signal?.addEventListener("abort", abort, { once: true });
     this.#streams.add(control);
@@ -394,6 +482,7 @@ export class FetchTransport implements Transport {
                 ![
                   "meta",
                   "delta",
+                  "tool_call_delta",
                   "tool_call",
                   "usage",
                   "done",
@@ -416,7 +505,9 @@ export class FetchTransport implements Transport {
               }
               if (
                 usage &&
-                (event.type === "delta" || event.type === "tool_call")
+                (event.type === "delta" ||
+                  event.type === "tool_call_delta" ||
+                  event.type === "tool_call")
               )
                 failure("invalid_response");
               yield event;

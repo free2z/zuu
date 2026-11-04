@@ -8,15 +8,18 @@ use crate::{
     catalog::VerifiedCatalog,
     chat::ChatBackend,
     error::ApiFailure,
+    idempotency::{self, Form, FormStore, Outcome},
     ledger::{self, Identity, Ledger, Operation},
-    provider::{ProviderBackend, ProviderOutcome, UsageReport},
+    provider::{Phase, ProviderBackend, ProviderOutcome, UsageReport},
     settle::{CallRecord, Settler},
 };
 use async_trait::async_trait;
 use f2z_ai_proto::{ErrorCode, Event, Milli2z, Whole2z};
 use f2z_ai_proto::{
     catalog::CatalogModel,
-    chat::{ChatRequest, ContentPart, EstimateResponse, FinishReason, Usage, UsageSource},
+    chat::{
+        ChatRequest, ContentPart, EstimateResponse, FinishReason, ToolCall, Usage, UsageSource,
+    },
     event::{Done, ErrorEvent, Meta, UsageEvent},
     pricing::{Bps, apply_safety_factor, metered_cost_nusd, price_nusd},
 };
@@ -39,6 +42,111 @@ fn unavailable() -> ApiFailure {
     )
     .retry_after(1)
 }
+/// The idempotency fingerprint: SHA-256, lowercase hex, of the request
+/// serialized with every caller-supplied JSON object's members **sorted by
+/// name**. The ledger compares it when a key is reused (`Operation::Claim`).
+///
+/// Sorted, not as sent, on purpose (zuu#1132). Before #1132 tool `parameters`
+/// and the `response_format` schema were `serde_json::Value`s, which sort
+/// their members, so these were the bytes hashed; hashing the caller's order
+/// instead would change the fingerprint of every request whose schema was not
+/// already sorted, and a same-key retry that spanned the deploy would then be
+/// refused as `idempotency_conflict`. Sorting keeps every fingerprint
+/// byte-identical to the previous gateway's (pinned in this module's tests),
+/// so nothing needs versioning. The cost: two requests that differ ONLY in a
+/// schema's member order share a fingerprint, so a retry that reordered its
+/// schema replays the first call rather than conflicting. JSON object member
+/// order is not data (RFC 8259 §4); the replay is the call the key named.
+fn request_fingerprint(request: &ChatRequest) -> Result<String, ApiFailure> {
+    Ok(hex(ring::digest::digest(
+        &ring::digest::SHA256,
+        &canonical_request(request)?,
+    )
+    .as_ref()))
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The smallest child-directed key accepted: the HMAC-SHA256 output size.
+pub const MIN_CHILD_DIRECTED_KEY_BYTES: usize = 32;
+
+/// What a child-directed call's ledger claim carries instead of the
+/// caller's text (CHILD-DIRECTED.md): an HMAC-SHA256 under a server secret
+/// of the canonical request — so a short, guessable prompt cannot be
+/// confirmed against the stored fingerprint without the key — and of the
+/// `Idempotency-Key`, so the caller's key text is not stored either. Both
+/// are 64 lowercase hex characters, the shapes `ledger.call_claim` checks.
+///
+/// Rotating the key changes both values, and the ledger column has no room
+/// for a key id, so which key (if any) a call was claimed under is kept in
+/// the form record instead ([`crate::idempotency`]): a keyed retry that
+/// spans a rotation or a `child_directed` flip replays the call it names.
+///
+/// The current key also derives every form record's Redis key, for all
+/// apps, so the `Idempotency-Key` text never reaches Redis either.
+pub struct ChildDirectedKey {
+    key: ring::hmac::Key,
+    id: String,
+}
+
+impl ChildDirectedKey {
+    /// # Errors
+    ///
+    /// A key shorter than [`MIN_CHILD_DIRECTED_KEY_BYTES`].
+    pub fn new(secret: &[u8]) -> Result<Self, String> {
+        if secret.len() < MIN_CHILD_DIRECTED_KEY_BYTES {
+            return Err(format!(
+                "the child-directed HMAC key must be at least {MIN_CHILD_DIRECTED_KEY_BYTES} bytes"
+            ));
+        }
+        let key = ring::hmac::Key::new(ring::hmac::HMAC_SHA256, secret);
+        let mut ctx = ring::hmac::Context::with_key(&key);
+        ctx.update(b"f2z-ai key id v1\0");
+        let id = hex(ctx.sign().as_ref()).chars().take(16).collect();
+        Ok(Self { key, id })
+    }
+    /// A public, stable id for this key: 16 hex characters of an HMAC of a
+    /// fixed label under it. It names the key in a form record without
+    /// revealing it.
+    #[must_use]
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+    fn mac(&self, domain: &[u8], data: &[u8]) -> String {
+        let mut ctx = ring::hmac::Context::with_key(&self.key);
+        ctx.update(domain);
+        ctx.update(data);
+        hex(ctx.sign().as_ref())
+    }
+    /// The HMAC of an `Idempotency-Key` that names its form record in Redis.
+    /// A different domain from [`Self::idempotency_key`], so the Redis key
+    /// never equals a value stored in the ledger.
+    fn form_record(&self, key: &str) -> String {
+        self.mac(b"f2z-ai idempotency-form v1\0", key.as_bytes())
+    }
+    fn fingerprint(&self, request: &ChatRequest) -> Result<String, ApiFailure> {
+        Ok(self.mac(b"f2z-ai fingerprint v1\0", &canonical_request(request)?))
+    }
+    fn idempotency_key(&self, key: &str) -> String {
+        self.mac(b"f2z-ai idempotency-key v1\0", key.as_bytes())
+    }
+}
+
+fn canonical_request(request: &ChatRequest) -> Result<Vec<u8>, ApiFailure> {
+    let mut canonical = request.clone();
+    for tool in &mut canonical.tools {
+        tool.parameters = tool.parameters.with_sorted_keys();
+    }
+    if let Some(f2z_ai_proto::ResponseFormat::JsonSchema { json_schema }) =
+        &mut canonical.response_format
+    {
+        json_schema.schema = json_schema.schema.with_sorted_keys();
+    }
+    serde_json::to_vec(&canonical).map_err(|_| invalid())
+}
+
 fn invalid() -> ApiFailure {
     ApiFailure::new(ErrorCode::Internal, "ledger or pricing contract refused")
 }
@@ -123,6 +231,9 @@ impl Context {
 struct Plan {
     model: CatalogModel,
     input: u64,
+    /// Whether `input` came from the model's tokeniser (`true`) or from the
+    /// UTF-8 byte bound (`false`, a provider without one).
+    input_exact: bool,
     output: u64,
     hold: Whole2z,
     markup: Bps,
@@ -159,7 +270,88 @@ impl Plan {
         }
     }
 }
+/// Above this many bytes of tokenised input — message text, prior tool
+/// calls, tool definitions, the response_format schema — an estimate takes
+/// one of the tokeniser slots (`estimate_off_runtime`).
+const LARGE_PROMPT_BYTES: usize = 64 * 1024;
+
+/// The input estimate computed off the async runtime: the tokeniser's work
+/// grows with the prompt (tens of ms per MiB), and a request body can be
+/// large. Returns the request with its estimate; `None` when the model is
+/// not callable, which `plan` then refuses.
+async fn estimate_off_runtime(
+    request: ChatRequest,
+    catalog: &VerifiedCatalog,
+) -> Result<(ChatRequest, Option<crate::estimate::InputEstimate>), ApiFailure> {
+    let Some(model) = catalog.catalog().callable_model(&request.model).cloned() else {
+        return Ok((request, None));
+    };
+    // Large prompts a few at a time: a 4 MiB prompt is ~1 s of tokeniser
+    // CPU, and the blocking pool is shared with everything else that
+    // blocks. A small prompt (the common case, milliseconds) never queues
+    // behind a large one.
+    static SLOTS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(4);
+    // Everything the estimate tokenises: message parts, prior tool calls,
+    // tool definitions and the response_format schema.
+    let text_bytes: usize = request
+        .messages
+        .iter()
+        .flat_map(|m| {
+            m.content
+                .iter()
+                .map(|p| match p {
+                    ContentPart::Text { text } => text.len(),
+                    ContentPart::Image { data, .. } => data.len(),
+                })
+                .chain(
+                    m.tool_calls
+                        .iter()
+                        .map(|c| c.arguments.len().saturating_add(c.name.len())),
+                )
+        })
+        .chain(
+            request
+                .tools
+                .iter()
+                .map(|t| serde_json::to_vec(t).map_or(usize::MAX, |b| b.len())),
+        )
+        .chain(
+            request
+                .response_format
+                .iter()
+                .map(|f| serde_json::to_vec(f).map_or(usize::MAX, |b| b.len())),
+        )
+        .fold(0usize, usize::saturating_add);
+    let slot = if text_bytes > LARGE_PROMPT_BYTES {
+        Some(SLOTS.acquire().await.map_err(|_| invalid())?)
+    } else {
+        None
+    };
+    tokio::task::spawn_blocking(move || {
+        // The permit lives with the work, not with the awaiting future: a
+        // cancelled request (client gone) must not free a slot while its
+        // tokeniser job is still running.
+        let _slot = slot;
+        let estimate = crate::estimate::input_tokens(&request, &model);
+        (request, estimate)
+    })
+    .await
+    .map_err(|_| invalid())
+}
+
+#[cfg(test)]
 fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result<Plan, ApiFailure> {
+    plan_with(request, catalog, c, None)
+}
+
+/// `plan` with the input estimate already computed (`estimate_off_runtime`);
+/// `None` computes it inline.
+fn plan_with(
+    request: &ChatRequest,
+    catalog: &VerifiedCatalog,
+    c: &Context,
+    precomputed: Option<crate::estimate::InputEstimate>,
+) -> Result<Plan, ApiFailure> {
     if !request.fallback.is_empty()
         || request.messages.iter().any(|m| {
             m.content
@@ -177,67 +369,140 @@ fn plan(request: &ChatRequest, catalog: &VerifiedCatalog, c: &Context) -> Result
         .callable_model(&request.model)
         .ok_or_else(|| ApiFailure::new(ErrorCode::ModelNotFound, "model is not callable"))?
         .clone();
-    if !model.capabilities.tools
-        && (!request.tools.is_empty()
-            || request
-                .messages
-                .iter()
-                .any(|m| !m.tool_calls.is_empty() || m.tool_call_id.is_some()))
-    {
-        return Err(ApiFailure::new(
-            ErrorCode::InvalidRequest,
-            "this model does not support function tools",
-        ));
-    }
-    // Conservative byte-token reservation, including roles, message framing,
-    // tool definitions and prior tool arguments/results. Metadata is excluded.
-    // Final billing uses provider usage, never this byte bound.
-    let bytes = serde_json::to_vec(&(&request.messages, &request.tools))
-        .map_err(|_| invalid())?
-        .len();
+    // Refused before any hold: tools on a model without the capability, a
+    // strict tool it cannot enforce, a tool control its adapter cannot
+    // express, or a combination it cannot (Anthropic: response_format beside
+    // tools) never reach the provider without them.
+    crate::provider::check_tools(request, &model)?;
+    // Refused before any hold: a model or adapter that cannot honour a
+    // response_format never receives the call without it.
+    crate::provider::check_response_format(request, &model)?;
+    // And a reasoning_effort the model or its adapter cannot honour. Effort
+    // changes no bound below: reasoning tokens are output tokens, and the
+    // hold already reserves the worst case of the whole output cap.
+    crate::provider::check_reasoning_effort(request, &model)?;
+    // The input estimate (crate::estimate): the provider's own tokeniser
+    // over messages, tool definitions and the response_format schema with
+    // the measured per-message / per-tool / per-schema framing, for a model
+    // this build has a tokeniser for; the conservative UTF-8 byte bound for
+    // every other provider. Final billing uses provider usage, never this
+    // estimate — except metering.md §5.4, where a stream that lost its usage
+    // frame settles on `input` as its input count.
+    let estimate = match precomputed {
+        Some(estimate) => estimate,
+        None => crate::estimate::input_tokens(request, &model).ok_or_else(invalid)?,
+    };
+    // Input the provider adds that the tokeniser cannot see (Anthropic's
+    // tool-use system prompt). Zero for every other request.
+    let overhead = crate::provider::reserved_overhead_tokens(request, &model);
     let input = apply_safety_factor(
-        u64::try_from(bytes)
-            .map_err(|_| invalid())?
-            .saturating_add(64),
+        estimate.tokens.saturating_add(overhead),
         model.safety_factor_bps,
     )
     .map_err(|_| invalid())?;
-    let ceiling = model
+    crate::provider::strict_model_ceiling(request, &model)?;
+    // `strict`: the output the caller asked for, which nothing below may
+    // lower. `chat::validate` guarantees `max_output_tokens` is present.
+    let strict = request
+        .max_output_tokens
+        .filter(|_| request.max_output_tokens_strict);
+    // With `strict`, every window refusal says why and with what numbers.
+    let window_refusal = |message: &'static str| {
+        let failure = ApiFailure::new(ErrorCode::ContextLengthExceeded, message);
+        match strict {
+            Some(asked) => failure
+                .detail("reason", crate::provider::STRICT_OUTPUT_REASON)
+                .detail("input_tokens_estimate", input)
+                .detail("context_window", model.context_window)
+                .detail("max_output_tokens", asked),
+            None => failure,
+        }
+    };
+    let window = model
         .context_window
         .checked_sub(input)
-        .ok_or_else(|| {
-            ApiFailure::new(
-                ErrorCode::ContextLengthExceeded,
-                "input exceeds context window",
-            )
-        })?
+        .ok_or_else(|| window_refusal("input exceeds context window"))?;
+    let ceiling = window
         .min(model.max_output_tokens)
         .min(request.max_output_tokens.unwrap_or(model.max_output_tokens));
     if ceiling == 0 {
-        return Err(ApiFailure::new(
-            ErrorCode::ContextLengthExceeded,
-            "no output fits context window",
+        return Err(window_refusal("no output fits context window"));
+    }
+    if let Some(asked) = strict
+        && ceiling < asked
+    {
+        // The model ceiling was refused above, so only the window is left.
+        return Err(window_refusal(
+            "the input leaves less than max_output_tokens of the context window, and max_output_tokens_strict forbids lowering it",
         ));
     }
+    let consented = Bps(c.consented_markup_bps);
     let mut p = Plan {
         model,
         input,
+        input_exact: estimate.exact,
         output: ceiling,
         hold: Whole2z::ZERO,
         markup: c.markup(),
         margin: catalog.platform_margin_bps,
     };
     let available = c.spendable()? / 1000;
-    if p.worst(1)?.get() > available {
-        return Err(refusal(
-            if c.cap_remaining_milli_2z
-                .is_some_and(|cap| cap < c.available_milli_2z)
-            {
-                "cap_exceeded"
+    let short = || {
+        if c.cap_remaining_milli_2z
+            .is_some_and(|cap| cap < c.available_milli_2z)
+        {
+            "cap_exceeded"
+        } else {
+            "insufficient_balance"
+        }
+    };
+    if let Some(asked) = strict {
+        // No clamp: the worst case of the full requested output must fit, or
+        // the call is refused here — before the hold, so nothing is reserved,
+        // charged or sent to a provider.
+        //
+        // Affordability is judged at the grant's **consented** markup, the
+        // most the ledger can apply (`b = min(consented, effective)`,
+        // metering.md §3 `hold`). Judging at the effective markup alone would
+        // let an approval landing between the context read and the hold raise
+        // the price after the hold exists, and the post-hold `extend` would
+        // then refuse a call that had already reserved money. The hold is
+        // taken at that same bound, so no extension is ever needed — not even
+        // when a concurrent call drains the balance between hold and extend.
+        // The excess over the applied-markup worst case is released at
+        // settlement like any other unused hold.
+        let mut bound = p.clone();
+        bound.markup = consented;
+        let required = bound.worst(asked)?;
+        if required.get() > available {
+            let (code, message) = if short() == "cap_exceeded" {
+                (
+                    ErrorCode::CapExceeded,
+                    "the app's remaining budget cannot cover max_output_tokens, and max_output_tokens_strict forbids lowering it",
+                )
             } else {
-                "insufficient_balance"
-            },
-        ));
+                (
+                    ErrorCode::InsufficientBalance,
+                    "the balance cannot cover max_output_tokens, and max_output_tokens_strict forbids lowering it",
+                )
+            };
+            let mut failure = ApiFailure::new(code, message)
+                .detail("reason", crate::provider::STRICT_OUTPUT_REASON)
+                .detail("max_output_tokens", asked)
+                .detail("required_2z", required.get())
+                .detail("available_milli_2z", c.available_milli_2z)
+                .detail("min_charge_2z", p.model.min_charge_2z.get());
+            if let Some(cap) = c.cap_remaining_milli_2z {
+                failure = failure.detail("cap_remaining_milli_2z", cap);
+            }
+            return Err(failure);
+        }
+        p.output = asked;
+        p.hold = required;
+        return Ok(p);
+    }
+    if p.worst(1)?.get() > available {
+        return Err(refusal(short()));
     }
     let (mut low, mut high) = (1, ceiling);
     while low < high {
@@ -265,7 +530,34 @@ struct Active {
     completion: Mutex<Option<Value>>,
     provider_started: Mutex<bool>,
     output_bytes: Mutex<u64>,
+    /// The provider answered the request's head with a 2xx: it bills the
+    /// call whatever happens next (`Upstream::accepted`). Observed on every
+    /// poll so a call cut by a drain, which never yields an outcome, still
+    /// knows whether the provider is owed.
+    accepted: Mutex<bool>,
+    /// Everything the provider produced, delivered or not, for metering.md
+    /// §5.4's output estimate when its usage frame never arrives. Bounded
+    /// by the output cap the hold was sized for.
+    produced: Mutex<Produced>,
     final_record: Mutex<Option<Value>>,
+}
+
+/// The generated text, the complete tool calls, and each tool call's
+/// relayed fragments (name, then arguments, by call index) of one call.
+#[derive(Default)]
+struct Produced {
+    /// The generated text, counted incrementally in bounded chunks
+    /// (`estimate::OutputCounter`): retention per call is a chunk, not the
+    /// whole answer.
+    text: crate::estimate::OutputCounter,
+    tool_calls: Vec<ToolCall>,
+    /// By call index: the name as last reported (a later fragment's name
+    /// is the accumulated one and replaces it) and the arguments so far.
+    fragments: BTreeMap<u32, (String, String)>,
+    /// The upstream's own record of the fragments, read when the stream
+    /// ends or is dropped: complete in every mode, including `stream:
+    /// false`, where nothing is relayed.
+    upstream_fragments: Vec<String>,
 }
 
 /// Production backend and settler share a bounded map: one entry per admitted
@@ -276,10 +568,15 @@ pub struct Metered {
     active: Mutex<BTreeMap<u64, Arc<Active>>>,
     configured: Option<std::collections::BTreeSet<String>>,
     allowed_models: Option<std::collections::BTreeSet<String>>,
+    features_meta: bool,
+    child_directed_key: Option<Arc<ChildDirectedKey>>,
+    child_directed_key_previous: Option<Arc<ChildDirectedKey>>,
+    forms: Option<(Arc<dyn FormStore>, String)>,
 }
 impl Metered {
     /// Share this same instance between gateway backend and detached settler.
     pub fn new(ledger: Arc<dyn Ledger>, provider: ProviderBackend) -> Self {
+        crate::estimate::warm();
         let configured = provider.configured_providers();
         let mut backend = Self::with_provider(ledger, Arc::new(provider));
         backend.configured = Some(configured);
@@ -293,7 +590,154 @@ impl Metered {
             active: Mutex::new(BTreeMap::new()),
             configured: None,
             allowed_models: None,
+            features_meta: false,
+            child_directed_key: None,
+            child_directed_key_previous: None,
+            forms: None,
         }
+    }
+    /// The server secret for child-directed claims ([`ChildDirectedKey`]).
+    /// Without it, a child-directed call is refused before any claim
+    /// (`503 unavailable`): failing closed, never storing the plain form.
+    #[must_use]
+    pub fn with_child_directed_key(mut self, key: Option<ChildDirectedKey>) -> Self {
+        self.child_directed_key = key.map(Arc::new);
+        self
+    }
+    /// The key [`Self::with_child_directed_key`]'s replaced, for the 24 hours
+    /// after a rotation: a call claimed under it is still found and replayed.
+    #[must_use]
+    pub fn with_child_directed_key_previous(mut self, key: Option<ChildDirectedKey>) -> Self {
+        self.child_directed_key_previous = key.map(Arc::new);
+        self
+    }
+    /// Where form records live ([`crate::idempotency`]), under the Redis
+    /// `namespace` the limits use. Without a store, or without the current
+    /// child-directed key, every keyed claim takes its canonical form.
+    #[must_use]
+    pub fn with_form_store(mut self, store: Arc<dyn FormStore>, namespace: String) -> Self {
+        self.forms = Some((store, namespace));
+        self
+    }
+    fn keys(&self) -> impl Iterator<Item = &ChildDirectedKey> {
+        self.child_directed_key
+            .iter()
+            .chain(self.child_directed_key_previous.iter())
+            .map(AsRef::as_ref)
+    }
+    /// Where a keyed request's retry must claim: `Some((call, fingerprint))`
+    /// when a form record names a call claimed in another form than
+    /// `canonical` — the recorded call's id and this request's fingerprint
+    /// in that call's form. `None` claims in the canonical form. Counts its
+    /// outcome; never fails the request.
+    async fn straddled(
+        &self,
+        call: &CallHandle,
+        identity: Identity,
+        request: &ChatRequest,
+        canonical: &Form,
+    ) -> Result<Option<(Uuid, String)>, ApiFailure> {
+        let (Some((store, namespace)), Some(raw)) = (&self.forms, call.idempotency_key()) else {
+            return Ok(None);
+        };
+        let names: Vec<String> = self
+            .keys()
+            .map(|k| {
+                idempotency::record_key(
+                    namespace,
+                    identity.subject,
+                    identity.app,
+                    &k.form_record(raw),
+                )
+            })
+            .collect();
+        if names.is_empty() {
+            return Ok(None);
+        }
+        let outcome = |o: Outcome| call.inflight().metrics().record_idempotency_form(o);
+        let values = match store.get(&names).await {
+            Ok(values) => values,
+            Err(_) => {
+                tracing::error!(
+                    outcome = Outcome::Unavailable.label(),
+                    "idempotency form lookup failed; claiming in the canonical form, so a retry \
+                     across a child_directed flip or key rotation may be charged twice"
+                );
+                outcome(Outcome::Unavailable);
+                return Ok(None);
+            }
+        };
+        let Some(text) = values.into_iter().flatten().next() else {
+            outcome(Outcome::Miss);
+            return Ok(None);
+        };
+        let unknown = || {
+            tracing::error!(
+                outcome = Outcome::UnknownRecord.label(),
+                "idempotency form record names no configured key; claiming in the canonical form"
+            );
+            outcome(Outcome::UnknownRecord);
+            Ok(None)
+        };
+        let Some(record) = idempotency::Record::parse(&text) else {
+            return unknown();
+        };
+        if &record.form == canonical {
+            outcome(Outcome::Same);
+            return Ok(None);
+        }
+        let fingerprint = match &record.form {
+            Form::Plain => request_fingerprint(request)?,
+            Form::Keyed(kid) => match self.keys().find(|k| k.id() == kid) {
+                Some(key) => key.fingerprint(request)?,
+                None => return unknown(),
+            },
+        };
+        tracing::info!(
+            outcome = Outcome::Straddle.label(),
+            "idempotency key claimed in another form; replaying by its recorded call id"
+        );
+        outcome(Outcome::Straddle);
+        Ok(Some((record.call, fingerprint)))
+    }
+    /// Record the form a newly claimed keyed call took. Never fails it.
+    async fn record_form(&self, call: &CallHandle, identity: Identity, form: Form, id: Uuid) {
+        let (Some((store, namespace)), Some(raw), Some(current)) = (
+            &self.forms,
+            call.idempotency_key(),
+            &self.child_directed_key,
+        ) else {
+            return;
+        };
+        let name = idempotency::record_key(
+            namespace,
+            identity.subject,
+            identity.app,
+            &current.form_record(raw),
+        );
+        let record = idempotency::Record { form, call: id }.encode();
+        if store
+            .put(&name, &record, idempotency::RECORD_TTL)
+            .await
+            .is_err()
+        {
+            tracing::error!(
+                outcome = Outcome::WriteFailed.label(),
+                "idempotency form record not written; a retry of this call across a \
+                 child_directed flip or key rotation may be charged twice"
+            );
+            call.inflight()
+                .metrics()
+                .record_idempotency_form(Outcome::WriteFailed);
+        }
+    }
+    /// Store the content-free request `features` on the ledger call claim
+    /// (`Config::ledger_features_meta`). Off by default: a ledger without
+    /// `ledger.0006_call_features` refuses the key and every claim with it.
+    #[must_use]
+    pub const fn with_features_meta(mut self, enabled: bool) -> Self {
+        self.features_meta = enabled;
+        self
     }
     /// Restrict new paid work to reviewed model IDs while preserving old receipts.
     #[must_use]
@@ -337,14 +781,19 @@ impl ChatBackend for Metered {
     ) -> Result<Value, ApiFailure> {
         let (_, c) = self.context(principal).await?;
         let cat = catalog.catalog();
-        let models=cat.models.iter().filter(|m| self.model_allowed(&m.id) && cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider))).map(|m| {
+        // A child-directed app is shown only what it may call (chat.rs,
+        // CHILD_DIRECTED_PROVIDERS); the ETag hashes this body, so it differs.
+        let audience_allows = |provider: &str| {
+            !principal.child_directed || crate::chat::CHILD_DIRECTED_PROVIDERS.contains(&provider)
+        };
+        let models=cat.models.iter().filter(|m| self.model_allowed(&m.id) && cat.callable_model(&m.id).is_some() && self.configured.as_ref().is_none_or(|providers|providers.contains(&m.provider)) && audience_allows(&m.provider)).map(|m| {
             let mut prices=serde_json::Map::new();
             for (name, rate) in [("input_milli_2z_per_mtok",m.prices.input_nusd_per_mtok),("cached_input_milli_2z_per_mtok",m.prices.cached_input_nusd_per_mtok),("cache_write_milli_2z_per_mtok",m.prices.cache_write_nusd_per_mtok),("output_milli_2z_per_mtok",m.prices.output_nusd_per_mtok),("image_milli_2z",m.prices.image_nusd),("tool_call_milli_2z",m.prices.tool_call_nusd)] {
                 let numerator=u128::from(rate).checked_mul(u128::from(cat.platform_margin_bps.0)+10_000).and_then(|n| n.checked_mul(u128::from(c.markup().0)+10_000)).ok_or_else(invalid)?;
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning},"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),
@@ -358,8 +807,11 @@ impl ChatBackend for Metered {
     ) -> Result<Value, ApiFailure> {
         self.require_model(&request.model)?;
         let (_, c) = self.context(principal).await?;
-        serde_json::to_value(plan(&request, &catalog, &c)?.estimate(&c, catalog.catalog().version))
-            .map_err(|_| invalid())
+        let (request, estimate) = estimate_off_runtime(request, &catalog).await?;
+        serde_json::to_value(
+            plan_with(&request, &catalog, &c, estimate)?.estimate(&c, catalog.catalog().version),
+        )
+        .map_err(|_| invalid())
     }
     async fn receipt(&self, id: &str, principal: &Principal) -> Result<Value, ApiFailure> {
         let identity = Identity::try_from(principal).map_err(|_| invalid())?;
@@ -378,30 +830,67 @@ impl ChatBackend for Metered {
     }
     async fn start(
         &self,
-        mut request: ChatRequest,
+        request: ChatRequest,
         catalog: Arc<VerifiedCatalog>,
         call: &CallHandle,
     ) -> Result<Box<dyn Upstream>, ApiFailure> {
         let principal = call.principal().ok_or_else(invalid)?;
         let identity = Identity::try_from(principal).map_err(|_| invalid())?;
-        let body = serde_json::to_vec(&request).map_err(|_| invalid())?;
-        let fingerprint = ring::digest::digest(&ring::digest::SHA256, &body)
-            .as_ref()
-            .iter()
-            .map(|b| format!("{b:02x}"))
-            .collect::<String>();
-        let id = Uuid::now_v7();
+        // The canonical form: what this request's own token derives. The
+        // `key` is always canonical — a child-directed caller's claim never
+        // carries the key text, even when it replays a plain-form call.
+        let (form, fingerprint, key) = if principal.child_directed {
+            let Some(secret) = &self.child_directed_key else {
+                return Err(ApiFailure::new(
+                    ErrorCode::Unavailable,
+                    "this gateway is not configured for child-directed apps",
+                )
+                .detail("reason", "child_directed_unconfigured"));
+            };
+            (
+                Form::Keyed(secret.id().to_owned()),
+                secret.fingerprint(&request)?,
+                call.idempotency_key().map(|k| secret.idempotency_key(k)),
+            )
+        } else {
+            (
+                Form::Plain,
+                request_fingerprint(&request)?,
+                call.idempotency_key().map(str::to_owned),
+            )
+        };
+        // A retry across a flip or rotation names the call it retries, with
+        // the fingerprint in that call's form; `call_claim` resolves an
+        // existing call by id before it looks at the key.
+        let straddle = self.straddled(call, identity, &request, &form).await?;
+        let (id, fingerprint) = match &straddle {
+            Some((recorded, fingerprint)) => (*recorded, fingerprint.clone()),
+            None => (Uuid::now_v7(), fingerprint),
+        };
         let provider = catalog
             .catalog()
             .models
             .iter()
             .find(|m| m.id == request.model)
             .map_or("unavailable", |m| m.provider.as_str());
-        let request_meta = json!({"model":request.model,"requested_model":request.model,"provider":provider,"catalog_version":catalog.catalog().version,"metadata":request.metadata});
+        let mut request_meta = json!({"model":request.model,"requested_model":request.model,"provider":provider,"catalog_version":catalog.catalog().version,"metadata":request.metadata});
+        if self.features_meta
+            && let Some(meta) = request_meta.as_object_mut()
+        {
+            // Content-free (crate::features). Gated: an older ledger refuses
+            // the key, and a refused claim fails the paid call.
+            let mut features = crate::features::RequestFeatures::of(&request);
+            // The schema name is caller-chosen text, like `metadata`; a
+            // child-directed app's call record keeps none (CHILD-DIRECTED.md).
+            if principal.child_directed {
+                features.response_format_schema_name = None;
+            }
+            meta.insert("features".into(), features.to_json());
+        }
         let claim = Operation::Claim {
             identity,
             call: id,
-            key: call.idempotency_key().map(str::to_owned),
+            key,
             fingerprint,
             request: request_meta.clone(),
         };
@@ -415,6 +904,8 @@ impl ChatBackend for Metered {
             completion: Mutex::new(None),
             provider_started: Mutex::new(false),
             output_bytes: Mutex::new(0),
+            accepted: Mutex::new(false),
+            produced: Mutex::new(Produced::default()),
             final_record: Mutex::new(None),
         });
         lock(&self.active).insert(call.id(), Arc::clone(&active));
@@ -447,6 +938,20 @@ impl ChatBackend for Metered {
         if existing != Some(id.to_string().as_str()) {
             return Err(invalid());
         }
+        if straddle.is_some() {
+            // The ledger no longer held the recorded call, so this claim
+            // inserted it afresh. It proceeds as a new call.
+            tracing::error!(
+                outcome = Outcome::Orphaned.label(),
+                "a recorded call id was not found by the ledger; claimed as a new call"
+            );
+            call.inflight()
+                .metrics()
+                .record_idempotency_form(Outcome::Orphaned);
+        } else {
+            self.record_form(call, identity, form, id).await;
+        }
+        call.set_durable_call_id(id);
         // Replay precedes spendability: a completed call remains readable even
         // after its charge exhausted the current balance/cap.
         if let Err(refusal) = self.require_model(&request.model) {
@@ -463,7 +968,30 @@ impl ChatBackend for Metered {
             return Err(refusal);
         }
         let admitted_context = Context::parse(row.get("context").ok_or_else(invalid)?.clone())?;
-        let p = plan(&request, &catalog, &admitted_context)?;
+        let (request, estimate) = estimate_off_runtime(request, &catalog).await?;
+        let mut request = request;
+        let p = match plan_with(&request, &catalog, &admitted_context, estimate) {
+            Ok(p) => p,
+            Err(refused) if is_terminal_refusal(&refused) => {
+                // The key is already claimed. Persist the strict (or
+                // unsupported response_format) refusal as the
+                // call's terminal zero-charge completion (as for model_disabled
+                // above), so replaying the key — e.g. after a top-up — answers
+                // with this refusal's code, not an abandoned-claim
+                // `unavailable`. The ledger stores only `code` and `message`
+                // (each 1–256 characters); `details` are not persisted.
+                *lock(&active.completion) = Some(json!({
+                    "model": request.model, "provider": provider, "finish_reason": "stop",
+                    "partial": false,
+                    "error": {"code": refused.code(), "message": bounded(refused.message())}
+                }));
+                finalize(self.ledger.as_ref(), &active)
+                    .await
+                    .map_err(|_| unavailable().detail("call_id", id.to_string()))?;
+                return Err(refused);
+            }
+            Err(refused) => return Err(refused),
+        };
         *lock(&active.plan) = Some(p.clone());
         let hold = Operation::Hold {
             identity,
@@ -606,6 +1134,47 @@ impl ChatBackend for Metered {
     }
 }
 
+/// A refusal `plan` makes after the idempotency claim that must be
+/// persisted as the key's terminal answer: `max_output_tokens_strict`
+/// forbade a clamp, or the model cannot honour `response_format`, a tool
+/// feature (`tools_unsupported`) or `reasoning_effort`. Either way
+/// a same-key replay must name it, not an abandoned-claim `unavailable`.
+fn is_terminal_refusal(failure: &ApiFailure) -> bool {
+    matches!(
+        failure.detail_of("reason").and_then(Value::as_str),
+        Some(reason) if reason == crate::provider::STRICT_OUTPUT_REASON
+            || reason == crate::provider::RESPONSE_FORMAT_UNSUPPORTED
+            || reason == crate::provider::TOOLS_UNSUPPORTED
+            || reason == crate::provider::REASONING_EFFORT_UNSUPPORTED
+    )
+}
+
+/// `/v1/models`' `controls` for `m`: the signed narrowing of what a capability
+/// admits, only where that capability is advertised. Always an object, so a
+/// client reads a missing member as "not narrowed".
+fn models_controls(m: &CatalogModel) -> Value {
+    let mut controls = serde_json::Map::new();
+    if crate::provider::reasoning_effort_supported(m)
+        && let Some(levels) = &m.controls.effort_levels
+    {
+        controls.insert("effort_levels".into(), json!(levels));
+    }
+    if crate::provider::reasoning_effort_supported(m) && m.controls.tools_require_effort_none {
+        controls.insert("tools_require_effort_none".into(), json!(true));
+    }
+    Value::Object(controls)
+}
+
+/// A persisted error message: the ledger accepts 1–256 characters.
+fn bounded(message: &str) -> String {
+    let text: String = message.chars().take(256).collect();
+    if text.is_empty() {
+        "refused".into()
+    } else {
+        text
+    }
+}
+
 /// Project only public, checked fields; never forward internal settlement usage
 /// metadata, transfer IDs, raw SQL errors, or the ledger envelope wholesale.
 #[allow(clippy::indexing_slicing)] // Every indexed write targets the object constructed by json! below.
@@ -635,6 +1204,15 @@ fn project(record: &Value, replayed: bool) -> Result<Value, ApiFailure> {
         "metadata",
     ] {
         out[key] = request.get(key).ok_or_else(invalid)?.clone();
+    }
+    // Optional and additive: only calls claimed with `features` carry it,
+    // and only the exact content-free shape is projected (never the stored
+    // value wholesale).
+    if let Some(features) = request
+        .get("features")
+        .and_then(crate::features::RequestFeatures::from_json)
+    {
+        out["features"] = features.to_json();
     }
     for key in ["created_at", "settled_at"] {
         out[key] = record.get(key).ok_or_else(invalid)?.clone();
@@ -706,20 +1284,110 @@ fn completion(active: &Active, outcome: Option<&ProviderOutcome>) -> Value {
         json!({"code":f.code,"message":"provider call failed"})
     } else if outcome.is_none() {
         json!({"code":"unavailable","message":"gateway stopped before provider completion"})
-    } else if reported.is_none() {
-        // No tokenizer-backed fallback yet: fail this unsupported billing path,
-        // release the hold, and make the platform absorb unknown provider cost.
-        // Never manufacture zero usage or bill a UTF-8 byte count as tokens.
-        json!({"code":"provider_error","message":"provider usage unavailable; this gateway cannot meter the response"})
     } else {
         Value::Null
     };
     let mut value = json!({"model":active.request_meta.get("model"),"provider":active.request_meta.get("provider"),"finish_reason":outcome.and_then(|o|o.finish_reason).unwrap_or(FinishReason::Stop),"partial":bytes>0 && !error.is_null(),"error":error});
+    // The provider accepted the request (a 2xx head), so it bills the call
+    // whether or not its usage frame arrived. A request it refused — never
+    // sent, a non-2xx head, or its own `error` event before any content
+    // (the in-stream form of a refusal, metering.md §5.2) — has no usage
+    // here, and `finalize` releases the hold.
+    let accepted = *lock(&active.provider_started)
+        && outcome.map_or_else(|| *lock(&active.accepted), |o| o.accepted);
+    let refused_in_stream = outcome
+        .and_then(|o| o.failure.as_ref())
+        .is_some_and(|f| f.phase == Phase::BeforeContent && f.declared_by_provider());
     if let Some(usage) = reported {
         value["usage"] = json!(usage);
         value["usage_source"] = json!("provider");
+        // The provider's numbers settle this call: what was retained for
+        // the estimate is not needed and is released now rather than at
+        // settlement, which a ledger outage can hold open for minutes.
+        // Retention is bounded in any case by `max_concurrent_calls` ×
+        // the output cap the provider was given.
+        *lock(&active.produced) = Produced::default();
+    } else if accepted
+        && !refused_in_stream
+        && let Some(usage) = estimated_usage(active, outcome)
+    {
+        // metering.md §5.4: the hold's input estimate, the produced output
+        // tokenised, nothing invented for the buckets a stream cannot show.
+        // Never a zero usage, never a byte count billed as tokens.
+        value["usage"] = json!(usage);
+        value["usage_source"] = json!("estimated");
     }
     value
+}
+
+/// metering.md §5.4's usage vector for a call whose provider usage never
+/// arrived: the input buckets are the counts the provider did report before
+/// the stream ended (Anthropic's `message_start`) when they fit under the
+/// hold's input estimate, else the estimate itself in the uncached bucket;
+/// `output_tokens` is everything the provider produced — delivered or not —
+/// tokenised and scaled by 11,000 bps, capped at the output ceiling the
+/// provider was given. Every bucket is bounded by the two numbers the hold
+/// was priced from at the dearest input rate, so the price can never exceed
+/// the hold. Reasoning tokens are not streamed and are not in it. `None`
+/// before admission.
+fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option<Usage> {
+    let plan = lock(&active.plan).clone()?;
+    let partial = match outcome.map(|o| &o.usage) {
+        Some(UsageReport::Missing { partial: Some(p) }) => Some(*p),
+        _ => None,
+    };
+    let input = partial
+        .filter(|p| {
+            let total = p
+                .input_tokens
+                .saturating_add(p.cached_input_tokens)
+                .saturating_add(p.cache_write_tokens);
+            total > 0 && total <= plan.input
+        })
+        .map_or((plan.input, 0, 0), |p| {
+            (p.input_tokens, p.cached_input_tokens, p.cache_write_tokens)
+        });
+    if !plan.input_exact && partial.is_none() {
+        // metering.md §5.4: a provider without a tokeniser settles its
+        // interrupted calls at the byte bound (4–5× the billed input).
+        // Loud, so that it cannot go live unnoticed when such a provider
+        // is first sold through the gateway.
+        tracing::warn!(
+            call_id = %active.id,
+            model = plan.model.id.as_str(),
+            provider = plan.model.provider.as_str(),
+            input_tokens = plan.input,
+            "estimated_input_byte_bound: interrupted call settled at the byte bound, no tokeniser and no partial usage"
+        );
+    }
+    let output = {
+        let produced = lock(&active.produced);
+        // The fragments the adapter saw (every mode) or, on a drain that
+        // left no outcome, the ones this stream relayed.
+        let relayed: Vec<String> = produced
+            .fragments
+            .values()
+            .map(|(name, arguments)| format!("{name}{arguments}"))
+            .collect();
+        let fragments = outcome
+            .map(|o| o.tool_fragments.as_slice())
+            .filter(|f| !f.is_empty())
+            .or_else(|| Some(produced.upstream_fragments.as_slice()).filter(|f| !f.is_empty()))
+            .unwrap_or(&relayed);
+        crate::estimate::output_tokens_counted(
+            &plan.model,
+            &produced.text,
+            &produced.tool_calls,
+            fragments,
+        )
+    };
+    Some(Usage {
+        input_tokens: input.0,
+        cached_input_tokens: input.1,
+        cache_write_tokens: input.2,
+        output_tokens: output.min(plan.output),
+        ..Usage::default()
+    })
 }
 
 async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFailure> {
@@ -779,15 +1447,18 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
         return Err(unavailable());
     };
     *lock(&active.hold_id) = Some(hold);
-    let failed = !intent.get("error").is_none_or(Value::is_null);
-    let output = *lock(&active.output_bytes) > 0;
+    // Release only when the provider is owed nothing: the request was never
+    // sent, or `completion` found no usage to settle on — reported or
+    // estimated — because the provider refused the request (a non-2xx head,
+    // no first byte, no connection). An accepted request always has a
+    // usage here (metering.md §5.4), so a failure before any output on an
+    // accepted stream — an idle timeout during silent reasoning — settles
+    // on the input estimate rather than refunding a call the provider bills.
     let usage = intent
         .get("usage")
         .map(|v| serde_json::from_value::<Usage>(v.clone()).map_err(|_| invalid()))
         .transpose()?;
-    let operation = if !late_cost
-        && (!*lock(&active.provider_started) || (failed && !output) || usage.is_none())
-    {
+    let operation = if !late_cost && (!*lock(&active.provider_started) || usage.is_none()) {
         Operation::Release {
             hold,
             usage: json!({}),
@@ -959,17 +1630,48 @@ impl Upstream for MeterStream {
                 },
                 ()=async { if let Some(future)=self.extending.as_mut() {future.await;} else {std::future::pending::<()>().await;} }=>{self.extending=None;continue;},
             };
+            if self.upstream.accepted() {
+                *lock(&self.active.accepted) = true;
+            }
             if let Some(event) = event {
                 match &event {
                     Event::Delta(delta) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(u64::try_from(delta.text.len()).unwrap_or(u64::MAX));
+                        let encoding = lock(&self.active.plan)
+                            .as_ref()
+                            .map(|p| crate::estimate::output_encoding(&p.model));
+                        if let Some(encoding) = encoding {
+                            lock(&self.active.produced).text.push(encoding, &delta.text);
+                        }
+                    }
+                    // `output_bytes` only says whether any output was
+                    // produced (the completion's `partial`); the fragments
+                    // themselves are kept, by call index, for metering.md
+                    // §5.4's output estimate when the stream is cut before
+                    // the complete call (the larger of fragments and
+                    // complete calls is counted, never both).
+                    Event::ToolCallDelta(fragment) => {
+                        let mut n = lock(&self.active.output_bytes);
+                        *n = n.saturating_add(
+                            u64::try_from(fragment.arguments.len().max(1)).unwrap_or(u64::MAX),
+                        );
+                        drop(n);
+                        let mut produced = lock(&self.active.produced);
+                        let entry = produced.fragments.entry(fragment.index).or_default();
+                        if let Some(name) = &fragment.name {
+                            entry.0.clone_from(name);
+                        }
+                        entry.1.push_str(&fragment.arguments);
                     }
                     Event::ToolCall(tool) => {
                         let mut n = lock(&self.active.output_bytes);
                         *n = n.saturating_add(
                             u64::try_from(tool.arguments.len()).unwrap_or(u64::MAX),
                         );
+                        // The complete call only: its `tool_call_delta`
+                        // fragments repeat the same arguments.
+                        lock(&self.active.produced).tool_calls.push(tool.clone());
                     }
                     Event::Usage(_) => continue,
                     _ => {}
@@ -983,11 +1685,15 @@ impl Upstream for MeterStream {
             self.outcome = self.upstream.outcome();
             *lock(&self.active.completion) = Some(completion(&self.active, self.outcome.as_ref()));
             let success = self.outcome.as_ref().is_some_and(|o| o.failure.is_none());
-            if success || *lock(&self.active.output_bytes) > 0 {
+            let intent = lock(&self.active.completion).clone().unwrap_or(Value::Null);
+            // `meta` precedes every terminal that carries a charge: a call
+            // that failed before any output but settles on the estimate
+            // (chat-api.md §2.3) is not a lone `error` with `charged_2z: 0`.
+            let charged = intent.get("usage").is_some();
+            if success || charged || *lock(&self.active.output_bytes) > 0 {
                 if let Some(meta) = self.meta.take() {
                     self.queued.push_back(Event::Meta(meta));
                 }
-                let intent = lock(&self.active.completion).clone().unwrap_or(Value::Null);
                 if let Some(usage) = intent
                     .get("usage")
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
@@ -1017,10 +1723,38 @@ impl Upstream for MeterStream {
         }
     }
     fn outcome(&mut self) -> Option<ProviderOutcome> {
+        // Read on every path that ends the stream, the drain included
+        // (`call::run` asks for the outcome before it drops the upstream):
+        // a provider that accepted a request and was still silent when the
+        // drain cut it is owed the call, and `completion` must know.
+        self.note_accepted();
         self.outcome.clone().or_else(|| self.upstream.outcome())
+    }
+    fn accepted(&self) -> bool {
+        *lock(&self.active.accepted) || self.upstream.accepted()
     }
     fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {
         self.upstream.keep_upload_reservation(reservation);
+    }
+}
+
+impl MeterStream {
+    /// Copy the upstream's acceptance and its record of the tool fragments
+    /// into the call's shared state, where the settler reads them after
+    /// this stream is gone.
+    fn note_accepted(&self) {
+        if self.upstream.accepted() {
+            *lock(&self.active.accepted) = true;
+        }
+        let fragments = self.upstream.tool_fragments();
+        if !fragments.is_empty() {
+            lock(&self.active.produced).upstream_fragments = fragments;
+        }
+    }
+}
+impl Drop for MeterStream {
+    fn drop(&mut self) {
+        self.note_accepted();
     }
 }
 
@@ -1065,6 +1799,128 @@ impl Upstream for Replay {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn child_directed_claims_are_keyed_deterministic_and_change_with_the_key() {
+        let request: ChatRequest = serde_json::from_value(serde_json::json!({
+            "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "2+2?"}]}]
+        }))
+        .unwrap();
+        let a = ChildDirectedKey::new(&[1; 32]).unwrap();
+        let b = ChildDirectedKey::new(&[2; 32]).unwrap();
+        let plain = request_fingerprint(&request).unwrap();
+        let keyed = a.fingerprint(&request).unwrap();
+        // The ledger's shape: 64 lowercase hex characters.
+        for value in [&keyed, &a.idempotency_key("lesson-alice")] {
+            assert_eq!(value.len(), 64);
+            assert!(
+                value
+                    .bytes()
+                    .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+            );
+        }
+        assert_ne!(
+            keyed, plain,
+            "not the unkeyed SHA-256 a guess could confirm"
+        );
+        assert_eq!(keyed, a.fingerprint(&request).unwrap(), "a retry matches");
+        assert_eq!(a.idempotency_key("k"), a.idempotency_key("k"));
+        // Rotation: a different key derives different values — which is why
+        // the form record names the key by id (crate::idempotency).
+        assert_ne!(keyed, b.fingerprint(&request).unwrap());
+        assert_ne!(a.idempotency_key("k"), b.idempotency_key("k"));
+        assert_eq!(a.id().len(), 16);
+        assert_eq!(a.id(), ChildDirectedKey::new(&[1; 32]).unwrap().id());
+        assert_ne!(a.id(), b.id());
+        // The record's Redis key is its own domain: never a ledger value.
+        assert_ne!(a.form_record("k"), a.idempotency_key("k"));
+        assert_ne!(a.form_record("k"), b.form_record("k"));
+        // Domain separation: a key equal to the request bytes does not
+        // collide with the fingerprint.
+        let body = String::from_utf8(canonical_request(&request).unwrap()).unwrap();
+        assert_ne!(a.idempotency_key(&body), keyed);
+        assert!(ChildDirectedKey::new(&[0; 31]).is_err());
+    }
+
+    /// zuu#1132: the idempotency fingerprint is byte-identical to the
+    /// pre-#1132 gateway's for the same request bytes, so a same-key retry
+    /// spanning the deploy still matches. The hex digests below were computed
+    /// by the gateway at 42acc57f (before #1132, when these fields were
+    /// `serde_json::Value`s), as `sha256(serde_json::to_vec(&request))`.
+    const PRE_1132_FINGERPRINTS: [(&str, &str); 4] = [
+        (
+            "27da765094dc01f3ce5ead06c8e368fdafc2c2151dcdc1dc331e3cd77f8aed6c",
+            r#"{"model":"gpt-4.1-mini","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"max_output_tokens":64,"metadata":{"b":"2","a":"1"}}"#,
+        ),
+        (
+            "5651c210b1ecc9febf3fbb8c7326dbcb35f32f8b4eb81119b732379c1fb20cf4",
+            r#"{"model":"gpt-4.1-mini","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"name":"lookup","description":"d","parameters":{"type":"object","properties":{"zeta":{"type":"string","description":"z\u00e9 \"q\""},"alpha":{"type":"integer","minimum":-3,"maximum":18446744073709551615}},"required":["zeta","alpha"],"additionalProperties":false}}]}"#,
+        ),
+        (
+            "985cc558408ea99d65536a56a1168f40f699d33c6816a2181b3c7967c54222e9",
+            r#"{"model":"gpt-4.1-mini","stream":false,"messages":[{"role":"user","content":[{"type":"text","text":"JSON please"}]}],"response_format":{"type":"json_schema","json_schema":{"name":"activity_spec","strict":true,"schema":{"type":"object","properties":{"reasoning":{"type":"string"},"answer":{"type":"number","multipleOf":0.5},"Émoji🙂":{"enum":[null,true,1.25e3]}},"required":["reasoning","answer"],"additionalProperties":false,"x":1,"x":2}}}}"#,
+        ),
+        (
+            "57d9dbeb5eb02691887dfc3de3b8d962b328982e12f61af3435fdd1b210c89ce",
+            r#"{"model":"gpt-4.1-mini","messages":[{"role":"user","content":[{"type":"text","text":"JSON"}]}],"tools":[{"name":"b","parameters":{"type":"object","properties":{"q":{},"p":{"type":"array","items":{"z":1,"a":[{"y":0,"b":0}]}}}}},{"name":"a","parameters":{}}],"response_format":{"type":"json_object"}}"#,
+        ),
+    ];
+
+    #[test]
+    fn idempotency_fingerprints_are_unchanged_by_1132() {
+        for (expected, body) in PRE_1132_FINGERPRINTS {
+            let request: ChatRequest = serde_json::from_str(body).unwrap();
+            assert_eq!(request_fingerprint(&request).unwrap(), expected, "{body}");
+        }
+        // Negative control: hashing the request as it is now serialized —
+        // the caller's member order — changes every fingerprint whose
+        // schemas were not already sorted, which is the deploy-spanning
+        // `idempotency_conflict` the sort exists to prevent.
+        for (index, (expected, body)) in PRE_1132_FINGERPRINTS.into_iter().enumerate() {
+            let request: ChatRequest = serde_json::from_str(body).unwrap();
+            let as_sent = serde_json::to_vec(&request).unwrap();
+            let hex: String = ring::digest::digest(&ring::digest::SHA256, &as_sent)
+                .as_ref()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect();
+            // Only the first body carries no schema to reorder.
+            assert_eq!(hex == expected, index == 0, "{body}");
+        }
+        // And a reordered schema is the same call for idempotency.
+        let a: ChatRequest = serde_json::from_str(PRE_1132_FINGERPRINTS[2].1).unwrap();
+        let mut b = a.clone();
+        if let Some(f2z_ai_proto::ResponseFormat::JsonSchema { json_schema }) =
+            &mut b.response_format
+        {
+            json_schema.schema = json_schema.schema.with_sorted_keys();
+        }
+        assert_ne!(a, b);
+        assert_eq!(
+            request_fingerprint(&a).unwrap(),
+            request_fingerprint(&b).unwrap()
+        );
+    }
+
+    /// The gateway links serde_json with `raw_value` (sqlx), under which a
+    /// `Value` decodes serde_json's private raw-value member as the JSON text
+    /// it holds. A schema carrying one must keep its pre-#1132 bytes, and so
+    /// its fingerprint, too.
+    #[test]
+    fn a_raw_value_member_keeps_its_pre_1132_bytes() {
+        let schema = r#"{"type":"object","default":{"$serde_json::private::RawValue":"{\"b\":1,\"a\":[2]}"}}"#;
+        let ordered: f2z_ai_proto::OrderedJson = schema.parse().unwrap();
+        let value: Value = serde_json::from_str(schema).unwrap();
+        assert_eq!(
+            value["default"],
+            json!({"a": [2], "b": 1}),
+            "raw_value is on"
+        );
+        assert_eq!(
+            serde_json::to_vec(&ordered.with_sorted_keys()).unwrap(),
+            serde_json::to_vec(&value).unwrap()
+        );
+    }
     #[test]
     fn malformed_final_amounts_never_become_a_public_charge() {
         let mut record = json!({"call_id":Uuid::now_v7(),"status":"settled","request":{"model":"m","requested_model":"m","provider":"p","catalog_version":1,"metadata":{}},"created_at":"2026-09-27T00:00:00Z","settled_at":"2026-09-27T00:00:01Z","settlement":{"hold_id":Uuid::now_v7(),"outcome":"settled","hold_milli_2z":1000,"priced_milli_2z":1000,"collected_milli_2z":1000,"shortfall_milli_2z":0,"applied_markup_bps":0}});
@@ -1076,5 +1932,609 @@ mod tests {
         record["settlement"]["collected_milli_2z"] = json!(900);
         record["settlement"]["shortfall_milli_2z"] = json!(100);
         assert!(project(&record, false).is_err());
+    }
+
+    #[test]
+    fn stored_features_are_projected_only_in_their_exact_shape() {
+        let features = json!({"response_format":"json_schema","response_format_strict":true,
+            "response_format_schema_name":"activity_spec","response_format_schema_bytes":120,
+            "tools":0,"max_output_tokens_strict":true,"stream":false,"fallback":0});
+        let mut record = json!({"call_id":Uuid::now_v7(),"status":"streaming","request":{"model":"m","requested_model":"m","provider":"p","catalog_version":1,"metadata":{},"features":features},"created_at":"2026-10-05T00:00:00Z","settled_at":null});
+        assert_eq!(project(&record, false).unwrap()["features"], features);
+        // A record claimed without features (flag off, or an older call) has none.
+        record["request"]
+            .as_object_mut()
+            .unwrap()
+            .remove("features");
+        assert!(project(&record, false).unwrap().get("features").is_none());
+        // Anything else stored there is never forwarded.
+        record["request"]["features"] = json!({"prompt":"leak"});
+        assert!(project(&record, false).unwrap().get("features").is_none());
+    }
+
+    /// A `tracing` layer that keeps every event's message, for asserting
+    /// that an operator-facing log line fires.
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<String>>>);
+    impl<S: tracing::Subscriber> tracing_subscriber::Layer<S> for Captured {
+        fn on_event(
+            &self,
+            event: &tracing::Event<'_>,
+            _ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            struct Message(String);
+            impl tracing::field::Visit for Message {
+                fn record_debug(
+                    &mut self,
+                    field: &tracing::field::Field,
+                    value: &dyn std::fmt::Debug,
+                ) {
+                    if field.name() == "message" {
+                        self.0 = format!("{value:?}");
+                    }
+                }
+            }
+            let mut message = Message(String::new());
+            event.record(&mut message);
+            lock(&self.0).push(message.0);
+        }
+    }
+
+    fn active_with(plan: Plan) -> Active {
+        Active {
+            identity: Identity::try_from(&Principal {
+                sub: "11111111-1111-4111-8111-111111111111".into(),
+                client_id: "c".into(),
+                app_id: "22222222-2222-4222-8222-222222222222".into(),
+                scope: "ai:invoke".into(),
+                aep: 1,
+                agen: 1,
+                exp: u64::MAX,
+                jti: "t".into(),
+                child_directed: false,
+            })
+            .unwrap(),
+            id: Uuid::now_v7(),
+            plan: Mutex::new(Some(plan)),
+            request_meta: json!({}),
+            hold: Mutex::new(None),
+            hold_id: Mutex::new(None),
+            completion: Mutex::new(None),
+            provider_started: Mutex::new(true),
+            output_bytes: Mutex::new(0),
+            accepted: Mutex::new(true),
+            produced: Mutex::new(Produced::default()),
+            final_record: Mutex::new(None),
+        }
+    }
+
+    fn drained_outcome(partial: Option<Usage>) -> ProviderOutcome {
+        ProviderOutcome {
+            finish_reason: None,
+            usage: UsageReport::Missing { partial },
+            cache_write_1h_tokens: 0,
+            failure: None,
+            output_produced: false,
+            accepted: true,
+            tool_fragments: Vec::new(),
+            function_tool_calls: 0,
+            attempts: 1,
+        }
+    }
+
+    // metering.md §5.4's guard on the byte-bound settlement: a provider
+    // without a tokeniser whose interrupted call settles at the byte bound
+    // logs `estimated_input_byte_bound`; a tokenised model, or partial
+    // counts from the provider, do not.
+    #[test]
+    fn a_byte_bound_settlement_without_partial_counts_is_logged() {
+        use tracing_subscriber::layer::SubscriberExt;
+        let catalog = priced(200_000);
+        let model = catalog.catalog().models[0].clone();
+        let plan = |exact: bool| Plan {
+            model: model.clone(),
+            input: 135,
+            input_exact: exact,
+            output: 100,
+            hold: Whole2z::new(1),
+            markup: Bps(0),
+            margin: Bps(2000),
+        };
+        let run = |exact: bool, partial: Option<Usage>| {
+            let captured = Captured::default();
+            let subscriber = tracing_subscriber::registry().with(captured.clone());
+            let usage = tracing::subscriber::with_default(subscriber, || {
+                estimated_usage(&active_with(plan(exact)), Some(&drained_outcome(partial)))
+            })
+            .unwrap();
+            let fired = lock(&captured.0)
+                .iter()
+                .any(|m| m.contains("estimated_input_byte_bound"));
+            (usage, fired)
+        };
+        let (usage, fired) = run(false, None);
+        assert_eq!(usage.input_tokens, 135);
+        assert!(fired, "the byte-bound settlement did not log");
+        let (_, fired) = run(true, None);
+        assert!(!fired, "a tokenised estimate logged the byte-bound line");
+        let reported = Usage {
+            input_tokens: 40,
+            cached_input_tokens: 5,
+            ..Usage::default()
+        };
+        let (usage, fired) = run(false, Some(reported));
+        assert_eq!((usage.input_tokens, usage.cached_input_tokens), (40, 5));
+        assert!(!fired, "provider counts settled it, yet it logged");
+    }
+
+    // free2z/zuu#1122: `max_output_tokens_strict` refuses instead of clamping.
+    // ~100 output tokens per whole 2Z before margin, so a few 2Z of balance
+    // is clamped well below the 1800 tokens AHA asks for.
+    fn priced(context_window: u64) -> VerifiedCatalog {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        VerifiedCatalog::from_verified(
+            serde_json::from_value(json!({
+                "schema": 1, "version": 1, "issued_at": now - 60, "expires_at": now + 3600,
+                "rate_card_version": 1, "platform_margin_bps": 2000,
+                "models": [{
+                    "id": "m", "provider": "p", "provider_model_id": "m-up",
+                    "api_style": "openai_responses",
+                    "prices": {"input_nusd_per_mtok": 1000, "cached_input_nusd_per_mtok": 100,
+                               "cache_write_nusd_per_mtok": 1250,
+                               "output_nusd_per_mtok": 100_000_000_000_u64,
+                               "image_nusd": 0, "tool_call_nusd": 0},
+                    "min_charge_2z": 1, "safety_factor_bps": 10000,
+                    "context_window": context_window, "max_output_tokens": 8192,
+                    "ttfb_timeout_ms": 10000, "enabled": true
+                }]
+            }))
+            .unwrap(),
+        )
+        .unwrap()
+    }
+    fn ctx(available: u64, cap: Option<u64>) -> Context {
+        ctx_markup(available, cap, 0, 0)
+    }
+    fn ctx_markup(available: u64, cap: Option<u64>, consented: u32, effective: u32) -> Context {
+        Context::parse(json!({"status":"ok","available_milli_2z":available,
+            "cap_remaining_milli_2z":cap,"debt_milli_2z":0,"open_holds":0,"frozen":false,
+            "consented_markup_bps":consented,"effective_markup_bps":effective}))
+        .unwrap()
+    }
+    fn ask(tokens: u64, strict: bool) -> ChatRequest {
+        serde_json::from_value(json!({"model":"m","max_output_tokens":tokens,
+            "max_output_tokens_strict":strict,
+            "messages":[{"role":"user","content":[{"type":"text","text":"teach me"}]}]}))
+        .unwrap()
+    }
+    fn strict_refusal(e: &ApiFailure, code: ErrorCode) {
+        assert_eq!(e.code(), code.as_str(), "{e:?}");
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!(crate::provider::STRICT_OUTPUT_REASON))
+        );
+    }
+
+    #[test]
+    fn strict_refuses_the_balance_clamp_that_the_default_applies() {
+        let catalog = priced(200_000);
+        let low = ctx(5_000, None);
+        // Premise (the #1122 bug): by default the call is admitted, shorter.
+        let clamped = plan(&ask(1800, false), &catalog, &low).unwrap();
+        assert!(clamped.output < 1800, "{}", clamped.output);
+        assert!(clamped.output > 0);
+        // Strict: refused, with what it would have cost.
+        let e = plan(&ask(1800, true), &catalog, &low).err().unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+        assert_eq!(e.status().as_u16(), 402);
+        let full = plan(&ask(1800, false), &catalog, &ctx(u64::from(u32::MAX), None)).unwrap();
+        assert_eq!(e.detail_of("required_2z"), Some(&json!(full.hold.get())));
+        assert_eq!(e.detail_of("max_output_tokens"), Some(&json!(1800)));
+        assert_eq!(e.detail_of("available_milli_2z"), Some(&json!(5_000)));
+        assert!(e.detail_of("cap_remaining_milli_2z").is_none());
+    }
+
+    #[test]
+    fn strict_refuses_the_cap_clamp_as_cap_exceeded() {
+        let e = plan(
+            &ask(1800, true),
+            &priced(200_000),
+            &ctx(10_000_000, Some(5_000)),
+        )
+        .err()
+        .unwrap();
+        strict_refusal(&e, ErrorCode::CapExceeded);
+        assert_eq!(e.detail_of("cap_remaining_milli_2z"), Some(&json!(5_000)));
+    }
+
+    #[test]
+    fn strict_admits_exactly_the_affordable_boundary_at_the_full_limit() {
+        let catalog = priced(200_000);
+        let full = plan(&ask(1800, false), &catalog, &ctx(10_000_000, None)).unwrap();
+        let exact = full.hold.to_milli().unwrap().get();
+        let p = plan(&ask(1800, true), &catalog, &ctx(exact, None)).unwrap();
+        assert_eq!((p.output, p.hold), (1800, full.hold));
+        // One whole 2Z less and the same request no longer fits.
+        let e = plan(&ask(1800, true), &catalog, &ctx(exact - 1000, None))
+            .err()
+            .unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+    }
+
+    #[test]
+    fn strict_affordability_is_judged_at_the_consented_markup() {
+        // The ledger applies min(consented, effective) at hold time, so an
+        // approval between the context read and the hold can raise the price
+        // up to the consented markup. A strict call that only fits at the
+        // lower effective markup must be refused *before* the hold, never
+        // held and then refused by the post-hold extension.
+        let catalog = priced(200_000);
+        let at_effective = plan(&ask(1800, false), &catalog, &ctx(u64::from(u32::MAX), None))
+            .unwrap()
+            .hold;
+        let at_consented = plan(
+            &ask(1800, false),
+            &catalog,
+            &ctx_markup(u64::from(u32::MAX), None, 5000, 5000),
+        )
+        .unwrap()
+        .hold;
+        assert!(at_consented > at_effective);
+        let between = at_effective.to_milli().unwrap().get();
+        let e = plan(
+            &ask(1800, true),
+            &catalog,
+            &ctx_markup(between, None, 5000, 0),
+        )
+        .err()
+        .unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+        assert_eq!(e.detail_of("required_2z"), Some(&json!(at_consented.get())));
+        // Enough for the consented worst case: admitted at the full limit and
+        // held at that bound, so a raised applied markup needs no extension.
+        let enough = at_consented.to_milli().unwrap().get();
+        let p = plan(
+            &ask(1800, true),
+            &catalog,
+            &ctx_markup(enough, None, 5000, 0),
+        )
+        .unwrap();
+        assert_eq!((p.output, p.hold), (1800, at_consented));
+        let mut applied = p.clone();
+        applied.markup = Bps(5000);
+        assert!(applied.worst(1800).unwrap() <= p.hold);
+    }
+
+    #[test]
+    fn strict_refusals_carry_their_details_at_every_boundary() {
+        // Not even one output token affordable.
+        let e = plan(&ask(1800, true), &priced(200_000), &ctx(500, None))
+            .err()
+            .unwrap();
+        strict_refusal(&e, ErrorCode::InsufficientBalance);
+        assert!(e.detail_of("required_2z").is_some());
+        // Input alone exceeds the window.
+        let mut huge = ask(10, true);
+        huge.messages[0].content = vec![ContentPart::Text {
+            text: "x".repeat(9000),
+        }];
+        let e = plan(&huge, &priced(8192), &ctx(u64::from(u32::MAX), None))
+            .err()
+            .unwrap();
+        strict_refusal(&e, ErrorCode::ContextLengthExceeded);
+        assert_eq!(e.detail_of("max_output_tokens"), Some(&json!(10)));
+        // Without strict, the same refusals keep their pre-#1122 shape.
+        huge.max_output_tokens_strict = false;
+        let e = plan(&huge, &priced(8192), &ctx(u64::from(u32::MAX), None))
+            .err()
+            .unwrap();
+        assert!(e.detail_of("reason").is_none());
+    }
+
+    #[test]
+    fn strict_refuses_the_model_and_window_clamps() {
+        let catalog = priced(200_000);
+        let rich = ctx(u64::from(u32::MAX), None);
+        assert_eq!(
+            plan(&ask(9000, false), &catalog, &rich).unwrap().output,
+            8192
+        );
+        let e = plan(&ask(9000, true), &catalog, &rich).err().unwrap();
+        strict_refusal(&e, ErrorCode::InvalidRequest);
+        assert_eq!(e.detail_of("field"), Some(&json!("max_output_tokens")));
+        assert_eq!(e.detail_of("model_max_output_tokens"), Some(&json!(8192)));
+
+        // A long input leaves less than 1800 tokens of an 8192-token window.
+        let narrow = priced(8192);
+        let long = |tokens, strict| {
+            let mut r = ask(tokens, strict);
+            r.messages[0].content = vec![ContentPart::Text {
+                text: "x".repeat(7000),
+            }];
+            r
+        };
+        let clamped = plan(&long(1800, false), &narrow, &rich).unwrap().output;
+        assert!(clamped < 1800, "{clamped}");
+        let e = plan(&long(1800, true), &narrow, &rich).err().unwrap();
+        strict_refusal(&e, ErrorCode::ContextLengthExceeded);
+        assert_eq!(e.detail_of("context_window"), Some(&json!(8192)));
+        // The window it does leave is still usable strictly.
+        assert_eq!(
+            plan(&long(clamped, true), &narrow, &rich).unwrap().output,
+            clamped
+        );
+    }
+
+    // Structured output (response_format): gated on the adapter and the
+    // catalogue before any hold; the pricing formula does not move.
+    fn styled(provider: &str, style: &str, structured: Option<bool>) -> VerifiedCatalog {
+        let mut catalog = serde_json::to_value(priced(200_000).catalog()).unwrap();
+        let model = &mut catalog["models"][0];
+        model["provider"] = json!(provider);
+        model["api_style"] = json!(style);
+        if let Some(declared) = structured {
+            model["capabilities"] = json!({"structured_output": declared});
+        }
+        VerifiedCatalog::from_verified(serde_json::from_value(catalog).unwrap()).unwrap()
+    }
+    fn formatted(format: Option<serde_json::Value>) -> ChatRequest {
+        let mut request = json!({"model":"m","max_output_tokens":100,
+            "messages":[{"role":"user","content":[{"type":"text","text":"make an activity"}]}]});
+        if let Some(format) = format {
+            request["response_format"] = format;
+        }
+        serde_json::from_value(request).unwrap()
+    }
+    fn activity_spec() -> serde_json::Value {
+        json!({"type":"json_schema","json_schema":{"name":"activity_spec","strict":true,
+            "schema":{"type":"object","properties":{"title":{"type":"string"}},
+                      "required":["title"],"additionalProperties":false}}})
+    }
+
+    #[test]
+    fn response_format_is_admitted_only_where_the_adapter_and_catalogue_allow() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        for format in [activity_spec(), json!({"type":"json_object"})] {
+            let request = formatted(Some(format.clone()));
+            // gpt-4o tonight: an OpenAI Chat Completions model in a catalogue
+            // that does not yet declare the capability.
+            for (provider, style, declared, admitted) in [
+                ("openai", "openai_chat", None, true),
+                ("openai", "openai_chat", Some(true), true),
+                ("openai", "openai_chat", Some(false), false),
+                ("xai", "openai_chat", None, false),
+                ("xai", "openai_chat", Some(true), true),
+                ("openai", "openai_responses", Some(true), false),
+                // Anthropic: a forced-tool translation, admitted only when
+                // the catalogue declares the model (absence is not support).
+                ("anthropic", "anthropic_messages", Some(true), true),
+                ("anthropic", "anthropic_messages", None, false),
+                ("anthropic", "anthropic_messages", Some(false), false),
+            ] {
+                let catalog = styled(provider, style, declared);
+                let result = plan(&request, &catalog, &rich);
+                assert_eq!(
+                    result.is_ok(),
+                    admitted,
+                    "{provider}/{style}/{declared:?}: {format}"
+                );
+                if let Err(e) = result {
+                    assert_eq!(e.code(), ErrorCode::InvalidRequest.as_str());
+                    assert_eq!(e.status().as_u16(), 400);
+                    assert_eq!(
+                        e.detail_of("reason"),
+                        Some(&json!(crate::provider::RESPONSE_FORMAT_UNSUPPORTED))
+                    );
+                    assert_eq!(e.detail_of("field"), Some(&json!("response_format")));
+                }
+                // Negative control: the same model takes the same call
+                // without a response_format, so the refusal is the field's.
+                plan(&formatted(None), &catalog, &rich).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn reasoning_effort_is_refused_before_any_hold_unless_signed() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        let effort = |level: Option<&str>| -> ChatRequest {
+            let mut request = json!({"model":"m","max_output_tokens":100,
+                "messages":[{"role":"user","content":[{"type":"text","text":"think"}]}]});
+            if let Some(level) = level {
+                request["reasoning_effort"] = json!(level);
+            }
+            serde_json::from_value(request).unwrap()
+        };
+        let signed = |style: &str, declared: Option<bool>, levels: Option<serde_json::Value>| {
+            let mut catalog =
+                serde_json::to_value(styled("openai", style, None).catalog()).unwrap();
+            if let Some(declared) = declared {
+                catalog["models"][0]["capabilities"]["reasoning_effort"] = json!(declared);
+            }
+            if let Some(levels) = levels {
+                catalog["models"][0]["controls"] = json!({"effort_levels": levels});
+            }
+            VerifiedCatalog::from_verified(serde_json::from_value(catalog).unwrap()).unwrap()
+        };
+        for (style, declared, levels, level, admitted) in [
+            // gpt-4o tonight: nothing declared. Absence is never support.
+            ("openai_chat", None, None, "low", false),
+            ("openai_chat", Some(false), None, "low", false),
+            ("openai_chat", Some(true), None, "minimal", true),
+            ("openai_responses", Some(true), None, "high", true),
+            ("openai_responses", None, None, "high", false),
+            // Messages has no effort control, whatever is signed.
+            ("anthropic_messages", Some(true), None, "low", false),
+            // A signed list narrows; an unknown signed level is inert.
+            (
+                "openai_chat",
+                Some(true),
+                Some(json!(["low", "high", "xhigh"])),
+                "high",
+                true,
+            ),
+            (
+                "openai_chat",
+                Some(true),
+                Some(json!(["low", "high", "xhigh"])),
+                "medium",
+                false,
+            ),
+            ("openai_chat", Some(true), Some(json!([])), "low", false),
+            // The list only narrows a declared capability; it never grants.
+            ("openai_chat", None, Some(json!(["low"])), "low", false),
+        ] {
+            let catalog = signed(style, declared, levels.clone());
+            let result = plan(&effort(Some(level)), &catalog, &rich);
+            assert_eq!(
+                result.is_ok(),
+                admitted,
+                "{style}/{declared:?}/{levels:?}/{level}"
+            );
+            if let Err(e) = result {
+                assert_eq!(e.code(), ErrorCode::InvalidRequest.as_str());
+                assert_eq!(e.status().as_u16(), 400);
+                assert_eq!(
+                    e.detail_of("reason"),
+                    Some(&json!(crate::provider::REASONING_EFFORT_UNSUPPORTED))
+                );
+                assert_eq!(e.detail_of("field"), Some(&json!("reasoning_effort")));
+                // Persisted as the key's terminal answer, like the
+                // response_format refusal.
+                assert!(is_terminal_refusal(&e));
+            }
+            // Negative control: the same model takes the same call without
+            // reasoning_effort, so the refusal is the field's — and effort
+            // changes no bound: the admitted plan reserves exactly what the
+            // plain one does.
+            let plain = plan(&effort(None), &catalog, &rich).unwrap();
+            if let Ok(with) = plan(&effort(Some(level)), &catalog, &rich) {
+                assert_eq!(
+                    (with.input, with.output, with.hold),
+                    (plain.input, plain.output, plain.hold)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tool_controls_are_refused_before_any_hold_where_they_cannot_be_expressed() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        let tooled = |extra: serde_json::Value| -> ChatRequest {
+            let mut request = json!({"model":"m","max_output_tokens":100,
+                "messages":[{"role":"user","content":[{"type":"text","text":"go"}]}],
+                "tools":[{"name":"lookup","parameters":{"type":"object"}}]});
+            for (key, value) in extra.as_object().unwrap() {
+                request[key] = value.clone();
+            }
+            serde_json::from_value(request).unwrap()
+        };
+        let with_tools = |provider: &str, style: &str| {
+            let mut catalog =
+                serde_json::to_value(styled(provider, style, Some(true)).catalog()).unwrap();
+            catalog["models"][0]["capabilities"]["tools"] = json!(true);
+            VerifiedCatalog::from_verified(serde_json::from_value(catalog).unwrap()).unwrap()
+        };
+        for (extra, field) in [
+            (json!({"tool_choice":"required"}), "tool_choice"),
+            (json!({"parallel_tool_calls":false}), "parallel_tool_calls"),
+        ] {
+            // No translation on the Responses adapter in this build.
+            let catalog = with_tools("openai", "openai_responses");
+            let e = plan(&tooled(extra.clone()), &catalog, &rich).err().unwrap();
+            assert_eq!(e.status().as_u16(), 400);
+            assert_eq!(
+                e.detail_of("reason"),
+                Some(&json!(crate::provider::TOOLS_UNSUPPORTED))
+            );
+            assert_eq!(e.detail_of("field"), Some(&json!(field)));
+            // Persisted as the key's terminal answer, like the
+            // response_format refusal.
+            assert!(is_terminal_refusal(&e));
+            // Negative control: the same tools, no control.
+            plan(&tooled(json!({})), &catalog, &rich).unwrap();
+            // Anthropic and Chat Completions (OpenAI, xAI) translate both.
+            plan(
+                &tooled(extra.clone()),
+                &with_tools("anthropic", "anthropic_messages"),
+                &rich,
+            )
+            .unwrap();
+            for provider in ["openai", "xai"] {
+                plan(
+                    &tooled(extra.clone()),
+                    &with_tools(provider, "openai_chat"),
+                    &rich,
+                )
+                .unwrap();
+            }
+        }
+        // Anthropic refuses a response_format beside tools: the forced format
+        // tool would leave the caller's tools uncallable.
+        let e = plan(
+            &tooled(json!({"response_format":{"type":"json_object"}})),
+            &with_tools("anthropic", "anthropic_messages"),
+            &rich,
+        )
+        .err()
+        .unwrap();
+        assert_eq!(
+            e.detail_of("reason"),
+            Some(&json!(crate::provider::RESPONSE_FORMAT_UNSUPPORTED))
+        );
+        assert!(is_terminal_refusal(&e));
+    }
+
+    #[test]
+    fn anthropic_tool_use_overhead_is_reserved_and_nothing_else_moves() {
+        let rich = ctx(u64::from(u32::MAX), None);
+        let anthropic = styled("anthropic", "anthropic_messages", Some(true));
+        let chat = styled("openai", "openai_chat", Some(true));
+        let format = formatted(Some(json!({"type":"json_object"})));
+        // The same bytes: Anthropic's reservation is the overhead larger.
+        let on_anthropic = plan(&format, &anthropic, &rich).unwrap();
+        let on_chat = plan(&format, &chat, &rich).unwrap();
+        assert_eq!(
+            on_anthropic.input,
+            on_chat.input + crate::provider::anthropic::TOOL_USE_OVERHEAD_TOKENS
+        );
+        assert!(on_anthropic.hold >= on_chat.hold);
+        // Negative control: a request that sends no tools reserves exactly
+        // what it did before, on Anthropic too.
+        let plain = formatted(None);
+        assert_eq!(
+            plan(&plain, &anthropic, &rich).unwrap().input,
+            plan(&plain, &chat, &rich).unwrap().input
+        );
+    }
+
+    #[test]
+    fn response_format_only_adds_its_own_bytes_to_the_input_reservation() {
+        let catalog = styled("openai", "openai_chat", None);
+        let rich = ctx(u64::from(u32::MAX), None);
+        let plain_request = formatted(None);
+        let plain = plan(&plain_request, &catalog, &rich).unwrap();
+        // Unchanged for a request without the field: the pre-existing bound.
+        let framed = serde_json::to_vec(&(&plain_request.messages, &plain_request.tools))
+            .unwrap()
+            .len() as u64;
+        assert_eq!(plain.input, framed + 64);
+        let request = formatted(Some(activity_spec()));
+        let with = plan(&request, &catalog, &rich).unwrap();
+        let schema_bytes = serde_json::to_vec(request.response_format.as_ref().unwrap())
+            .unwrap()
+            .len() as u64;
+        // The safety factor is 1.0 here, so the delta is exactly the bytes.
+        assert_eq!(with.input, plain.input + schema_bytes);
+        assert_eq!(
+            (with.output, with.markup, with.margin),
+            (plain.output, plain.markup, plain.margin)
+        );
+        // Same price function: holding the larger input costs at least as
+        // much, and the charge is still provider usage x signed prices.
+        assert!(with.hold >= plain.hold);
     }
 }

@@ -53,6 +53,27 @@
 //!
 //! The `delivery_aborted` frame is `f2z_ai_proto`'s own
 //! [`ErrorCode::DeliveryAborted`] with `settlement: pending` and no amounts.
+//!
+//! # Keep-alive comments
+//!
+//! chat-api.md §3: while the upstream is silent the reader writes a `: ping`
+//! comment frame every `stream_keepalive_secs` (15 s), from the moment the
+//! headers go out — before `meta`, while the provider is still being
+//! contacted or is thinking — until the terminal event, and never after it.
+//! Every upstream event restarts the interval, so a stream that is producing
+//! output carries no pings. The TypeScript SDK treats 45 s without a byte as
+//! a dead connection (the Rust SDK, 90 s); without the pings a model that
+//! reasons for longer than that before its first content event loses its
+//! client while the call still reads to completion and settles (zuu#1163).
+//!
+//! A ping is queued **only into an empty buffer**. It is therefore never
+//! behind undelivered frames, and taking it — which, like taking any frame,
+//! is delivery progress for the stall rule — means the client has taken
+//! everything before it. A client that is not reading data cannot be kept
+//! alive by pings: its data frames wait, so no ping is queued, and the stall
+//! rule runs exactly as before. Pings are evictable, so they can never make a
+//! required event exceed the delivery limit. A non-streamed call
+//! (`stream: false`) gets no pings — its body is one JSON document.
 
 use std::collections::VecDeque;
 use std::pin::Pin;
@@ -110,6 +131,25 @@ pub trait Upstream: Send + 'static {
         None
     }
 
+    /// Whether the provider has **accepted** the request — answered its
+    /// head with a 2xx — so that it bills for the call whatever happens
+    /// next (metering.md §5.4). Readable at any time, so a call aborted by
+    /// a drain, whose [`Upstream::outcome`] never arrives, can still be
+    /// settled on what the provider will bill. `false` from an upstream
+    /// that does not know.
+    fn accepted(&self) -> bool {
+        false
+    }
+
+    /// Each tool call's streamed fragments so far — name, then arguments —
+    /// whether or not they were relayed (`stream: false` drops them on the
+    /// wire). Readable at any time, like [`Upstream::accepted`], so a drain
+    /// that leaves no outcome still settles on what the model generated
+    /// (metering.md §5.4). Empty from an upstream that does not know.
+    fn tool_fragments(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Take the request body's share of the gateway-wide upload budget. An
     /// upstream that still holds the request's bytes after `start` keeps it
     /// until it drops them, so request memory stays inside
@@ -122,12 +162,18 @@ pub trait Upstream: Send + 'static {
 /// How often the watchers check the stall limit.
 const STALL_CHECK: Duration = Duration::from_millis(250);
 
+/// The SSE keep-alive comment (chat-api.md §3).
+const PING: &[u8] = b": ping\n\n";
+
 /// The per-call limits.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Limits {
     pub(crate) buffer_bytes: usize,
     pub(crate) stall: Duration,
     pub(crate) start_timeout: Duration,
+    /// Upstream silence after which a `: ping` is sent; `None` sends none
+    /// (a non-streamed call).
+    pub(crate) keepalive: Option<Duration>,
 }
 
 /// Delivery's state, shared by the reader and the body.
@@ -145,7 +191,10 @@ enum State {
 
 #[derive(Debug)]
 struct Buffer {
-    frames: VecDeque<Bytes>,
+    /// Each frame, and whether it is optional (a `tool_call_delta` or
+    /// keep-alive ping, which may be evicted to make room for a required
+    /// frame).
+    frames: VecDeque<(Bytes, bool)>,
     bytes: usize,
     state: State,
     upstream_done: bool,
@@ -199,7 +248,7 @@ impl Shared {
         // still owes, and it replaces everything that was.
         buffer
             .frames
-            .push_back(delivery_aborted_frame(reason, buffer.output_seen));
+            .push_back((delivery_aborted_frame(reason, buffer.output_seen), false));
         buffer.state = State::Aborted(reason);
         buffer.aborted_at = Some(now);
         // No further request on this connection: it closes once this response
@@ -216,7 +265,13 @@ impl Shared {
     }
 
     /// The reader's push. Never blocks, never waits for the client.
-    fn push(&self, frame: Bytes, output: bool, limit: usize, stall: Duration) {
+    ///
+    /// An `optional` frame (a `tool_call_delta`: informational, its content
+    /// repeated by the `tool_call` that follows) never costs the client a
+    /// frame that is not: it is dropped rather than buffered once the buffer
+    /// is half full, and buffered optional frames are evicted to make room
+    /// before a mandatory frame is refused for space.
+    fn push(&self, frame: Bytes, output: bool, optional: bool, limit: usize, stall: Duration) {
         let waker = {
             let mut buffer = self.lock();
             // `partial` in a later `delivery_aborted` is conservative: output
@@ -231,12 +286,27 @@ impl Shared {
             if buffer.frames.is_empty() {
                 buffer.last_progress = now;
             }
-            if buffer.bytes.saturating_add(frame.len()) > limit {
+            if !optional && buffer.bytes.saturating_add(frame.len()) > limit {
+                let evicted: usize = buffer
+                    .frames
+                    .iter()
+                    .filter(|(_, optional)| *optional)
+                    .map(|(f, _)| f.len())
+                    .sum();
+                if evicted > 0 {
+                    buffer.frames.retain(|(_, optional)| !*optional);
+                    self.inflight.sub_buffered(evicted);
+                    buffer.bytes = buffer.bytes.saturating_sub(evicted);
+                }
+            }
+            if optional && buffer.bytes.saturating_add(frame.len()) > limit / 2 {
+                // Dropped, not an abort: the complete call still follows.
+            } else if buffer.bytes.saturating_add(frame.len()) > limit {
                 self.abort_delivery(&mut buffer, Delivery::BufferFull, now);
             } else {
                 self.inflight.add_buffered(frame.len());
                 buffer.bytes = buffer.bytes.saturating_add(frame.len());
-                buffer.frames.push_back(frame);
+                buffer.frames.push_back((frame, optional));
                 self.check(&mut buffer, now, stall);
             }
             buffer.waker.take()
@@ -267,6 +337,24 @@ impl Shared {
                 kill.kill();
             }
         }
+    }
+
+    /// Queue a `: ping`, only if nothing is waiting to be delivered (see
+    /// the module documentation: a ping must never stand in for data).
+    fn ping(&self) {
+        let waker = {
+            let mut buffer = self.lock();
+            if buffer.state != State::Open || !buffer.frames.is_empty() {
+                return;
+            }
+            let frame = Bytes::from_static(PING);
+            buffer.last_progress = Instant::now();
+            self.inflight.add_buffered(frame.len());
+            buffer.bytes = buffer.bytes.saturating_add(frame.len());
+            buffer.frames.push_back((frame, true));
+            buffer.waker.take()
+        };
+        Self::wake(waker);
     }
 
     fn tick(&self, stall: Duration) {
@@ -378,7 +466,7 @@ impl http_body::Body for DeliveryBody {
             buffer.error_reported = true;
             return Poll::Ready(Some(Err(DeliveryEnded::Cut)));
         }
-        if let Some(frame) = buffer.frames.pop_front() {
+        if let Some((frame, _)) = buffer.frames.pop_front() {
             if !matches!(buffer.state, State::Aborted(_)) {
                 shared.inflight.sub_buffered(frame.len());
                 buffer.bytes = buffer.bytes.saturating_sub(frame.len());
@@ -567,19 +655,50 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
 
     let mut tick = tokio::time::interval(STALL_CHECK.min(limits.stall));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // The keep-alive: armed from the headers, restarted by every upstream
+    // event, disarmed by the terminal one.
+    let mut keepalive = limits.keepalive;
+    let ping = tokio::time::sleep(keepalive.unwrap_or(STALL_CHECK));
+    tokio::pin!(ping);
+    let rearm = |ping: Pin<&mut tokio::time::Sleep>, every: Duration| {
+        let now = tokio::time::Instant::now();
+        ping.reset(now.checked_add(every).unwrap_or(now));
+    };
     let drained = loop {
         tokio::select! {
             event = upstream.next() => {
                 let Some(event) = event else { break false };
+                if matches!(event, Event::Done(_) | Event::Error(_)) {
+                    keepalive = None;
+                }
+                if let Some(every) = keepalive {
+                    rearm(ping.as_mut(), every);
+                }
                 if let Event::Usage(usage) = &event {
                     guard.record.usage = Some(usage.usage);
                 }
-                let output = matches!(event, Event::Delta(_) | Event::ToolCall(_));
+                let output = matches!(
+                    event,
+                    Event::Delta(_) | Event::ToolCallDelta(_) | Event::ToolCall(_)
+                );
                 if let Ok(frame) = event.to_sse() {
-                    shared.push(Bytes::from(frame), output, limits.buffer_bytes, limits.stall);
+                    let optional = matches!(event, Event::ToolCallDelta(_));
+                    shared.push(
+                        Bytes::from(frame),
+                        output,
+                        optional,
+                        limits.buffer_bytes,
+                        limits.stall,
+                    );
                 }
             }
             _ = tick.tick() => shared.tick(limits.stall),
+            () = &mut ping, if keepalive.is_some() => {
+                shared.ping();
+                if let Some(every) = keepalive {
+                    rearm(ping.as_mut(), every);
+                }
+            }
             () = crate::shutdown::raised(&mut abort) => break true,
         }
     };
@@ -662,5 +781,71 @@ impl Drop for SettleGuard {
                 slot,
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::metrics::Metrics;
+    use tokio::sync::mpsc;
+
+    fn shared() -> Shared {
+        let (settle, _) = mpsc::unbounded_channel();
+        let inflight = Arc::new(InFlight::new(1, 1, settle, Arc::new(Metrics::default())));
+        Shared {
+            buffer: Mutex::new(Buffer {
+                frames: VecDeque::new(),
+                bytes: 0,
+                state: State::Open,
+                upstream_done: false,
+                error_reported: false,
+                last_progress: Instant::now(),
+                aborted_at: None,
+                killed: false,
+                output_seen: false,
+                waker: None,
+            }),
+            inflight,
+            kill: None,
+        }
+    }
+
+    #[test]
+    fn ping_is_ignored_while_a_frame_is_waiting() {
+        let shared = shared();
+        let data = Bytes::from_static(b"data");
+        shared.push(data.clone(), false, false, 1024, Duration::from_secs(30));
+
+        shared.ping();
+
+        let buffer = shared.lock();
+        assert_eq!(buffer.frames.len(), 1);
+        assert_eq!(buffer.frames.front(), Some(&(data, false)));
+        assert_eq!(buffer.bytes, 4);
+        assert_eq!(shared.inflight.buffered_bytes(), 4);
+    }
+
+    #[test]
+    fn ping_is_evicted_before_a_required_frame_can_fill_the_buffer() {
+        let shared = shared();
+        shared.ping();
+        assert_eq!(shared.inflight.buffered_bytes(), PING.len() as u64);
+
+        let data = Bytes::from_static(b"123456789");
+        shared.push(
+            data.clone(),
+            false,
+            false,
+            PING.len() + 8,
+            Duration::from_secs(30),
+        );
+
+        let buffer = shared.lock();
+        assert_eq!(buffer.state, State::Open);
+        assert_eq!(buffer.frames.len(), 1);
+        assert_eq!(buffer.frames.front(), Some(&(data, false)));
+        assert_eq!(buffer.bytes, 9);
+        assert_eq!(shared.inflight.buffered_bytes(), 9);
     }
 }

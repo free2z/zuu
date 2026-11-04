@@ -6,7 +6,8 @@ import UIKit
 import WebKit
 
 private struct RedirectArgs: Decodable { let https: String?; let privateScheme: String? }
-private struct AuthArgs: Decodable { let attemptId: String; let url: String; let redirectUri: String; let timeoutMs: UInt64 }
+/// `ephemeral` is optional: an older Rust core never sends it.
+private struct AuthArgs: Decodable { let attemptId: String; let url: String; let redirectUri: String; let timeoutMs: UInt64; let ephemeral: Bool? }
 private struct CancelArgs: Decodable { let attemptId: String }
 private struct BrowserArgs: Decodable { let url: String }
 
@@ -38,11 +39,13 @@ final class F2zPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
             invoke.resolve(["uri": value])
         } catch { invoke.reject("invalid callback configuration") }
     }
-    private func finish(_ id: String, url: URL?, expected: URL, state: String) {
+    /// `rejection`: an `AuthRejection` code, used only when no callback arrived.
+    private func finish(_ id: String, url: URL?, expected: URL, state: String, rejection: String? = nil) {
         guard attempt == id, let invoke = pending else { return }
         timeout?.cancel(); timeout = nil; pending = nil; attempt = nil; auth = nil; anchor = nil
-        guard let url, CallbackPolicy.accepts(url, expected: expected, state: state) else {
-            invoke.reject("authentication cancelled or invalid callback"); return
+        guard let url else { invoke.reject("authentication did not complete", code: rejection); return }
+        guard CallbackPolicy.accepts(url, expected: expected, state: state) else {
+            invoke.reject("invalid callback"); return
         }
         invoke.resolve(["url": url.absoluteString])
     }
@@ -53,11 +56,15 @@ final class F2zPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
                 guard self.pending == nil, let url = URL(string: args.url), url.scheme == "https",
                       let redirect = self.redirectURL(args.redirectUri),
                       let state = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "state" })?.value,
-                      !state.isEmpty, args.timeoutMs > 0, args.timeoutMs <= 300000,
-                      let window = self.webview?.window else { invoke.reject("authentication unavailable"); return }
+                      !state.isEmpty, args.timeoutMs > 0, args.timeoutMs <= 300000 else { invoke.reject("authentication unavailable"); return }
+                guard let window = self.webview?.window else {
+                    invoke.reject("no window to present sign-in from", code: AuthRejection.browserUnavailable); return
+                }
                 self.anchor = window
-                let completion: ASWebAuthenticationSession.CompletionHandler = { callback, _ in
-                    DispatchQueue.main.async { self.finish(args.attemptId, url: callback, expected: redirect, state: state) }
+                let completion: ASWebAuthenticationSession.CompletionHandler = { callback, error in
+                    DispatchQueue.main.async {
+                        self.finish(args.attemptId, url: callback, expected: redirect, state: state, rejection: AuthRejection.code(for: error))
+                    }
                 }
                 let session: ASWebAuthenticationSession
                 if #available(iOS 17.4, *), redirect.scheme == "https", let host = redirect.host {
@@ -67,14 +74,22 @@ final class F2zPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
                     session = ASWebAuthenticationSession(url: url, callbackURLScheme: redirect.scheme, completionHandler: completion)
                 }
                 session.presentationContextProvider = self
+                // No cookies shared with Safari: the sign-in page cannot reuse
+                // another account's web session. Opt-in; the default is unchanged.
+                session.prefersEphemeralWebBrowserSession = args.ephemeral ?? false
                 self.pending = invoke; self.attempt = args.attemptId; self.auth = session
                 let expiry = DispatchWorkItem { [weak self] in
                     guard let self, self.attempt == args.attemptId else { return }
-                    self.auth?.cancel(); self.finish(args.attemptId, url: nil, expected: redirect, state: state)
+                    // Settle as a timeout before cancel(), whose completion reports a user cancel.
+                    let running = self.auth
+                    self.finish(args.attemptId, url: nil, expected: redirect, state: state, rejection: AuthRejection.timeout)
+                    running?.cancel()
                 }
                 self.timeout = expiry
                 DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(Int(args.timeoutMs)), execute: expiry)
-                if !session.start() { self.finish(args.attemptId, url: nil, expected: redirect, state: state) }
+                if !session.start() {
+                    self.finish(args.attemptId, url: nil, expected: redirect, state: state, rejection: AuthRejection.browserUnavailable)
+                }
             } catch { invoke.reject("invalid authentication request") }
         }
     }

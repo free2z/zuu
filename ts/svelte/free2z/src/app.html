@@ -2,11 +2,157 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!--
+      A later cutover routes Cloud Monitoring's fixed probe UA through a real
+      homepage render. Land this stable `"version"` marker first so that
+      proxy-first deployment ordering cannot false-page during that cutover.
+    -->
+    <meta name="free2z-renderer" content='{"version":"sveltekit"}' />
     <link rel="icon" href="%sveltekit.assets%/favicon.ico?v=5" sizes="32x32" />
+    <!--
+      PWA identity, owned by this app rather than the classic CRA build that
+      the application contract phase 4 deletes. static/manifest.json ships the installable
+      metadata; the icons it lists live under static/brand/ so they are already
+      carried by nginx's `location ~ ^/brand/[^/]+\.(?:png|svg)/?$`.
+
+      iOS ignores the manifest entirely for the home-screen icon and reads this
+      link tag instead, so the apple-touch-icon is NOT redundant with the
+      manifest `icons` array.
+
+      There is deliberately NO service worker (no src/service-worker.ts, no
+      registration here). This repo has a live stale-asset problem across
+      rolling deploys; an app-shell cache would pin a user to a
+      dead build with no obvious recovery. A manifest plus icons is all that
+      installability on Android/desktop Chrome and iOS home-screen actually
+      require.
+    -->
+    <link rel="manifest" href="%sveltekit.assets%/manifest.json" />
+    <link
+      rel="apple-touch-icon"
+      href="%sveltekit.assets%/brand/apple-touch-icon.png"
+    />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#fafafa" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0a0c" />
-    <script>
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#fafafa"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#0a0a0c"
+    />
+    <!--
+      the application contract: `nonce="%sveltekit.nonce%"` on BOTH inline scripts below. Kit
+      substitutes the per-request nonce it also puts in the Report-Only
+      `script-src` (svelte.config.js -> kit.csp.reportOnly), so these two
+      hand-written blocks are the only inline scripts here that a strict
+      policy would still admit — which is the whole point: anything injected
+      into rendered markdown gets no nonce and shows up as a report.
+
+      Nothing enforces this today. The placeholder is inert outside a
+      configured CSP, and the enforced GCLB policy still carries
+      'unsafe-inline'. Removing the attribute would therefore break nothing
+      visible and silently un-instrument the measurement, so don't.
+    -->
+    <script data-f2z-asset-recovery nonce="%sveltekit.nonce%">
+      // This must stay inline before the SvelteKit head and body slots.
+      // If the initial module graph itself is missing, hooks.client.ts never
+      // executes and cannot recover the document. The session marker is shared
+      // with the hydrated recovery hook and permits one reload per URL in 30s.
+      (() => {
+        const storageKey = "f2z:asset-recovery";
+        const maxAgeMs = 30_000;
+        let recoveryStarted = false;
+        let storage = null;
+
+        try {
+          storage = window.sessionStorage;
+        } catch {
+          // Reloading without a durable loop guard is less safe than leaving
+          // the failed document in place.
+        }
+
+        try {
+          const raw = storage.getItem(storageKey);
+          if (raw) {
+            const marker = JSON.parse(raw);
+            const age = Date.now() - Number(marker?.timestamp);
+            if (!Number.isFinite(age) || age < 0 || age > maxAgeMs) {
+              storage.removeItem(storageKey);
+            }
+          }
+        } catch {
+          // A corrupt marker must not disable the only recovery code that is
+          // available before SvelteKit's module graph has loaded.
+          try {
+            storage?.removeItem(storageKey);
+          } catch {
+            storage = null;
+          }
+        }
+
+        const recover = () => {
+          if (recoveryStarted || !storage) return;
+
+          try {
+            const raw = storage.getItem(storageKey);
+            if (raw) {
+              const marker = JSON.parse(raw);
+              const age = Date.now() - Number(marker?.timestamp);
+              if (
+                marker?.url === window.location.href &&
+                Number.isFinite(age) &&
+                age >= 0 &&
+                age <= maxAgeMs
+              ) {
+                return;
+              }
+            }
+
+            storage.setItem(
+              storageKey,
+              JSON.stringify({
+                timestamp: Date.now(),
+                url: window.location.href,
+              }),
+            );
+          } catch {
+            return;
+          }
+
+          recoveryStarted = true;
+          window.location.reload();
+        };
+
+        const isSvelteKitAsset = (target) => {
+          const tagName = target?.tagName?.toLowerCase();
+          const value =
+            tagName === "script"
+              ? target.src
+              : tagName === "link"
+                ? target.href
+                : "";
+          if (!value) return false;
+
+          try {
+            const url = new URL(value, window.location.href);
+            return url.pathname.startsWith("/_app/immutable/");
+          } catch {
+            return false;
+          }
+        };
+
+        window.addEventListener(
+          "error",
+          (event) => {
+            if (isSvelteKitAsset(event.target)) recover();
+          },
+          true,
+        );
+      })();
+    </script>
+    <script nonce="%sveltekit.nonce%">
       // Preserve the classic UI's last theme when entering the new UI for the
       // first time. This runs before mode-watcher to avoid a theme flash.
       try {

@@ -17,6 +17,35 @@ pub enum CapPeriod {
     Total,
 }
 
+/// Coarse, non-sensitive reason for [`Grant::enforced`].
+///
+/// Diagnostic only: `enforced` stays authoritative. The server reports the
+/// first unmet prerequisite in a fixed order. New codes may be added, so any
+/// value this version does not know decodes as [`EnforcementReason::Unknown`]
+/// rather than failing, and must be treated as not enforced.
+///
+/// **Server contract for every future code:** it must describe a NON-enforced
+/// state. `enforced: true` is only ever paired with `ok`. [`Grant::check`]
+/// treats any other pairing (including an unknown code with `enforced: true`)
+/// as a protocol error and fails closed, so a new code sent alongside
+/// `enforced: true` would make every deployed client refuse the grant.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum EnforcementReason {
+    /// The service enforces the exact returned policy (`enforced` is true).
+    Ok,
+    /// Platform-wide: the deployment has not activated grant enforcement.
+    PlatformDisabled,
+    /// Platform-wide: the ledger cutover that enforcement needs is incomplete.
+    LedgerCutoverPending,
+    /// This grant has no current exact ledger projection yet.
+    LedgerCapPending,
+    /// A code newer than this SDK. Never enforced.
+    #[serde(other)]
+    Unknown,
+}
+
 /// A current snapshot, not a promise that consent cannot subsequently change.
 /// Server epochs are distinct from a client's local session generation. Cap
 /// changes need not increment the grant generation: re-read before relying on
@@ -41,6 +70,10 @@ pub struct Grant {
     pub cap_period: CapPeriod,
     /// Whether the service currently enforces the exact returned policy.
     pub enforced: bool,
+    /// Why `enforced` has its value; absent from servers predating it.
+    /// Additive and diagnostic: never infer enforcement from it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enforcement_reason: Option<EnforcementReason>,
     /// Snapshot time, RFC 3339 UTC.
     pub as_of: String,
 }
@@ -55,6 +88,12 @@ impl Grant {
         }
         if self.grant_generation == 0 || !self.scopes.iter().any(|s| s == "ai:invoke") {
             return Err("grant is not an AI authorization");
+        }
+        if self
+            .enforcement_reason
+            .is_some_and(|reason| (reason == EnforcementReason::Ok) != self.enforced)
+        {
+            return Err("grant enforcement reason contradicts enforced");
         }
         if !utc_timestamp(&self.as_of) {
             return Err("grant snapshot time is not RFC 3339 UTC");
@@ -162,5 +201,65 @@ mod tests {
         let mut unknown = base;
         unknown["cap_period"] = serde_json::json!("future");
         assert!(serde_json::from_value::<Grant>(unknown).is_err());
+    }
+    fn wire(enforced: bool, reason: Option<&str>) -> serde_json::Value {
+        let mut v = serde_json::json!({"sub":"s","client_id":"opaque","account_epoch":1,
+            "grant_generation":2,"scopes":["ai:invoke"],"spend_cap_2z":null,
+            "cap_period":"total","enforced":enforced,"as_of":"2026-09-28T00:00:00Z"});
+        if let Some(reason) = reason {
+            v["enforcement_reason"] = serde_json::json!(reason);
+        }
+        v
+    }
+    #[test]
+    fn enforcement_reason_is_additive_and_tolerant() {
+        // Older servers omit it; the field is optional and round-trips absent.
+        let old: Grant = serde_json::from_value(wire(false, None)).unwrap();
+        assert_eq!(old.enforcement_reason, None);
+        assert!(old.check().is_ok());
+        assert!(
+            serde_json::to_value(&old)
+                .unwrap()
+                .get("enforcement_reason")
+                .is_none()
+        );
+        for (code, reason, enforced) in [
+            ("ok", EnforcementReason::Ok, true),
+            (
+                "platform_disabled",
+                EnforcementReason::PlatformDisabled,
+                false,
+            ),
+            (
+                "ledger_cutover_pending",
+                EnforcementReason::LedgerCutoverPending,
+                false,
+            ),
+            (
+                "ledger_cap_pending",
+                EnforcementReason::LedgerCapPending,
+                false,
+            ),
+            ("some_future_code", EnforcementReason::Unknown, false),
+        ] {
+            let g: Grant = serde_json::from_value(wire(enforced, Some(code))).unwrap();
+            assert_eq!(g.enforcement_reason, Some(reason), "{code}");
+            assert!(g.check().is_ok(), "{code}");
+        }
+    }
+    #[test]
+    fn enforcement_reason_must_agree_with_enforced() {
+        for (enforced, code) in [
+            (true, "platform_disabled"),
+            (true, "ledger_cap_pending"),
+            (true, "some_future_code"),
+            (false, "ok"),
+        ] {
+            let g: Grant = serde_json::from_value(wire(enforced, Some(code))).unwrap();
+            assert!(g.check().is_err(), "{enforced} {code}");
+        }
+        let mut bad = wire(false, None);
+        bad["enforcement_reason"] = serde_json::json!(3);
+        assert!(serde_json::from_value::<Grant>(bad).is_err());
     }
 }

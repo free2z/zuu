@@ -29,7 +29,8 @@ def main():
     if sys.argv[1] == 'ios':
         with tempfile.TemporaryDirectory(prefix='f2z-swift-test-') as output:
             binary = str(Path(output) / 'callback-tests')
-            run('swiftc', str(PLUGIN / 'ios/Sources/CallbackPolicy.swift'), str(PLUGIN / 'ios/Tests/main.swift'), '-o', binary)
+            run('swiftc', str(PLUGIN / 'ios/Sources/CallbackPolicy.swift'), str(PLUGIN / 'ios/Sources/AuthRejection.swift'),
+                str(PLUGIN / 'ios/Tests/main.swift'), '-o', binary)
             run(binary)
         run('rustup', 'target', 'add', 'aarch64-apple-ios-sim')
         run('cargo', 'check', '--locked', '--target', 'aarch64-apple-ios-sim', '--manifest-path', str(PLUGIN / 'Cargo.toml'))

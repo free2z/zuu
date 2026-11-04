@@ -27,7 +27,7 @@ workspace = true
 sqlx-core = { version = "0.8.6", default-features = false, features = ["_rt-tokio", "_tls-rustls-ring-webpki"] }
 sqlx-postgres = { version = "0.8.6", default-features = false, features = ["json", "uuid"] }
 uuid = { version = "1", default-features = false, features = ["v7", "serde", "std"] }
-f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.1.0" }
+f2z-ai-proto = { path = "../f2z-ai-proto", version = "0.3.0" }
 
 # The HTTP stack. `axum` routes; the accept loop is `hyper` + `hyper-util`
 # driven by hand (src/serve.rs) because `axum::serve` sets no timer, so it can
@@ -101,6 +101,13 @@ reqwest = { version = "0.12.28", default-features = false, features = [
 # `Retry-After` as an HTTP-date (RFC 9110). Already in the lock beneath hyper.
 httpdate = { version = "1", default-features = false }
 
+# The input estimate's tokeniser (src/estimate.rs): OpenAI's own BPE ranks
+# (`o200k_base` for gpt-4o and later, `cl100k_base` for gpt-4 / gpt-3.5),
+# vendored into the binary by `include_str!` — no download, no network, no
+# file at runtime — and built once per process. No optional features: the
+# `async-openai` request types and the `dhat` profiler stay out of the graph.
+tiktoken-rs = { version = "0.12.1", default-features = false }
+
 # Access-token verification (src/auth). ES256 only, verified with `ring`'s
 # fixed-width P-256 ECDSA — the same `ring` the TLS stack above already links,
 # so the gateway gains no second crypto core and no `rsa` crate (the
@@ -127,7 +134,9 @@ redis = { version = "1.7.1", default-features = false, features = [
 # The integration tests drive the gateway over real sockets with hyper's own
 # client, so a streamed body is observed frame by frame as a client sees it.
 hyper = { version = "1", default-features = false, features = ["http1", "client"] }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util"] }
+# `test-util`: a paused clock, so a 50 s provider silence (zuu#1163's
+# keep-alive tests) costs no wall time.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util", "test-util"] }
 # The mock OpenAI / xAI / Anthropic providers and `Scenario::expected_usage`,
 # the oracle every adapter test asserts its parsed usage against.
 f2z-ai-testkit = { path = "../f2z-ai-testkit", version = "0.1.0" }

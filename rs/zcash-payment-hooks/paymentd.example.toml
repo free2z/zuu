@@ -1,0 +1,22 @@
+network = "main"
+rpc_url = "http://127.0.0.1:8232"
+# Optional cookie: owned by paymentd user, mode 0600. Reloaded on each request.
+# rpc_cookie_file = "/var/lib/paymentd/node.cookie"
+ufvk_file = "/var/lib/paymentd/receiver.ufvk"
+state_dir = "/var/lib/paymentd/state"
+# Explicit operator choices: this example height is illustrative, not your birthday.
+birthday_height = 3500000
+# History below this height is recorded without running automations.
+automation_start_height = 3500100
+confirmations = 3
+poll_seconds = 15
+max_tip_age_seconds = 900
+max_tip_lag_blocks = 10
+max_tip_future_seconds = 7200
+
+# Zero consumers is an observation-only pilot. Enable hooks after parity review.
+# [[consumers]]
+# id = "my-idempotent-payment-handler-v1"
+# argv = ["/usr/local/libexec/my-payment-handler", "--json-stdin"]
+# timeout_seconds = 30
+# observe_unconfirmed = false # opt in only for capture-only mined observations

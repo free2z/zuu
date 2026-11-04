@@ -1,0 +1,64 @@
+{
+  "name": "anthropic_json_object_model_refusal",
+  "feature": "structured_output",
+  "source": "Migrated from tests/fixtures/anthropic/streams.json + response_format_refusal.sse (#1140): the model declines as text; the text is delivered (never deleted while charged), finish content_filter. Synthetic, documented event grammar.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Something it declines."
+          }
+        ]
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "json_object",
+          "description": "Respond by calling this tool. Its input is your complete answer, as JSON matching the input schema.",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "tool",
+        "name": "json_object",
+        "disable_parallel_tool_use": true
+      }
+    },
+    "provider_stream": "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_01Refuse\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-4-8\",\"content\":[],\"stop_reason\":null,\"stop_sequence\":null,\"usage\":{\"input_tokens\":402,\"output_tokens\":2}}}\n\nevent: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"I can't help with that request.\"}}\n\nevent: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"refusal\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":9}}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
+    "events": [
+      {
+        "type": "delta",
+        "text": "I can't help with that request."
+      }
+    ],
+    "finish_reason": "content_filter",
+    "usage": {
+      "input_tokens": 402,
+      "output_tokens": 9,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

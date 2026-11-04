@@ -1,0 +1,39 @@
+{
+  "name": "refused_anthropic_declared",
+  "feature": "reasoning_effort",
+  "source": "provider::REASONING_EFFORT_STYLES: Anthropic Messages has no effort control (thinking takes budget_tokens, docs.anthropic.com extended thinking), so it refuses whatever is signed.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "reasoning": true,
+      "reasoning_effort": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Think, then answer."
+          }
+        ]
+      }
+    ],
+    "reasoning_effort": "low"
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "reasoning_effort_unsupported",
+        "field": "reasoning_effort"
+      }
+    },
+    "encodings": {}
+  }
+}

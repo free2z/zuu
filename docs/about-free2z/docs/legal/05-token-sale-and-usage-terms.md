@@ -1,82 +1,49 @@
 ---
-title: Token Sale and Usage Terms
+title: 2Z Credits and Purchases
 ---
 
-## Introduction
+2Z credits, also called tuzis, pay for things you do on Free2Z: AI tools, livestream access, comments, and boosts. Holding credits also unlocks larger upload limits. You can buy credits with Zcash and share credits with other users. See the [2Z guide](../getting-started/03-tuzis.md) for ways to use them.
 
-These Token Sale and Usage Terms (the "Terms") govern the sale, acquisition, and use of 2Z tokens ("2Zs") on the Free2Z platform (the "Platform"). By purchasing, acquiring, or using 2Zs, users ("You" or "Your") acknowledge and agree to these Terms, which form part of the broader Terms of Service of Free2Z.
+## Using and sharing credits
 
-## Nature and Use of 2Z Tokens
-- **2Zs are not a money instrument**
+Credits stay within Free2Z. Sharing 2Z credits, including through donations, subscriptions, and memberships, lets people share platform use and support one another. These credit transfers do not create USD creator earnings. A [direct Zcash tip](./04-crypto-contribution-guidelines.md) goes to the recipient’s own wallet and is different from sharing credits. Credits cannot be cashed out and are not shares in 2Z Inc. or a promise of investment returns.
 
-2Zs are digital content intended to be purchased and consumed on Free2Z, and do not serve as a currency.
+Creator earnings come from qualifying services under a separate [creator agreement](./06-revenue-share-agreement.md). Those earnings are amounts 2Z Inc. owes in USD. Buying platform usage credits is an independent purchase.
 
-**2Zs cannot be directly exchanged for items or services of value**
+## Buying credits with Zcash
 
-- **Utility Tokens**: 2Zs are utility tokens used within the Free2Z ecosystem, primarily for accessing services like content access, voting, and subscriptions. They are not currencies, financial instruments, nor transferable outside the Free2Z platform. 2Zs serve as a measure of user impact and platform engagement within the Free2Z ecosystem.
-- **Internal Value Representation**: While 2Zs do not hold value as currency or financial instruments and are not transferable outside the Free2Z platform, they can be used by Free2Z to measure user impact and revenue generation within the Free2Z ecosystem.
+Credits & Earnings shows a purchase estimate and the payment instructions, including the destination and memo. Review the complete purchase terms displayed in Credits & Earnings before paying. Copy the memo shown for your account into your wallet payment so Free2Z can match it correctly.
 
-## Prohibitions
+The Zcash preview includes a conservative 10% buffer. You are likely to receive more credits than the estimate if the market price holds steady. Price changes can affect the final amount; the estimate is not a guaranteed minimum or a reserved price.
 
-1. Selling, offering to sell, trading, bartering, or transferring 2Zs to other users of Free2Z in exchange for (a) real or virtual currencies; or (b) any other items of value whether inside or outside the Free2Z. Any attempted prohibited sale or transfer will be null and void.
-2. Using 2Zs as a bet or wager or soliciting or accepting 2Zs for a bet or wager.
-3. Using 2Zs to engage in any fraudulent, criminal or other unauthorized activity, or soliciting or receiving 2Zs for any fraudulent, criminal or other unauthorized activity.
+Standard Zcash credit purchases currently have no Free2Z fee or spread. The credits you receive are calculated from the actual confirmed Zcash received and the market price used when Free2Z processes that confirmed payment. Your wallet's network fee is separate.
 
-## Exclusion as a Security
+If Credits & Earnings offers a promotion, review its conditions before paying. Only offers active when your confirmed payment is processed can apply. The highest eligible offer applies; offers do not stack. An unknown or expired code does not block an otherwise valid purchase.
 
-- **Not a Security**: 2Zs are not to be treated as securities or financial instruments. They do not represent shares, stakes, equity, or rights in any entity.
-- **No Expectation of Profit**: Purchasing 2Zs does not provide an expectation of profit, dividends, or capital appreciation. They are solely for accessing and utilizing services on the Platform.
+Credits are added after the required confirmations and matching checks. Viewing an estimate does not send Zcash or add credits. Check your credit balance after processing, and keep the payment reference so support can check receipt and credit delivery.
 
-## Regulatory Compliance
+Purchases are subject to daily limits: $2,000 in associated account value and $10,000 in sales to one buyer. Existing balances and incoming credits count toward the account limit. Other pending purchases can also use capacity.
 
-- **Compliance with Financial Regulations**: Free2Z operates in compliance with relevant financial regulations, ensuring that the issuance and redemption of 2Zs do not constitute operation as a money-service business or financial institution.
-- **Compliance with Laws**: Free2Z and 2Z token activities comply with applicable laws and regulations, especially those relating to digital tokens and virtual currencies.
-- **Alignment with Legal Standards**: All transactions involving 2Zs, including partner redemptions, are conducted in accordance with applicable laws and regulations.
+If payment or credit delivery is uncertain, keep your original purchase reference and contact [help@free2z.com](mailto:help@free2z.com). Check the original purchase before sending again. A received payment awaiting resolution does not disappear because credits have not yet been added.
 
-## Partner Program and Revenue Share and Token Redemption
+## Refunds and your rights
 
-- **Eligibility and Compliance**: Partners in the revenue share program are subject to strict compliance checks, aligning with legal and regulatory requirements.
-- **Discretionary Redemption by Free2Z**: The Company, at its discretion, may allow eligible partners to redeem 2Zs for a portion of platform-generated revenue. This redemption is conditional and subject to the Company's internal criteria and necessary compliance checks.
-- **Redemption Process**: The redemption of 2Zs by partners is a discretionary, non-obligatory process managed by the Company and does not establish 2Zs as financial assets or securities.
-- **Redeemability by Partners**: Qualified partners in the revenue share program can redeem 2Zs to claim a share of the platform's revenue. This redemption is completely at the discretion of the Company and is specific to partners who meet certain criteria and undergo necessary compliance checks.
-- **Non-Security Nature**: Despite their redeemability by partners, 2Zs are not to be treated as securities, shares, or financial investments. The redemption process is designed to comply with applicable legal standards and does not classify 2Zs as a security.
-- **Token Redemption**: Qualified partners can "burn" 2Zs to claim a portion of the revenue, which is conducted in accordance with applicable legal standards and does not classify 2Zs as a security.
+Delivered or unused credits are ordinarily nonrefundable, except where applicable law, company error, or non-delivery requires a remedy. Mandatory rights, including applicable small-balance refunds and unclaimed-property rights, remain protected.
 
-## Limitations and Restrictions
+Send refund requests to [help@free2z.com](mailto:help@free2z.com) with your purchase reference and a description of the problem. Discretionary requests are reviewed manually, with a best-effort target of 60 calendar days after complete information is received. Any earlier legal or payment-processor deadline takes precedence. This target does not cancel a claim or delay a refund required sooner by law.
 
-- **Non-Transferability and Non-Convertibility**: 2Zs are not transferable or convertible into any currency or financial instrument outside of the Free2Z platform. Their use is confined to platform-specific functions and rewards.
-- **Prohibited Financial Uses**: 2Zs must not be used for financial speculation, investment, or any purposes beyond the intended platform-specific transactions.
+## Full Zcash purchase terms
 
-## User Understanding Acknowledgement for 2Z Token Usage
+Version `zec-funding-v3`, digest `99b7faa10f89fb8f41b6e91929e7819ec4eb6d6747bab4b8b2a03b15e4f7e32d`.
 
-- **Acknowledgement of Token Terms:** By acquiring or using 2Z tokens on the Free2Z platform, you acknowledge that you have read, fully understood, and agree to the specific terms governing these tokens, as outlined in the Token Sale and Usage Terms.
+```text
+Zcash funding method: zec-funding-v3
 
-- **Acknowledgement of Token Nature**: By using 2Z tokens on the Free2Z platform, you acknowledge their role as utility tokens for platform-specific activities and recognize that they do not represent monetary value outside of Free2Z.
+The quantities, ZEC amount and rates shown before sending are estimates. They do not reserve credits or lock a conversion rate. We credit the actual shielded ZEC received after the required confirmations, using a fresh recorded multi-source ZEC/USD market price when processing the payment. The credit rate is that price multiplied by (1 - the settlement spread in force when processing) and 100 2Z per USD, rounded down to four decimal places. The pricing API and billing page disclose the current settlement spread separately from the conservative estimate buffer; these parameters can change before processing and are recorded in each completed receipt. The estimate buffer does not deduct value from the actual credit. No minimum credit quantity is guaranteed by the estimate. The resulting credits use the existing three-decimal 2Z precision. Wallet network fees are separate.
 
-- **Comprehension of Token Nature:** You confirm your understanding that 2Z tokens are utility tokens within the Free2Z ecosystem, meant for platform-specific uses, and are not securities, financial instruments, or investments.
+Enabled global offers and any optional memo promo code are evaluated when the confirmed payment is processed. The highest eligible multiplier applies once; offers never stack, and a tie prefers the global offer. Missing, invalid, unknown, disabled or expired codes do not prevent the base purchase or an eligible global offer. Previewed offers can change or end before processing and are not guaranteed by the payment request. We record the chosen offer, multiplier and effective parameters with the receipt; later edits never reprice a completed purchase.
 
-- **Recognition of Non-Financial Nature:** You acknowledge that 2Z tokens do not represent any monetary value outside the Free2Z platform and that purchasing or using these tokens does not entitle you to any financial returns, including profits, dividends, or capital appreciation.
+The required memo directs the payment to the named free2z account: {"act":"buy_2z","id":"your-username"}. No memo means no automatic credit. The memo identifies the credit recipient, not the identity of a shielded sender. Use a shielded wallet that preserves the exact memo.
 
-- **Acceptance of Compliance Responsibility:** You agree to adhere to all applicable laws and regulations in your use of 2Z tokens
-
-## Changes to Terms
-
-- **Amendments**: Free2Z reserves the right to modify these Terms. Continued use of 2Zs after such modifications indicates acceptance of the new terms.
-
-## Governing Law
-
-- **Jurisdiction**: These Terms are governed by the laws of the Country where Free2Z is established.
-
-## Violations of this Policy
-
-Any violations or attempted violations of this Policy by you (or any third party acting on your behalf) will constitute a violation of the Terms of Service, including this Policy, by you and a material breach of any other applicable agreement, and/or supplements to any applicable agreement(s), with the Company.
-
-Additionally, a violation may result in civil or criminal liability, and the Company, in its sole discretion, in addition to any remedy that it may have at law or in equity, may immediately terminate permission for you to use 2Zs. The Company may bring legal action to enjoin violations and/or collect damages caused by any violation of any part of this Policy.
-
-Our failure to enforce this Policy in every instance in which it might have application does not amount to a waiver of the Company's rights.
-
-## Contact Information
-
-- For inquiries or concerns regarding these Terms, please contact us at [help@free2z.com](mailto:help@free2z.com)
-
-By using 2Z tokens on Free2Z, you acknowledge and agree to be bound by these Token Sale and Usage Terms.
+We record the actual received amount, processing rate, market sources, price timestamp and resulting receipt. A stale or unavailable price defers processing until a fresh price is available. Repeated scans never credit the same note twice. Actual account and daily funding limits, inactive accounts, unknown recipients, chain revocations and operator holds can require manual resolution. Preserve the transaction and receipt references; do not resend simply because processing is delayed. Mandatory refund, consumer and unclaimed-property rights remain preserved.
+```
