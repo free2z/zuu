@@ -267,6 +267,7 @@ impl Provider for OpenAiChat {
             };
             caller.push(("response_format", wire));
         }
+        super::sampling::insert(&mut body, request, model)?;
         Ok(super::ordered_body(body, caller))
     }
 
@@ -452,6 +453,9 @@ impl StreamParser for Parser {
                 // One choice is requested; any other index is not ours.
                 if choice.get("index").and_then(Value::as_u64).unwrap_or(0) != 0 {
                     continue;
+                }
+                if let Some(probs) = choice.get("logprobs").filter(|v| !v.is_null()) {
+                    out.push(Content::Logprobs(probs.clone()));
                 }
                 if let Some(delta) = choice.get("delta") {
                     // A refusal is the model's answer, streamed like text.

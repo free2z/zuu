@@ -1,0 +1,18 @@
+{
+  "feature": "sampling",
+  "mutations": [
+    {
+      "name": "drop temperature",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/temperature"
+    },
+    {
+      "name": "alter nucleus probability",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/top_p",
+      "value": 0.5
+    }
+  ]
+}

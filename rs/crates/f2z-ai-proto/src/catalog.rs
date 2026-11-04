@@ -136,6 +136,18 @@ pub struct ModelCapabilities {
     /// exactly as before. Which levels: [`ModelControls::effort_levels`].
     #[serde(skip_serializing_if = "core::ops::Not::not")]
     pub reasoning_effort: bool,
+    /// Audited sampling support; absent is false.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub top_k: bool,
+    /// Audited sampling support; absent is false.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub seed: bool,
+    /// Audited sampling support; absent is false.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub logprobs: bool,
+    /// Audited sampling support; absent is false.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub penalties: bool,
 }
 
 fn declared_bool<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::Error> {
@@ -150,6 +162,10 @@ impl ModelCapabilities {
             && self.structured_output.is_none()
             && self.strict_tools.is_none()
             && !self.reasoning_effort
+            && !self.top_k
+            && !self.seed
+            && !self.logprobs
+            && !self.penalties
     }
 }
 
@@ -177,11 +193,30 @@ pub struct ModelControls {
     /// Absent/false preserves independent tools and effort admission.
     #[serde(skip_serializing_if = "core::ops::Not::not")]
     pub tools_require_effort_none: bool,
+    /// Signed prohibition on combining temperature and top_p.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub temperature_top_p_exclusive: bool,
+    /// Explicitly disable or enable core temperature support.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub temperature: Option<bool>,
+    /// Explicitly disable or enable core nucleus sampling support.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub top_p: Option<bool>,
 }
 
 impl ModelControls {
     fn is_empty(&self) -> bool {
-        self.effort_levels.is_none() && !self.tools_require_effort_none
+        self.effort_levels.is_none()
+            && !self.tools_require_effort_none
+            && !self.temperature_top_p_exclusive
+            && self.temperature.is_none()
+            && self.top_p.is_none()
     }
 }
 

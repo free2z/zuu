@@ -1,0 +1,46 @@
+{
+  "name": "anthropic_messages_temperature_range",
+  "feature": "sampling",
+  "source": "Synthetic. https://platform.claude.com/docs/en/api/messages temperature maximum 1; refuse rather than clamp.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {}
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Be brief."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Half of a pie?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 300,
+    "temperature": 1.5
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "field": "temperature",
+        "reason": "range"
+      }
+    },
+    "encodings": {}
+  }
+}

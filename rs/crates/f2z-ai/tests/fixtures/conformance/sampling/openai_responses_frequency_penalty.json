@@ -1,0 +1,51 @@
+{
+  "name": "openai_responses_frequency_penalty",
+  "feature": "sampling",
+  "source": "Synthetic documented-shape sampling fixture. Official references: https://developers.openai.com/api/reference/resources/chat ; https://developers.openai.com/api/reference/resources/responses ; https://platform.claude.com/docs/en/api/messages ; https://docs.x.ai/developers/model-capabilities/text/generate-text . No live provider data.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "seed": true,
+      "logprobs": true,
+      "penalties": true,
+      "top_k": true
+    }
+  },
+  "request": {
+    "model": "m-openai-responses",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Be brief."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Half of a pie?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 256,
+    "frequency_penalty": 0.5
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "field": "frequency_penalty",
+        "reason": "unsupported"
+      }
+    },
+    "encodings": {}
+  }
+}

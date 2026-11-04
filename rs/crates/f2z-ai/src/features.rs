@@ -10,11 +10,18 @@
 //! `response` log line of `route=chat` and `route=estimate`.
 //!
 //! **Content-free by construction.** Every member is a closed enum, a
-//! boolean, a count, or the schema's *name*, re-checked here against the same
+//! boolean, a count, a closed list of sampling field names, or the schema's
+//! *name*, re-checked here against the same
 //! `[A-Za-z0-9_-]{1,64}` rule `ResponseFormat::check` enforces (anything else
 //! is recorded as absent). No schema body, no prompt, no tool definition. The
-//! ledger (`ledger.gateway_metadata_valid`, tuzi migration
-//! `0006_call_features`) refuses any other shape.
+//! ledger's `gateway_metadata_valid` admits the original shape with
+//! `ledger.0006_call_features` and the additive sampling-name list only with
+//! `ledger.0007_sampling_features`. Deploy 0007 BEFORE updated gateways send
+//! sampling claims with `ledger_features_meta = true`, even when that flag
+//! was already enabled. Until then, hold sampling traffic or disable the flag
+//! on updated gateways. Before reversing 0007, apply the same traffic/flag
+//! restriction: its reverse admits old or omitted features, but rejects sampling.
+//! Existing records are never rewritten. See the README's Request features.
 //!
 //! The name is client-chosen text, in the same class as `metadata`: it is
 //! stored only on the user's own call record and returned to the same app,
@@ -54,6 +61,9 @@ impl ResponseFormatKind {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RequestFeatures {
+    /// Names of explicitly set sampling fields; never their values.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sampling: Vec<String>,
     /// `response_format.type`, or `None` when the request sent none.
     pub response_format: Option<ResponseFormatKind>,
     /// `response_format.json_schema.strict` as sent; `None` when absent.
@@ -86,6 +96,14 @@ fn schema_name(name: &str) -> Option<String> {
     valid.then(|| name.to_owned())
 }
 
+fn sampling_names(request: &ChatRequest) -> Vec<String> {
+    request
+        .sampling_fields()
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+}
+
 impl RequestFeatures {
     /// Describe `request`. Never fails and never copies content.
     #[must_use]
@@ -103,6 +121,7 @@ impl RequestFeatures {
             ),
         };
         Self {
+            sampling: sampling_names(request),
             response_format,
             response_format_strict: strict,
             response_format_schema_name: name,
@@ -125,9 +144,14 @@ impl RequestFeatures {
     pub fn from_json(value: &Value) -> Option<Self> {
         let parsed: Self = serde_json::from_value(value.clone()).ok()?;
         (parsed
-            .response_format_schema_name
-            .as_deref()
-            .is_none_or(|n| schema_name(n).is_some())
+            .sampling
+            .iter()
+            .all(|n| crate::provider::sampling::FIELDS.contains(&n.as_str()))
+            && parsed.sampling.len() <= 11
+            && parsed
+                .response_format_schema_name
+                .as_deref()
+                .is_none_or(|n| schema_name(n).is_some())
             && parsed.tools <= MAX_COUNT
             && parsed.fallback <= MAX_COUNT
             && parsed.response_format_schema_bytes <= MAX_COUNT)
@@ -220,5 +244,26 @@ mod tests {
         .to_json();
         bad["response_format_schema_name"] = json!("has space");
         assert_eq!(RequestFeatures::from_json(&bad), None);
+    }
+}
+
+#[cfg(test)]
+mod sampling_tests {
+    use super::*;
+    #[test]
+    fn sampling_accounting_is_field_names_only() {
+        let request = ChatRequest::new("m", vec![])
+            .with_temperature(0.7183)
+            .with_stop(vec!["SECRET_STOP".into()])
+            .with_seed(-982374);
+        let features = RequestFeatures::of(&request).to_json();
+        assert_eq!(
+            features["sampling"],
+            serde_json::json!(["temperature", "stop", "seed"])
+        );
+        let text = features.to_string();
+        assert!(
+            !text.contains("0.7183") && !text.contains("SECRET_STOP") && !text.contains("982374")
+        );
     }
 }

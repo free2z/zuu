@@ -434,6 +434,7 @@ fn every_event_has_a_pinned_sse_frame() {
         (
             Event::Delta(Delta {
                 text: "line1\nline2".into(),
+                logprobs: None,
             }),
             "event: delta\ndata: {\"text\":\"line1\\nline2\"}\n\n",
         ),
@@ -633,13 +634,25 @@ fn a_crlf_reader_still_parses() {
     // A reader that split lines on `\n` alone leaves the `\r` of a CRLF stream
     // on the event name.
     let e = Event::from_sse("delta\r", r#"{"text":"x"}"#).unwrap();
-    assert_eq!(e, Event::Delta(Delta { text: "x".into() }));
+    assert_eq!(
+        e,
+        Event::Delta(Delta {
+            text: "x".into(),
+            logprobs: None
+        })
+    );
 }
 
 #[test]
 fn the_ipc_form_parses_and_an_unknown_type_is_skippable() {
     let e = Event::from_ipc_json(r#"{"type":"delta","text":"x"}"#).unwrap();
-    assert_eq!(e, Event::Delta(Delta { text: "x".into() }));
+    assert_eq!(
+        e,
+        Event::Delta(Delta {
+            text: "x".into(),
+            logprobs: None
+        })
+    );
     assert!(matches!(
         Event::from_ipc_json(r#"{"type":"thinking","text":"x"}"#),
         Err(EventError::UnknownEvent(name)) if name == "thinking"
@@ -824,5 +837,36 @@ fn tools_effort_control_is_a_strict_boolean_with_compatible_absence() {
     for bad in ["null", "1", r#""true""#, "[]", "{}"] {
         let wire = format!(r#"{{"tools_require_effort_none":{bad}}}"#);
         assert!(serde_json::from_str::<ModelControls>(&wire).is_err());
+    }
+}
+
+#[test]
+fn sampling_absence_keeps_pre_sampling_wire_and_roundtrips() {
+    let plain = ChatRequest::new("m", vec![]);
+    assert_eq!(
+        serde_json::to_string(&plain).unwrap(),
+        r#"{"model":"m","messages":[],"stream":true}"#
+    );
+    let wire = r#"{"model":"m","messages":[],"stream":true,"temperature":0.7,"top_p":0.8,"top_k":20,"stop":["END"],"seed":-9223372036854775808,"logprobs":true,"top_logprobs":3,"frequency_penalty":-0.5,"presence_penalty":0.5,"n":1}"#;
+    let request: ChatRequest = serde_json::from_str(wire).unwrap();
+    assert_eq!(serde_json::to_string(&request).unwrap(), wire);
+    assert_eq!(request.seed, Some(i64::MIN));
+}
+
+#[test]
+fn sampling_catalogue_members_are_strict_and_legacy_safe() {
+    use f2z_ai_proto::catalog::{ModelCapabilities, ModelControls};
+    let legacy: ModelCapabilities = serde_json::from_str("{}").unwrap();
+    assert!(!legacy.top_k && !legacy.seed && !legacy.logprobs && !legacy.penalties);
+    for field in ["top_k", "seed", "logprobs", "penalties"] {
+        for invalid in ["null", "1", "\"true\""] {
+            assert!(
+                serde_json::from_str::<ModelCapabilities>(&format!("{{\"{field}\":{invalid}}}"))
+                    .is_err()
+            );
+        }
+    }
+    for field in ["temperature", "top_p", "temperature_top_p_exclusive"] {
+        assert!(serde_json::from_str::<ModelControls>(&format!("{{\"{field}\":null}}")).is_err());
     }
 }

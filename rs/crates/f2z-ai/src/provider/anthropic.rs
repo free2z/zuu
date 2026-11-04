@@ -357,6 +357,7 @@ impl Provider for AnthropicMessages {
                 ),
             ));
         }
+        super::sampling::insert(&mut body, request, model)?;
         Ok(super::ordered_body(body, caller))
     }
 

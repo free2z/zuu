@@ -1,0 +1,55 @@
+{
+  "name": "anthropic_controls_conflict",
+  "feature": "sampling",
+  "source": "Synthetic documented-shape sampling fixture. Official references: https://developers.openai.com/api/reference/resources/chat ; https://developers.openai.com/api/reference/resources/responses ; https://platform.claude.com/docs/en/api/messages ; https://docs.x.ai/developers/model-capabilities/text/generate-text . No live provider data.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "seed": true,
+      "logprobs": true,
+      "penalties": true,
+      "top_k": true
+    },
+    "controls": {
+      "temperature_top_p_exclusive": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Be brief."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Half of a pie?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 300,
+    "temperature": 0.5,
+    "top_p": 0.8
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "field": "controls",
+        "reason": "conflict"
+      }
+    },
+    "encodings": {}
+  }
+}

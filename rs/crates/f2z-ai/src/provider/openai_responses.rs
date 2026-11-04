@@ -200,6 +200,7 @@ impl Provider for OpenAiResponses {
                 })),
             ));
         }
+        super::sampling::insert(&mut body, request, model)?;
         Ok(super::ordered_body(body, caller))
     }
 
@@ -315,6 +316,9 @@ impl StreamParser for Parser {
             // A refusal is the model's answer, shown like any other text;
             // the turn still ends in one of the three terminal events.
             "response.output_text.delta" | "response.refusal.delta" => {
+                if let Some(probs) = data.get("logprobs").filter(|v| !v.is_null()) {
+                    out.push(Content::Logprobs(probs.clone()));
+                }
                 let text = data
                     .get("delta")
                     .and_then(Value::as_str)

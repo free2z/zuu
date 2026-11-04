@@ -118,6 +118,7 @@ pub struct ProviderUpstream {
     images: u64,
     /// See [`Prepared::tool_deltas`].
     tool_deltas: bool,
+    logprobs: bool,
     /// A 2xx head arrived: the provider accepted, and bills, the request.
     accepted: bool,
     /// See [`ProviderOutcome::tool_fragments`]: by call index, the name
@@ -164,6 +165,7 @@ pub(crate) struct Prepared {
     /// before they count as output — its fallback and partial-output rules
     /// stay exactly what they were before fragments existed.
     pub(crate) tool_deltas: bool,
+    pub(crate) logprobs: bool,
 }
 
 impl ProviderUpstream {
@@ -181,6 +183,7 @@ impl ProviderUpstream {
             retry: p.retry,
             images: p.images,
             tool_deltas: p.tool_deltas,
+            logprobs: p.logprobs,
             accepted: false,
             tool_fragments: std::collections::BTreeMap::new(),
             state: State::Start,
@@ -429,12 +432,22 @@ impl ProviderUpstream {
             // the model generated commits the call (no retry, after-content
             // phase, settled rather than released on a later failure) even
             // when `stream: false` keeps it off the wire.
+            if matches!(content, Content::Logprobs(_)) && !self.logprobs {
+                continue;
+            }
             self.output_produced = true;
             if matches!(content, Content::ToolCallDelta(_)) && !self.tool_deltas {
                 continue;
             }
             self.queue.push_back(match content {
-                Content::Text(text) => Event::Delta(Delta { text }),
+                Content::Logprobs(value) => Event::Delta(Delta {
+                    text: String::new(),
+                    logprobs: Some(value),
+                }),
+                Content::Text(text) => Event::Delta(Delta {
+                    text,
+                    logprobs: None,
+                }),
                 Content::ToolCallDelta(fragment) => Event::ToolCallDelta(fragment),
                 Content::ToolCall(call) => {
                     self.function_tool_calls = self.function_tool_calls.saturating_add(1);

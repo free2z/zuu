@@ -74,6 +74,12 @@ impl Aggregate {
                 self.meta = Some(meta)
             }
             Event::Delta(delta) if self.meta.is_some() && self.usage.is_none() => {
+                if let Some(probs) = delta.logprobs {
+                    self.message.logprobs.push(probs);
+                }
+                if delta.text.is_empty() {
+                    return Ok(());
+                }
                 if let Some(OutputPart::Text { text }) = self.message.content.last_mut() {
                     text.push_str(&delta.text);
                 } else {
@@ -312,6 +318,7 @@ mod tests {
             .unwrap();
         a.push(Event::Delta(Delta {
             text: "paid text".into(),
+            logprobs: None,
         }))
         .unwrap();
         a
@@ -340,7 +347,8 @@ mod tests {
         assert_eq!(a.finish(None).0, StatusCode::OK);
         assert!(
             a.push(Event::Delta(Delta {
-                text: "late".into()
+                text: "late".into(),
+                logprobs: None
             }))
             .is_err()
         );

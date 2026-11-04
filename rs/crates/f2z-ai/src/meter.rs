@@ -380,6 +380,7 @@ fn plan_with(
     crate::provider::check_tools(request, &model)?;
     // Refused before any hold: a model or adapter that cannot honour a
     // response_format never receives the call without it.
+    crate::provider::sampling::check(request, &model)?;
     crate::provider::check_response_format(request, &model)?;
     // And a reasoning_effort the model or its adapter cannot honour. Effort
     // changes no bound below: reasoning tokens are output tokens, and the
@@ -802,7 +803,7 @@ impl ChatBackend for Metered {
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"top_k":m.api_style == f2z_ai_proto::catalog::ApiStyle::AnthropicMessages || (m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.top_k),"seed":m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.seed,"logprobs":m.api_style != f2z_ai_proto::catalog::ApiStyle::AnthropicMessages && m.capabilities.logprobs,"penalties":m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.penalties,"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),
@@ -1149,6 +1150,31 @@ impl ChatBackend for Metered {
 /// feature (`tools_unsupported`) or `reasoning_effort`. Either way
 /// a same-key replay must name it, not an abandoned-claim `unavailable`.
 fn is_terminal_refusal(failure: &ApiFailure) -> bool {
+    if failure.code() == ErrorCode::InvalidRequest.as_str()
+        && failure
+            .detail_of("field")
+            .and_then(Value::as_str)
+            .is_some_and(|field| {
+                field == "controls" || crate::provider::sampling::FIELDS.contains(&field)
+            })
+        && failure
+            .detail_of("reason")
+            .and_then(Value::as_str)
+            .is_some_and(|reason| {
+                [
+                    "null",
+                    "range",
+                    "unsupported",
+                    "n_unsupported",
+                    "requires_logprobs",
+                    "conflict",
+                ]
+                .contains(&reason)
+            })
+    {
+        return true;
+    }
+
     matches!(
         failure.detail_of("reason").and_then(Value::as_str),
         Some(reason) if reason == crate::provider::STRICT_OUTPUT_REASON
@@ -1170,6 +1196,15 @@ fn models_controls(m: &CatalogModel) -> Value {
     }
     if crate::provider::reasoning_effort_supported(m) && m.controls.tools_require_effort_none {
         controls.insert("tools_require_effort_none".into(), json!(true));
+    }
+    if let Some(value) = m.controls.temperature {
+        controls.insert("temperature".into(), json!(value));
+    }
+    if let Some(value) = m.controls.top_p {
+        controls.insert("top_p".into(), json!(value));
+    }
+    if m.controls.temperature_top_p_exclusive {
+        controls.insert("temperature_top_p_exclusive".into(), json!(true));
     }
     Value::Object(controls)
 }

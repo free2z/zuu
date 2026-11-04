@@ -580,6 +580,7 @@ where
                         response_format = f.response_format.map(|k| k.as_str()),
                         response_format_strict = f.response_format_strict,
                         response_format_schema_bytes = f.response_format_schema_bytes,
+                        sampling = ?f.sampling,
                         tools = f.tools,
                         max_output_tokens_strict = f.max_output_tokens_strict,
                         stream = f.stream,

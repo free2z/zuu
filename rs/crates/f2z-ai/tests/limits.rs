@@ -237,7 +237,7 @@ async fn decoding_is_strict_and_the_skeleton_answers_501() {
     assert_eq!(error["code"], "not_implemented");
 
     let mut unknown = valid_chat("hi");
-    unknown["temperature"] = json!(0.2);
+    unknown["unknown_sampling_field"] = json!(0.2);
     let (status, error) = post_bytes(&running, unknown.to_string().into_bytes()).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert_eq!(error["code"], "invalid_request");

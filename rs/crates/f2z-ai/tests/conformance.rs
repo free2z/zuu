@@ -541,3 +541,74 @@ fn the_corpus_controls_dropping_tool_choice_response_format_and_strict() {
         );
     }
 }
+
+#[tokio::test]
+async fn sampling_logprobs_are_additive_and_requested_only() {
+    for file in ["openai_chat_logprobs", "openai_responses_logprobs"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join(format!("tests/fixtures/conformance/sampling/{file}.json"));
+        let mut value: Value =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let tokens = json!([{"token":"Half", "logprob":-0.25, "bytes":[72,97,108,102]}]);
+        let probs = if file.starts_with("openai_chat") {
+            json!({"content":tokens})
+        } else {
+            tokens
+        };
+        let stream = value["expect"]["provider_stream"].as_array_mut().unwrap();
+        if file.starts_with("openai_chat") {
+            let chunk = stream
+                .iter_mut()
+                .find(|c| {
+                    c["choices"][0]["delta"]["content"]
+                        .as_str()
+                        .is_some_and(|s| !s.is_empty())
+                })
+                .unwrap();
+            chunk["choices"][0]["logprobs"] = probs.clone();
+        } else {
+            let chunk = stream
+                .iter_mut()
+                .find(|c| c["type"] == "response.output_text.delta")
+                .unwrap();
+            chunk["logprobs"] = probs.clone();
+        }
+        let fixture: Fixture = serde_json::from_value(value).unwrap();
+        for requested in [true, false] {
+            for streaming in [true, false] {
+                let h = Harness::start(&fixture, &fixture.catalog_model.capabilities).await;
+                let mut request: Value =
+                    serde_json::from_str(&request_text(&fixture, streaming)).unwrap();
+                request["logprobs"] = json!(requested);
+                let (status, body) = h.post("/v1/chat", &request.to_string()).await;
+                assert_eq!(status, StatusCode::OK, "{body}");
+                if streaming {
+                    let chunks: Vec<_> = client_events(&body)
+                        .into_iter()
+                        .filter_map(|e| match e {
+                            Event::Delta(d) => d.logprobs,
+                            _ => None,
+                        })
+                        .collect();
+                    assert_eq!(
+                        chunks,
+                        if requested {
+                            vec![probs.clone()]
+                        } else {
+                            vec![]
+                        }
+                    );
+                } else {
+                    let reply: Value = serde_json::from_str(&body).unwrap();
+                    assert_eq!(
+                        reply["message"].get("logprobs").is_some(),
+                        requested,
+                        "{body}"
+                    );
+                }
+                assert_eq!(h.mock.request_count(), 1);
+                h.mock.shutdown().await;
+            }
+        }
+    }
+}

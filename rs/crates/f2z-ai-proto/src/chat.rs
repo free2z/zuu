@@ -152,6 +152,83 @@ pub struct ChatRequest {
         deserialize_with = "present_reasoning_effort"
     )]
     pub reasoning_effort: Option<ReasoningEffort>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub temperature: Option<f64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub top_p: Option<f64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub top_k: Option<u64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub stop: Option<Vec<String>>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub seed: Option<i64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub logprobs: Option<bool>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub top_logprobs: Option<u64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub frequency_penalty: Option<f64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub presence_penalty: Option<f64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub n: Option<u64>,
+    /// Optional sampling control; validated before any reservation.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present_sampling"
+    )]
+    pub logit_bias: Option<serde_json::Value>,
 }
 
 /// [`ChatRequest::reasoning_effort`]: OpenAI's `reasoning_effort` values,
@@ -204,6 +281,12 @@ impl<'de> Deserialize<'de> for ReasoningEffort {
             _ => Err(refused()),
         }
     }
+}
+
+fn present_sampling<'de, D: serde::Deserializer<'de>, T: Deserialize<'de>>(
+    d: D,
+) -> Result<Option<T>, D::Error> {
+    T::deserialize(d).map(Some)
 }
 
 fn present_reasoning_effort<'de, D: serde::Deserializer<'de>>(
@@ -462,6 +545,106 @@ impl ResponseFormat {
 }
 
 impl ChatRequest {
+    /// Names of explicitly set sampling controls, never their values.
+    #[must_use]
+    pub fn sampling_fields(&self) -> Vec<&'static str> {
+        let mut names = Vec::new();
+        if self.temperature.is_some() {
+            names.push("temperature");
+        }
+        if self.top_p.is_some() {
+            names.push("top_p");
+        }
+        if self.top_k.is_some() {
+            names.push("top_k");
+        }
+        if self.stop.is_some() {
+            names.push("stop");
+        }
+        if self.seed.is_some() {
+            names.push("seed");
+        }
+        if self.logprobs.is_some() {
+            names.push("logprobs");
+        }
+        if self.top_logprobs.is_some() {
+            names.push("top_logprobs");
+        }
+        if self.frequency_penalty.is_some() {
+            names.push("frequency_penalty");
+        }
+        if self.presence_penalty.is_some() {
+            names.push("presence_penalty");
+        }
+        if self.n.is_some() {
+            names.push("n");
+        }
+        if self.logit_bias.is_some() {
+            names.push("logit_bias");
+        }
+        names
+    }
+
+    /// Set `temperature` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_temperature(mut self, value: f64) -> Self {
+        self.temperature = Some(value);
+        self
+    }
+    /// Set `top_p` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_top_p(mut self, value: f64) -> Self {
+        self.top_p = Some(value);
+        self
+    }
+    /// Set `top_k` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_top_k(mut self, value: u64) -> Self {
+        self.top_k = Some(value);
+        self
+    }
+    /// Set `stop` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_stop(mut self, value: Vec<String>) -> Self {
+        self.stop = Some(value);
+        self
+    }
+    /// Set `seed` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_seed(mut self, value: i64) -> Self {
+        self.seed = Some(value);
+        self
+    }
+    /// Set `logprobs` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_logprobs(mut self, value: bool) -> Self {
+        self.logprobs = Some(value);
+        self
+    }
+    /// Set `top_logprobs` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_top_logprobs(mut self, value: u64) -> Self {
+        self.top_logprobs = Some(value);
+        self
+    }
+    /// Set `frequency_penalty` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_frequency_penalty(mut self, value: f64) -> Self {
+        self.frequency_penalty = Some(value);
+        self
+    }
+    /// Set `presence_penalty` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_presence_penalty(mut self, value: f64) -> Self {
+        self.presence_penalty = Some(value);
+        self
+    }
+    /// Set `n` without changing provider defaults for other controls.
+    #[must_use]
+    pub fn with_n(mut self, value: u64) -> Self {
+        self.n = Some(value);
+        self
+    }
     /// The structural limits on `tools`, `tool_choice` and
     /// `parallel_tool_calls` that need no catalogue: at most [`MAX_TOOLS`]
     /// tools; each name well-formed and unique; each `parameters` an object
@@ -637,6 +820,17 @@ impl ChatRequest {
             tool_choice: None,
             parallel_tool_calls: None,
             reasoning_effort: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            stop: None,
+            seed: None,
+            logprobs: None,
+            top_logprobs: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            n: None,
+            logit_bias: None,
         }
     }
 
@@ -947,6 +1141,9 @@ pub enum FinishReason {
 /// [`AssistantMessage::into_message`].
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AssistantMessage {
+    /// Requested provider probability chunks, in stream order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub logprobs: Vec<serde_json::Value>,
     /// The reply's content, in order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<OutputPart>,
