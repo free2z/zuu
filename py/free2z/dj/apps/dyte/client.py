@@ -584,7 +584,36 @@ class DyteClient(object):
         could leave the kick resolving nothing (404) while a live connection
         survives. True only when both are confirmed (404 = already gone).
         """
+        # A host_... value is our custom_participant_id, NOT RealtimeKit's
+        # provider participant UUID. Resolve it through the documented list
+        # endpoint before calling kick/delete (which require provider ID).
+        if str(participant_id).startswith('host_'):
+            resolved = self._provider_id_for_custom_participant(
+                meeting_id, str(participant_id),
+            )
+            if resolved is None:
+                # A pre-mint obligation can outlive the request that minted
+                # it. An empty list is only a snapshot: the provider may
+                # finish an already accepted add request after this lookup.
+                # Keep retrying until the participant appears and is retired.
+                return False
+            if resolved is False:
+                return False
+            if resolved is None:
+                return False
+            # A custom ID is not unique at the provider. Retire every match
+            # found in the complete listing; success requires each one gone.
+            retired = True
+            for provider_id in resolved:
+                if not self._retire_provider_participant(meeting_id, provider_id):
+                    retired = False
+            return retired
+        return self._retire_provider_participant(meeting_id, participant_id)
+
+    def _retire_provider_participant(self, meeting_id, participant_id):
         kicked = self.kick_participants(meeting_id, [participant_id])
+        if not kicked:
+            return False
         url = (
             f"{settings.RTK_API_BASE_URL}/v2/meetings/{meeting_id}"
             f"/participants/{participant_id}"
@@ -605,7 +634,63 @@ class DyteClient(object):
             logger.warning(
                 "retire_participant: delete status=%s meeting=%s",
                 response.status_code, meeting_id)
-        return kicked and deleted
+        return deleted
+
+    def _provider_id_for_custom_participant(self, meeting_id, custom_id):
+        url = (
+            f"{settings.RTK_API_BASE_URL}/v2/meetings/{meeting_id}/participants"
+        )
+        auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
+        page_no = 1
+        matches = []
+        try:
+            while page_no <= 20:
+                response = requests.get(
+                    url, params={'page_no': page_no, 'per_page': 100},
+                    headers={'Content-Type': 'application/json'},
+                    auth=auth, timeout=_timeout(),
+                )
+                if response.status_code >= 300:
+                    logger.warning(
+                        "resolve participant id: provider status=%s meeting=%s",
+                        response.status_code, meeting_id)
+                    return False
+                try:
+                    payload = response.json()
+                except (ValueError, TypeError, AttributeError):
+                    return False
+                if not isinstance(payload, dict) or 'data' not in payload:
+                    return False
+                data = payload['data']
+                if isinstance(data, dict):
+                    data = [data]
+                if not isinstance(data, list):
+                    return False
+                for participant in data:
+                    if not isinstance(participant, dict):
+                        return False
+                    provider_id = participant.get('id')
+                    participant_custom_id = participant.get(
+                        'custom_participant_id',
+                    )
+                    if (not isinstance(provider_id, str) or not provider_id
+                            or ('custom_participant_id' not in participant)
+                            or (participant_custom_id is not None
+                                and not isinstance(participant_custom_id, str))):
+                        return False
+                    if participant_custom_id == custom_id:
+                        matches.append(provider_id)
+                if len(data) < 100:
+                    return matches or None
+                page_no += 1
+        except requests.RequestException as exc:
+            logger.warning(
+                "resolve participant id failed meeting=%s: %s",
+                meeting_id, type(exc).__name__,
+            )
+        # Reaching the page cap without exhausting the provider's list is an
+        # unresolved lookup, not evidence that this participant is absent.
+        return False
 
     def add_participant(
         self, creator: Creator, meeting_id: str, *, role: str = None,

@@ -21,6 +21,7 @@ import {
   releasingEvidenceDocumentDigest,
   releaseBumpPaths,
   statusEvidenceDocumentDigest,
+  statusEvidenceSealsPath,
   verifyReleaseEvidencePolicy,
   verifyStatusFreshness,
 } from "./status-freshness.mjs";
@@ -849,6 +850,77 @@ for (const path of [
   });
 }
 
+// #987. A real re-derivation cannot change STATUS.md alone: the document is
+// sealed, so the same commit records its new digest. When that digest lived
+// inside status-freshness.mjs, the re-derivation changed a release-impacting
+// path after its own recorded audit SHA and made that audit stale at once;
+// the only way through was an undocumented second edit re-pointing the marker
+// at the re-derivation's own squash, which releasing.md says a commit cannot
+// honestly name. The fixture above changes STATUS.md alone, which is why no
+// test saw it.
+function createAuditedHistoryWithSeals(t, extraChanges = new Map()) {
+  const fixture = createRepository(t);
+  fixture.write(statusPath, "# status before re-derivation\n");
+  fixture.write(statusEvidenceSealsPath, '{ "status": "before" }\n');
+  fixture.write(
+    "wallet/zuuli/scripts/status-freshness.mjs",
+    "// the checker at the audited source\n",
+  );
+  seedReleaseFiles(fixture);
+  const auditSha = fixture.commit("candidate source");
+  fixture.write(statusPath, marker(auditSha));
+  fixture.write(statusEvidenceSealsPath, '{ "status": "after" }\n');
+  for (const [path, contents] of extraChanges) fixture.write(path, contents);
+  fixture.commit("re-derive status and record its seal");
+  return { ...fixture, auditSha };
+}
+
+test("accepts a re-derivation that also records its seal, anchored at the pre-edit source", (t) => {
+  const fixture = createAuditedHistoryWithSeals(t);
+  const sourceSha = commitRelease(fixture);
+
+  assert.deepEqual(
+    verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    {
+      sourceSha,
+      parentSha: git(fixture.root, ["rev-parse", `${sourceSha}^1`]),
+      auditSha: fixture.auditSha,
+      auditDate: "2026-08-23",
+    },
+  );
+});
+
+test("still rejects a re-derivation that also changes the checker's code", (t) => {
+  // Only the seal file is exempt. The checker's logic stays release-impacting,
+  // so a change to it after the audit still demands a fresh re-derivation.
+  const fixture = createAuditedHistoryWithSeals(
+    t,
+    new Map([
+      [
+        "wallet/zuuli/scripts/status-freshness.mjs",
+        "// the checker, changed after the audit\n",
+      ],
+    ]),
+  );
+  const sourceSha = commitRelease(fixture);
+  assert.throws(
+    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    /was not re-derived after release-impacting changes:\n- wallet\/zuuli\/scripts\/status-freshness\.mjs$/,
+  );
+});
+
+test("the release commit may carry a seal update beside STATUS.md", (t) => {
+  const fixture = createAuditedHistory(t);
+  const sourceSha = commitRelease(
+    fixture,
+    new Map([[statusEvidenceSealsPath, '{ "status": "released" }\n']]),
+  );
+  assert.equal(
+    verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }).sourceSha,
+    sourceSha,
+  );
+});
+
 test("rejects a non-ceremony application change in the release commit", (t) => {
   const fixture = createAuditedHistory(t);
   const sourceSha = commitRelease(
@@ -960,4 +1032,42 @@ test("release-impacting selector retains the gate's boundary classes", () => {
     assert.equal(isReleaseImpactingPath(path), true, path);
   }
   assert.equal(isReleaseImpactingPath("docs/unrelated.md"), false);
+});
+
+test("exempts exactly the evidence seal file, and nothing beside it", () => {
+  assert.equal(
+    statusEvidenceSealsPath,
+    "wallet/zuuli/scripts/status-evidence-seals.json",
+  );
+  assert.equal(isReleaseImpactingPath(statusEvidenceSealsPath), false);
+  for (const path of [
+    "wallet/zuuli/scripts/status-freshness.mjs",
+    "wallet/zuuli/scripts/status-evidence-seals.json.bak",
+    "wallet/zuuli/scripts/status-evidence-seals.jsonl",
+    "wallet/zuuli/scripts/other-seals.json",
+  ]) {
+    assert.equal(isReleaseImpactingPath(path), true, path);
+  }
+});
+
+test("the evidence seal file holds exactly the two document digests", () => {
+  const seals = JSON.parse(
+    readFileSync(
+      resolve(repositoryRoot, "wallet/zuuli/scripts/status-evidence-seals.json"),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(Object.keys(seals).sort(), ["releasing", "status"]);
+  assert.equal(
+    seals.releasing,
+    releasingEvidenceDocumentDigest(
+      readFileSync(resolve(repositoryRoot, releasingPath), "utf8"),
+    ),
+  );
+  assert.equal(
+    seals.status,
+    statusEvidenceDocumentDigest(
+      readFileSync(resolve(repositoryRoot, statusPath), "utf8"),
+    ),
+  );
 });
