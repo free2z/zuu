@@ -8,7 +8,8 @@ mocked, the DB is real):
 - DyteClient.get_participants_count: a provider 404 on /active-session is
   the documented "no session running" answer and must read as a confirmed
   zero; only real failures (401/403/5xx) may raise.
-- dyte.sweep_live_meetings: a confirmed zero clears live_now; a positive
+- dyte.sweep_live_meetings: consecutive confirmed zeros clear live_now after
+  a bounded grace; a positive
   count refreshes last_seen_at and keeps live_now; a provider API error
   leaves a recently-seen room unchanged but stale-clears one nobody has
   been seen in for DYTE_LIVE_STALE_CLEAR_SECONDS; a just-went-live room
@@ -67,7 +68,7 @@ def _patch_count(mocker, side_effect=None, return_value=None):
 
 
 @pytest.mark.django_db
-def test_zero_count_clears_live_now(mocker, creator_factory):
+def test_zero_count_gets_bounded_grace_then_clears(mocker, creator_factory):
     creator = creator_factory()
     cm = _make_meeting(creator, "zero-count-1")
     _patch_count(mocker, return_value=0)
@@ -75,7 +76,17 @@ def test_zero_count_clears_live_now(mocker, creator_factory):
     sweep_live_meetings(0)
 
     cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.zero_probe_since is not None
+
+    CreatorMeeting.objects.filter(pk=cm.pk).update(
+        zero_probe_since=timezone.now() - timedelta(
+            seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1))
+    sweep_live_meetings(1)
+
+    cm.refresh_from_db()
     assert cm.live_now is False
+    assert cm.zero_probe_since is None
 
 
 @pytest.mark.django_db
@@ -92,6 +103,118 @@ def test_positive_count_refreshes_last_seen_and_keeps_live(
     cm.refresh_from_db()
     assert cm.live_now is True
     assert cm.last_seen_at > stale
+    assert cm.zero_probe_since is None
+
+
+@pytest.mark.django_db
+def test_stale_zero_probe_cannot_clear_newer_positive_observation(
+    mocker, creator_factory,
+):
+    creator = creator_factory()
+    old_zero = timezone.now() - timedelta(
+        seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1)
+    cm = _make_meeting(
+        creator, "stale-zero-race",
+        last_seen_at=timezone.now() - timedelta(minutes=1),
+        zero_probe_since=old_zero,
+    )
+
+    def observe_positive_before_stale_zero_finishes(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(
+            last_seen_at=timezone.now(), zero_probe_since=None)
+        return 0
+
+    _patch_count(mocker, side_effect=observe_positive_before_stale_zero_finishes)
+    sweep_live_meetings(0)
+
+    cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.zero_probe_since is None
+    assert cm.last_seen_at > old_zero
+
+
+@pytest.mark.django_db
+def test_sweep_counts_only_a_zero_clear_that_updated_the_row(
+    mocker, creator_factory, caplog,
+):
+    creator = creator_factory()
+    old_zero = timezone.now() - timedelta(
+        seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1)
+    cm = _make_meeting(
+        creator, "zero-clear-loses-race",
+        zero_probe_since=old_zero,
+    )
+
+    def concurrent_clear(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+        return 0
+
+    _patch_count(mocker, side_effect=concurrent_clear)
+    sweep_live_meetings(0)
+
+    assert any(
+        "checked=1 refreshed=0 cleared=0" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.django_db
+def test_stale_first_zero_cannot_replace_newer_positive_observation(
+    mocker, creator_factory,
+):
+    creator = creator_factory()
+    old_seen = timezone.now() - timedelta(minutes=1)
+    cm = _make_meeting(creator, "stale-first-zero-race", last_seen_at=old_seen)
+
+    def observe_positive_before_stale_zero_finishes(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(
+            last_seen_at=timezone.now(), zero_probe_since=None)
+        return 0
+
+    _patch_count(mocker, side_effect=observe_positive_before_stale_zero_finishes)
+    sweep_live_meetings(0)
+
+    cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.zero_probe_since is None
+    assert cm.last_seen_at > old_seen
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("outcome", ["positive", "error"])
+def test_late_probe_cannot_overwrite_newer_cross_worker_evidence(
+    mocker, creator_factory, outcome,
+):
+    creator = creator_factory()
+    old_seen = timezone.now() - timedelta(seconds=30)
+    old_zero = timezone.now() - timedelta(seconds=10)
+    cm = _make_meeting(
+        creator, f"late-probe-{outcome}",
+        last_seen_at=old_seen, zero_probe_since=old_zero,
+    )
+    newer_seen = timezone.now()
+    newer_zero = timezone.now() - timedelta(seconds=2)
+
+    def newer_worker_finished(_client, _meeting_id):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(
+            last_seen_at=newer_seen, zero_probe_since=newer_zero,
+        )
+        if outcome == "error":
+            raise Exception("late provider failure")
+        return 2
+
+    mocker.patch(
+        "dj.apps.dyte.client.DyteClient.get_participants_count",
+        autospec=True,
+        side_effect=newer_worker_finished,
+    )
+
+    sweep_live_meetings(0)
+
+    cm.refresh_from_db()
+    assert cm.live_now is True
+    assert cm.last_seen_at == newer_seen
+    assert cm.zero_probe_since == newer_zero
 
 
 @pytest.mark.django_db
@@ -159,9 +282,14 @@ def test_error_does_not_abort_remaining_rooms(mocker, creator_factory):
     # Recently seen, so the error room is left alone rather than stale-cleared.
     bad = _make_meeting(
         creator, "iso-bad", meeting_type="broadcast",
-        last_seen_at=timezone.now() - timedelta(seconds=5),
+        last_seen_at=timezone.now() - timedelta(seconds=20),
     )
-    good = _make_meeting(creator, "iso-good", meeting_type="ppv")
+    good = _make_meeting(
+        creator, "iso-good", meeting_type="ppv",
+        last_seen_at=timezone.now() - timedelta(seconds=5),
+        zero_probe_since=timezone.now() - timedelta(
+            seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1),
+    )
 
     def by_meeting(self, meeting_id):
         if meeting_id == bad.meeting_id:
@@ -206,7 +334,7 @@ def test_client_treats_404_as_zero_participants(mocker):
     treat the normal case as an error and never clear live_now.
     """
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(404, {
             "success": False,
             "error": {"code": 404, "message": "No active session found"},
@@ -218,7 +346,7 @@ def test_client_treats_404_as_zero_participants(mocker):
 
 def test_client_returns_live_participants_on_200(mocker):
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(200, {
             "success": True, "data": {"live_participants": 4},
         }),
@@ -227,11 +355,33 @@ def test_client_returns_live_participants_on_200(mocker):
     assert DyteClient("org").get_participants_count("m-200") == 4
 
 
+def test_client_preserves_confirmed_zero_on_200(mocker):
+    mocker.patch(
+        "dj.apps.dyte.client._SESSION.get",
+        return_value=_FakeResponse(200, {
+            "success": True, "data": {"live_participants": 0},
+        }),
+    )
+
+    assert DyteClient("org").get_participants_count("m-zero") == 0
+
+
+@pytest.mark.parametrize("payload", [{}, {"data": {}}, {"data": {"live_participants": None}}])
+def test_client_does_not_treat_malformed_count_as_confirmed_zero(mocker, payload):
+    mocker.patch(
+        "dj.apps.dyte.client._SESSION.get",
+        return_value=_FakeResponse(200, payload),
+    )
+
+    with pytest.raises(ValueError):
+        DyteClient("org").get_participants_count("m-malformed")
+
+
 @pytest.mark.parametrize("status_code", [401, 403, 500, 502])
 def test_client_raises_on_real_failures(mocker, status_code):
     """Auth/provider failures must stay distinguishable from an empty room."""
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(status_code, {"success": False}),
     )
 
@@ -243,9 +393,13 @@ def test_client_raises_on_real_failures(mocker, status_code):
 def test_sweep_clears_live_now_on_provider_404(mocker, creator_factory):
     """End-to-end regression for the prod bug, through the real client."""
     creator = creator_factory()
-    cm = _make_meeting(creator, "e2e-404")
+    cm = _make_meeting(
+        creator, "e2e-404",
+        zero_probe_since=timezone.now() - timedelta(
+            seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS + 1),
+    )
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(404, {
             "success": False,
             "error": {"code": 404, "message": "No active session found"},
@@ -374,7 +528,7 @@ def test_live_status_reports_idle_room_as_not_live(
     creator = creator_factory()
     _make_meeting(creator, "live-status-404")
     mocker.patch(
-        "dj.apps.dyte.client.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=_FakeResponse(404, {"success": False}),
     )
 

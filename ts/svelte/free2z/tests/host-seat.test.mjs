@@ -240,7 +240,7 @@ test("the public stream viewer never joins as a host", () => {
   assert.match(viewer, /const isHost = false;/);
   assert.match(
     viewer,
-    /\{\s*role:\s*["']viewer["'],\s*expectedActorId:\s*originalViewerActorId,\s*signal\s*\}/,
+    /\{\s*role:\s*["']viewer["'],\s*expectedActorId:\s*originalViewerActorId,\s*signal,\s*meetingSessionId,?\s*\}/,
   );
 });
 

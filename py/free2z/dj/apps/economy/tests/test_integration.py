@@ -58,7 +58,8 @@ def ppv_fixture(creator_factory):
         is_public=True,live_now=True,lifecycle_state='live',provider_session_id=uuid.uuid4(),
         host_session_id=uuid.uuid4(),price_per_minute='10.00')
     admission=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
-        meeting_id=meeting.meeting_id,price_per_minute='10.00',viewer_account_epoch=viewer.kt_account_epoch)
+        meeting_id=meeting.meeting_id,price_per_minute='10.00',
+        idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     return host,viewer,meeting,admission
 
 
@@ -106,7 +107,8 @@ def test_ppv_second_admission_cannot_overlap_same_provider_viewer(creator_factor
     from dj.apps.dyte.models import WebhookDelivery
     host,viewer,meeting,first=ppv_fixture(creator_factory)
     second=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
-        meeting_id=meeting.meeting_id,price_per_minute='10.00',viewer_account_epoch=viewer.kt_account_epoch)
+        meeting_id=meeting.meeting_id,price_per_minute='10.00',
+        idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     entry,evidence=ppv_delivery(first)
     key='b'*64
     event=WebhookDelivery.objects.create(provider_event_id=uuid.uuid4(),event_type='meeting.participantLeft',
@@ -753,7 +755,8 @@ def test_concurrent_original_ppv_admissions_cannot_both_collect_overlap(creator_
     from dj.apps.economy import products
     host,viewer,meeting,first=ppv_fixture(creator_factory)
     second=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
-        meeting_id=meeting.meeting_id,price_per_minute='10.00',viewer_account_epoch=viewer.kt_account_epoch)
+        meeting_id=meeting.meeting_id,price_per_minute='10.00',
+        idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     joined=second.admitted_at.isoformat();left=money._db_now().isoformat()
     work=[]
     for admission in (first,second):
@@ -820,10 +823,11 @@ def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(cre
     mocker.patch('dj.apps.jobs.outbox.PubSubClient')
     host,viewer,meeting,admission=ppv_fixture(creator_factory)
     host.username='ea_'+admission.pk.hex;host.save(update_fields=['username'])
-    post=mocker.patch('dj.apps.dyte.client.requests.post')
+    post=mocker.patch('dj.apps.dyte.client._SESSION.post')
     post.return_value.status_code=200
     post.return_value.json.return_value={'data':{'token':'synthetic-fixture-token','id':str(uuid.uuid4())}}
-    DyteClient('fixture-org').add_participant(host,meeting.meeting_id,role=role)
+    DyteClient('fixture-org').add_participant(host,meeting.meeting_id,role=role,
+        custom_participant_id=f'ph_{host.public_id.hex}')
     token=post.call_args.kwargs['json']['custom_participant_id']
     assert token==f'ph_{host.public_id.hex}'
     room=_meeting(meeting.meeting_id);room['sessionId']=str(meeting.provider_session_id)
@@ -901,7 +905,8 @@ def test_paid_admission_and_eligibility_use_original_database_clock(creator_fact
     monkeypatch.setattr(views,'timezone',application_clock)
     assert products.get_effective_compensation_schedule('livestream_ppv').version==contracts.SERVICE_SCHEDULES['livestream_ppv']['version']
     admitted=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
-        meeting_id=meeting.meeting_id,price_per_minute='10.00',viewer_account_epoch=viewer.kt_account_epoch)
+        meeting_id=meeting.meeting_id,price_per_minute='10.00',
+        idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     assert admitted.agreement_id==original.agreement_id and admitted.admitted_at>=original.admitted_at
     api_client.force_authenticate(user=host)
     response=api_client.get('/api/economy/earnings/')
