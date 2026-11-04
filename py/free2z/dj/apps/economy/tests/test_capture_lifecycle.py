@@ -325,7 +325,8 @@ def test_paid_viewer_join_validates_original_actor_and_locked_auth_epoch(api_cli
     client = mocker.patch('dj.apps.dyte.views.DyteClient').return_value
     admission = mocker.patch('dj.apps.economy.products.prepare_livestream_admission')
     response = api_client.post(f'/api/dyte/{host.username}/{PAY_PER_VIEW}',
-        {'role': 'viewer', 'expected_actor_id': intended.pk}, format='json')
+        {'role': 'viewer', 'expected_actor_id': intended.pk,
+         'admission_idempotency_key': '00000000-0000-0000-0000-000000000001'}, format='json')
     assert response.status_code == 409
     assert response.data['code'] == ('actor_changed' if wrong_actor else 'actor_authentication_changed')
     client.add_participant.assert_not_called()
