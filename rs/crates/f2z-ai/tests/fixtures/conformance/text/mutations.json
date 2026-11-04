@@ -31,10 +31,20 @@
       ]
     },
     {
-      "name": "drop store:false on Responses",
+      "name": "drop store:false on OpenAI (Responses and Chat Completions)",
       "target": "provider_request",
       "op": "remove",
       "path": "/store"
+    },
+    {
+      "name": "send store to xAI",
+      "target": "provider_request",
+      "op": "add",
+      "path": "/store",
+      "value": false,
+      "fixtures": [
+        "xai_chat_reasoning_usage"
+      ]
     },
     {
       "name": "change the output cap",

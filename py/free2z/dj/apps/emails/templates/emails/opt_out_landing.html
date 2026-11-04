@@ -1,0 +1,43 @@
+{% extends "emails/link_landing_base.html" %}
+
+{% block title %}{% if state == "done" %}Unsubscribed · Free2Z{% else %}Unsubscribe · Free2Z{% endif %}{% endblock %}
+
+{% block content %}
+  {% if state == "done" %}
+    <h1>You are unsubscribed</h1>
+    <p>
+      <span class="address">{{ email }}</span> has been removed and added to
+      our do-not-email list. Free2Z will not send to this address again.
+    </p>
+    <p class="muted">
+      Changed your mind? Sign in and add the address again from your profile.
+    </p>
+  {% elif state == "ready" %}
+    <h1>Unsubscribe from Free2Z email</h1>
+    <p>
+      This removes <span class="address">{{ email }}</span> from your Free2Z
+      account and adds it to our do-not-email list.
+    </p>
+    <p class="muted">
+      It is also your account-recovery address, so you will no longer be able
+      to reset your password by email until you add an address again.
+    </p>
+    {# No `action`: the form posts back to this exact URL, token and all. #}
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="token" value="{{ token }}">
+      <button type="submit">Unsubscribe</button>
+    </form>
+  {% else %}
+    <h1>This unsubscribe link is not valid</h1>
+    <p>
+      The link does not match any address we hold — it may already have been
+      used, or the address may have been changed or removed since the message
+      was sent.
+    </p>
+    <p class="muted">
+      If you are still receiving mail you did not ask for, reply to any Free2Z
+      message and we will sort it out.
+    </p>
+  {% endif %}
+{% endblock %}

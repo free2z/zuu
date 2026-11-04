@@ -1,0 +1,8 @@
+*.ipynb
+notebooks/
+
+
+.venv/
+.env
+.env.*
+!.env.example
