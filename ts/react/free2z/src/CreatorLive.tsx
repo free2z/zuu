@@ -15,6 +15,32 @@ import { PublicCreator } from "./CreatorDetail";
 import { useGlobalState } from "./state/global";
 import { useStoreState } from "./state/persist";
 
+function paidJoinKey(
+  owner: string,
+  actorId: number,
+  sessionId: string,
+): string {
+  const storageKey = `f2z:ppv-join:${owner.toLowerCase()}:${actorId}:${sessionId}`;
+  let existing: string | null;
+  try {
+    existing = sessionStorage.getItem(storageKey);
+  } catch {
+    throw new Error("Paid stream retry storage is unavailable.");
+  }
+  if (existing) return existing;
+  // A module cache is not durable across reloads. Never send a paid request
+  // until the retry identity can be read back from session storage.
+  const key = crypto.randomUUID();
+  try {
+    sessionStorage.setItem(storageKey, key);
+    if (sessionStorage.getItem(storageKey) !== key)
+      throw new Error("readback failed");
+  } catch {
+    throw new Error("Paid stream retry storage is unavailable.");
+  }
+  return key;
+}
+
 export default function CreatorLive() {
   const params = useParams();
   const owner = params.id;
@@ -34,6 +60,9 @@ export default function CreatorLive() {
     username: string;
     owner: string | undefined;
     type: string | undefined;
+    admissionKey?: string;
+    sessionId?: string;
+    admissionCleanupFailedSessionId?: string;
   }>();
   const [showPay, setShowPay] = useState(false);
   const [star, setStar] = useState({} as PublicCreator);
@@ -116,18 +145,25 @@ export default function CreatorLive() {
         owner,
         type,
       };
-    const originalViewer = paidIntentRef.current || {
+    const originalViewer: {
+      id: number;
+      username: string;
+      admissionKey?: string;
+      sessionId?: string;
+      admissionCleanupFailedSessionId?: string;
+    } = paidIntentRef.current || {
       id: creator.id,
       username: creator.username,
     };
     let cancelled = false;
+    let unregisterRoomJoined: (() => void) | undefined;
     const instruction = {
       ...(type === "ppv" && is_owner && !paidViewer
         ? { price_per_minute: String(ppvPrice) }
         : {}),
       ...(paidViewer ? { expected_actor_id: originalViewer.id } : {}),
     };
-    const body: MeetingJoinRequestSchema = instruction;
+    let body: MeetingJoinRequestSchema = instruction;
     const join = async () => {
       if (paidViewer) {
         const fresh = await axios.get("/api/auth/user/");
@@ -141,6 +177,44 @@ export default function CreatorLive() {
           cancelled
         )
           throw new Error("Sign in again before joining this paid stream.");
+        if (!owner) throw new Error("This paid stream is unavailable.");
+        const { data: liveStatus } = await axios.get(
+          `/api/dyte/${owner}/live-status`,
+        );
+        if (
+          cancelled ||
+          viewerRef.current.id !== originalViewer.id ||
+          viewerRef.current.username !== originalViewer.username
+        )
+          throw new Error("Sign in again before joining this paid stream.");
+        const providerSessionId = liveStatus?.ppv?.session_id;
+        if (
+          typeof providerSessionId !== "string" ||
+          !providerSessionId.trim()
+        ) {
+          throw new Error("This paid stream is unavailable.");
+        }
+        const sessionId = providerSessionId.trim();
+        // Tie the durable key to the provider session so a later stream cannot
+        // inherit an ambiguous admission from an earlier one.
+        if (originalViewer.sessionId !== sessionId) {
+          originalViewer.sessionId = sessionId;
+          originalViewer.admissionKey = undefined;
+          originalViewer.admissionCleanupFailedSessionId = undefined;
+        }
+        if (originalViewer.admissionCleanupFailedSessionId === sessionId)
+          throw new Error(
+            "Paid stream joined, but retry storage could not be cleared. Clear this stream's session storage before rejoining.",
+          );
+        originalViewer.admissionKey ??= paidJoinKey(
+          owner,
+          originalViewer.id,
+          sessionId,
+        );
+        body = {
+          ...instruction,
+          admission_idempotency_key: originalViewer.admissionKey,
+        };
       }
       return axios.post(`/api/dyte/${owner}/${type}`, body);
     };
@@ -148,7 +222,9 @@ export default function CreatorLive() {
       .then((res) => {
         if (
           paidViewer &&
-          (cancelled || viewerRef.current.id !== originalViewer.id)
+          (cancelled ||
+            viewerRef.current.id !== originalViewer.id ||
+            viewerRef.current.username !== originalViewer.username)
         )
           return;
         // console.log("INIT MEETING", res)
@@ -156,6 +232,49 @@ export default function CreatorLive() {
           authToken: res.data.auth_token,
         })
           .then((client) => {
+            if (
+              paidViewer &&
+              (cancelled ||
+                viewerRef.current.id !== originalViewer.id ||
+                viewerRef.current.username !== originalViewer.username)
+            )
+              return;
+            if (
+              paidViewer &&
+              owner &&
+              originalViewer.sessionId &&
+              client?.self
+            ) {
+              // initMeeting only initializes the SDK client. The admission is
+              // complete once this exact client's room reports that it joined.
+              const self = client.self;
+              const onRoomJoined = () => {
+                self.removeListener("roomJoined", onRoomJoined);
+                unregisterRoomJoined = undefined;
+                if (
+                  cancelled ||
+                  viewerRef.current.id !== originalViewer.id ||
+                  viewerRef.current.username !== originalViewer.username
+                )
+                  return;
+                const key = `f2z:ppv-join:${owner.toLowerCase()}:${
+                  originalViewer.id
+                }:${originalViewer.sessionId}`;
+                try {
+                  sessionStorage.removeItem(key);
+                  originalViewer.admissionKey = undefined;
+                } catch {
+                  // This key has already completed an admission. Keep it out
+                  // of future joins even though storage could not be cleared.
+                  originalViewer.admissionCleanupFailedSessionId =
+                    originalViewer.sessionId;
+                }
+              };
+              self.on("roomJoined", onRoomJoined);
+              unregisterRoomJoined = () => {
+                self.removeListener("roomJoined", onRoomJoined);
+              };
+            }
             setSnackbarState({
               message: "Thanks for joining",
               severity: "info",
@@ -182,6 +301,20 @@ export default function CreatorLive() {
           setSnackbarState({
             message: "Sign in again before joining this paid stream.",
             severity: "warning",
+            duration: null,
+            open: true,
+          });
+          return;
+        }
+        if (
+          paidViewer &&
+          reason instanceof Error &&
+          reason.message ===
+            "Paid stream joined, but retry storage could not be cleared. Clear this stream's session storage before rejoining."
+        ) {
+          setSnackbarState({
+            message: reason.message,
+            severity: "error",
             duration: null,
             open: true,
           });
@@ -218,6 +351,8 @@ export default function CreatorLive() {
       });
     return () => {
       cancelled = true;
+      unregisterRoomJoined?.();
+      unregisterRoomJoined = undefined;
     };
   }, [creator.id, creator.username, showPay, star.username, owner, type]);
 

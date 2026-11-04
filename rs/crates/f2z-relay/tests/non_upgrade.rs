@@ -41,11 +41,22 @@
 )]
 
 use std::net::SocketAddr;
+use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use f2z_relay::config::Config;
 use f2z_relay::server::Server;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+
+const TEST_CERT: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/localhost-cert.pem"
+);
+const TEST_KEY: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/fixtures/localhost-key.pem"
+);
 
 fn base() -> Config {
     let mut config = Config::default();
@@ -58,6 +69,48 @@ fn base() -> Config {
     config.antiabuse.per_source_limits = false;
     config.queues.expiry_tick_seconds = 3_600;
     config
+}
+
+fn tls_base() -> Config {
+    let mut config = base();
+    config.listen.tls_cert = TEST_CERT.to_owned();
+    config.listen.tls_key = TEST_KEY.to_owned();
+    config.antiabuse.per_source_limits = true;
+    config.limits.max_connections_per_source = 1;
+    config
+}
+
+fn tls_connector() -> tokio_rustls::TlsConnector {
+    use tokio_rustls::rustls::RootCertStore;
+    use tokio_rustls::rustls::pki_types::CertificateDer;
+    use tokio_rustls::rustls::pki_types::pem::PemObject as _;
+
+    let cert = CertificateDer::pem_file_iter(Path::new(TEST_CERT))
+        .expect("the test certificate is readable")
+        .next()
+        .expect("the test certificate contains one certificate")
+        .expect("the test certificate is valid PEM");
+    let mut roots = RootCertStore::empty();
+    roots.add(cert).expect("the test cert is trusted as a root");
+    let client = tokio_rustls::rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    tokio_rustls::TlsConnector::from(Arc::new(client))
+}
+
+async fn connect_tls(addr: SocketAddr) -> tokio_rustls::client::TlsStream<tokio::net::TcpStream> {
+    use tokio_rustls::rustls::pki_types::ServerName;
+
+    let stream = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("the TLS protocol listener accepts");
+    tls_connector()
+        .connect(
+            ServerName::try_from("localhost".to_owned()).expect("localhost is a valid name"),
+            stream,
+        )
+        .await
+        .expect("TLS 1.3 handshake succeeds with the trusted local fixture")
 }
 
 /// A handshake as a real client sends one: RFC 6455's own sample key, plus the
@@ -89,9 +142,45 @@ async fn exchange_until_close(addr: SocketAddr, request: &str) -> String {
         .await
         .expect("the request is written");
     let mut response = String::new();
-    let _ =
-        tokio::time::timeout(Duration::from_secs(5), stream.read_to_string(&mut response)).await;
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_string(&mut response))
+        .await
+        .expect("the listener closes the response within five seconds")
+        .expect("the listener closes cleanly after its response");
     response
+}
+
+/// Read a response after half-closing the request side, requiring both a
+/// bounded completion and clean EOF. Sending a body before the half-close also
+/// checks the listener's bounded drain of unread client bytes.
+async fn checked_http_exchange_until_eof<S>(stream: &mut S, request: &str) -> Vec<u8>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .expect("the request is written");
+    stream
+        .shutdown()
+        .await
+        .expect("the request side is half-closed");
+    let mut response = Vec::new();
+    tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut response))
+        .await
+        .expect("the response reaches EOF within five seconds")
+        .expect("the response reaches clean EOF rather than resetting");
+    response
+}
+
+async fn closes_within<S>(stream: &mut S, bound: Duration) -> bool
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
+    let mut byte = [0u8; 1];
+    matches!(
+        tokio::time::timeout(bound, stream.read(&mut byte)).await,
+        Ok(Ok(0) | Err(_))
+    )
 }
 
 /// Send `request` and read only as far as the end of the response head.
@@ -108,12 +197,21 @@ async fn exchange_head(addr: SocketAddr, request: &str) -> String {
         .await
         .expect("the request is written");
 
+    response_head(&mut stream).await
+}
+
+async fn response_head<S>(stream: &mut S) -> String
+where
+    S: tokio::io::AsyncRead + Unpin,
+{
     let mut response = Vec::new();
     let mut chunk = [0u8; 512];
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     loop {
         match tokio::time::timeout_at(deadline, stream.read(&mut chunk)).await {
-            Ok(Ok(0)) | Ok(Err(_)) | Err(_) => break,
+            Ok(Ok(0)) => break,
+            Ok(Err(error)) => panic!("reading response head failed: {error}"),
+            Err(_) => panic!("response head did not arrive within five seconds"),
             Ok(Ok(read)) => {
                 response.extend_from_slice(&chunk[..read]);
                 if response.windows(4).any(|window| window == b"\r\n\r\n") {
@@ -182,6 +280,210 @@ async fn a_plain_get_on_the_protocol_port_is_answered_rather_than_dropped() {
     );
 
     server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn per_source_rate_limit_returns_a_constant_http_429() {
+    let mut config = base();
+    config.antiabuse.per_source_limits = true;
+    config.limits.new_connections_per_source_per_second = 0;
+    let server = Server::start(config).await.expect("the relay starts");
+    let protocol = server.protocol_addr();
+
+    // A zero new-connection budget is a deterministic way to trip the real
+    // per-source limiter on every connection, independent of wall-clock bucket
+    // boundaries. Timing the complete exchange measures the socket-facing
+    // cost, including accept, limiter lookup, task scheduling, response write
+    // and bounded close; it has no pass/fail speed threshold.
+    let started = std::time::Instant::now();
+    let refusals = 32;
+    for _ in 0..refusals {
+        let mut stream = tokio::net::TcpStream::connect(protocol)
+            .await
+            .expect("the protocol listener accepts");
+        let response = checked_http_exchange_until_eof(
+            &mut stream,
+            "POST /anything HTTP/1.1\r\nHost: ignored.example\r\nContent-Length: 9\r\n\r\nbody-data",
+        )
+        .await;
+        let response = String::from_utf8(response).expect("the HTTP response is ASCII");
+        assert!(
+            response.starts_with("HTTP/1.1 429 Too Many Requests\r\n"),
+            "the limiter closed without an HTTP refusal: {response:?}"
+        );
+        let (head, body) = response.split_once("\r\n\r\n").expect("HTTP response head");
+        assert_eq!(body, "", "the refusal must not carry content");
+        assert!(
+            head.lines().any(|line| line == "Content-Length: 0"),
+            "{head}"
+        );
+        assert!(
+            head.lines().any(|line| line == "Cache-Control: no-store"),
+            "{head}"
+        );
+        assert!(!response.contains("ignored.example"), "{response:?}");
+    }
+    let elapsed = started.elapsed();
+    eprintln!(
+        "local per-source 429 measurement: {refusals} sequential loopback exchanges in {elapsed:?} ({:.1} refusals/s)",
+        f64::from(refusals) / elapsed.as_secs_f64()
+    );
+
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tls_rate_limit_returns_encrypted_429_and_keeps_allowed_upgrade() {
+    let server = Server::start(tls_base())
+        .await
+        .expect("the TLS relay starts");
+    let protocol = server.protocol_addr();
+
+    // Hold a real allowed TLS/WebSocket upgrade open. The per-source open
+    // limit is one, so the next connection deterministically exercises
+    // TooManyFromSource instead of relying on a wall-clock rate bucket.
+    let mut allowed = connect_tls(protocol).await;
+    assert_eq!(
+        allowed.get_ref().1.protocol_version(),
+        Some(tokio_rustls::rustls::ProtocolVersion::TLSv1_3)
+    );
+    allowed
+        .write_all(handshake_for(protocol, "/relay/v1").as_bytes())
+        .await
+        .expect("the WebSocket request is written inside TLS");
+    let upgrade = response_head(&mut allowed).await;
+    assert!(upgrade.starts_with("HTTP/1.1 101 "), "{upgrade:?}");
+    assert!(
+        upgrade
+            .lines()
+            .any(|line| { line.eq_ignore_ascii_case("sec-websocket-protocol: free2z-relay.v1") })
+    );
+
+    // The listener receives the request body but must not parse it to decide
+    // the limiter refusal. Half-close lets its bounded drain finish, and the
+    // checked read proves the encrypted response ends in clean TLS EOF.
+    let mut refused = connect_tls(protocol).await;
+    let response = checked_http_exchange_until_eof(
+        &mut refused,
+        "POST /ignored HTTP/1.1\r\nHost: ignored.example\r\nContent-Length: 9\r\n\r\nbody-data",
+    )
+    .await;
+    let response = String::from_utf8(response).expect("the encrypted HTTP response is ASCII");
+    assert!(
+        response.starts_with("HTTP/1.1 429 Too Many Requests\r\n"),
+        "TLS refusal was not an HTTP 429: {response:?}"
+    );
+    assert!(
+        response.ends_with("\r\n\r\n"),
+        "the response has a body: {response:?}"
+    );
+    assert!(!response.contains("ignored.example"));
+
+    drop(allowed);
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn silent_tls_refusals_are_capped_and_slots_expire_and_reuse() {
+    let server = Server::start(tls_base())
+        .await
+        .expect("the TLS relay starts");
+    let protocol = server.protocol_addr();
+
+    // Keep one permitted WebSocket live so every following source connection
+    // is refused before TLS. The 16 silent peers then occupy every bounded TLS
+    // response task without sending ClientHello bytes.
+    let mut allowed = connect_tls(protocol).await;
+    allowed
+        .write_all(handshake_for(protocol, "/relay/v1").as_bytes())
+        .await
+        .expect("the WebSocket request is written inside TLS");
+    let upgrade = response_head(&mut allowed).await;
+    assert!(upgrade.starts_with("HTTP/1.1 101 "), "{upgrade:?}");
+
+    let mut silent = Vec::with_capacity(16);
+    for _ in 0..16 {
+        silent.push(
+            tokio::net::TcpStream::connect(protocol)
+                .await
+                .expect("the protocol listener accepts a silent TLS peer"),
+        );
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let mut excess = tokio::net::TcpStream::connect(protocol)
+        .await
+        .expect("the protocol listener accepts the over-cap peer");
+    assert!(
+        closes_within(&mut excess, Duration::from_millis(500)).await,
+        "the peer beyond the 16 response slots was not closed promptly"
+    );
+
+    // The admitted clients have not reached the one-second TLS deadline yet.
+    // WouldBlock proves each socket is still open and has received no plaintext
+    // response while TLS negotiation is incomplete.
+    for (index, stream) in silent.iter_mut().enumerate() {
+        let mut byte = [0u8; 1];
+        assert!(
+            matches!(
+                stream.try_read(&mut byte),
+                Err(ref error) if error.kind() == std::io::ErrorKind::WouldBlock
+            ),
+            "admitted silent TLS peer {index} closed or received bytes before its deadline"
+        );
+    }
+
+    // All admitted handshakes reach their timeout and release their slots.
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    for (index, stream) in silent.iter_mut().enumerate() {
+        assert!(
+            closes_within(stream, Duration::from_millis(200)).await,
+            "silent TLS peer {index} survived beyond the handshake deadline"
+        );
+    }
+
+    // A trusted TLS client now reuses a response slot and receives the real
+    // encrypted refusal while the allowed WebSocket still holds the source
+    // connection permit.
+    let mut retry = connect_tls(protocol).await;
+    let response = checked_http_exchange_until_eof(
+        &mut retry,
+        "GET /ignored HTTP/1.1\r\nHost: ignored.example\r\n\r\n",
+    )
+    .await;
+    assert!(
+        response.starts_with(b"HTTP/1.1 429 Too Many Requests\r\n"),
+        "a released slot did not serve a TLS 429: {response:?}"
+    );
+
+    drop(allowed);
+    server.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn shutdown_cancels_a_pending_tls_refusal() {
+    let server = Server::start(tls_base())
+        .await
+        .expect("the TLS relay starts");
+    let protocol = server.protocol_addr();
+
+    let mut allowed = connect_tls(protocol).await;
+    allowed
+        .write_all(handshake_for(protocol, "/relay/v1").as_bytes())
+        .await
+        .expect("the WebSocket request is written inside TLS");
+    let upgrade = response_head(&mut allowed).await;
+    assert!(upgrade.starts_with("HTTP/1.1 101 "), "{upgrade:?}");
+
+    let mut silent = tokio::net::TcpStream::connect(protocol)
+        .await
+        .expect("the protocol listener accepts a silent TLS peer");
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    server.shutdown().await;
+    assert!(
+        closes_within(&mut silent, Duration::from_millis(250)).await,
+        "listener shutdown left the pending TLS refusal alive"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
