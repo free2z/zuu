@@ -30,6 +30,10 @@ To verify a developer lock locally with Python 3.12, run
 `python scripts/free2z/install-python-tool-lock.py lock-tools --verify-only`
 from the repository root; `language-data` selects the CLDR tool environment.
 
+The background worker [recovery contract](../../docs/free2z/jobs/recovery.md)
+describes lease fencing, conservative healing latency, and process exit after
+a confirmed lease-thread stall.
+
 The test suite uses PostgreSQL with the pgvector extension. Give each checkout
 its own database and port, then set `DBHOST`, `DBPORT`, `DBNAME`, `DBUSER`, and
 `DBPASS` for that disposable database. Run `python -m pytest` here. Test fixtures
