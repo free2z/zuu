@@ -61,6 +61,16 @@ test("the live and private routes keep provider meetings mounted under overlays"
   );
   assert.match(live, /\{#if meeting\b[\s\S]*?<InlineRtkMeeting/);
   assert.match(live, /connectionStatus === "disconnected"[\s\S]*?Reconnecting/);
-  assert.match(privateRoute, /\{#if meeting\}[\s\S]*?<rtk-meeting/);
+  assert.match(privateRoute, /\{:else if meeting\}[\s\S]*?<rtk-meeting/);
+  assert.equal(
+    [...privateRoute.matchAll(/<rtk-meeting\b/g)].length,
+    1,
+    "the private route must keep a single provider meeting instance",
+  );
+  assert.ok(
+    privateRoute.indexOf("{:else if meeting}") <
+      privateRoute.indexOf("{#if isOffline}"),
+    "the offline overlay must be independent of the mounted meeting branch",
+  );
   assert.match(privateRoute, /connectionStatus === "disconnected"/);
 });

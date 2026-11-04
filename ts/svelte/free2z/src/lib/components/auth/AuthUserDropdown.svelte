@@ -21,6 +21,7 @@
     CreditCard,
     ShieldCheck,
     SquarePen,
+    Radio,
   } from "@lucide/svelte";
   import GitHubBrandIcon from "$lib/components/GitHubBrandIcon.svelte";
   import { goto } from "$app/navigation";
@@ -116,6 +117,15 @@
       >
         <SquarePen class="mr-2 h-4 w-4" />
         <span>{$t("common.navigation.newPost", "New post")}</span>
+      </DropdownMenuItem>
+
+      <DropdownMenuItem
+        class={navItemIconClass}
+        data-testid="user-menu-go-live"
+        onSelect={() => goto(`/${$currentUser.username}/dashboard/stream`)}
+      >
+        <Radio class="mr-2 h-4 w-4" />
+        <span>{$t("dashboard.pages.goLive", "Go live")}</span>
       </DropdownMenuItem>
 
       <DropdownMenuSeparator />

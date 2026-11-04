@@ -537,10 +537,45 @@ test("late provider initialization leaves its abandoned meeting without replacin
 test("an established paid viewer leaves its original meeting when the displayed actor changes", async ({
   page,
 }) => {
+  test.setTimeout(60_000); // cold app compilation plus two admission attempts
   await signInWithBalance(page, "100.000");
   await stubLivePpv(page);
-  await refuseJoins(page, "74.000");
-  await page.goto(`/${OWNER}/ppv?lang=en`);
+  let joinAttempts = 0;
+  await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    joinAttempts++;
+    if (joinAttempts === 1) {
+      return route.fulfill({
+        status: 402,
+        contentType: "application/json",
+        body: JSON.stringify({
+          code: "insufficient_funds",
+          cost: `${RESERVE}.000`,
+          balance: "74.000",
+          shortfall: "1.000",
+          action: "stream_join",
+        }),
+      });
+    }
+    return route.fulfill({
+      json: { auth_token: "synthetic-paid-viewer-token" },
+    });
+  });
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const module = "/src/lib/stores/auth.ts";
+    await (
+      await import(module)
+    ).authStore.checkAuth({ force: true, fresh: true, silent: true });
+  });
+  await expect(
+    page.getByRole("button", { name: "Profile", exact: true }),
+  ).toBeVisible();
+  await page.evaluate(async (owner) => {
+    const module =
+      "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+    await (await import(module)).goto(`/${owner}/ppv?lang=en`);
+  }, OWNER);
   await expect(
     page.getByRole("button", { name: /Start Watching/ }),
   ).toBeVisible();
@@ -569,14 +604,12 @@ test("an established paid viewer leaves its original meeting when the displayed 
         off: () => {},
         joined: { on: () => {}, off: () => {}, toArray: () => [] },
       },
+      join: async () => {},
       leave: async () => {
         (window as any).__actorLeaveCalls++;
       },
     });
   });
-  await page.route(`**/api/dyte/${OWNER}/ppv`, (route) =>
-    route.fulfill({ json: { auth_token: "synthetic-paid-viewer-token" } }),
-  );
   await page.getByRole("button", { name: /Start Watching/ }).click();
   await page
     .getByRole("dialog")

@@ -1144,6 +1144,7 @@ test("a failed viewer copy completion after client navigation cannot leave a sta
 }) => {
   await openLiveHost(page);
   await holdViewerCopy(page, true);
+  page.once("dialog", (dialog) => dialog.accept());
   await page.evaluate(async () => {
     const path =
       "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
@@ -1246,8 +1247,12 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
     await page.route(
       `**/api/dyte/${routeUser}/private/${secret}/recording**`,
       (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path.endsWith("/recording-visibility")) {
+          return route.fulfill({ json: { recording: false } });
+        }
         const method = route.request().method();
-        const stop = new URL(route.request().url()).pathname.endsWith("/stop");
+        const stop = path.endsWith("/stop");
         requests.push(`${method}:${stop ? "stop" : "recording"}`);
         if (method === "POST") state = stop ? "STOPPING" : "INVOKED";
         return route.fulfill({ json: { recording_state: state } });
@@ -1340,6 +1345,10 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
       await page.route(
         `**/api/dyte/${routeUser}/private/${otherSecret}/recording**`,
         (route) => {
+          const path = new URL(route.request().url()).pathname;
+          if (path.endsWith("/recording-visibility")) {
+            return route.fulfill({ json: { recording: false } });
+          }
           otherRoomRequests.push(route.request().url());
           return route.fulfill({ json: { recording_state: "IDLE" } });
         },
@@ -1424,6 +1433,214 @@ for (const [code, message] of [
     expect(requests).toEqual(["POST", "GET"]);
   });
 }
+
+test("a private meeting stays mounted through offline and reconnecting overlays", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, true);
+  const secret = "private-meeting-survives-offline";
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, (route) =>
+    route.fulfill({
+      json: { auth_token: "private-offline-room", e2ee: false },
+    }),
+  );
+  await page.route(
+    `**/api/dyte/${USER}/private/${secret}/recording**`,
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      return route.fulfill({
+        json: path.endsWith("/recording-visibility")
+          ? { recording: false }
+          : { recording_state: "IDLE" },
+      });
+    },
+  );
+
+  await page.evaluate(
+    async ({ user, secret }) => {
+      const path =
+        "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+      const { goto } = await import(path);
+      await goto(`/${user}/private/${secret}?lang=en`);
+    },
+    { user: USER, secret },
+  );
+  const header = page.getByTestId("private-call-header");
+  const meeting = page.locator("rtk-meeting");
+  const recordButton = header.getByRole("button", {
+    name: "Record livestream",
+    exact: true,
+  });
+  await expect(header).toBeVisible();
+  await expect(recordButton).toBeVisible();
+  await expect(meeting).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  await expect(header.locator("..")).not.toHaveAttribute("inert", "");
+  await recordButton.focus();
+  await expect(recordButton).toBeFocused();
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    (window as any).__privateMeetingBeforeRecovery =
+      document.querySelector("rtk-meeting");
+    liveStreamStore.setOffline(true);
+    liveStreamStore.setConnectionStatus("disconnected");
+  }, LIVE_STREAM_STORE_LOADER);
+
+  await expect(
+    page.getByRole("heading", { name: "You are Offline" }),
+  ).toBeVisible();
+  const reconnect = page.getByTestId("private-call-reconnect");
+  await expect(reconnect).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(reconnect).not.toBeFocused();
+  await reconnect.focus();
+  await expect(header).toBeVisible();
+  await expect(header.locator("..")).toHaveAttribute("inert", "");
+  await expect(meeting).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__privateMeetingBeforeRecovery ===
+        document.querySelector("rtk-meeting"),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("disconnected");
+    liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(header.locator("..")).toHaveAttribute("inert", "");
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(recordButton).toBeFocused();
+
+  await page.evaluate(async (loader) => {
+    const external = document.createElement("button");
+    external.id = "external-focus-target";
+    document.body.append(external);
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.getByTestId("private-call-reconnect")).toBeFocused();
+  await page.locator("#external-focus-target").focus();
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.locator("#external-focus-target")).toBeFocused();
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("disconnected");
+  }, LIVE_STREAM_STORE_LOADER);
+  const reconnecting = page
+    .getByRole("status")
+    .filter({ hasText: /Reconnecting/ });
+  await expect(reconnecting).toBeVisible();
+  await expect(reconnecting).toHaveCSS("pointer-events", "none");
+  await expect(reconnecting.locator("button, a, [tabindex='0']")).toHaveCount(
+    0,
+  );
+  expect(
+    await reconnecting.evaluate((node) =>
+      node.contains(document.activeElement),
+    ),
+  ).toBe(false);
+  await expect(meeting).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__privateMeetingBeforeRecovery ===
+        document.querySelector("rtk-meeting"),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(
+    page.getByRole("status").filter({ hasText: /Reconnecting/ }),
+  ).toHaveCount(0);
+  await expect(header).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
+});
+
+test("an offline focus restore tick cannot steal focus after leaving a private call", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, true);
+  const secret = "private-focus-restore-teardown";
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, (route) =>
+    route.fulfill({
+      json: { auth_token: "private-focus-restore-room", e2ee: false },
+    }),
+  );
+  await page.route(
+    `**/api/dyte/${USER}/private/${secret}/recording**`,
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      return route.fulfill({
+        json: path.endsWith("/recording-visibility")
+          ? { recording: false }
+          : { recording_state: "IDLE" },
+      });
+    },
+  );
+
+  await page.evaluate(
+    async ({ user, secret }) => {
+      const path =
+        "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+      const { goto } = await import(path);
+      await goto(`/${user}/private/${secret}?lang=en`);
+    },
+    { user: USER, secret },
+  );
+  const recordButton = page
+    .getByTestId("private-call-header")
+    .getByRole("button", { name: "Record livestream", exact: true });
+  await expect(recordButton).toBeVisible();
+
+  // Keep both focus targets outside the route so they survive its teardown.
+  await page.evaluate(() => {
+    const saved = document.createElement("button");
+    saved.id = "saved-external-focus-target";
+    const current = document.createElement("button");
+    current.id = "current-external-focus-target";
+    document.body.append(saved, current);
+    saved.focus();
+  });
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.getByTestId("private-call-reconnect")).toBeFocused();
+
+  // Going online queues the restoration tick. Start navigation in the same
+  // browser task so route teardown aborts that pending callback.
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    const path =
+      "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+    const { goto } = await import(path);
+    liveStreamStore.setOffline(false);
+    await goto("/dashboard?lang=en");
+  }, LIVE_STREAM_STORE_LOADER);
+  const currentTarget = page.locator("#current-external-focus-target");
+  await currentTarget.focus();
+  await expect(page.getByTestId("private-call-header")).toHaveCount(0);
+  await expect(currentTarget).toBeFocused();
+  await page.waitForTimeout(50);
+  await expect(currentTarget).toBeFocused();
+});
 
 test("a private-call recovery response cannot navigate a changed account", async ({
   page,

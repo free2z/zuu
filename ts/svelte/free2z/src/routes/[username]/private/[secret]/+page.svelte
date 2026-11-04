@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, beforeUpdate, tick } from "svelte";
   import { browser } from "$app/env";
   import { get } from "svelte/store";
   import { goto } from "$app/navigation";
   import { page } from "$lib/kit-stores";
   import { authStore } from "$lib/stores/auth";
   import { liveStreamStore } from "$lib/stores/liveStreamStore";
+  import { apiFetch } from "$lib/api/config";
   import { StreamService } from "$lib/services/stream";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import type RealtimeKitClient from "@cloudflare/realtimekit";
@@ -30,6 +31,10 @@
   import { streamRetryDelay } from "$lib/utils/stream-recovery";
 
   let meeting: RealtimeKitClient | null = null;
+  let serverRecording = false;
+  let recordingTimer: ReturnType<typeof setInterval> | undefined;
+  let wasOffline = false;
+  let focusBeforeOffline: HTMLElement | null = null;
   let hostMeetingError = false;
   const abort = new AbortController();
   // Disable native recording before attaching the meeting: its provider-default
@@ -81,6 +86,65 @@
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
   $: isOffline = $liveStreamStore.isOffline;
   $: connectionStatus = $liveStreamStore.connectionStatus;
+
+  function canRestoreFocus(target: HTMLElement | null) {
+    return Boolean(
+      target?.isConnected &&
+      !target.matches(":disabled") &&
+      !target.closest("[inert], [hidden]") &&
+      target.getClientRects().length > 0,
+    );
+  }
+
+  // Capture before Svelte applies inert to the meeting, then move focus only
+  // after the offline action is present in the DOM. Reconnecting stays a
+  // passive status announcement and does not take or contain focus.
+  beforeUpdate(() => {
+    if (!browser) return;
+    if (isOffline === wasOffline && (isOffline || !focusBeforeOffline)) return;
+    wasOffline = isOffline;
+    if (isOffline) {
+      const active = document.activeElement;
+      focusBeforeOffline = active instanceof HTMLElement ? active : null;
+      void tick().then(() => {
+        const reconnect = document.querySelector<HTMLButtonElement>(
+          '[data-testid="private-call-reconnect"]',
+        );
+        if (!abort.signal.aborted && isOffline && reconnect?.isConnected)
+          reconnect.focus();
+      });
+      return;
+    }
+
+    const target = focusBeforeOffline;
+    const active = document.activeElement;
+    const reconnect = document.querySelector(
+      '[data-testid="private-call-reconnect"]',
+    );
+    if (
+      active &&
+      active !== document.body &&
+      active !== reconnect &&
+      active !== target
+    ) {
+      focusBeforeOffline = null;
+      return;
+    }
+    void tick().then(() => {
+      if (
+        !abort.signal.aborted &&
+        !isOffline &&
+        target === focusBeforeOffline &&
+        (document.activeElement === document.body ||
+          document.activeElement === reconnect ||
+          document.activeElement === target) &&
+        canRestoreFocus(target)
+      ) {
+        focusBeforeOffline = null;
+        target?.focus();
+      }
+    });
+  });
   $: if (connectionStatus === "connected") {
     clearTimeout(retryTimer);
     clearTimeout(disconnectTimer);
@@ -226,7 +290,24 @@
     if (leave) void Promise.resolve(leave()).catch(console.warn);
   }
 
+  async function refreshRecording() {
+    if (!username || !secret) return;
+    try {
+      const response = await apiFetch(
+        `/api/dyte/${encodeURIComponent(username)}/private/${encodeURIComponent(secret)}/recording-visibility`,
+        { method: "GET", timeoutMs: 8000 },
+      );
+      if (!response.ok) return;
+      const body = (await response.json()) as { recording?: boolean };
+      serverRecording = body.recording === true;
+    } catch {
+      // Keep the last answer. A missed poll must not hide an active recording.
+    }
+  }
+
   onMount(() => {
+    void refreshRecording();
+    recordingTimer = setInterval(() => void refreshRecording(), 8000);
     let boundAccount = accountKey();
     let joinStarted = false;
     defineCustomElements();
@@ -273,6 +354,7 @@
 
   onDestroy(() => {
     privateJoinGeneration++;
+    clearInterval(recordingTimer);
     abort.abort();
     if (browser) {
       window.removeEventListener("offline", handleOffline);
@@ -443,83 +525,12 @@
 </svelte:head>
 
 <div class="relative flex h-screen w-full flex-col bg-black">
-  {#if meeting}
-    <div class="absolute inset-0 flex min-h-0 flex-col">
-      <div
-        data-testid="private-call-header"
-        class="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2"
-      >
-        <Button variant="secondary" size="sm" onclick={copyToClipboard}>
-          {#if copied}<Check class="mr-2 h-4 w-4" />{$t(
-              "privateCall.copied",
-              "Copied",
-            )}{:else}<Copy class="mr-2 h-4 w-4" />{$t(
-              "privateCall.copyLink",
-              "Copy Link",
-            )}{/if}
-        </Button>
-        {#if isOwner && boundRoom && boundRoom.username === username && boundRoom.secret === secret && !encrypted && meeting.self.permissions.canRecord}
-          <HostRecordingControls
-            username={boundRoom.username}
-            privateSecret={boundRoom.secret}
-          />
-        {/if}
-      </div>
-      <div class="relative flex min-h-0 w-full flex-1 flex-col">
-        <!-- @ts-ignore -->
-        <rtk-meeting
-          mode="fill"
-          use:recordingSafeMeeting={meeting}
-          show-setup-screen={true}
-          t={getRtkTranslator($locale)}
-          class="min-h-0 w-full flex-1"
-        ></rtk-meeting>
-        <MeetingRecordingNotice {meeting} />
-      </div>
-      <RtkAudioHealth
-        {meeting}
-        mode="call"
-        onReconnect={recoverPrivateStream}
-      />
-      {#if hostMeetingError}<div
-          role="alert"
-          class="shrink-0 bg-red-950 p-3 text-sm text-white"
-        >
-          {$t(
-            "dashboard.stream.recordingControls.interfaceError",
-            "The meeting interface could not be prepared. Reload before starting a recording.",
-          )}
-        </div>{/if}
-    </div>
-  {/if}
   {#if loading && !meeting && !isOffline}
     <div
       class="flex flex-1 flex-col items-center justify-center gap-4 text-white"
     >
       <Loader2 class="h-10 w-10 animate-spin" />
       <p>{$t("privateCall.initializing", "Initializing private call...")}</p>
-    </div>
-  {:else if isOffline}
-    <div
-      class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/80 p-8 text-center text-white"
-      role="status"
-    >
-      <WifiOff class="h-8 w-8 text-yellow-400" />
-      <h3 class="text-xl font-bold">
-        {$t("stream.offlineTitle", "You are Offline")}
-      </h3>
-      <p>
-        {$t(
-          "stream.offlineDescription",
-          "Please check your internet connection.",
-        )}
-      </p>
-      <Button onclick={recoverPrivateStream}
-        ><RefreshCw class="mr-2 h-4 w-4" />{$t(
-          "stream.reconnect",
-          "Reconnect",
-        )}</Button
-      >
     </div>
   {:else if error || callNeedsReload}
     <div
@@ -547,10 +558,87 @@
         {$t("privateCall.tryAgain", "Try Again")}
       </Button>
     </div>
+  {:else if meeting}
+    <div
+      class="relative flex min-h-0 flex-1 flex-col"
+      inert={isOffline ||
+        connectionStatus === "disconnected" ||
+        connectionStatus === "failed"}
+    >
+      <div
+        data-testid="private-call-header"
+        class="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2"
+      >
+        <Button variant="secondary" size="sm" onclick={copyToClipboard}>
+          {#if copied}
+            <Check class="mr-2 h-4 w-4" />
+            {$t("privateCall.copied", "Copied")}
+          {:else}
+            <Copy class="mr-2 h-4 w-4" />
+            {$t("privateCall.copyLink", "Copy Link")}
+          {/if}
+        </Button>
+        {#if isOwner && boundRoom && boundRoom.username === username && boundRoom.secret === secret && !encrypted && meeting.self.permissions.canRecord}
+          <HostRecordingControls
+            username={boundRoom.username}
+            privateSecret={boundRoom.secret}
+          />
+        {/if}
+      </div>
+      <div class="relative flex min-h-0 w-full flex-1 flex-col">
+        <!-- @ts-ignore -->
+        <rtk-meeting
+          mode="fill"
+          use:recordingSafeMeeting={meeting}
+          show-setup-screen={true}
+          t={getRtkTranslator($locale)}
+          class="min-h-0 w-full flex-1"
+        ></rtk-meeting>
+        <MeetingRecordingNotice {meeting} {serverRecording} />
+      </div>
+      <RtkAudioHealth
+        {meeting}
+        mode="call"
+        onReconnect={recoverPrivateStream}
+      />
+      {#if hostMeetingError}
+        <div role="alert" class="shrink-0 bg-red-950 p-3 text-sm text-white">
+          {$t(
+            "dashboard.stream.recordingControls.interfaceError",
+            "The meeting interface could not be prepared. Reload before starting a recording.",
+          )}
+        </div>
+      {/if}
+    </div>
+  {/if}
+  {#if isOffline}
+    <div
+      class="absolute inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-black/80 p-8 text-center text-white"
+      role="status"
+    >
+      <WifiOff class="h-8 w-8 text-yellow-400" />
+      <h3 class="text-xl font-bold">
+        {$t("stream.offlineTitle", "You are Offline")}
+      </h3>
+      <p>
+        {$t(
+          "stream.offlineDescription",
+          "Please check your internet connection.",
+        )}
+      </p>
+      <Button
+        data-testid="private-call-reconnect"
+        onclick={recoverPrivateStream}
+        ><RefreshCw class="mr-2 h-4 w-4" />{$t(
+          "stream.reconnect",
+          "Reconnect",
+        )}</Button
+      >
+    </div>
   {/if}
   {#if meeting && (connectionStatus === "disconnected" || connectionStatus === "failed") && !isOffline}
     <div
-      class="absolute inset-0 z-40 flex items-center justify-center bg-black/70 text-white"
+      class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/70 text-white"
       role="status"
     >
       <div class="flex flex-col items-center gap-3">

@@ -28,7 +28,7 @@ from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError, connection, connections, transaction
 from django.utils import timezone
 
 from dj.apps.g12f.models import Creator
@@ -417,7 +417,7 @@ def test_dual_write_since_is_stamped_after_the_first_ledger_write_commits(
 
 
 def test_a_failing_stamp_never_fails_the_committed_money_operation(
-    creator_factory, django_capture_on_commit_callbacks, monkeypatch, caplog,
+    creator_factory, django_capture_on_commit_callbacks, caplog,
 ):
     """The stamp runs after the money committed; if IT fails, the caller
     must still see success -- a 500 on a committed donation invites a retry
@@ -427,7 +427,9 @@ def test_a_failing_stamp_never_fails_the_committed_money_operation(
     api.forget_dual_write_since_stamp()
     Config.objects.update(dual_write_since=None)
     user = creator_factory(tuzis=Decimal("5"))
-    real_cursor = connection.cursor
+    # Patch the concrete wrapper. Pytest 9.2 undoes a patch on Django's
+    # connection proxy with delattr, and that proxy cannot delete cursor.
+    wrapper = connections["default"]
 
     class _Boom:
         def __enter__(self):
@@ -436,6 +438,7 @@ def test_a_failing_stamp_never_fails_the_committed_money_operation(
         def __exit__(self, *exc):
             return False
 
+    patched = False
     try:
         with caplog.at_level(logging.ERROR):
             with django_capture_on_commit_callbacks(execute=True) as callbacks:
@@ -443,9 +446,11 @@ def test_a_failing_stamp_never_fails_the_committed_money_operation(
                     balance = ledger.debit(user, 1, action="comment_vote")
                 # The money committed; the connection dies before the
                 # after-commit stamp runs (callbacks fire when the capture exits).
-                monkeypatch.setattr(connection, "cursor", lambda *a, **k: _Boom())
+                wrapper.cursor = lambda *a, **k: _Boom()
+                patched = True
     finally:
-        monkeypatch.setattr(connection, "cursor", real_cursor)
+        if patched:
+            del wrapper.cursor
     assert balance == Decimal("4") and len(callbacks) == 1, "the debit itself succeeded"
     assert "connection dropped after commit" in caplog.text
     assert Config.objects.get().dual_write_since is None

@@ -1217,7 +1217,7 @@ for (const viewport of [
   { width: 390, height: 844 },
   { width: 1280, height: 900 },
 ]) {
-  test(`cover frames hug the complete artwork at ${viewport.width}px`, async ({
+  test(`cover frames keep the whole artwork and pad the column at ${viewport.width}px`, async ({
     page,
   }) => {
     await page.setViewportSize(viewport);
@@ -1248,8 +1248,13 @@ for (const viewport of [
         };
       });
       expect(geometry.width / geometry.height).toBeCloseTo(geometry.ratio, 2);
-      expect(geometry.frameWidth).toBeCloseTo(geometry.width, 0);
+      // The frame spans the column. A cover that is narrower than that column
+      // keeps its own width, and the leftover band is the blurred pad.
+      expect(geometry.frameWidth).toBeGreaterThanOrEqual(geometry.width - 1);
       expect(geometry.frameHeight).toBeCloseTo(geometry.height, 0);
+      const bloom = await page.locator(".hero-media__bloom").boundingBox();
+      expect(bloom?.width ?? 0).toBeGreaterThanOrEqual(geometry.frameWidth - 1);
+      expect(bloom?.height ?? 0).toBeGreaterThanOrEqual(geometry.height - 1);
       expect(geometry.width).toBeLessThanOrEqual(geometry.nativeWidth);
       expect(geometry.height).toBeLessThanOrEqual(geometry.nativeHeight);
       expect(geometry.headlineTop).toBeGreaterThanOrEqual(
