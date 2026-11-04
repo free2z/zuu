@@ -60,6 +60,7 @@ def dyte_client(mocker):
     client.add_participant.return_value = _FakeResponse(
         {'data': {'token': 'auth-token'}})
     client.get_participants_count.return_value = 3
+    client.get_cached_participants_count.return_value = 3
     mocker.patch('dj.apps.dyte.views.DyteClient', return_value=client)
     return client
 
