@@ -42,6 +42,8 @@ test("text completion quotes a chosen model and requires preview acceptance", as
 }) => {
   test.setTimeout(120_000);
   const calls: Record<string, unknown>[] = [];
+  const requestKeys: string[] = [];
+  let promptFailures = 1;
   const textChoices = [
     {
       id: "text-a",
@@ -95,7 +97,7 @@ test("text completion quotes a chosen model and requires preview acceptance", as
           json: {
             choice: selected,
             model: selected.id,
-            max_output_tokens: 256,
+            max_output_tokens: 128,
             requested_output_tokens: 256,
             max_charge_2z: 4,
             quote_token: "quote-bound-to-prompt",
@@ -109,6 +111,14 @@ test("text completion quotes a chosen model and requires preview acceptance", as
       ) {
         const body = JSON.parse(request.postData() || "{}");
         calls.push(body);
+        requestKeys.push(request.headers()["idempotency-key"] ?? "");
+        if (promptFailures-- > 0) {
+          await route.fulfill({
+            status: 503,
+            json: { detail: "Temporary provider failure" },
+          });
+          return;
+        }
         await route.fulfill({
           json: {
             response: "A reviewed paragraph.",
@@ -141,6 +151,9 @@ test("text completion quotes a chosen model and requires preview acceptance", as
     .click();
   await expect(page.getByText(/Maximum charge: 4 2Z/)).toBeVisible();
   await expect(
+    page.getByText(/Reply cap for this prompt: 128 tokens \(requested: 256\)/),
+  ).toBeVisible();
+  await expect(
     page.getByText(/Your prompt will be sent to Anthropic/),
   ).toBeVisible();
   await expect(
@@ -153,6 +166,10 @@ test("text completion quotes a chosen model and requires preview acceptance", as
   await page
     .getByRole("button", { name: "Generate text (up to 4 2Z)" })
     .click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  const retry = page.getByRole("button", { name: "Retry exact request" });
+  await expect(retry).toBeVisible();
+  await retry.click();
   await expect(page.getByText("A reviewed paragraph.")).toBeVisible();
   await expect(editor).toHaveValue("Existing draft stays here.");
   expect(calls.at(-1)).toMatchObject({
@@ -161,6 +178,8 @@ test("text completion quotes a chosen model and requires preview acceptance", as
     quote_token: "quote-bound-to-prompt",
     max_output_tokens: 256,
   });
+  expect(calls.at(-1)).toEqual(calls.at(-2));
+  expect(requestKeys.at(-1)).toBe(requestKeys.at(-2));
   await page.getByRole("button", { name: "Insert text" }).click();
   await expect(editor).toHaveValue(
     "Existing draft stays here.\n\nA reviewed paragraph.",

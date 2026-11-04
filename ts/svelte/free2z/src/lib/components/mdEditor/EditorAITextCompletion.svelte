@@ -305,6 +305,16 @@
         </p>
         <p>
           {$t(
+            "editor.aiTextEffectiveCap",
+            "Reply cap for this prompt: {tokens} tokens (requested: {requested}).",
+            {
+              tokens: quote.max_output_tokens,
+              requested: quote.requested_output_tokens,
+            },
+          )}
+        </p>
+        <p>
+          {$t(
             "editor.aiTextAvailability",
             "Availability: {availability} Queue: {queue}",
             { availability: quote.availability, queue: quote.queue },
