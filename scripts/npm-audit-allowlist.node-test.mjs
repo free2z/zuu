@@ -5,16 +5,6 @@ import { evaluate, ALLOWLIST } from "./npm-audit-allowlist.mjs";
 const BR = "GHSA-vfj7-8cjw-p6xm";
 const adv = (name, id, severity = "high") => ({ name, severity, title: "t", url: `https://github.com/advisories/${id}` });
 const report = (...vias) => ({ vulnerabilities: { braces: { severity: "high", via: vias }, micromatch: { severity: "high", via: ["braces"] } } });
-// Historical policy fixture keeps waiver/expiry controls after retiring the stale entry.
-const historicalAllowlist = [
-  {
-    id: "GHSA-vfj7-8cjw-p6xm",
-    package: "braces",
-    expires: "2026-11-03", // 30 days from 2026-10-04
-    issue: "https://github.com/free2z/zuu/issues/1130",
-    reason: "build-time only via tailwind 3; no runtime exposure",
-  },
-];
 const before = new Date("2026-10-05T00:00:00Z");
 
 // Retired production waiver: preserve historical expiry and package-binding
