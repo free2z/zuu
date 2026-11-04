@@ -747,7 +747,11 @@
             newTab
           />
         {:else if cannotCoverAPost}
-          <PostingCostNotice balance={String($currentUser?.tuzis)} {intro} />
+          <PostingCostNotice
+            cost={tuzis}
+            balance={String($currentUser?.tuzis)}
+            {intro}
+          />
         {/if}
         {#if preview}
           <div

@@ -136,5 +136,14 @@
     >
       {$t("insufficientFunds.buy", "Buy 2Z")}
     </a>
+    <a
+      href="/credits"
+      target="_blank"
+      rel="noopener"
+      class="font-medium text-primary underline-offset-2 hover:underline"
+      data-testid="credits-explanation"
+    >
+      {$t("credits.title", "Why a penny a post?")}
+    </a>
   </div>
 </div>

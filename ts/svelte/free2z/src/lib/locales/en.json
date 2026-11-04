@@ -1725,7 +1725,7 @@
     "notCharged": "You have not been charged.",
     "writeIntro": "Write your intro zPage",
     "buy": "Buy 2Z",
-    "postCost": "A post costs 1 2Z, about a penny. That is why there is no spam here. You have {balance} 2Z.",
+    "postCost": "This post costs {cost} 2Z. The small posting cost discourages spam. You have {balance} 2Z.",
     "giftIntro": "Write a zPage introducing yourself: members can gift 2Z to writers they want to read more from.",
     "giftWaiting": "Your zPage is your introduction. Members can gift 2Z to writers they want to read more from.",
     "yourPages": "Your zPages",
@@ -3215,5 +3215,12 @@
       "invalid": "This link has expired. Sign in again to keep your account.",
       "failed": "Your account could not be kept. Please try again."
     }
+  },
+  "credits": {
+    "title": "Why a penny a post?",
+    "welcome": "Welcome! You received {amount} 2Z in platform credits. A post starts at 1 2Z, about a US penny, to keep Free2Z free of ads and discourage spam.",
+    "dismiss": "Dismiss welcome message",
+    "model": "2Z are platform credits for actions on Free2Z. A post starts at 1 2Z, about a US penny. This small cost discourages spam and helps keep Free2Z free of ads. Your first zPage is free; creating another requires a balance of 1 2Z and does not spend it.",
+    "sources": "Eligible new accounts receive a welcome grant. You can buy 2Z, or receive gifts from members who want to hear more from you. Introduce yourself with a zPage so readers can get to know you."
   }
 }

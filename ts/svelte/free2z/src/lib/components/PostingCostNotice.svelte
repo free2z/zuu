@@ -21,10 +21,11 @@
 
   interface Props {
     balance: string;
+    cost?: number;
     intro: IntroPath;
   }
 
-  let { balance, intro }: Props = $props();
+  let { balance, intro, cost = 1 }: Props = $props();
 
   let formattedBalance = $derived(formatDecimalText(balance, $locale));
 </script>
@@ -40,8 +41,11 @@
       <p class="text-foreground">
         {$t(
           "insufficientFunds.postCost",
-          "A post costs 1 2Z, about a penny. That is why there is no spam here. You have {balance} 2Z.",
-          { balance: formattedBalance },
+          "This post costs {cost} 2Z. The small posting cost discourages spam. You have {balance} 2Z.",
+          {
+            balance: formattedBalance,
+            cost: formatDecimalText(String(cost), $locale),
+          },
         )}
       </p>
       <p class="text-muted-foreground">
@@ -79,6 +83,15 @@
       data-testid="posting-cost-buy"
     >
       {$t("insufficientFunds.buy", "Buy 2Z")}
+    </a>
+    <a
+      href="/credits"
+      target="_blank"
+      rel="noopener"
+      class="font-medium text-primary underline-offset-2 hover:underline"
+      data-testid="credits-explanation"
+    >
+      {$t("credits.title", "Why a penny a post?")}
     </a>
   </div>
 </div>
