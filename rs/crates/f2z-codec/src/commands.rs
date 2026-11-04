@@ -460,7 +460,9 @@ pub struct ReadRequest {
     pub from_index: u64,
     /// Client-side cap on the number of messages returned.
     pub max_messages: u16,
-    /// Client-side cap on the bytes returned.
+    /// Client-side cap on the sum of returned ciphertext payload bytes. This
+    /// does not count `QueuedMessage` or response framing; max_frame_bytes
+    /// separately limits the complete encoded response frame.
     pub max_bytes: u32,
 }
 
@@ -782,8 +784,8 @@ pub struct ClaimKeyPackageChallengeRequest {
 // §11.1 — the capability document
 // ---------------------------------------------------------------------------
 
-/// A relay's entire externally-relevant policy, in one signed structure
-/// (`WIRE.md` §11.1).
+/// The policy fields a relay publishes in its signed capability structure
+/// (`WIRE.md` §11.1). Several local admission limits are not published in v1.
 ///
 /// The operator and provenance blocks at the end are not decoration.
 /// `operator_jurisdiction` and the contact fields make a user's choice among

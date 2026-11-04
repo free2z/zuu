@@ -1339,6 +1339,8 @@ fn read_page(
         if messages.len() >= usize::from(window.max_messages) {
             break;
         }
+        // `ReadWindow.max_bytes` counts ciphertext bytes only. The relay
+        // separately trims the encoded response to max_frame_bytes.
         let size = u64::try_from(payload.len()).unwrap_or(u64::MAX);
         let next = bytes.saturating_add(size);
         // Always yield at least one message when one exists. A `max_bytes`
