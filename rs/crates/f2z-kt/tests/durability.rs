@@ -483,7 +483,7 @@ async fn another_handle_cannot_lock_a_dormant_handle_out_of_account_recovery() {
     let mut active_prev = committed_chain_hash(
         &harness,
         &active_first,
-        &original,
+        &active_identity,
         NOW,
         AssertionOverrides::account_epoch(5),
     );
