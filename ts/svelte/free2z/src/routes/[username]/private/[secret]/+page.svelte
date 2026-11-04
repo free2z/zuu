@@ -116,10 +116,26 @@
     }
 
     const target = focusBeforeOffline;
+    const active = document.activeElement;
+    const reconnect = document.querySelector(
+      '[data-testid="private-call-reconnect"]',
+    );
+    if (
+      active &&
+      active !== document.body &&
+      active !== reconnect &&
+      active !== target
+    ) {
+      focusBeforeOffline = null;
+      return;
+    }
     void tick().then(() => {
       if (
         !isOffline &&
         target === focusBeforeOffline &&
+        (document.activeElement === document.body ||
+          document.activeElement === reconnect ||
+          document.activeElement === target) &&
         canRestoreFocus(target)
       ) {
         focusBeforeOffline = null;

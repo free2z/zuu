@@ -1494,6 +1494,7 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
   await expect(reconnect).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(reconnect).not.toBeFocused();
+  await reconnect.focus();
   await expect(header).toBeVisible();
   await expect(header.locator("..")).toHaveAttribute("inert", "");
   await expect(meeting).toBeVisible();
@@ -1517,6 +1518,21 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
     liveStreamStore.setConnectionStatus("connected");
   }, LIVE_STREAM_STORE_LOADER);
   await expect(recordButton).toBeFocused();
+
+  await page.evaluate(async (loader) => {
+    const external = document.createElement("button");
+    external.id = "external-focus-target";
+    document.body.append(external);
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.getByTestId("private-call-reconnect")).toBeFocused();
+  await page.locator("#external-focus-target").focus();
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.locator("#external-focus-target")).toBeFocused();
 
   await page.evaluate(async (loader) => {
     const { liveStreamStore } = await new Function(loader)();
