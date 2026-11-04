@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 import { chromium } from '@playwright/test';
 import { PNG } from 'pngjs';
 import { CAPTURE_PUBLIC_REQUESTS, computeFeedCaptureScroll } from './store-screenshot-capture.mjs';
+import { captureTlsDockerArguments, CAPTURE_TLS_BOOTSTRAP, assertCaptureTlsRuntime } from "./capture-tls.mjs";
 import { CAPTURE_NPM_CI_ARGUMENTS, CAPTURE_NPM_ENVIRONMENT, readCanonicalJson, validateCaptureConfig } from './store-screenshot-contract.mjs';
 import { walletRoot, BROWSER, SHOTS, RUNTIME_EVIDENCE, FORBIDDEN_TEXT, canonical, sha256, captureDigests, assertSourceCommit, assertCaptureEnvironment, validateSurfaceCaptureConfig, validateSurfaceCaptureRecord, validateRecordMatrix } from './surface-store-capture-contract.mjs';
 import { validateSurfaceCatalog } from './surface-store-catalogs.mjs';
@@ -38,7 +39,27 @@ async function serverFor(root) {
 export function allowedPublicRequest(app, action, request) {
   return app === 'free2z' && (CAPTURE_PUBLIC_REQUESTS[action] ?? []).includes(request);
 }
-export const NATIVE_CALLS = ['plugin:f2zmsg|get_engine_status', 'plugin:f2zmsg|get_device_info', 'plugin:event|listen', 'plugin:event|unlisten'];
+export const NATIVE_CALLS = ['plugin:f2zmsg|get_engine_status', 'plugin:f2zmsg|get_device_info', 'e2e2z_enrollment_status', 'plugin:deep-link|get_current', 'plugin:event|listen', 'plugin:event|unlisten'];
+export function installUnenrolledNativeFixture() {
+  // Faithful unenrolled production contract, also exercised by enrollment-gap.pw.ts.
+  // No mock build flag, device identity, credential, conversation or network transport.
+  window.__STORE_NATIVE_CALLS__ = [];
+  let callbackId = 1;
+  window.__TAURI_INTERNALS__ = {
+    transformCallback(callback, once) { const id = callbackId++; Object.defineProperty(window, `_${id}`, { configurable: true, value: (...args) => { if (once) Reflect.deleteProperty(window, `_${id}`); return callback(...args); } }); return id; },
+    unregisterCallback(id) { Reflect.deleteProperty(window, `_${id}`); },
+    async invoke(cmd) {
+      window.__STORE_NATIVE_CALLS__.push(cmd);
+      if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null };
+      if (cmd === 'e2e2z_enrollment_status') return { enrolled: false, handle: null, eligibility: { eligible: false, candidate: null, reason: 'not-signed-in' }, directoryEntryVersion: null, submittedAt: null, mergedAtEpoch: null, blocked: null };
+      if (cmd === 'plugin:deep-link|get_current') return [];
+      if (cmd === 'plugin:f2zmsg|get_device_info') throw 'not-enrolled';
+      if (cmd === 'plugin:event|listen') return callbackId++;
+      if (cmd === 'plugin:event|unlisten') return null;
+      throw new Error(`Unexpected native command: ${cmd}`);
+    },
+  };
+}
 async function preparePage(context, { app, origin, config, target, shot, fixture }) {
   const page = await context.newPage();
   const requests = [], refused = [], failures = [];
@@ -68,24 +89,8 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     const applySafeArea = () => { for (const [edge, value] of Object.entries(safeArea)) document.documentElement.style.setProperty(`--safe-area-${edge}`, `${value}px`); };
     if (document.documentElement) applySafeArea();
     else document.addEventListener('DOMContentLoaded', applySafeArea, { once: true });
-    if (app !== 'e2e2z') return;
-    // Faithful unenrolled production contract, also exercised by enrollment-gap.pw.ts.
-    // No mock build flag, device identity, credential, conversation or network transport.
-    window.__STORE_NATIVE_CALLS__ = [];
-    let callbackId = 1;
-    window.__TAURI_INTERNALS__ = {
-      transformCallback(callback, once) { const id = callbackId++; Object.defineProperty(window, `_${id}`, { configurable: true, value: (...args) => { if (once) Reflect.deleteProperty(window, `_${id}`); return callback(...args); } }); return id; },
-      unregisterCallback(id) { Reflect.deleteProperty(window, `_${id}`); },
-      async invoke(cmd) {
-        window.__STORE_NATIVE_CALLS__.push(cmd);
-        if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null };
-        if (cmd === 'plugin:f2zmsg|get_device_info') throw 'not-enrolled';
-        if (cmd === 'plugin:event|listen') return callbackId++;
-        if (cmd === 'plugin:event|unlisten') return null;
-        throw new Error(`Unexpected native command: ${cmd}`);
-      },
-    };
   }, { app, fixedTime: config.fixedTime, safeArea: target.safeArea });
+  if (app === 'e2e2z') await page.addInitScript(installUnenrolledNativeFixture);
   await page.goto(`${origin}${shot.route}`, { waitUntil: 'networkidle' });
   await page.addStyleTag({ content: '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}' });
   if (app === 'free2z') {
@@ -138,8 +143,8 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     const bounds = await focus.boundingBox();
     assert(bounds && bounds.y >= target.safeArea.top - 1 && bounds.y + bounds.height <= target.cssHeight - target.safeArea.bottom + 1, `capture focus is clipped: ${target.setId}/${shot.id} ${JSON.stringify(bounds)}`);
     const calls = await page.evaluate(() => window.__STORE_NATIVE_CALLS__);
-    assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status'));
-    assert(calls.every((cmd) => NATIVE_CALLS.includes(cmd)), 'undeclared native call');
+    assert(calls.includes('plugin:f2zmsg|get_device_info') && calls.includes('plugin:f2zmsg|get_engine_status') && calls.includes('e2e2z_enrollment_status') && calls.includes('plugin:deep-link|get_current'));
+    assert(calls.every((cmd) => NATIVE_CALLS.includes(cmd)), `undeclared native call: ${calls.filter((cmd) => !NATIVE_CALLS.includes(cmd)).join(', ')}`);
   }
   await page.evaluate(() => document.fonts.ready);
   assert.deepEqual(refused, [], 'unexpected network request');
@@ -219,8 +224,8 @@ export async function main(argv = process.argv.slice(2)) {
   if (process.env.SURFACE_STORE_CAPTURE_WORKER !== '1') {
     await assertSourceCommit(app, config.sourceSha);
     assert(typeof process.getuid === 'function', 'capture requires Docker on macOS or Linux');
-    const install = `node -e 'require("fs").writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "");require("fs").writeFileSync(process.env.NPM_CONFIG_GLOBALCONFIG, "")' && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/zuuli && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/${app} && node /work/zuuli/scripts/surface-store-capture.mjs ${app} ${mode}`;
-    await command('docker', ['run', '--rm', '--platform', BROWSER.platform, '--ipc=host', '--env', 'CI=1', '--env', 'SURFACE_STORE_CAPTURE_WORKER=1', '--env', `SURFACE_STORE_EXPECTED_DIGESTS=${JSON.stringify(digests)}`, ...Object.entries(CAPTURE_NPM_ENVIRONMENT).flatMap(([k, v]) => ['--env', `${k}=${v}`]), '--volume', `${walletRoot}:/work`, '--volume', '/work/zuuli/node_modules', '--volume', `/work/${app}/node_modules`, '--workdir', '/work', BROWSER.containerImage, 'bash', '-c', install]);
+    const install = `${CAPTURE_TLS_BOOTSTRAP} && node /work/zuuli/scripts/capture-tls.mjs --verify-runtime && node -e 'require("fs").writeFileSync(process.env.NPM_CONFIG_USERCONFIG, "");require("fs").writeFileSync(process.env.NPM_CONFIG_GLOBALCONFIG, "")' && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/zuuli && npm ${CAPTURE_NPM_CI_ARGUMENTS.join(' ')} --prefix /work/${app} && node /work/zuuli/scripts/surface-store-capture.mjs ${app} ${mode}`;
+    await command('docker', ['run', '--rm', '--platform', BROWSER.platform, '--ipc=host', '--env', 'CI=1', '--env', 'SURFACE_STORE_CAPTURE_WORKER=1', '--env', `SURFACE_STORE_EXPECTED_DIGESTS=${JSON.stringify(digests)}`, ...await captureTlsDockerArguments(resolve(walletRoot, 'zuuli')), ...Object.entries(CAPTURE_NPM_ENVIRONMENT).flatMap(([k, v]) => ['--env', `${k}=${v}`]), '--volume', `${walletRoot}:/work`, '--volume', '/work/zuuli/node_modules', '--volume', `/work/${app}/node_modules`, '--workdir', '/work', BROWSER.containerImage, 'bash', '-c', install]);
     assert.deepEqual(await captureDigests(app), digests, 'capture inputs changed');
     await assertSourceCommit(app, config.sourceSha);
     await assertCaptureEnvironment(app);
@@ -228,6 +233,7 @@ export async function main(argv = process.argv.slice(2)) {
     await validateSurfaceCatalog({ app });
     return;
   }
+  await assertCaptureTlsRuntime();
   assert.equal(process.platform, 'linux'); assert.equal(process.arch, 'x64'); await access('/.dockerenv');
   assert(chromium.executablePath().startsWith('/ms-playwright/'), 'browser must come from pinned image');
   assert.deepEqual(digests, JSON.parse(process.env.SURFACE_STORE_EXPECTED_DIGESTS ?? 'null'), 'host/worker digest mismatch');

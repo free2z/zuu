@@ -1,0 +1,8 @@
+static/
+uploadz/
+*.json
+*.csv
+*.xlsx
+db.*
+.env*
+

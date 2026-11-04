@@ -13,7 +13,7 @@
     - Creative Tools
   - Why Choose Free2Z
     - No Ads, Low Fees
-    - Privacy and Anonymity
+    - Privacy options and limits
 
 - Getting Started
   - Introduction to Free2Z
@@ -53,13 +53,13 @@
     - Profile Customization
     - Supporter Benefits
 
-- For Anonymous Users
+- For Account-Free Visitors
   - Discovering Content
     - How It Works
     - Fairness and Transparency
     - How to Engage with Content
-  - Supporting Anonymously
-    - How to Donate Anonymously
+  - Account-Free Support
+    - How to Donate Without an Account
     - No-Login Required Features
 
 - Revenue Sharing and Tokens
@@ -84,7 +84,7 @@
     - Data Protection
     - Data Handling
     - Encryption Technologies
-  - Anonymity Features
+  - Privacy Features and Limits
     - Trust and Safety
     - Code of Conduct
     - Moderation Policies

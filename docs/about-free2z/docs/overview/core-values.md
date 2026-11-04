@@ -2,144 +2,34 @@
 sidebar_position: 1
 ---
 
-# Core Values
+# What we stand for
 
-At Free2Z, we aren't just building a platform; we're building a movement that thrives on mutual respect, creativity, and fairness. Our core values are the pillars that support this vision.
+Free2Z is a home for independent voices, bold ideas, and people who make things. We believe creativity grows when people can express themselves, connect directly, and learn together.
 
-On Free2Z you are:
+## Freedom to create and speak
 
-- Free to Think
-- Free to Speak
-- Free to Succeed
+Your voice matters. We build tools that help you publish your work, try new ideas, and bring your community into the conversation. From your first page to a live room or an application, we want to make room for your creativity.
 
----
+## Your work, your relationships
 
-## Privacy 🛡️
+Creators keep ownership of their work. Your profile brings your audience to you, and direct Zcash support connects supporters with your own wallet. We help you build relationships around what you create.
 
-Free to Breathe.
+## Privacy we believe in
 
-Privacy is at the core of everything we do. We recognize that for some individuals privacy isn't just a luxury, it's a matter of life and death.
+**We will never sell your personal data.** You can create an account without an email and choose what you share publicly. We build with respect for your information and your choices.
 
-We respect your right to privacy. We facilitate private p2p donations, support creating accounts without personal information, and we will never sell the minimal data that we do collect. From peer-to-peer donations to your viewing preferences, your interactions are your business.
+## Clear costs and honest tools
 
-:::tip Features
+We want you to understand what you are using and paying for. 2Zs are platform credits for tools and experiences. Creator earnings are separate USD payments for qualifying services. We show prices and give you controls so you can choose how to take part.
 
-- Private p2p donations
-- Option of anonymous accounts
-- Zero data selling
-  :::
+## Accessibility matters
 
----
+We care deeply about making Free2Z accessible. If you encounter a barrier, [tell us on GitHub](https://github.com/free2z/zuu/issues) and we'll try to fix it. Your feedback helps us build a better experience for everyone.
 
-## Transparency
+## A community that helps people grow
 
-Free to See.
+Share something useful. Ask a question. Give a creator encouragement. We want Free2Z to be a place where people discover each other's work, learn new skills, and build something together.
 
-In addition to safeguarding your privacy, we maintain clear transparency about how our platform operates. From our fair pricing to our revenue-sharing mechanisms, everything is laid bare for you to see.
+## Independent and ad-free
 
----
-
-## Fairness
-
-Free to Trust.
-
-:::warning No Manipulation
-We believe in a level playing field. Our content ranking algorithms are transparent, ensuring that each creator has a fair shot at reaching their audience without manipulative practices. Free2Z does not take sides or attempt to promote a particular viewpoint or ideology (although we obviously have zero tolerance for any threatening or illegal activity)
-:::
-
----
-
-## User Empowerment
-
-Free to Empower.
-
-You are in control. From customization options to a wide range of monetization features, Free2Z is built to empower you. The platform is rapidly evolving! Tell us what you need, and we’ll make it happen.
-
-:::success Your Control
-
-Free To Succeed.
-
-- Monetization Options
-- Creative tools to communicate
-- User-driven evolution
-  :::
-
----
-
-## Openness and Growth
-
-Free to Grow.
-
-We’re an open book and an open platform. Not only do we host bug bounties for community involvement, but we also actively hire from our user base and pay for valuable feedback.
-
----
-
-## Security
-
-Free to Feel Safe.
-
-Your safety is our priority. We adhere to and exceed industry security standards to provide you with a platform where you can express yourself without worry.
-
----
-
-## Accessibility
-
-Free2Z is committed to being accessible to everyone. Our platform should score 100% on accessibility tests, and we are constantly working to make sure everyone has equal access to express themselves.
-
----
-
-## Diversity
-
-We champion diversity. Free2Z supports maximum free speech within the bounds of the law, promoting a diversity of thoughts and opinions.
-
----
-
-## Innovation 🤯
-
-From Zcash integrations, AI features, scalable live streams, to simple revenue sharing. Free2Z has unique and innovative features.
-
-:::info
-
-- Zcash Integrations
-- AI features
-- Scalable live streams
-- Simple revenue sharing
-  :::
-
----
-
-## Simplicity
-
-While offering a host of features, we prioritize user experience through a clean and straightforward interface, ensuring you can focus on what matters most: creating and connecting.
-
----
-
-## Efficiency
-
-We respect your time. Our platform is optimized for speed and ease, helping you achieve more in less time.
-
----
-
-## Effectiveness
-
-Our tools are designed to deliver results. Whether it’s monetization or community building, Free2Z provides effective solutions for your needs.
-
----
-
-## Quality
-
-Quality is non-negotiable. We strive for excellence in everything we do.
-
----
-
-## Reliability ✔️
-
-Our platform is built to be dependable. When you schedule a live stream or release new content, we ensure your work is accessible 24/7.
-
----
-
-## Accountability 💯
-
-We stand by our actions and decisions. Free2Z is committed to accountability.
-
----
+Our creative space is built around people and their work, not selling their attention to advertisers. We are here for the stories, conversations, and applications our community brings to life.

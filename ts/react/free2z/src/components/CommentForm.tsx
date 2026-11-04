@@ -16,17 +16,21 @@ import TuzisButton from "./TuzisButton";
 
 
 type Props = {
-    // TODO: all of these lean on zpage ;/
+    // TODO: all of these lean on zpage;/
     // zpage?: PageInterface,
     object_type?: "zpage" | "ai_conversation",
     object_uuid?: string,
     parent?: string,
     callback?: () => void,
     height?: number,
+    // A top-level converse post is titled; a comment or reply is not.
+    // Only the "F2Z Converse" dialog (FABNewConverse) passes "conversation".
+    mode?: "comment" | "conversation",
 }
 
 export default function CommentForm(props: Props) {
-    const { callback, object_type, object_uuid, parent } = props
+    const { callback, object_type, object_uuid, parent, mode } = props
+    const isConversation = mode === "conversation" && !parent
     const [creator, _] = useGlobalState("creator")
     const [snackbar, setSnackbar] = useGlobalState("snackbar")
     const [preview, setPreview] = useState(false)
@@ -34,6 +38,10 @@ export default function CommentForm(props: Props) {
     const queryClient = useQueryClient()
     const theme = useTheme();
 
+    // Comments and replies no longer carry a headline; only a converse
+    // post does. The backend field is optional as of migration comments.0006,
+    // so a comment simply omits it instead of posting a placeholder that this
+    // UI would then render as the card title.
     const oc = {
         headline: "",
         content: "",
@@ -58,10 +66,13 @@ export default function CommentForm(props: Props) {
         }
         // console.log("SUBMITTING", url, formData)
         setSubmitting(true)
+        const { headline, ...comment } = formData
         axios
             .post(
                 url,
-                { ...formData, parent: parent },
+                isConversation
+                    ? { ...formData, parent: parent }
+                    : { ...comment, parent: parent },
             )
             .then((res) => {
                 // console.log(res)
@@ -111,18 +122,19 @@ export default function CommentForm(props: Props) {
                     <Stack
                         spacing={1}
                     >
-                        <TextField
-                            id="headline"
-                            label="Headline"
-                            name="headline"
-                            variant="outlined"
-                            // variant="filled"
-                            value={formData.headline}
-                            onChange={handleInputChange}
-                            required
-                            fullWidth
-                            error={formData.headline.length > 100}
-                        />
+                        {isConversation &&
+                            <TextField
+                                id="headline"
+                                label="Title"
+                                name="headline"
+                                variant="outlined"
+                                value={formData.headline}
+                                onChange={handleInputChange}
+                                required
+                                fullWidth
+                                error={formData.headline.length > 100}
+                            />
+                        }
                         <Paper
                             sx={{
                                 border: formData.content.length >= 1000 ?
@@ -197,8 +209,10 @@ export default function CommentForm(props: Props) {
                                     !(
                                         formData.content.length > 0 &&
                                         formData.content.length <= 1000 &&
-                                        formData.headline.length > 0 &&
-                                        formData.headline.length <= 100 &&
+                                        (!isConversation || (
+                                            formData.headline.length > 0 &&
+                                            formData.headline.length <= 100
+                                        )) &&
                                         formData.tuzis >= 1
                                     ) || submitting
                                 }
@@ -239,7 +253,7 @@ export default function CommentForm(props: Props) {
                         variant="h4"
                         component="div"
                         sx={{
-                            // color: theme.palette.mode === 'dark' ?  : "white",
+                            // color: theme.palette.mode === 'dark' ?: "white",
                             color: theme.palette.primary.contrastText,
                             textAlign: 'center',
                             marginBottom: '23px',

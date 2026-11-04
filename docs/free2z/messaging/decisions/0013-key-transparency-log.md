@@ -51,7 +51,7 @@ over a simpler one we own — the same rule
 [ADR 0001](./0001-platform-priority.md) already applied when it chose OpenMLS
 over writing our own MLS.
 
-[`akd`](https://github.com/facebook/akd) — Meta's Auditable Key Directory, the
+[`akd`](https://github.com/meta/akd) — Meta's Auditable Key Directory, the
 SEEMless/Parakeet-lineage append-only zero-knowledge set that backs WhatsApp Key
 Transparency — is a Rust implementation of exactly the lineage §9.2 names.
 
@@ -73,7 +73,7 @@ implementation rather than written.
 enforced by a `cargo-deny` bans entry rather than by a version requirement.**
 
 The reason is specific and it is the part of this ADR most likely to be
-forgotten. [facebook/akd#495](https://github.com/facebook/akd/pull/495) — *"Fix
+forgotten. [meta/akd#495](https://github.com/meta/akd/pull/495) — *"Fix
 auditor append-only bypass in batch node insertion"*, merged **2026-08-12**,
 released in **0.13.0 on 2026-08-13** — fixed a bug in which
 `AzksElementSet::partition` silently dropped any node whose label was not
@@ -95,7 +95,7 @@ in this documentation change:
 
 ```toml
 [[bans.deny]]
-# akd < 0.13.0 contains an auditor append-only bypass, facebook/akd#495, merged
+# akd < 0.13.0 contains an auditor append-only bypass, meta/akd#495, merged
 # 2026-08-12 and released in 0.13.0 on 2026-08-13: a malicious log can rewrite an
 # existing label's value while still producing a VALID append-only proof, which
 # defeats the witness role entirely (see docs/free2z/messaging/KT.md §7).
@@ -217,12 +217,12 @@ is [`../KT.md`](../KT.md).
   [NCC-E008327-Q3U](https://www.nccgroup.com/media/phzpm0qv/_ncc_group_metaplatforms_e008327_report_2023-11-14_v10.pdf) (report pages 4-5) walks through
   `recursive_batch_insert_nodes()` and reproduces it as Figure 2: recursive_batch_insert_nodes() in akd/src/append_only_zks.rs.
   The complete `partition()` body is byte-for-byte identical between audited
-  [v0.9.0](https://github.com/facebook/akd/tree/be1055ee8a2b5291d84206592d8f46b7f042bbe1) and selected
-  [v0.13.0](https://github.com/facebook/akd/tree/43a60ccf7dfdd8f4b628186410e871192adaf65b); the pinned source-object and body
+  [v0.9.0](https://github.com/meta/akd/tree/be1055ee8a2b5291d84206592d8f46b7f042bbe1) and selected
+  [v0.13.0](https://github.com/meta/akd/tree/43a60ccf7dfdd8f4b628186410e871192adaf65b); the pinned source-object and body
   hashes are verified by `scripts/free2z/check-akd-doc-evidence.mjs`. Q3U's fix in
-  [#400](https://github.com/facebook/akd/pull/400) rejected duplicate labels in `publish()`, but did not guard the
+  [#400](https://github.com/meta/akd/pull/400) rejected duplicate labels in `publish()`, but did not guard the
   `InsertMode::Auditor` insertion used by append-only verification. That residual gap survived until
-  [#495](https://github.com/facebook/akd/pull/495) in 0.13.0. The lesson is therefore stronger and narrower: a paid review
+  [#495](https://github.com/meta/akd/pull/495) in 0.13.0. The lesson is therefore stronger and narrower: a paid review
   examined the same insertion and silent-drop bug class, yet its publish-only remediation left the auditor
   variant exploitable for almost three years. The auditor path remains our highest-value review and fuzz target.
   <!-- akd-claim:audit_scope:end -->

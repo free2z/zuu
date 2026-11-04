@@ -1,5 +1,79 @@
 # Changelog
 
+## 0.4.0 — 2026-10-16
+
+Apps don't sell 2Z. Tagged `sdk-v0.4.0` with the other Free2Z SDK packages.
+Not on a registry: pin the Git tag. Consolidated notes:
+[RELEASES.md](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/RELEASES.md#sdk-v040--2026-10-16).
+
+### Breaking
+
+- `DEFAULT_SCOPES` no longer includes `purchase:create`. A web app that
+  relied on the default scopes and still calls `createPurchase` now gets
+  `insufficient_scope`: list `purchase:create` in `FetchConfig.scopes`, or
+  move to `openBilling()`.
+- The optional peer is `@free2z/tauri-plugin-f2z-api@^0.4.0`.
+
+### Added
+
+- `Client.billingUrl()` / `Client.openBilling()`:
+  `{web origin}/buy-2z?client_id=<percent-encoded id>`, the user's Free2Z
+  billing page (Zcash first, card second), opened through
+  `FetchConfig.openExternal` on the web and the plugin's `open_billing`
+  natively. Opt-in: web, direct-download desktop and Apple-US-storefront
+  builds only. `unsupported_operation` from a transport or bridge without
+  them. `Transport` and `NativeBridge` gained them as optional members.
+- `manageAccountUrl()` / `openManageAccount()` are unchanged and stay
+  purchase-free.
+
+### Deprecated
+
+- `Client.createPurchase`, `purchase`, `waitForPurchase`, `openCheckout`,
+  the `PurchaseRequest` type and `FetchConfig.purchaseReturnUri`. They keep
+  working for apps that request `purchase:create`; card only.
+
+### Changed
+
+- The `insufficient_balance` and `account_in_debt` hints, and the
+  `needs_top_up` docs, send the user to Free2Z billing, or Manage in store
+  builds.
+
+## 0.3.0 — 2026-10-15
+
+Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:
+pin the Git tag. Consolidated notes and compatibility: [RELEASES.md](https://github.com/free2z/zuu/blob/sdk-v0.3.0/docs/free2z/sdk/RELEASES.md#sdk-v030--2026-10-15).
+
+### Breaking
+
+- The optional peer is `@free2z/tauri-plugin-f2z-api@^0.3.0`; under 0.x
+  semver a 0.2.0 guest-js build no longer satisfies it.
+
+### Added
+
+- `Session.preferredUsername` / `Session.name`: present only when `profile`
+  was granted (native: when the plugin reports them; web: from the verified ID
+  token, dropped when a refresh no longer grants `profile`).
+- Web `prompt: "login"` sign-in requires a fresh `auth_time` in the ID token
+  (`invalid_response` otherwise; the issued family is revoked). Display names
+  drop bidi controls and marks.
+- `SignInOptions.ephemeral` for `NativeTransport` (needs a plugin with it);
+  `FetchTransport` refuses it with `invalid_request`.
+- `Client.manageAccountUrl()`, `openManageAccount()`, `deleteAccountUrl()`,
+  `openDeleteAccount()`. `unsupported_operation` from a transport or native
+  bridge without them; against a Rust plugin without these commands the call
+  rejects with that plugin's native error. `FetchConfig.webOrigin` (default: the issuer's origin); the
+  web `open…` methods use `openExternal`.
+- `Transport` gained the four as optional members, so custom transports keep
+  compiling.
+- `Client.reportCall(callId, reason, detail?, signal?)` → `CallReport`, on
+  `FetchTransport` and `NativeTransport` (which needs a plugin with
+  `reportCall`; `unsupported_operation` without it). `Transport.reportCall`
+  is optional, so custom transports keep compiling. A bad argument is
+  `invalid_request` with `details.field` before anything is sent.
+  `REPORT_DETAIL_MAX_CHARS` exported; `not_found` added to `ServerErrorCode`.
+  `FetchConfig.childDirected`: a child-directed web app's `reportCall` refuses
+  any `detail` locally.
+
 ## 0.2.0 — 2026-10-06
 
 First tagged release, `sdk-v0.2.0`, versioned together with the other Free2Z
