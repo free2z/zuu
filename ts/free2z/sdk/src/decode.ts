@@ -363,6 +363,7 @@ const capabilityKeys = [
   "reasoning",
   "structured_output",
   "strict_tools",
+  "forced_tool_choice",
   "reasoning_effort",
 ] as const;
 /** Absent or `null` is `{}`: nothing declared, so nothing supported. A

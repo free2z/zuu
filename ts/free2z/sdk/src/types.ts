@@ -358,6 +358,8 @@ export interface ModelCapabilities {
    * `field: "tools[i].strict"`) before any hold or charge. Absent: unsupported.
    */
   strict_tools?: boolean;
+  /** Required/named function choice; absent in older listings: unsupported. */
+  forced_tool_choice?: boolean;
   /**
    * `true` is the precondition for `ChatRequest.reasoning_effort` (at a level
    * in `Model.controls.effort_levels`, when listed): otherwise the gateway

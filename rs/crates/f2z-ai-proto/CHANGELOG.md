@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Signed tri-state `ModelCapabilities::forced_tool_choice` (zuu#1144): explicit false refuses required/named function choice before holds; absent preserves legacy tool-control admission.
+
 ## 0.3.0 — 2026-10-15
 
 Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:

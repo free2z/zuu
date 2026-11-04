@@ -384,6 +384,8 @@ async fn models_and_estimate() {
     let models = ai.models().await.unwrap();
     assert_eq!(models.catalog_version, 7);
     assert_eq!(models.models[0].id, "settled");
+    assert!(!models.models[0].capabilities.forced_tool_choice);
+    assert!(models.models[1].capabilities.forced_tool_choice);
     // Revalidated with If-None-Match; the 304 answers from the cache.
     assert_eq!(ai.models().await.unwrap(), models);
     let estimate = ai.estimate(&chat_request("settled")).await.unwrap();

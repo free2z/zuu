@@ -283,6 +283,9 @@ pub struct Capabilities {
     /// predates the field.
     #[serde(default)]
     pub strict_tools: bool,
+    /// Accepts required/named function choice; false from older gateways.
+    #[serde(default)]
+    pub forced_tool_choice: bool,
     /// Accepts `reasoning_effort` (at the levels in
     /// [`Controls::effort_levels`], when listed). `false` from a gateway that
     /// predates the field. Not implied by [`Capabilities::reasoning`]: a

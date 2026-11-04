@@ -3296,3 +3296,111 @@ async fn signed_tools_effort_control_preserves_supported_requests() {
         mock.shutdown().await;
     }
 }
+
+// zuu#1144: the same controls cross admission, the ledger and real adapters.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forced_tool_choice_signed_policy_precedes_holds_and_provider_io() {
+    for id in ["m-chat", "m-anthropic", "m-xai"] {
+        for declared in [None, Some(false), Some(true)] {
+            for choice in [
+                json!("required"),
+                json!({"type":"function","function":{"name":"lookup"}}),
+                json!("auto"),
+                json!("none"),
+            ] {
+                for (path, stream) in [
+                    ("/v1/chat/estimate", false),
+                    ("/v1/chat", false),
+                    ("/v1/chat", true),
+                ] {
+                    let mut catalog = tool_catalog().catalog().clone();
+                    for model in &mut catalog.models {
+                        model.capabilities.forced_tool_choice = declared;
+                    }
+                    let catalog = f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap();
+                    let db = Arc::new(Database::new());
+                    let (r, mock) =
+                        launch_catalog(db.clone(), Scenario::default(), None, catalog).await;
+                    let mut body = request();
+                    body["model"] = json!(id);
+                    body["stream"] = json!(stream);
+                    body["tools"] = json!([{"name":"lookup","parameters":{"type":"object"}}]);
+                    body["tool_choice"] = choice.clone();
+                    body["parallel_tool_calls"] = json!(false);
+                    if path == "/v1/chat/estimate" && choice == json!("required") {
+                        let get = axum::http::Request::get("/v1/models")
+                            .header("host", "gateway")
+                            .body(axum::body::Body::empty())
+                            .unwrap();
+                        let listed: Value = serde_json::from_str(
+                            &support::text(support::send(r.public, get).await).await,
+                        )
+                        .unwrap();
+                        let model = listed["models"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|m| m["id"] == id)
+                            .unwrap();
+                        assert_eq!(
+                            model["capabilities"]["forced_tool_choice"],
+                            declared.unwrap_or(true)
+                        );
+                    }
+                    let forced = choice == json!("required") || choice.is_object();
+                    let (status, reply) = post(&r, path, &body).await;
+                    if declared == Some(false) && forced {
+                        assert_eq!(
+                            status,
+                            StatusCode::BAD_REQUEST,
+                            "{id} {declared:?} {choice}: {reply}"
+                        );
+                        assert_eq!(reply["error"]["code"], "invalid_request");
+                        let error: f2z_ai_proto::error::ApiError =
+                            serde_json::from_value(reply["error"].clone()).unwrap();
+                        assert!(!error.retryable());
+                        assert_eq!(reply["error"]["details"]["reason"], "tools_unsupported");
+                        assert_eq!(reply["error"]["details"]["field"], "tool_choice");
+                        let state = db.0.lock().unwrap();
+                        assert_eq!(state.hold_requests, 0);
+                        assert_eq!(state.charges, 0);
+                        assert_eq!(mock.request_count(), 0);
+                    } else {
+                        assert_eq!(
+                            status,
+                            StatusCode::OK,
+                            "{id} {declared:?} {choice}: {reply}"
+                        );
+                        if path == "/v1/chat" {
+                            final_state(&db).await;
+                            assert_eq!(db.0.lock().unwrap().hold_requests, 1);
+                            assert_eq!(mock.request_count(), 1);
+                            let sent = mock.recorded_requests();
+                            if id == "m-anthropic" {
+                                let expected = if choice.is_object() {
+                                    "tool"
+                                } else if forced {
+                                    "any"
+                                } else {
+                                    choice.as_str().unwrap()
+                                };
+                                assert_eq!(sent[0].body["tool_choice"]["type"], expected);
+                                // none suppresses tools and therefore has no parallel control.
+                                if choice != json!("none") {
+                                    assert_eq!(
+                                        sent[0].body["tool_choice"]["disable_parallel_tool_use"],
+                                        true
+                                    );
+                                }
+                            } else {
+                                assert_eq!(sent[0].body["tool_choice"], choice);
+                                assert_eq!(sent[0].body["parallel_tool_calls"], false);
+                            }
+                        }
+                    }
+                    mock.shutdown().await;
+                }
+            }
+        }
+    }
+}
