@@ -1,0 +1,338 @@
+//! What a [`crate::Client`] talks to, and as whom.
+
+use std::time::Duration;
+
+use url::Url;
+
+use crate::error::Error;
+
+/// The production issuer, `docs/free2z/sdk/spec/oidc.md` §1.
+pub const DEFAULT_ISSUER: &str = "https://free2z.cash";
+/// The account API root, fixed by the contract (`docs/free2z/sdk/README.md`).
+pub const DEFAULT_API_BASE: &str = "https://free2z.cash/api/sdk/v1";
+/// The AI gateway root, fixed by the contract.
+pub const DEFAULT_AI_BASE: &str = "https://ai.free2z.cash/v1";
+
+/// The scopes a new [`Config`] asks for: sign-in, a refresh token, the
+/// balance and AI. Narrow them with [`Config::with_scopes`] to what the app
+/// actually uses — the user sees each one on the consent screen.
+///
+/// Since 0.4.0 this no longer includes `purchase:create`: apps don't sell 2Z,
+/// they send the user to Free2Z billing ([`crate::Client::billing_url`]). An
+/// app that still calls the deprecated purchase API must ask for
+/// `purchase:create` explicitly with [`Config::with_scopes`].
+pub const DEFAULT_SCOPES: &[&str] = &[
+    "openid",
+    "profile",
+    "offline_access",
+    "balance:read",
+    "ai:invoke",
+];
+
+/// The configuration of one app's client.
+///
+/// Built with [`Config::new`] and the `with_*` methods; every field has the
+/// production default except the `client_id`, which the developer console
+/// assigns.
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Config {
+    /// The issuer (`iss`). The only URL a client hard-codes: every IdP
+    /// endpoint comes from its discovery document.
+    pub issuer: String,
+    /// The app's `client_id`. This SDK is a **public** client: no secret.
+    pub client_id: String,
+    /// The scopes to request, space-joined on the wire.
+    pub scopes: Vec<String>,
+    /// The account API root (`…/api/sdk/v1`).
+    pub api_base: String,
+    /// The AI gateway root (`…/v1`).
+    pub ai_base: String,
+    /// The Free2Z website's origin, where the account pages live
+    /// (`/account/apps`, `/account/delete`, `/buy-2z`). `None`, the default: the
+    /// issuer's origin, which is the website for every Free2Z deployment.
+    pub web_origin: Option<String>,
+    /// The limit on one non-streaming request and on waiting for a token-store
+    /// operation. A store timeout is `Error::Storage`; its blocking operation
+    /// may finish later, so durability is uncertain until it completes. Each
+    /// client permits one blocking read and one blocking write; repeated loads share the read and
+    /// pending writes coalesce to the newest save/delete. Refresh's first attempt
+    /// is additionally capped at 30 seconds to leave recovery time, and its
+    /// entire same-token recovery sequence is capped at 55 seconds.
+    pub request_timeout: Duration,
+    /// How long sign-in waits for the browser to come back to the redirect
+    /// URI.
+    pub callback_timeout: Duration,
+    /// How long a chat stream may go without receiving a byte before it is
+    /// treated as interrupted. The gateway sends a `: ping` every 15 s while
+    /// it waits on a provider, so this is a dead-connection detector.
+    pub stream_idle_timeout: Duration,
+    /// The app is child-directed: set it exactly when the app's Free2Z
+    /// registration is `child_directed`. The SDK then refuses, locally,
+    /// what the server refuses for such an app — today a report's `detail`
+    /// ([`crate::ai::Ai::report_call`]). Default `false`.
+    pub child_directed: bool,
+}
+
+impl Config {
+    /// The production configuration for `client_id`.
+    #[must_use]
+    pub fn new(client_id: impl Into<String>) -> Self {
+        Self {
+            issuer: DEFAULT_ISSUER.to_owned(),
+            client_id: client_id.into(),
+            scopes: DEFAULT_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
+            api_base: DEFAULT_API_BASE.to_owned(),
+            ai_base: DEFAULT_AI_BASE.to_owned(),
+            web_origin: None,
+            request_timeout: Duration::from_secs(30),
+            callback_timeout: Duration::from_secs(600),
+            stream_idle_timeout: Duration::from_secs(90),
+            child_directed: false,
+        }
+    }
+
+    /// Another issuer (a staging IdP, or a local fake).
+    #[must_use]
+    pub fn with_issuer(mut self, issuer: impl Into<String>) -> Self {
+        self.issuer = issuer.into();
+        self
+    }
+
+    /// The scopes to request.
+    #[must_use]
+    pub fn with_scopes<I, S>(mut self, scopes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.scopes = scopes.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Another account API root.
+    #[must_use]
+    pub fn with_api_base(mut self, base: impl Into<String>) -> Self {
+        self.api_base = base.into();
+        self
+    }
+
+    /// Another AI gateway root.
+    #[must_use]
+    pub fn with_ai_base(mut self, base: impl Into<String>) -> Self {
+        self.ai_base = base.into();
+        self
+    }
+
+    /// Another website origin for the account pages (`https://host[:port]`,
+    /// no path). Only for a deployment whose website is not its issuer.
+    #[must_use]
+    pub fn with_web_origin(mut self, origin: impl Into<String>) -> Self {
+        self.web_origin = Some(origin.into());
+        self
+    }
+
+    /// The limit on one non-streaming request.
+    #[must_use]
+    pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
+        self.request_timeout = timeout;
+        self
+    }
+
+    /// How long sign-in waits for the redirect.
+    #[must_use]
+    pub fn with_callback_timeout(mut self, timeout: Duration) -> Self {
+        self.callback_timeout = timeout;
+        self
+    }
+
+    /// How long a chat stream may be silent before it counts as interrupted.
+    #[must_use]
+    pub fn with_stream_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.stream_idle_timeout = timeout;
+        self
+    }
+
+    /// Mark the app child-directed, matching its Free2Z registration.
+    #[must_use]
+    pub fn with_child_directed(mut self, child_directed: bool) -> Self {
+        self.child_directed = child_directed;
+        self
+    }
+
+    pub(crate) fn validate(&self) -> Result<Validated, Error> {
+        if self.client_id.trim().is_empty() {
+            return Err(Error::Config("client_id is empty".into()));
+        }
+        if self.scopes.iter().any(|s| s.is_empty() || s.contains(' ')) {
+            return Err(Error::Config("a scope is empty or contains a space".into()));
+        }
+        let issuer = self.issuer.trim_end_matches('/').to_owned();
+        let issuer_url = server_url(&issuer, "issuer")?;
+        if issuer_url.query().is_some() {
+            return Err(Error::Config("the issuer carries a query".into()));
+        }
+        let api_base = self.api_base.trim_end_matches('/').to_owned();
+        server_url(&api_base, "api_base")?;
+        let ai_base = self.ai_base.trim_end_matches('/').to_owned();
+        server_url(&ai_base, "ai_base")?;
+        let web_origin = crate::account::web_origin(&issuer_url, self.web_origin.as_deref())?;
+        let manage_account_url = crate::account::manage_url(&web_origin, &self.client_id)?;
+        let delete_account_url = crate::account::delete_url(&web_origin);
+        let billing_url = crate::account::billing_url(&web_origin, &self.client_id)?;
+        Ok(Validated {
+            issuer,
+            client_id: self.client_id.clone(),
+            scopes: self.scopes.clone(),
+            api_base,
+            ai_base,
+            web_origin,
+            manage_account_url,
+            delete_account_url,
+            billing_url,
+            request_timeout: self.request_timeout,
+            callback_timeout: self.callback_timeout,
+            stream_idle_timeout: self.stream_idle_timeout,
+            child_directed: self.child_directed,
+        })
+    }
+}
+
+/// A [`Config`] that has been checked, with trailing slashes removed.
+#[derive(Clone, Debug)]
+pub(crate) struct Validated {
+    pub issuer: String,
+    pub client_id: String,
+    pub scopes: Vec<String>,
+    pub api_base: String,
+    pub ai_base: String,
+    /// `scheme://host[:port]`, no trailing slash.
+    pub web_origin: String,
+    pub manage_account_url: String,
+    pub delete_account_url: String,
+    pub billing_url: String,
+    pub request_timeout: Duration,
+    pub callback_timeout: Duration,
+    pub stream_idle_timeout: Duration,
+    pub child_directed: bool,
+}
+
+impl Validated {
+    pub fn scope_string(&self) -> String {
+        self.scopes.join(" ")
+    }
+
+    pub fn wants(&self, scope: &str) -> bool {
+        self.scopes.iter().any(|s| s == scope)
+    }
+}
+
+/// Whether `url` is a loopback `http` URL (`127.0.0.1` or `[::1]`).
+pub(crate) fn is_loopback_http(url: &Url) -> bool {
+    url.scheme() == "http"
+        && matches!(
+            url.host(),
+            Some(url::Host::Ipv4(ip)) if ip.is_loopback()
+        )
+        || url.scheme() == "http"
+            && matches!(url.host(), Some(url::Host::Ipv6(ip)) if ip.is_loopback())
+}
+
+/// Parse a server URL: `https`, or `http` on the loopback interface only (a
+/// local fake or a development server). No credentials, no fragment.
+pub(crate) fn server_url(value: &str, what: &str) -> Result<Url, Error> {
+    let url = Url::parse(value).map_err(|e| Error::Config(format!("{what}: {e}")))?;
+    check_server_url(&url).map_err(|m| Error::Config(format!("{what}: {m}")))?;
+    Ok(url)
+}
+
+pub(crate) fn check_server_url(url: &Url) -> Result<(), &'static str> {
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("a URL may not carry credentials");
+    }
+    if url.fragment().is_some() {
+        return Err("a URL may not carry a fragment");
+    }
+    if url.scheme() == "https" && url.host().is_some() {
+        return Ok(());
+    }
+    if is_loopback_http(url) {
+        return Ok(());
+    }
+    Err("must be https (or http on 127.0.0.1 / [::1])")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn production_defaults_validate() {
+        let v = Config::new("app_1").validate().unwrap();
+        assert_eq!(v.issuer, "https://free2z.cash");
+        assert_eq!(v.web_origin, "https://free2z.cash");
+        assert!(v.wants("ai:invoke"));
+        assert_eq!(v.billing_url, "https://free2z.cash/buy-2z?client_id=app_1");
+    }
+
+    #[test]
+    fn default_scopes_no_longer_ask_to_create_purchases() {
+        assert!(!DEFAULT_SCOPES.contains(&"purchase:create"));
+        let v = Config::new("app_1").validate().unwrap();
+        assert!(!v.wants("purchase:create"));
+        assert_eq!(
+            v.scope_string(),
+            "openid profile offline_access balance:read ai:invoke"
+        );
+        // An app that still uses the deprecated purchase API asks for it.
+        let explicit = Config::new("app_1")
+            .with_scopes(["openid", "purchase:create"])
+            .validate()
+            .unwrap();
+        assert!(explicit.wants("purchase:create"));
+    }
+
+    #[test]
+    fn the_billing_url_follows_the_configured_web_origin() {
+        let v = Config::new("a b&c")
+            .with_issuer("https://id.staging.example/realm")
+            .validate()
+            .unwrap();
+        assert_eq!(
+            v.billing_url,
+            "https://id.staging.example/buy-2z?client_id=a+b%26c"
+        );
+        let v = Config::new("c")
+            .with_web_origin("https://www.staging.example/")
+            .validate()
+            .unwrap();
+        assert_eq!(
+            v.billing_url,
+            "https://www.staging.example/buy-2z?client_id=c"
+        );
+        assert_eq!(
+            v.manage_account_url,
+            "https://www.staging.example/account/apps?client_id=c"
+        );
+    }
+
+    #[test]
+    fn plain_http_off_loopback_is_refused() {
+        let bad = Config::new("app_1").with_issuer("http://free2z.cash");
+        assert!(matches!(bad.validate(), Err(Error::Config(_))));
+        let bad = Config::new("app_1").with_ai_base("http://localhost:1/v1");
+        assert!(matches!(bad.validate(), Err(Error::Config(_))));
+        let ok = Config::new("app_1")
+            .with_issuer("http://127.0.0.1:9/")
+            .with_api_base("http://[::1]:9/api/sdk/v1");
+        assert_eq!(ok.validate().unwrap().issuer, "http://127.0.0.1:9");
+        assert_eq!(ok.validate().unwrap().web_origin, "http://127.0.0.1:9");
+        let bad = Config::new("app_1").with_web_origin("http://free2z.cash");
+        assert!(matches!(bad.validate(), Err(Error::Config(_))));
+    }
+
+    #[test]
+    fn empty_client_id_is_refused() {
+        assert!(Config::new(" ").validate().is_err());
+    }
+}

@@ -1,9 +1,9 @@
 [package]
 name = "f2z-kt-core"
 version = "0.1.0"
-description = "Key-transparency core for the free2z directory (docs/e2ee/KT.md v1): entry authorization, signed tree heads, witness cosignatures and the client verifier"
+description = "Key-transparency core for the free2z directory (docs/free2z/messaging/KT.md v1): entry authorization, signed tree heads, witness cosignatures and the client verifier"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
 # drift. Not inherited from the workspace: that check reads this literal line.
 rust-version = "1.97"

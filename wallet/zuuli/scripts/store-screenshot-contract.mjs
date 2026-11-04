@@ -45,6 +45,8 @@ export const CAPTURE_CONTRACT_INPUTS = [
   CAPTURE_CONFIG_PATH,
   "store/fixtures",
   "scripts/store-screenshot-preflight.mjs",
+  "scripts/capture-tls.mjs",
+  "scripts/tls/ca-certificates.pem",
   "scripts/store-screenshot-capture.mjs",
   "scripts/store-screenshot-contract.mjs",
 ];

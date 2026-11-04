@@ -1,7 +1,7 @@
 # tauri-plugin-f2zmsg
 
 The messaging engine behind ZUULI's end-to-end encrypted chat, exposed as the
-command surface [`docs/e2ee/CLIENT-CONTRACT.md`](../../../docs/e2ee/CLIENT-CONTRACT.md)
+command surface [`docs/free2z/messaging/CLIENT-CONTRACT.md`](../../../docs/free2z/messaging/CLIENT-CONTRACT.md)
 §3 specifies. It composes the merged crates — `f2z-msg-identity`,
 `f2z-msg-mls`, `f2z-msg-store`, `f2z-relay-proto`, `f2z-codec` — into something
 a webview can talk to.

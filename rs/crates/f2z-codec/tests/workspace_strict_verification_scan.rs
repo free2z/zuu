@@ -599,6 +599,89 @@ const WORKSPACE_VERIFY_FNS: &[VerifyFn] = &[
             call: "sig::verify",
         },
     },
+    // ---- f2z-ai-proto -------------------------------------------------------
+    //
+    // The AI gateway's signed model catalogue (#1049). Both versioned readers
+    // delegate to one strict tree verifier holding a `VerifyingKey` in `TrustedKey`
+    // and calling `verify_strict` on it directly, over
+    // `CATALOG_SIGNING_LABEL || canonical_json(payload)`. Strict is the point
+    // here as much as anywhere: under plain `verify` the identity point as a
+    // trusted key accepts (R = identity, s = 0) for every message, i.e. any
+    // catalogue — any price list. `f2z-ai-proto/tests/catalog_signature.rs`
+    // (`a_small_order_key_is_refused_even_where_plain_verify_would_accept`)
+    // asserts that forgery passes `verify` and is refused here.
+    VerifyFn {
+        file: "f2z-ai-proto/src/catalog.rs",
+        name: "verify_catalog",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-ai-proto/src/catalog.rs::verify_catalog_tree",
+            call: "verify_catalog_tree",
+        },
+    },
+    VerifyFn {
+        file: "f2z-ai-proto/src/catalog_v2.rs",
+        name: "verify_catalog_v2",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-ai-proto/src/catalog.rs::verify_catalog_tree",
+            call: "verify_catalog_tree",
+        },
+    },
+    VerifyFn {
+        file: "f2z-ai-proto/src/catalog.rs",
+        name: "verify_catalog_tree",
+        occurrence: 0,
+        strictness: Strictness::CallsVerifyStrict {
+            receiver: "key.key",
+        },
+    },
+    // ---- f2z-ai -------------------------------------------------------------
+    // The HTTP envelope parser rejects duplicates before delegating the signed
+    // catalogue payload to the registered strict Ed25519 verifier above.
+    VerifyFn {
+        file: "f2z-ai/src/catalog.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::DelegatesToFn {
+            target: "f2z-ai-proto/src/catalog.rs::verify_catalog",
+            call: "f2z_ai_proto::catalog::verify_catalog",
+        },
+    },
+    //
+    // The gateway's access-token check (zuu#1068). **Not Ed25519**: an ES256
+    // (P-256 ECDSA) JWS from the IdP, verified with `ring`'s fixed-width
+    // P-256 verifier, which has no small-order-point analogue of the dalek
+    // defect this scan exists for (ring rejects a public key that is not a
+    // point on the curve, and the identity is not an encodable SEC1 point).
+    // `jwt::Unverified::verify` is the one place the signature is checked;
+    // `Gate::verify` is the token pipeline that calls it.
+    // The Rust SDK's OpenID Connect ID-token check (#1070): an RS256 JWS
+    // from the issuer's JWKS, not an Ed25519 signature.
+    VerifyFn {
+        file: "f2z-sdk/src/oauth/id_token.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "check_rs256_signature",
+        },
+    },
+    VerifyFn {
+        file: "f2z-ai/src/auth/jwt.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "ring::signature::UnparsedPublicKey::new",
+        },
+    },
+    VerifyFn {
+        file: "f2z-ai/src/auth/mod.rs",
+        name: "verify",
+        occurrence: 0,
+        strictness: Strictness::NotASignatureCheck {
+            via: "jwt::Unverified::verify",
+        },
+    },
 ];
 
 /// A flagged line: where it is, what it says, and which rule caught it.
@@ -1531,15 +1614,10 @@ fn every_verify_function_in_the_workspace_is_registered_as_strict() {
                 );
             }
             Strictness::DelegatesToFn { target, call } => {
-                let (target_file, target_name) = target.rsplit_once("::").unwrap();
                 assert!(
-                    WORKSPACE_VERIFY_FNS
-                        .iter()
-                        .any(|other| other.file == target_file
-                            && other.name == target_name
-                            && matches!(other.strictness, Strictness::CallsVerifyStrict { .. })),
-                    "{}::{} delegates to {target}, which is not registered as a strict \
-                     verifier",
+                    delegation_reaches_strict_base(target, WORKSPACE_VERIFY_FNS),
+                    "{}::{} delegates to {target}, whose registered chain does not terminate in \
+                     a strict verifier",
                     entry.file,
                     entry.name
                 );

@@ -196,7 +196,7 @@ hybrid post-quantum key establishment is in the binary that ships today.** It is
 not roadmap work and it is not behind a flag.
 
 - **Today, in the shipping binary:** X25519 + **ML-KEM-768** via X-Wing, as the
-  MLS KEM, on every group, unconditionally. `docs/e2ee/ARCHITECTURE.md` §5.2:
+  MLS KEM, on every group, unconditionally. `docs/free2z/messaging/ARCHITECTURE.md` §5.2:
   "hybrid post-quantum from day one." `libcrux-ml-kem 0.0.10` is in the iOS
   dependency graph via `libcrux-kem` → `hpke-rs-libcrux` →
   `openmls_libcrux_crypto` → `f2z-msg-mls` → `tauri-plugin-f2zmsg` → `e2e2z`.

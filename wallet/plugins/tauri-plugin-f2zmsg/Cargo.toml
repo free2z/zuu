@@ -6,7 +6,7 @@ rust-version = "1.97"
 # Never goes to a registry: the wallet crates are consumed by path only. This is
 # also what lets wallet/deny.toml skip them under `licenses.private.ignore`.
 publish = false
-description = "Tauri plugin for free2z end-to-end encrypted messaging (docs/e2ee/CLIENT-CONTRACT.md §3)"
+description = "Tauri plugin for free2z end-to-end encrypted messaging (docs/free2z/messaging/CLIENT-CONTRACT.md §3)"
 # `tauri_plugin::Builder` requires it, and the value is the crate name. The
 # plugin's *identifier* — the `f2zmsg` in `plugin:f2zmsg|send_message` and in
 # `f2zmsg:allow-send-message` — is the crate name minus the `tauri-plugin-`
@@ -259,3 +259,15 @@ opt-level = 3
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Temporary registered fork for fixed PR2261 libraries plus PR2265 deployed
+# draft derivation compatibility. The provider's path dependencies must resolve to the SAME trait and
+# memory-storage source throughout the graph, not duplicate registry identities.
+# The disabled optional RustCrypto provider must also move HPKE off the
+# vulnerable KEM in the full lock; it remains banned in enabled graphs.
+# No local cryptographic algorithm modifications. See docs/DEPENDENCIES.md.
+[patch.crates-io]
+openmls_libcrux_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_traits = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_memory_storage = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }
+openmls_rust_crypto = { git = "https://github.com/free2z/openmls", rev = "7ded6597be8ddf7004046c8564fa97090d5e9633" }

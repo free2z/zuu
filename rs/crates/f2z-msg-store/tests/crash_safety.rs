@@ -32,7 +32,7 @@
 //!
 //! Run with `cargo test -p f2z-msg-store --features crash-injection --test crash_safety`.
 //!
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
 
 // Only compiled when the injection point exists. Without the feature there is
 // nothing to fire and the file is empty on purpose: a silently-passing crash

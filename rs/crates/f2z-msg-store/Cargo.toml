@@ -1,15 +1,15 @@
 [package]
 name = "f2z-msg-store"
 version = "0.1.0"
-description = "The OpenMLS StorageProvider for free2z messaging: one labelled key/value map, two backends, and an explicit transaction (docs/e2ee/ARCHITECTURE.md §5)"
+description = "The OpenMLS StorageProvider for free2z messaging: one labelled key/value map, two backends, and an explicit transaction (docs/free2z/messaging/ARCHITECTURE.md §5)"
 edition.workspace = true
-# A restatement of wallet/rust-toolchain.toml's channel in Cargo's MSRV form,
+# A restatement of rust-toolchain.toml's channel in Cargo's MSRV form,
 # registered with `scripts/check-rust-toolchain.sh --manifest` so it cannot
 # drift. Not inherited from the workspace: that check reads this literal line.
 rust-version = "1.97"
 # Permissive, deliberately and explicitly. Every client links this — ZUULI
 # native, the WASM web client, and any third-party implementation of
-# docs/e2ee/ — and the AGPL-3.0 boundary starts at the server binaries, not
+# docs/free2z/messaging/ — and the AGPL-3.0 boundary starts at the server binaries, not
 # here. Stated literally rather than inherited so it is visible to anyone
 # opening the crate. rs/deny.toml enforces it.
 license = "MIT"

@@ -15,7 +15,7 @@
 //!
 //! # The defaults are sized for a 1 GB VPS, and that is a decision
 //!
-//! [ADR 0005](https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0005-federation.md)
+//! [ADR 0005](https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0005-federation.md)
 //! puts the economics of the whole federation on a cheap box, so the defaults
 //! are what that box can actually hold rather than what a benchmark likes:
 //!

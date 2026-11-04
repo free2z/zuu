@@ -1,4 +1,4 @@
-//! Byte-level wire vectors for every structure in `docs/e2ee/WIRE.md`.
+//! Byte-level wire vectors for every structure in `docs/free2z/messaging/WIRE.md`.
 //!
 //! # Why this file exists, and what makes it different from every other test
 //!

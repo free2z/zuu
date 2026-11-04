@@ -2,7 +2,7 @@
  * The ONE seam between this app's intent requests and a channel that could
  * carry them — and, today, the reason none of them travel.
  *
- * `docs/intent-bridge/PROTOCOL.md` §7 is unambiguous: **no intent carrying
+ * `docs/free2z/intent-bridge/PROTOCOL.md` §7 is unambiguous: **no intent carrying
  * authority may be dispatched over a deep link** until
  * [#461](https://github.com/free2z/zuu/issues/461) lands. A custom scheme is
  * not an authenticated channel — any app can register `zuuli://` — so shipping
@@ -89,7 +89,7 @@ export class IntentTransportUnavailableError extends Error {
  *
  * There is **no signature over responses** to fall back on, and that is a
  * deliberate design decision rather than an omission —
- * `docs/intent-bridge/CALLER-AUTHENTICATION.md` §5: adding one would mint a
+ * `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §5: adding one would mint a
  * second wallet identity alongside the seed hierarchy to paper over a transport
  * gap. The transport is the right layer, which means **the security of this
  * whole path rests on the implementation that replaces

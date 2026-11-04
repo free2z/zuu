@@ -15,8 +15,8 @@
  * installed and the default below refuses: a browser tab cannot hand a link to
  * a native app.
  *
- * The line `docs/intent-bridge/PROTOCOL.md` §7 and
- * `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4 draw still holds. A custom
+ * The line `docs/free2z/intent-bridge/PROTOCOL.md` §7 and
+ * `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §4 draw still holds. A custom
  * scheme is not an authenticated channel — any app can register `zuuli://` and
  * answer with a `DeviceCredential` this app would install, which is
  * [#367](https://github.com/free2z/zuu/issues/367)'s confused deputy at the OS
@@ -112,7 +112,7 @@ export class IntentTransportUnavailableError extends Error {
       `the ${family} intent cannot be dispatched: e2e2z has no authenticated ` +
         "transport to the wallet authority. A custom-scheme deep link does not " +
         "authenticate its sender or its receiver, so no intent carrying " +
-        "authority may travel over one (docs/intent-bridge/PROTOCOL.md §7). " +
+        "authority may travel over one (docs/free2z/intent-bridge/PROTOCOL.md §7). " +
         "Verified App Links and Universal Links are issue #461.",
     );
     this.name = "IntentTransportUnavailableError";
@@ -138,7 +138,7 @@ export function isIntentTransportUnavailable(
  * It **throws**. It never resolves, and in particular it never resolves to
  * bytes — because a transport that returned a plausible response envelope
  * would be a transport that fabricated a `DeviceCredential`, and this app would
- * install it. `docs/e2ee/CLIENT-CONTRACT.md` §2.4's rule is that nothing here
+ * install it. `docs/free2z/messaging/CLIENT-CONTRACT.md` §2.4's rule is that nothing here
  * may synthesize an `EnrollmentStatus`; synthesizing the credential that
  * produces one would be the same defect wearing a hat.
  */

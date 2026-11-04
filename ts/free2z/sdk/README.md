@@ -1,0 +1,205 @@
+# @free2z/sdk
+
+Pre-release TypeScript client for Free2Z sign-in, 2Z balances, the Free2Z
+account and billing links, and micro-metered AI. Apps don't sell 2Z: since
+0.4.0 the purchase methods are deprecated. This package is **not yet published**. Registry names and
+commands below describe the intended release, not an available installation.
+Production integration also requires a registered public OAuth client, enabled
+service endpoints, and the native plugin for Tauri. See the
+[SDK integration guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/INTEGRATION.md).
+
+## Application API
+
+After publication, the intended installation is `npm install @free2z/sdk`.
+Use Node 22+ for tooling and a browser/WebView with Fetch, Web Crypto,
+ReadableStream, BigInt, and structuredClone support.
+
+```ts
+import { Client, NativeTransport } from '@free2z/sdk';
+import { nativeBridge } from '@free2z/tauri-plugin-f2z-api';
+
+const client = new Client(new NativeTransport(nativeBridge));
+await client.signIn();
+const balance = await client.balance();
+console.log(balance.available_milli_2z.toString());
+```
+
+The native plugin package is also pending publication. Its Rust builder owns
+client ID, allowed issuer/API endpoints, scopes, callback registration, and OS
+credential persistence. Webview JavaScript receives no tokens. The structural
+`NativeBridge` interface also permits a mock adapter; importing this package
+does not import Tauri or read global Tauri internals.
+
+For a browser app:
+
+```ts
+import { Client, FetchTransport } from '@free2z/sdk';
+const client = new Client(new FetchTransport({
+  clientId: 'YOUR_REGISTERED_PUBLIC_CLIENT_ID',
+  redirectUri: 'https://your-app.example/oauth/callback',
+  openExternal: async url => { window.location.assign(url); },
+}));
+// Call from a user gesture so the popup can open.
+await client.signIn();
+```
+
+The registered callback page calls `completeBrowserSignIn()` from this package.
+Serve it on the opener's origin, or explicitly pass the expected opener origin.
+The popup and opener must retain their browser relationship; a policy that
+severs `window.opener` needs a custom `BrowserAuthSession`. The callback contains
+an authorization code, never tokens. FetchTransport owns tokens **in memory**;
+reload requires sign-in. It uses authorization-code PKCE, state, nonce,
+issuer/audience/signature checks, and a single shared refresh operation.
+Never use FetchTransport inside a privileged Tauri webview: use NativeTransport.
+
+The default scopes are `openid profile offline_access balance:read
+ai:invoke`; since 0.4.0 they no longer include `purchase:create`. Inspect
+`session().grantedScopes`. A web app may configure fewer scopes; native scopes
+belong to its Rust builder.
+
+## Amounts, operations, and receipts
+
+All integer protocol amounts and counters are `bigint`, including milli-2Z
+balances. One 2Z is 1,000 milli-2Z. Format from integer arithmetic; never pass
+amounts through `Number`, `parseFloat`, or ordinary `JSON.parse`. Store amounts
+as decimal strings when persisting application state. The browser wire parser
+preserves integer lexemes; the native adapter decodes canonical decimal DTOs.
+Tool-schema JSON cannot carry unsafe integers across native IPC and rejects them.
+
+Generate and **persist** `operationId` and `idempotencyKey` before invoking chat.
+The SDK does not create a replacement key or retry a new billable operation.
+
+```ts
+const operationId = crypto.randomUUID();
+const idempotencyKey = crypto.randomUUID();
+// Persist both keys, selected model and request in your operation journal here.
+const stream = await client.chat({
+  model: 'MODEL_ID_FROM_CATALOG',
+  messages: [{ role: 'user', content: [{ type: 'text', text: 'Explain fractions.' }] }],
+  max_output_tokens: 256n,
+}, { operationId, idempotencyKey });
+for await (const event of stream) {
+  if (event.type === 'delta') console.log(event.text);
+  if (event.type === 'done' || event.type === 'error') console.log(event.charge);
+}
+```
+
+Add `max_output_tokens_strict: true` when a length-truncated answer is useless
+to you: the gateway then refuses (`insufficient_balance`, `cap_exceeded`, …)
+before any hold or charge instead of lowering `max_output_tokens` to what the
+user can afford. Pre-check with `client.preflight(request)` on that same strict
+request: no hold or charge, and it returns the screen to show — `ready`,
+`needs_top_up` (send the user to Free2Z billing with `openBilling()`, or
+"Manage Free2Z account" in a store build), `needs_budget` (link to
+`https://free2z.cash/account/apps`; buying 2Z does not help) or `too_large`.
+Display amounts with `formatMilli2z(available_milli_2z)` (`"41.500"`). The
+[quickstart](../../../docs/free2z/sdk/QUICKSTART.md) is a complete first app.
+`estimate()` also carries typed budget fields — `available_milli_2z`,
+`cap_remaining_milli_2z` (`null` = uncapped; absent = not reported, never
+uncapped), `min_charge_2z`, `catalog_version` — a snapshot for gating UI, not
+an authorization: the paid call re-checks.
+
+For a JSON reply, set `response_format: { type: "json_schema", json_schema: {
+name, schema, strict: true } }` (or `{ type: "json_object" }`) and parse the
+reply text yourself. The SDK checks the gateway's limits before sending; a
+model without `capabilities.structured_output` refuses the call before any
+hold or charge (`invalid_request`, `reason: "response_format_unsupported"`).
+`models()` types it: gate on `model.capabilities.structured_output === true` (and `capabilities.tools === true` before sending `tools`); absent means unsupported, and prices/limits are `bigint`.
+
+Only one `next()` may be outstanding. `cancel()`, breaking iteration, or an
+AbortSignal stops delivery; none proves that generation or charging stopped.
+Persist `stream.callId` when available. A broken response carries the original
+key and known call ID in `SdkError`. Reconcile using `call()`/`waitForCall()` or
+resubmit the **same request and key** when the call ID is unknown. A completed
+idempotent replay yields a `replay` event containing the call record.
+
+Give every AI output an in-app report control (Play's AI-Generated Content
+policy, App Store 4.7): `client.reportCall(callId, "incorrect" | "inappropriate"
+| "unsafe" | "other", detail?)`. Offer preset reasons, not free text; see
+`docs/free2z/sdk/INTEGRATION.md`, "Reporting AI output".
+
+`charge.state === 'pending'` means the final amount is unknown; never display it
+as zero. `charged` includes a receipt ID and charged whole-2Z amount; optional
+collection/shortfall fields are milli-2Z. `released` means a confirmed zero
+charge. Polling can return pending at its deadline; inspect the returned state.
+Unknown server settlement states remain pending.
+
+## Getting 2Z: the billing link
+
+Apps don't sell 2Z. A user who needs 2Z gets them on their Free2Z billing page,
+paying with Zcash (preferred, shown first) or by card:
+
+```ts
+const STORE_BUILD = false; // true for Google Play, and iOS outside the US storefront
+if (STORE_BUILD) await client.openManageAccount(); // "Manage Free2Z account"
+else await client.openBilling(); // "Get 2Z on Free2Z"
+// Later, when the app returns to the foreground:
+const balance = await client.balance();
+```
+
+`billingUrl()` is `{web origin}/buy-2z?client_id=<percent-encoded id>`.
+`openBilling()` opens it through `FetchConfig.openExternal` on the web, or the
+plugin's `open_billing` command natively (system browser, URL built in Rust).
+It is **opt-in**: web, direct-download desktop and Apple-US-storefront builds
+may show it; a Google Play build, or an iOS build outside the US storefront,
+must not, and must not grant the plugin permission `f2z:allow-open-billing`.
+`openManageAccount()` stays a purchase-free account page. There is no return
+redirect: re-read `balance()` on foreground. See
+[the billing URL contract](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/INTEGRATION.md#get-2z--the-billing-url-contract).
+
+**Deprecated:** `createPurchase`, `purchase`, `waitForPurchase`,
+`openCheckout` and `FetchConfig.purchaseReturnUri`. They keep working for apps
+that list `purchase:create` in their scopes (no longer a default), card only;
+Zcash is paid on Free2Z's billing page, never through them.
+
+## Cancellation and errors
+
+`SdkError` exposes safe codes and structured context, never raw token, keychain,
+or provider diagnostics. `code` is typed `SdkErrorCode` (server codes from
+`errors.md` plus local ones; an unknown newer code still type-checks), and
+`message` ends with a developer hint (`errorHint(code)`) — log it, never parse
+it. Refusal `details` (`required_2z`, `cap_remaining_milli_2z`, `resets_at`, …)
+arrive as `bigint` amounts on both transports. Inspect `stepUp` for fresh-authentication requirements;
+then use `signIn({maxAge, acrValues})`. There is no automatic sign-in popup in an
+API call. `retryAfterSeconds` is bounded to 24 hours for scheduling.
+
+Native `signIn` rejects an AbortSignal before invoking IPC: cancel through the
+system authentication UI or sign out. Native sign-out invalidates delivery and
+cancels the native auth session. Browser sign-in supports AbortSignal and
+revokes a newly issued grant if cancellation wins before installation.
+
+Browser refresh recovery uses the same predecessor token, at most three
+attempts, a 30-second first-attempt ceiling, and a 55-second total budget.
+Configured request timeouts can be shorter. Cancelling an API wait does not
+cancel rotation. Exhausting recovery clears local credentials and requires
+sign-in; a revocation attempt is best effort. One FetchTransport owns one
+in-memory session; do not share it between unrelated browser users.
+
+Browser responses are bounded (8 MiB JSON, 256 KiB SSE event, 1 MiB delivered
+chunk). SSE is pull-driven, with a 45-second pending-read idle timeout by
+default. Fetch/browser networking may buffer internally. This is not an
+unbounded push-event queue. Model catalogue caching honors ETag and max-age
+(up to one hour) and is scoped to the current login generation.
+
+## Contributor verification
+
+From `ts/free2z/sdk`: `npm ci`, `npm test`, `npm run test:package`.
+The latter installs the locally built tarball into a temporary isolated consumer
+and checks public imports/types. It is a packaging test, not a supported released
+installation. Tests use a signed mock issuer and fake transports; they do not
+establish production availability or make real payments.
+
+Application types are handwritten normalized types (`bigint` and `Charge`),
+not generated Rust wire aliases. Protocol conformance and native guest type
+compatibility are release gates; publication and live end-to-end validation are
+tracked separately from these mock tests.
+
+`await client.grant()` returns the current authenticated account/app's original
+consented cap and period, scopes, server revocation stamps, `enforced`, and
+snapshot time. Integers are `bigint`; `spend_cap_2z === null` means uncapped.
+Require explicit enforcement and check identity, period and limit against the
+user's authorization. Neither a small estimate remainder nor grant generation
+proves a total budget: cap changes need not increment that generation. Re-read
+before relying on the policy; this snapshot does not freeze future consent.
+See [the grant contract](../../../docs/free2z/sdk/spec/grant.md). Older native
+bridges without the command return `unsupported_operation` instead of guessing.

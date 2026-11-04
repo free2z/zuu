@@ -1,5 +1,5 @@
 /**
- * The cross-app intent bridge, client side — `docs/intent-bridge/PROTOCOL.md`.
+ * The cross-app intent bridge, client side — `docs/free2z/intent-bridge/PROTOCOL.md`.
  *
  * One implementation, consumed by every app that is not the wallet. It sits
  * inside `@free2z/wallet-shared` rather than beside it because

@@ -1,0 +1,38 @@
+{
+  "name": "refused_xai_chat_undeclared",
+  "feature": "structured_output",
+  "source": "provider::structured_output_supported: on Chat Completions an absent declaration is support only for provider openai; a compatible provider must be declared.",
+  "api_style": "openai_chat",
+  "provider": "xai",
+  "catalog_model": {
+    "capabilities": {}
+  },
+  "request": {
+    "model": "m-xai",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "JSON please."
+          }
+        ]
+      }
+    ],
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "response_format_unsupported",
+        "field": "response_format"
+      }
+    },
+    "encodings": {}
+  }
+}

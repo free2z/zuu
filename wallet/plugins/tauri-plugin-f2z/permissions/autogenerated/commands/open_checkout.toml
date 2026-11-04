@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-open-checkout"
+description = "Enables the open_checkout command without any pre-configured scope."
+commands.allow = ["open_checkout"]
+
+[[permission]]
+identifier = "deny-open-checkout"
+description = "Denies the open_checkout command without any pre-configured scope."
+commands.deny = ["open_checkout"]

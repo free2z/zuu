@@ -11,7 +11,7 @@
 //
 // #904's premise is a hard one: this app holds device keys and a
 // `DeviceCredential` and **never** anything seed-derived
-// (`docs/e2ee/ARCHITECTURE.md` §4.2). Every other guard in this tree is about
+// (`docs/free2z/messaging/ARCHITECTURE.md` §4.2). Every other guard in this tree is about
 // what happens when the boundary holds. This one is about the boundary itself.
 //
 // Three routes exist by which seed authority could arrive, and all three are

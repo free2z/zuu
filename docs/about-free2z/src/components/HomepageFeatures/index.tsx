@@ -1,117 +1,112 @@
-import React from 'react';
-import clsx from 'clsx';
-import styles from './styles.module.css';
+import React from "react";
+import Link from "@docusaurus/Link";
+import styles from "./styles.module.css";
 
-type FeatureItem = {
-  title: string;
-  Svg?: React.ComponentType<React.ComponentProps<'svg'>>;
-  imageSrc?: string;
-  description: JSX.Element;
-  link: string;
-  size?: string;
-};
-
-
-const FeatureList: FeatureItem[] = [
+const paths = [
   {
-    title: 'Free to Speak.',
-    description: (
-      <>
-        Free2Z champions the power of free expression. From independent journalists to cultural commentators, our platform is a haven for diverse voices. Embrace the freedom to speak out, share insights, and engage in meaningful discussions, all within a supportive and collaborative community.
-      </>
-    ),
-    link: "/docs/overview",
-    imageSrc: "https://free2z.com/uploadz/public/free2z/free-to-speak-300.png",
+    title: "Your words, your world",
+    description:
+      "Publish rich zPages, share media, and let readers explore your work in another language.",
+    link: "/docs/overview/key-features",
+    label: "Explore publishing",
   },
   {
-    title: 'Free to Monetize.',
-    description: (
-      <>
-        Unlock the potential of your creativity with Free2Z's innovative monetization tools. Whether you're an artist, educator, or tech visionary, our platform offers unique revenue-sharing programs and peer-to-peer donations. Monetize your work transparently and fairly, turning your passion into profit.
-      </>
-    ),
-    link: "/docs/for-creators",
-    imageSrc: "https://free2z.com/uploadz/public/free2z/free-to-monetize-300.png",
+    title: "Bring your community live",
+    description:
+      "Broadcast, meet your subscribers, host a private room, or offer a paid live experience.",
+    link: "/docs/for-creators/free2z-live",
+    label: "Explore livestreams",
   },
   {
-    title: 'Free to Support.',
-    description: (
-      <>
-        Supporting your favorite creators is more impactful with Free2Z. Enjoy an ad-free experience, fair pricing, and minimal platform fees. Whether you're buying a coffee or funding a project, your contributions make a real difference, fostering a direct and meaningful connection with creators.
-      </>
-    ),
-    link: "/docs/for-supporters",
-    imageSrc: "https://free2z.com/uploadz/public/free2z/free-to-support-300.png",
+    title: "Make more with AI",
+    description:
+      "Explore ideas, shape a draft, and try the available AI tools with 2Z credits and spending controls.",
+    link: "/docs/for-creators/AI-content-generation",
+    label: "Explore AI",
   },
   {
-    title: 'Free to Think.',
-    description: (
-      <>
-        Free2Z redefines online privacy and security. Engage, support, and explore content while maintaining complete anonymity. Our platform ensures your privacy with options like anonymous donations via Zcash and secure, hassle-free logins. Experience true freedom of expression without surveillance.
-      </>
-    ),
-    link: "/docs/privacy-and-security",
-    size: "col--6",
-    imageSrc: "https://free2z.com/uploadz/public/free2z/free-to-think-300.png",
-  },
-  {
-    title: 'Free to Build.',
-    description: (
-      <>
-        Discover a world of creative possibilities with Free2Z's advanced toolkit. From long-form articles to scalable live streams, our platform equips you with everything you need to create, publish, and engage. Elevate your content with AI conversations, video production, and more in our all-in-one media hub.
-      </>
-    ),
-    link: "/docs/getting-started",
-    size: "col--6",
-    imageSrc: "https://free2z.com/uploadz/public/free2z/free-to-build-300.png",
+    title: "Build something people love",
+    description:
+      "Connect your application to Free2Z sign-in, AI services, and user credit budgets.",
+    link: "/docs/for-creators/sdk-applications",
+    label: "Explore the source preview",
+    badge: "SDK preview",
   },
 ];
 
-
-function Feature({ title, Svg, imageSrc, description, link, size }: FeatureItem) {
-  const cl = size || "col--4";
-  let target = "_self";
-  if (link.startsWith("https://")) {
-    target = "_blank";
-  }
-  return (
-    <div className={clsx(`col ${cl}`)}>
-      <div className="text--center padding-horiz--md">
-        <h3>
-          <a href={link} target={target}>
-            {title}
-          </a>
-        </h3>
-      </div>
-      <a href={link}>
-        <div className="text--center">
-          {Svg ? (
-            <Svg className={styles.featureSvg} role="img" />
-          ) : (
-            <img src={imageSrc} alt={title} className={styles.featureImage}
-              style={{ maxWidth: "300px" }}
-            />
-          )}
-        </div>
-      </a>
-      <div className="text--center padding-horiz--md">
-        <p>{description}</p>
-      </div>
-    </div>
-  );
-}
-
+const showcases = [
+  {
+    title: "A home for independent voices.",
+    description:
+      "Discover original work, follow a creator, and publish something of your own. Your profile brings your pages and community together.",
+    image: "creator-profile",
+    caption: "Your profile brings your work and community together.",
+    alt: "The official Free2Z creator profile",
+    link: "/docs/overview/",
+    label: "Discover Free2Z",
+  },
+  {
+    title: "Small posts. Real conversations.",
+    description:
+      "Share an update, ask a question, or join a thread. Converse brings the community into one public feed.",
+    image: "converse",
+    caption: "Find an idea. Join the conversation.",
+    alt: "The Converse feed with search and community threads",
+    link: "/docs/overview/key-features",
+    label: "Find your community",
+  },
+  {
+    title: "Find your next great read.",
+    description:
+      "Explore stories, profiles, and topics. Start with something that catches your attention, then share what inspires you.",
+    image: "discover",
+    caption: "Discover something that inspires you.",
+    alt: "The Free2Z discovery page",
+    link: "/docs/overview/key-features",
+    label: "See what you can do",
+  },
+];
 
 export default function HomepageFeatures(): JSX.Element {
   return (
-    <section className={styles.features}>
-      <div className="container">
-        <div className="row">
-          {FeatureList.map((props, idx) => (
-            <Feature key={idx} {...props} />
-          ))}
-        </div>
-      </div>
-    </section>
+    <>
+      <section
+        className={`container ${styles.features}`}
+        aria-label="Explore Free2Z features"
+      >
+        {paths.map((path) => (
+          <Link key={path.link} to={path.link} className={styles.path}>
+            {path.badge && <span className={styles.badge}>{path.badge}</span>}
+            <h2>{path.title}</h2>
+            <p>{path.description}</p>
+            <span>{path.label} →</span>
+          </Link>
+        ))}
+      </section>
+      <section
+        className={`container ${styles.showcases}`}
+        aria-label="See Free2Z in action"
+      >
+        {showcases.map((item) => (
+          <article key={item.image} className={styles.showcase}>
+            <div>
+              <h2>{item.title}</h2>
+              <p>{item.description}</p>
+              <Link to={item.link}>{item.label} →</Link>
+            </div>
+            <figure>
+              <img
+                src={`/docs/img/product-2026-10/${item.image}.png`}
+                alt={item.alt}
+                width="1280"
+                height="820"
+                loading="lazy"
+              />
+              <figcaption>{item.caption}</figcaption>
+            </figure>
+          </article>
+        ))}
+      </section>
+    </>
   );
 }

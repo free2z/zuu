@@ -1,6 +1,6 @@
 //! Caller identity: what the platform can prove, and what it cannot.
 //!
-//! **Read `docs/intent-bridge/CALLER-AUTHENTICATION.md` before changing
+//! **Read `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` before changing
 //! anything here.** This module is the code half of that document, and its
 //! central claim is a negative one:
 //!

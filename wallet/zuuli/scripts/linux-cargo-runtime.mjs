@@ -32,8 +32,8 @@ export const CARGO_RUNTIME_PACKAGE_FEATURES =
 const MAX_EVIDENCE_BYTES = 1024 * 1024;
 const MAX_EVIDENCE_JSON_BYTES = 8 * 1024 * 1024;
 const MAX_PACKAGES = 10_000;
-// `git` is here because of ONE reviewed dependency, and it is not a general
-// permission: `sourceKind` below admits exactly one git source string and
+// `git` is here for the reviewed transient bridges, not a general
+// permission: `sourceKind` below admits only exact git source strings and
 // throws on every other. `cargo-auditable`'s embedded evidence labels any git
 // dependency `"git"` with no URL, and `reconcileRuntimePackages` keys packages
 // on `name\0version\0source`, so the two sides have to spell it the same way.
@@ -52,6 +52,10 @@ const KNOWN_SOURCES = new Set(["crates.io", "local", "git"]);
 // different dependency and must fail here until someone reviews it. Remove this
 // with the patch, when `bip32 0.6.0` is published.
 export const REVIEWED_GIT_SOURCES = new Set([
+  // PR2265 preserves deployed MLS draft derivation with fixed DRBG/KEM.
+  // Retire with the exact registered bridge in docs/DEPENDENCIES.md.
+  "git+https://github.com/free2z/openmls?rev=7ded6597be8ddf7004046c8564fa97090d5e9633" +
+    "#7ded6597be8ddf7004046c8564fa97090d5e9633",
   "git+https://github.com/free2z/crates?rev=131d490ef75ccd23111cc7f3df91e4a88fc971ae" +
     "#131d490ef75ccd23111cc7f3df91e4a88fc971ae",
 ]);

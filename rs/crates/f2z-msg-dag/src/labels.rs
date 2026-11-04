@@ -13,7 +13,7 @@
 //! another is a cross-domain collision waiting for an attacker-chosen message.
 //!
 //! Prefix-freeness is a property of the union, not of any one crate's array.
-//! `scripts/check-hash-domain-labels.mjs` holds this label against every other
+//! `scripts/free2z/check-hash-domain-labels.mjs` holds this label against every other
 //! `free2z/` label in every tracked file — `f2z-msg-identity`'s four
 //! `free2z/msg/v1/…` leaves included, which is the set this one is most likely
 //! to collide with. The test below is the cheap local half and is deliberately
@@ -47,7 +47,7 @@ mod tests {
     /// Restated here rather than imported, deliberately: this crate does not
     /// depend on `f2z-msg-identity` and must not gain a dependency on it just
     /// to run a test. The restatement can rot, which is exactly why it is not
-    /// the load-bearing check — `scripts/check-hash-domain-labels.mjs` reads
+    /// the load-bearing check — `scripts/free2z/check-hash-domain-labels.mjs` reads
     /// the real constants out of the tracked tree and is what CI gates on.
     const NEIGHBOURING_LABELS: [&[u8]; 4] = [
         b"free2z/msg/v1/identity-sig",

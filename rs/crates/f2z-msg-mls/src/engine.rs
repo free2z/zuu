@@ -57,8 +57,8 @@
 //! valid but describes a different device is rejected — which is the
 //! substitution the identity→device binding of §4.2 exists to stop.
 //!
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
-//! [s94]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#94-relay-trust-model
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s94]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#94-relay-trust-model
 //! [`Durability`]: f2z_msg_store::Durability
 
 use f2z_msg_store::{Durability, StorageBackend};

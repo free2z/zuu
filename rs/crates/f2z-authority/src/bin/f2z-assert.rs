@@ -40,7 +40,7 @@ use f2z_codec::canonical::Canonical as _;
 use f2z_codec::types::PublicKey;
 
 const USAGE: &str = "\
-f2z-assert — issue a free2z handle-ownership assertion (docs/e2ee/KT.md)
+f2z-assert — issue a free2z handle-ownership assertion (docs/free2z/messaging/KT.md)
 
 USAGE:
   f2z-assert keygen [--out FILE]

@@ -1,18 +1,18 @@
 # =============================================================================
-# The three free2z E2EE server images, from one Dockerfile.
+# The free2z messaging and AI server images, from one Dockerfile.
 #
 #   docker build -f rs/Dockerfile rs \
 #     --build-arg BIN=f2z-relay \
 #     --build-arg RUST_CHANNEL="$(scripts/check-rust-toolchain.sh --print-channel)"
 #
-# `BIN` is one of `f2z-relay`, `f2z-kt`, `f2z-witness` — the three AGPL-3.0
+# `BIN` is one of `f2z-relay`, `f2z-kt`, `f2z-witness`, `f2z-ai` — the AGPL-3.0
 # server binaries of rs/README.md's licence boundary. There is no default:
 # an image that quietly built the wrong binary is worse than a build that stops.
 #
-# ONE DOCKERFILE, NOT THREE. The three binaries share a workspace, a lockfile
+# ONE DOCKERFILE. The binaries share a workspace, a lockfile
 # and a runtime base, and the thing that must not drift between them is exactly
 # that shared part — the pinned compiler, the pinned distroless base, the uid,
-# the absence of a shell. Three files would be three places for one of those to
+# the absence of a shell. Separate files would be separate places for one of those to
 # be edited alone.
 #
 # WHAT THIS IS NOT: `deploy/Dockerfile` beside it builds `f2z-fakerelay`, a test
@@ -44,7 +44,7 @@ ARG BIN
 # and dies on the cluster.
 #
 # The image supplies rustup, not the compiler version. The version is decided in
-# wallet/rust-toolchain.toml, restated in rs/rust-toolchain.toml, and held equal
+# rust-toolchain.toml, restated in rs/rust-toolchain.toml, and held equal
 # by scripts/check-rust-toolchain.sh. It is NOT written anywhere in this file:
 # RUST_CHANNEL is passed in from `scripts/check-rust-toolchain.sh
 # --print-channel`, and the first RUN below refuses to build unless it matches
@@ -57,6 +57,14 @@ ARG RUST_CHANNEL
 SHELL ["/bin/sh", "-euc"]
 WORKDIR /src
 
+# Publish the distro's eMudhra distrust bundle alongside the embedded Rust
+# verifier update. The same bundle protects build-time system TLS clients.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419~deb12u2 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /etc/ssl/verified-certs
+
 # The whole rs/ workspace: one [workspace], one Cargo.lock. `--locked` below
 # only means something if the lockfile present is the one in the repository.
 COPY . /src
@@ -68,9 +76,9 @@ COPY . /src
 # ever ran.
 RUN set -eu; \
     case "${BIN:-}" in \
-      f2z-relay|f2z-kt|f2z-witness) ;; \
-      "") echo "BIN build-arg is required (f2z-relay, f2z-kt or f2z-witness)" >&2; exit 1 ;; \
-      *) echo "BIN=${BIN} is not one of the three server binaries" >&2; exit 1 ;; \
+      f2z-relay|f2z-kt|f2z-witness|f2z-ai) ;; \
+      "") echo "BIN build-arg is required (f2z-relay, f2z-kt, f2z-witness or f2z-ai)" >&2; exit 1 ;; \
+      *) echo "BIN=${BIN} is not one of the server binaries" >&2; exit 1 ;; \
     esac; \
     test -n "${RUST_CHANNEL:-}" || { \
       echo "RUST_CHANNEL build-arg is required; pass scripts/check-rust-toolchain.sh --print-channel" >&2; \
@@ -96,7 +104,7 @@ RUN set -eu; \
 # Runtime.
 # -----------------------------------------------------------------------------
 # `cc`, not `static`: f2z-relay reaches SQLite through rusqlite's bundled C
-# amalgamation and every one of the three links libc. `nonroot`, pinned by the
+# amalgamation and every binary links libc. `nonroot`, pinned by the
 # digest of the multi-architecture index so the same reference resolves on any
 # builder.
 #
@@ -105,6 +113,12 @@ RUN set -eu; \
 # KT.md §9.3 promises a witness has no inbound listener, so an `exec` probe on
 # this binary is the only probe shape that exists. See f2z-witness/src/health.rs.
 FROM gcr.io/distroless/cc-debian12:nonroot@sha256:9dac0a79194e45a7da0158a9c6da57b217585af0786db3845d1f0ec1a0dd182f AS runtime
+
+# Exclude hashed certificate files inherited from the runtime base as well as
+# its old bundle: native-store consumers can read both independently.
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/verified-ca.pem
+COPY --from=build /etc/ssl/verified-certs /etc/ssl/verified-certs
+ENV SSL_CERT_FILE=/etc/ssl/verified-ca.pem SSL_CERT_DIR=/etc/ssl/verified-certs
 
 # Restated rather than inherited. The base sets it today; a base bump that
 # stopped setting it would otherwise return these images to root without a
@@ -125,23 +139,33 @@ LABEL cash.free2z.image.role="e2ee-server"
 
 FROM runtime AS bin-f2z-relay
 LABEL org.opencontainers.image.title="f2z-relay"
-LABEL org.opencontainers.image.description="The free2z relay daemon (docs/e2ee/WIRE.md)"
+LABEL org.opencontainers.image.description="The free2z relay daemon (docs/free2z/messaging/WIRE.md)"
 COPY --from=build /out/f2z-relay /f2z-relay
 ENTRYPOINT ["/f2z-relay"]
 
 FROM runtime AS bin-f2z-kt
 LABEL org.opencontainers.image.title="f2z-kt"
-LABEL org.opencontainers.image.description="The free2z key-transparency log server (docs/e2ee/KT.md)"
+LABEL org.opencontainers.image.description="The free2z key-transparency log server (docs/free2z/messaging/KT.md)"
 COPY --from=build /out/f2z-kt /f2z-kt
 ENTRYPOINT ["/f2z-kt"]
 
 FROM runtime AS bin-f2z-witness
 LABEL org.opencontainers.image.title="f2z-witness"
-LABEL org.opencontainers.image.description="The free2z key-transparency cosigning daemon (docs/e2ee/KT.md)"
+LABEL org.opencontainers.image.description="The free2z key-transparency cosigning daemon (docs/free2z/messaging/KT.md)"
 COPY --from=build /out/f2z-witness /f2z-witness
 # `healthz` is reachable by overriding the arguments, never by overriding the
 # entrypoint: the probe is ["/f2z-witness", "healthz", "--state", FILE].
 ENTRYPOINT ["/f2z-witness"]
+
+FROM runtime AS bin-f2z-ai
+LABEL org.opencontainers.image.title="f2z-ai"
+LABEL org.opencontainers.image.description="The Free2Z metered AI gateway (docs/free2z/sdk/spec/chat-api.md)"
+LABEL cash.free2z.image.role="ai-gateway"
+COPY --from=build /out/f2z-ai /f2z-ai
+EXPOSE 8080 9090
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/f2z-ai"]
+CMD ["serve"]
 
 # The selected image. `bin-${BIN}` is why ARG BIN is declared above the first
 # FROM in this file.

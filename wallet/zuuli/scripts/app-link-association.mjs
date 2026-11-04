@@ -2,7 +2,7 @@
 //
 // The three apps claim one host, and each owns exactly one path prefix on it.
 //
-// `docs/intent-bridge/PROTOCOL.md` §7 refuses to ship the bridge over a custom
+// `docs/free2z/intent-bridge/PROTOCOL.md` §7 refuses to ship the bridge over a custom
 // scheme: any app can register `cash.free2z.zuuli://`, so on a custom scheme a
 // hostile app can both impersonate the sender of an intent and intercept the
 // response. `CALLER-AUTHENTICATION.md` §4 names the property that replaces it —
@@ -26,7 +26,7 @@
 //
 // WHAT THIS FILE IS NOT. It is not the serving authority. The documents are
 // served from `https://free2z.com/.well-known/` by the deployment repository's
-// nginx, from its own reviewed inputs, and `docs/intent-bridge/association/`
+// nginx, from its own reviewed inputs, and `docs/free2z/intent-bridge/association/`
 // explains the split. What this file owns is the CLIENT half — what the three
 // shipped apps claim — plus the reviewed record those documents must carry.
 //
@@ -451,9 +451,9 @@ export function associationFailures({
 
   // ---- the committed association documents -------------------------------
   const documents = [
-    ["docs/intent-bridge/association/assetlinks.json", renderAssetLinks(apps)],
+    ["docs/free2z/intent-bridge/association/assetlinks.json", renderAssetLinks(apps)],
     [
-      "docs/intent-bridge/association/apple-app-site-association.json",
+      "docs/free2z/intent-bridge/association/apple-app-site-association.json",
       renderAppleAppSiteAssociation(apps),
     ],
   ];
@@ -481,12 +481,12 @@ export function associationFailures({
     }
   }
   const aasa = read.repo(
-    "docs/intent-bridge/association/apple-app-site-association.json",
+    "docs/free2z/intent-bridge/association/apple-app-site-association.json",
   );
   for (const app of apps) {
     if (!aasa.includes(`${APPLE_TEAM_ID}.${app.identifier}`)) {
       failures.push(
-        `docs/intent-bridge/association/apple-app-site-association.json does not name the App ID ${APPLE_TEAM_ID}.${app.identifier}`,
+        `docs/free2z/intent-bridge/association/apple-app-site-association.json does not name the App ID ${APPLE_TEAM_ID}.${app.identifier}`,
       );
     }
   }

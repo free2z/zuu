@@ -129,7 +129,7 @@
 //!   the store without the crypto core, and it keeps the diff against the
 //!   reference implementation honest.
 //!
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
 
 #![forbid(unsafe_code)]
 // The workspace denies these because a panic inside a crypto core is a crash of

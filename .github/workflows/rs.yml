@@ -35,6 +35,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  NODE_OPTIONS: --use-openssl-ca
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
 
@@ -45,7 +46,31 @@ jobs:
     timeout-minutes: 5
     outputs:
       rs: ${{ steps.filter.outputs.rs }}
+      payment_hooks: ${{ steps.filter.outputs.payment_hooks }}
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Diff locally instead of relying on the pull-request files API.
@@ -56,6 +81,11 @@ jobs:
       # change under rs/ and would sail through a skip. Each self-test runs
       # first, so the verdict that follows comes from a check that has just been
       # watched fail.
+      - name: Verify project namespace ownership
+        run: |
+          node scripts/check-project-namespaces.mjs --self-test
+          node scripts/check-project-namespaces.mjs
+
       - name: Verify immutable actions and fail-closed required jobs
         run: |
           node scripts/check-github-actions-pins.mjs --self-test
@@ -67,7 +97,7 @@ jobs:
           node scripts/check-workflow-gates.mjs
 
       # Deliberately in this always-running job and not behind the rs/ filter.
-      # The labels it judges live in docs/e2ee/*.md as much as in rs/, and the
+      # The labels it judges live in docs/free2z/messaging/*.md as much as in rs/, and the
       # collision it exists to catch (#602) arrived in a docs-only pull request
       # — a diff for which `filter` below sets rs=false and every rs job skips.
       # A check that only runs when Rust changes would not have run on the
@@ -77,8 +107,8 @@ jobs:
       # policy step stays a single reviewed unit.
       - name: Verify hash-domain labels are prefix-free across the tree
         run: |
-          node scripts/check-hash-domain-labels.mjs --self-test
-          node scripts/check-hash-domain-labels.mjs
+          node scripts/free2z/check-hash-domain-labels.mjs --self-test
+          node scripts/free2z/check-hash-domain-labels.mjs
 
       # Unconditional for the same reason as the step above, and it belongs in
       # this job for a third reason too.
@@ -137,7 +167,7 @@ jobs:
           node --test scripts/verify-signing-identity.node-test.mjs
 
       # rs/rust-toolchain.toml and rs/crates/*/Cargo.toml restate
-      # wallet/rust-toolchain.toml, and are registered in the script's own
+      # rust-toolchain.toml, and are registered in the script's own
       # TOOLCHAIN_RESTATEMENTS/MANIFESTS arrays rather than by flags here. A
       # flag in one workflow is not a registration: the bare invocation the
       # required zuuli gate runs passes no flags, so anything registered only
@@ -164,6 +194,7 @@ jobs:
              ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo "::notice::No usable base commit; running the full rs gate."
             echo "rs=true" >> "$GITHUB_OUTPUT"
+            echo "payment_hooks=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -172,33 +203,99 @@ jobs:
           if ! git diff --name-only -z --no-renames "$BASE_SHA" "$GITHUB_SHA" > "$changed_files"; then
             echo "::warning::Diff failed; running the full rs gate."
             echo "rs=true" >> "$GITHUB_OUTPUT"
+            echo "payment_hooks=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
           # `case` patterns are not pathname globs: `rs/*` matches every path
           # under rs/, at any depth.
           #
-          # wallet/rust-toolchain.toml is deliberately absent. A toolchain bump
-          # that is correct also edits rs/rust-toolchain.toml and
+          # The root authority and isolated rs/ restatement both select tests.
+          # A toolchain bump that is correct also edits rs/rust-toolchain.toml and
           # rs/crates/*/Cargo.toml, which select rs; a bump that is not correct
           # fails scripts/check-rust-toolchain.sh in this always-running job.
-          # Listing it would make every wallet pin bump run the rs suite twice
-          # over for no additional coverage.
           #
-          # The two wallet manifests and lockfiles are independent shipping
+          # The three wallet manifests and lockfiles are independent shipping
           # consumers/resolutions of the same OpenMLS/libcrux graph. A direct
           # dependency or feature change must run the rs KAT just like resolved
           # package drift; its first check then rejects lock identity skew.
+          #
+          # docs/free2z/sdk/spec/* is read by f2z-ai-proto's spec_conformance test
+          # (the error catalogue's statuses and retryability, and every wire
+          # example), so a spec-only edit must run it or the two drift apart.
           rs=false
+          payment_hooks=false
           while IFS= read -r -d '' file; do
             case "$file" in
-              rs/*|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/e2ee/*|scripts/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
+              rs/zcash-payment-hooks/*|docs/zcash-payment-hooks/*)
+                payment_hooks=true
+                continue
+                ;;
+            esac
+            case "$file" in
+              rust-toolchain.toml|scripts/check-rust-toolchain.sh|scripts/check-rust-deny.sh|rs/deny.toml|.github/workflows/rs.yml)
+                payment_hooks=true
+                ;;
+            esac
+            case "$file" in
+              rust-toolchain.toml|rs/*|wallet/e2e2z/src-tauri/Cargo.toml|wallet/e2e2z/src-tauri/Cargo.lock|wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml|wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock|wallet/zuuli/src-tauri/Cargo.toml|wallet/zuuli/src-tauri/Cargo.lock|docs/free2z/messaging/*|docs/free2z/sdk/spec/*|scripts/free2z/check-akd-doc-evidence.mjs|scripts/check-crypto-kat-locks.mjs|scripts/check-crypto-kats.sh|scripts/check-mls-shipping-compatibility.sh|scripts/free2z/check-kt-sth-repeat-agreement.mjs|scripts/check-rust-fmt.sh|scripts/check-rust-clippy.sh|scripts/check-rust-deny.sh|scripts/check-rust-toolchain.sh|.github/workflows/rs.yml)
                 rs=true
                 ;;
             esac
           done < "$changed_files"
 
           echo "rs=$rs" >> "$GITHUB_OUTPUT"
+          echo "payment_hooks=$payment_hooks" >> "$GITHUB_OUTPUT"
+
+  payment_hooks:
+    name: rs / Zcash Payment Hooks
+    needs: changes
+    if: needs.changes.outputs.payment_hooks == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Resolve the shared compiler
+        id: rust_toolchain
+        run: |
+          version=$(scripts/check-rust-toolchain.sh --print-channel)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          toolchain: ${{ steps.rust_toolchain.outputs.version }}
+          components: rustfmt, clippy
+      - name: Check the daemon dependency policy
+        run: scripts/check-rust-deny.sh --root rs/zcash-payment-hooks --config rs/deny.toml
+      - name: Check the independent daemon
+        working-directory: rs/zcash-payment-hooks
+        run: |
+          cargo fmt --check
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
 
   rs_fmt:
     name: rs / rustfmt
@@ -207,9 +304,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The version is read out of wallet/rust-toolchain.toml rather than
+      # The version is read out of rust-toolchain.toml rather than
       # restated in YAML, because an action input cannot read TOML and a
       # restatement here would be one more thing to drift.
       - name: Resolve the pinned Rust toolchain
@@ -238,6 +358,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve the pinned Rust toolchain
@@ -276,6 +419,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve the pinned Rust toolchain
@@ -304,7 +470,52 @@ jobs:
     if: needs.changes.outputs.rs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Start the real Redis only after TLS bootstrap, so its registry pull uses
+    # the refreshed daemon. Required auth tests cannot skip this service.
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - name: Start the pinned Redis test service
+        id: redis
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id=$(docker run --detach --publish 127.0.0.1:6379:6379 \
+            --health-cmd 'redis-cli ping' --health-interval 2s \
+            --health-timeout 2s --health-retries 15 \
+            redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2)
+          [[ "$container_id" =~ ^[0-9a-f]{64}$ ]]
+          echo "container_id=$container_id" >> "$GITHUB_OUTPUT"
+          for attempt in $(seq 1 15); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' "$container_id")
+            [[ "$status" != unhealthy ]] || { echo 'Redis health check failed' >&2; exit 1; }
+            [[ "$status" != healthy ]] || exit 0
+            sleep 2
+          done
+          echo 'Redis did not become healthy within 30 seconds' >&2
+          exit 1
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve the pinned Rust toolchain
@@ -328,11 +539,31 @@ jobs:
       # only happens on a developer's machine cannot change the verdict.
       - name: Run the rs/ test suite
         working-directory: rs
+        # F2Z_AI_REQUIRE_REDIS turns the real-Redis tests' skip into a failure,
+        # so losing the service cannot quietly turn them green.
+        env:
+          F2Z_AI_TEST_REDIS_URL: redis://127.0.0.1:6379
+          F2Z_AI_REQUIRE_REDIS: "1"
         run: cargo test --locked --all-targets
 
       - name: Run the rs/ doc tests
         working-directory: rs
         run: cargo test --locked --doc
+
+      # `f2z_ai_proto::OrderedJson` decodes numbers through `deserialize_any`,
+      # and serde_json's `arbitrary_precision` — off here, but Cargo unifies it
+      # in from any crate a consumer links — changes how numbers arrive (a
+      # private one-member map), and `raw_value` (on in the gateway via sqlx)
+      # gives another private member a meaning. Without these runs a
+      # fractional `minimum` could be forwarded as an object, or a
+      # fingerprint drift, and nothing here would notice (zuu#1132). The json
+      # tests compare against `serde_json::Value` under whichever mode is
+      # compiled.
+      - name: Run the ordered-JSON tests under serde_json arbitrary_precision and raw_value
+        working-directory: rs
+        run: |
+          cargo test --locked -p f2z-ai-proto --lib --features serde_json/arbitrary_precision json::
+          cargo test --locked -p f2z-ai-proto --lib --features serde_json/raw_value json::
 
       # A KAT that only demonstrates the green path can silently stop reading
       # its vector file. Corrupt a committed X-Wing combiner output first and
@@ -343,6 +574,13 @@ jobs:
 
       - name: Run the permanent crypto known-answer suite
         run: scripts/check-crypto-kats.sh
+
+      # Primitive vectors and two upgraded peers cannot detect an HPKE
+      # DeriveKeyPair transition under an unchanged MLS profile identifier.
+      - name: Verify previous shipping clients and queued commits remain compatible
+        env:
+          CARGO_BUILD_JOBS: "2"
+        run: scripts/check-mls-shipping-compatibility.sh
 
       # The normative AKD type, benchmark figures, and audit-scope correction
       # share one falsifiable evidence record. Its self-test first compiles the
@@ -358,22 +596,22 @@ jobs:
       - name: Mutation-test AKD documentation evidence
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-akd-doc-evidence.mjs --self-test
+        run: node scripts/free2z/check-akd-doc-evidence.mjs --self-test
 
       - name: Verify AKD documentation against locked executable evidence
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node scripts/check-akd-doc-evidence.mjs
+        run: node scripts/free2z/check-akd-doc-evidence.mjs
 
       # KT.md §6.3 and LogView share one repeated-head rule: exact complete
       # equality is a no-op and every same-epoch alternative is a fork. This
       # check binds the normative branch, the structural runtime comparison,
       # every TBS field mutant, and the witness/client steady-state coverage.
       - name: Mutation-test repeated tree-head agreement
-        run: node scripts/check-kt-sth-repeat-agreement.mjs --self-test
+        run: node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test
 
       - name: Verify repeated tree-head spec and runtime agreement
-        run: node scripts/check-kt-sth-repeat-agreement.mjs
+        run: node scripts/free2z/check-kt-sth-repeat-agreement.mjs
 
       # `crash-injection` is off by default because it compiles an `abort()`
       # into f2z-relay-store's commit path, so the default run above skips
@@ -415,6 +653,16 @@ jobs:
       # ordinary `cargo test --all-targets` above and this step would be a
       # second full compile of the same crate for nothing. See #723 and #701.
 
+      - name: Remove the owned Redis test service
+        if: always() && steps.redis.outputs.container_id != ''
+        shell: bash
+        env:
+          REDIS_CONTAINER_ID: ${{ steps.redis.outputs.container_id }}
+        run: |
+          set -euo pipefail
+          [[ "$REDIS_CONTAINER_ID" =~ ^[0-9a-f]{64}$ ]]
+          docker rm --force "$REDIS_CONTAINER_ID"
+
   rs_wasm:
     name: rs / wasm32
     needs: changes
@@ -422,6 +670,29 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Resolve the pinned Rust toolchain
@@ -597,11 +868,34 @@ jobs:
   # every job in this file, so adding a job without wiring it here fails.
   gate:
     name: rs / gate
-    needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_wasm]
+    needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_wasm, payment_hooks]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Re-run the workflow policy here so that even a job-level
@@ -620,8 +914,8 @@ jobs:
           node scripts/check-github-actions-pins.mjs
           node scripts/check-workflow-gates.mjs --self-test
           node scripts/check-workflow-gates.mjs
-          node scripts/check-hash-domain-labels.mjs --self-test
-          node scripts/check-hash-domain-labels.mjs
+          node scripts/free2z/check-hash-domain-labels.mjs --self-test
+          node scripts/free2z/check-hash-domain-labels.mjs
           node scripts/check-f2z-images.mjs --self-test
           node scripts/check-f2z-images.mjs
 
@@ -630,6 +924,8 @@ jobs:
         env:
           POLICY_OUTCOME: ${{ steps.policy.outcome }}
           RS_SELECTED: ${{ needs.changes.outputs.rs }}
+          HOOKS_SELECTED: ${{ needs.changes.outputs.payment_hooks }}
+          PAYMENT_HOOKS: ${{ needs.payment_hooks.result }}
           CHANGES: ${{ needs.changes.result }}
           RS_FMT: ${{ needs.rs_fmt.result }}
           RS_CLIPPY: ${{ needs.rs_clippy.result }}
@@ -666,6 +962,20 @@ jobs:
             outcome=${entry#*=}
             if [[ "$outcome" != "$expected" ]]; then
               echo "::error::required job $job must be $expected, got '$outcome'"
+              exit 1
+            fi
+          done
+
+          case "$HOOKS_SELECTED" in
+            true) hooks_expected=success ;;
+            false) hooks_expected=skipped ;;
+            *) echo "::error::missing payment-hooks selector"; exit 1 ;;
+          esac
+          results="payment_hooks=$PAYMENT_HOOKS"
+          for entry in $results; do
+            outcome=${entry#*=}
+            if [[ "$outcome" != "$hooks_expected" ]]; then
+              echo "::error::payment_hooks must be $hooks_expected, got $outcome"
               exit 1
             fi
           done

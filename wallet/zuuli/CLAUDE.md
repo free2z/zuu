@@ -8,7 +8,7 @@ profile and KYC surfaces (they live in `../free2z`) and #904 phase 3 moved
 messaging to `../e2e2z`. The reason is #367: on Android a remote subframe
 resolves as the trusted main window, so the app holding the seed must render
 nothing remote. Architecture depth lives in
-[`../../docs/architecture.md`](../../docs/architecture.md).
+[`../../docs/free2z/app-suite/architecture.md`](../../docs/free2z/app-suite/architecture.md).
 
 Implemented UI or source wiring is not itself production evidence; the
 per-surface status and release blockers live in [`STATUS.md`](STATUS.md).
@@ -217,5 +217,5 @@ result as proof of a product operation.
 - Pending mobile state is crash-safe and bound to login-vs-associate plus the
   initiating Knox session digest. Every native claim/resume/cancel operation is
   also scoped to its random completion state; never reintroduce an unscoped
-  cleanup that can delete a newer flow. See `docs/release/ZUULI-MOBILE-OAUTH.md`
+  cleanup that can delete a newer flow. See `docs/free2z/app-suite/release/ZUULI-MOBILE-OAUTH.md`
   for signed-device verification and the claimed-HTTPS upgrade gate.

@@ -62,15 +62,23 @@ admin** (`enforce_admins=false`; `gh pr merge --squash --admin` **after** the CI
 check). In ~99.999% of cases the "human review" is an agent standing in for the
 owner, not a person.
 
+## Project namespaces
+
+Use named project/subsystem locations and scope architecture, status, roadmap,
+quickstart, and dependency claims to their actual consumers. Follow
+[docs/zuu/NAMESPACES.md](docs/zuu/NAMESPACES.md) and register documentation owners
+in `scripts/project-namespaces.json`. Independent projects may have different
+licenses and runtime graphs; wallet constraints do not define every project.
+The shared Rust compiler default is the root `rust-toolchain.toml`.
+
 Per-project specifics:
 
-- `docs/architecture.md` — **we ship three Tauri apps, not one.**
+- `docs/free2z/app-suite/architecture.md` — **the Free2Z app-suite architecture.**
   `cash.free2z.zuuli` (wallet authority, holds the seed, renders nothing
   untrusted), `cash.free2z.free2z` (content, zero privileged capability),
   `cash.free2z.e2e2z` (messaging, device keys only). Read it before adding a
   capability, a plugin, or an `invoke_handler` entry to any of them.
-  `docs/status.md` says what is actually working — the cross-app bridge has no
-  transport yet.
+  `docs/free2z/app-suite/status.md` records source capabilities and runtime evidence for that suite.
 - `wallet/zuuli/CLAUDE.md` — ZUULI, the wallet authority.
 - `wallet/zuuallet/CLAUDE.md` — Zuuallet desktop app (Tauri v2 + React).
 - `wallet/plugins/tauri-plugin-zcash/CLAUDE.md` — Rust plugin, build commands,

@@ -1,8 +1,9 @@
-//! The cross-app intent bridge, version 1 — `docs/intent-bridge/PROTOCOL.md`.
+//! The cross-app intent bridge, version 1 — `docs/free2z/intent-bridge/PROTOCOL.md`.
 //!
 //! A versioned request/response protocol carrying **authority delegation**
 //! from `cash.free2z.zuuli`, which holds the Zcash seed, to applications that
-//! hold none. `docs/architecture` context is [#904]; this crate is [#905].
+//! hold none. `docs/free2z/app-suite/architecture.md` records the [#904]
+//! context; this crate is [#905].
 //!
 //! ```text
 //!   caller app                     ZUULI (this crate)
@@ -36,7 +37,7 @@
 //! 3. **The native confirmation is the authority.** The user approves inside
 //!    ZUULI, seeing ZUULI's rendering — never the caller's. [`caller`] is why
 //!    the confirmation can name the caller at all, and
-//!    `docs/intent-bridge/CALLER-AUTHENTICATION.md` is honest about how much
+//!    `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` is honest about how much
 //!    that naming is worth on each platform.
 //!
 //! # What this crate is NOT, and must not become
@@ -55,7 +56,7 @@
 //! land while [#461] — verified App Links / Universal Links — is still
 //! blocked: everything here is correct regardless of how the bytes arrive, and
 //! nothing here is *sufficient* without a transport that authenticates the
-//! response destination. `docs/intent-bridge/PROTOCOL.md` §7 states exactly
+//! response destination. `docs/free2z/intent-bridge/PROTOCOL.md` §7 states exactly
 //! what remains blocked.
 //!
 //! # `no_std`

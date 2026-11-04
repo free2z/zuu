@@ -1,0 +1,3 @@
+# Isolated CI tools; excluded from the application runtime.
+-c main.txt
+PyYAML==6.0.3

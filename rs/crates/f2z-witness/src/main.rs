@@ -22,7 +22,7 @@ use f2z_witness::witness::{Outcome, Settings, Witness};
 use f2z_witness::{HttpTransport, hex, now_ms, state, unhex};
 
 const USAGE: &str = "\
-f2z-witness — the free2z key-transparency cosigning daemon (docs/e2ee/KT.md §7)
+f2z-witness — the free2z key-transparency cosigning daemon (docs/free2z/messaging/KT.md §7)
 
 USAGE:
     f2z-witness run     --log-url URL --log-id HEX --log-pk HEX --key FILE

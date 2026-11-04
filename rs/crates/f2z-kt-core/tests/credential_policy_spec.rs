@@ -7,7 +7,7 @@ use f2z_kt_core::entry::DEVICE_CREDENTIAL_CLOCK_SKEW_MS;
 #[path = "../../../tests/support/markdown.rs"]
 mod markdown;
 
-const KT: &str = include_str!("../../../../docs/e2ee/KT.md");
+const KT: &str = include_str!("../../../../docs/free2z/messaging/KT.md");
 const DIRECTORY_ENTRY_HEADING: &str = "4. `DirectoryEntry`";
 const STRUCTURE_HEADING: &str = "4.1 Structure";
 const STRUCTURE_POLICY_DIGEST: u64 = 2_518_136_126_776_171_893;

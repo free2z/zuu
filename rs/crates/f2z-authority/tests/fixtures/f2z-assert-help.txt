@@ -1,4 +1,4 @@
-f2z-assert — issue a free2z handle-ownership assertion (docs/e2ee/KT.md)
+f2z-assert — issue a free2z handle-ownership assertion (docs/free2z/messaging/KT.md)
 
 USAGE:
   f2z-assert keygen [--out FILE]

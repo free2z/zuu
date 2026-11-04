@@ -32,23 +32,23 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const contractPath = fileURLToPath(
-  new URL("../../../docs/e2ee/CLIENT-CONTRACT.md", import.meta.url),
+  new URL("../../../docs/free2z/messaging/CLIENT-CONTRACT.md", import.meta.url),
 );
 const wirePath = fileURLToPath(
-  new URL("../../../docs/e2ee/WIRE.md", import.meta.url),
+  new URL("../../../docs/free2z/messaging/WIRE.md", import.meta.url),
 );
 const architecturePath = fileURLToPath(
-  new URL("../../../docs/e2ee/ARCHITECTURE.md", import.meta.url),
+  new URL("../../../docs/free2z/messaging/ARCHITECTURE.md", import.meta.url),
 );
 const threatModelPath = fileURLToPath(
-  new URL("../../../docs/e2ee/THREAT-MODEL.md", import.meta.url),
+  new URL("../../../docs/free2z/messaging/THREAT-MODEL.md", import.meta.url),
 );
 const e2eReadmePath = fileURLToPath(
-  new URL("../../../docs/e2ee/README.md", import.meta.url),
+  new URL("../../../docs/free2z/messaging/README.md", import.meta.url),
 );
 const queueAdrPath = fileURLToPath(
   new URL(
-    "../../../docs/e2ee/decisions/0009-queue-addressing-and-binding.md",
+    "../../../docs/free2z/messaging/decisions/0009-queue-addressing-and-binding.md",
     import.meta.url,
   ),
 );

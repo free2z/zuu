@@ -69,7 +69,7 @@
 //! `WITHOUT ROWID` stores the value *in* the primary-key index, so a get is one
 //! B-tree descent rather than an index probe into a separate heap.
 //!
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
 
 use std::path::Path;
 use std::sync::Mutex;

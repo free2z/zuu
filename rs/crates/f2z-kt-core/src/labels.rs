@@ -34,7 +34,7 @@
 //! it — [zuu#602]. The corrected spelling is [`LABEL_TREE_HEAD_HASH`], and it
 //! shares no prefix with anything. [`HASH_LABELS`] exists so a test can check
 //! the crate's own set mechanically rather than by inspection, and
-//! `scripts/check-hash-domain-labels.mjs` holds the **union** across every
+//! `scripts/free2z/check-hash-domain-labels.mjs` holds the **union** across every
 //! tracked file — specifications and Rust alike — because the pair that
 //! actually collided lived in a document no crate read.
 //!

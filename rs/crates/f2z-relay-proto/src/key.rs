@@ -18,8 +18,8 @@
 //! conversation to anyone who has seen it elsewhere ([ADR 0004]) — so it
 //! redacts too, exactly as `f2z-codec`'s newtypes do.
 //!
-//! [s5]: https://github.com/free2z/zuu/blob/main/docs/e2ee/WIRE.md
-//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0004-metadata-ambition.md
+//! [s5]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/WIRE.md
+//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0004-metadata-ambition.md
 
 use core::fmt;
 

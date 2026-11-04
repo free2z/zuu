@@ -1,5 +1,5 @@
 //! Publishing this wallet's messaging device to the key-transparency log —
-//! [ADR 0017](../../../../docs/e2ee/decisions/0017-internal-directory-activation.md) §4.
+//! [ADR 0017](../../../../docs/free2z/messaging/decisions/0017-internal-directory-activation.md) §4.
 //!
 //! # Why here
 //!

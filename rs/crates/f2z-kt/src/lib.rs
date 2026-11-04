@@ -1,5 +1,5 @@
 //! **The free2z key-transparency log server** — the implementation of
-//! [`docs/e2ee/KT.md`] §5, §6 and §9 that `f2z-kt-core` deliberately leaves to
+//! [`docs/free2z/messaging/KT.md`] §5, §6 and §9 that `f2z-kt-core` deliberately leaves to
 //! a server: storage, clocks, keys, sockets and policy numbers.
 //!
 //! # What this binary is for, in one paragraph
@@ -60,7 +60,7 @@
 //!   a new label, added to §6.2's otherwise closed set.
 //! - **TLS terminates ahead of the process** ([`api`]).
 //!
-//! [`docs/e2ee/KT.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/KT.md
+//! [`docs/free2z/messaging/KT.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/KT.md
 //! [zuu#594]: https://github.com/free2z/zuu/issues/594
 
 #![forbid(unsafe_code)]

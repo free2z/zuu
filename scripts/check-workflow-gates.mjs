@@ -87,7 +87,7 @@ const CHANGE_DETECTOR = "changes";
 
 /// Commands that consume `toJSON(needs)` by iterating every entry. Each has been
 /// read and does. Adding one means reading the new verifier first.
-const EXHAUSTIVE_VERIFIERS = ["--verify-gate-results"];
+const EXHAUSTIVE_VERIFIERS = ["--verify-gate-results", "scripts/free2z/verify-gate-results.py"];
 
 /// The check-run names branch protection requires on `main`. Source of truth:
 ///
@@ -116,12 +116,14 @@ const EXHAUSTIVE_VERIFIERS = ["--verify-gate-results"];
 /// a context from something this script cannot see — a third-party app, or a
 /// workflow living in another repository — that entry does not belong in this
 /// set, and the comment here is the place to record why.
-const PROTECTED_CONTEXTS = new Set(["gate", "rs / gate"]);
+const PROTECTED_CONTEXTS = new Set(["gate", "rs / gate", "Free2Z website gate"]);
 
 /// Exact display contexts introduced by #567. These are a reviewed contract,
 /// not values derived from the workflow files under test: otherwise deleting a
 /// `name:` line would merely change both the input and its expected value.
 const EXPECTED_JOB_CONTEXTS = new Map([
+  [".github/workflows/free2z-web-ci.yml#changes", "Free2Z website changes"],
+  [".github/workflows/free2z-web-ci.yml#gate", "Free2Z website gate"],
   [".github/workflows/docs-about-free2z.yml#build", "docs / build"],
   [".github/workflows/ts-react-free2z.yml#build", "ts-react / build"],
   [".github/workflows/ts-svelte-free2z.yml#build", "ts-svelte / build"],
@@ -134,7 +136,7 @@ const EXPECTED_JOB_CONTEXTS = new Map([
 /// value deliberately; narrowing the expected set cannot make its own mutation
 /// tests disappear silently.
 const REQUIRED_CONTEXT_POLICY_DIGEST =
-  "cec99799db16a0b05e67a22359e9c69ed0707616ba7bbee34c4deb7cb33f3120";
+  "6ea6b655478d297d62052c41b0fef62c508874bd68c184d62493705b871edde1";
 
 /// Retained as an explicit empty configuration so a future attempt to restore
 /// an exception has a direct red control. Duplicated contexts are no longer
@@ -190,6 +192,18 @@ const MINIMUM_REGISTRY_REASON = 40;
 /// one-line change for any of these: it means first moving the filter into a
 /// change-detector job the way `zuuli.yml` and `rs.yml` do.
 const UNGATED_WORKFLOWS = new Map([
+  [
+    ".github/workflows/free2z-web-host-dispatch.yml",
+    "Successful website completion dispatcher: trusted protected-main code validates release/run/source metadata before dispatching the independently verifying host publisher. Its data-only tests run in the required website gate; it neither builds nor deploys application code.",
+  ],
+  [
+    ".github/workflows/free2z-host-release.yml",
+    "Protected-main manual preparation publisher: requires the signed website release from its exact checkout, secretless native build and relocation qualification before separate opaque-file attestation. Data-only host tests also run in the required website gate's unittest discovery; this workflow has no deployment authority.",
+  ],
+  [
+    ".github/workflows/free2z-web-release.yml",
+    "Protected-main release publisher: reuses the complete required website gate before publishing prebuilt images and signed manifests. It never runs on pull requests; merge eligibility is decided by free2z-web-ci.yml.",
+  ],
   [
     ".github/workflows/cache-cleanup.yml",
     "Maintenance only: reclaims Actions cache entries on `pull_request_target: closed`, " +
@@ -251,7 +265,7 @@ const UNGATED_WORKFLOWS = new Map([
   ],
   [
     ".github/workflows/f2z-images.yml",
-    "Builds and publishes the three AGPL-3.0 E2EE server images (f2z-relay, f2z-kt, f2z-witness): " +
+    "Builds and publishes the AGPL-3.0 server images (f2z-relay, f2z-kt, f2z-witness, f2z-ai): " +
       "its pull-request leg is path-filtered to rs/** and its publish leg only runs on main. The " +
       "property that must hold for a merge — that the Dockerfile, the action pins and that paths " +
       "filter are all still correct — is enforced from inside the rs gate by " +

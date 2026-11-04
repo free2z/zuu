@@ -1,4 +1,4 @@
-//! The key-transparency **client** — `docs/e2ee/KT.md` v1 §8 and §9.2.
+//! The key-transparency **client** — `docs/free2z/messaging/KT.md` v1 §8 and §9.2.
 //!
 //! `f2z-kt-core` is the verification. This crate is everything between that
 //! verification and a running client: the §9.2 endpoints, the state that makes
@@ -83,7 +83,7 @@
 //! browser's `JsFuture` is `!Send` — and neither real consumer is async-shaped.
 //! A browser drives `fetch` itself and hands the bytes in; the verification
 //! that follows is the same code on both targets, which is the property
-//! [ADR 0001](https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0001-platform-priority.md)
+//! [ADR 0001](https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0001-platform-priority.md)
 //! is about.
 //!
 //! # Example

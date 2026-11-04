@@ -77,7 +77,7 @@ const LIBRUSTZCASH_MANIFEST = "z/zcash/librustzcash/Cargo.toml";
 const NOTE_ENCRYPTION_MANIFEST = "z/zcash/zcash_note_encryption/Cargo.toml";
 const ZUULI_LOCK = "wallet/zuuli/src-tauri/Cargo.lock";
 
-/// The four locks that resolve a shipping wallet binary or the plugins it is
+/// The five locks that resolve a shipping wallet binary or the plugins it is
 /// built from. `rs/Cargo.lock` is deliberately not one of them: it resolves the
 /// server-side workspace, whose graph is a different question.
 const WALLET_LOCKS = [
@@ -85,13 +85,20 @@ const WALLET_LOCKS = [
   "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
   "wallet/zuuallet/src-tauri/Cargo.lock",
   ZUULI_LOCK,
+  "wallet/e2e2z/src-tauri/Cargo.lock",
 ];
 
 /// Manifests allowed to carry a `[patch.crates-io]` section. A patch anywhere
 /// else is a fork nobody registered, so the enumeration is the point: the
 /// offline check reads every tracked `Cargo.toml` and fails on a patch section
 /// in a file that is not on this list.
-const PATCHABLE_MANIFESTS = ["wallet/zuuli/src-tauri/Cargo.toml"];
+const OPENMLS_BRIDGE_MANIFESTS = [
+  "rs/Cargo.toml",
+  "wallet/e2e2z/src-tauri/Cargo.toml",
+  "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
+  "wallet/zuuli/src-tauri/Cargo.toml",
+];
+const PATCHABLE_MANIFESTS = [...OPENMLS_BRIDGE_MANIFESTS];
 
 /// GitHub owners whose repositories are *ours*. A `.gitmodules` `url` under one
 /// of these is by definition a fork we are carrying, and must be registered.
@@ -114,21 +121,59 @@ const REGISTER_MAX_AGE_DAYS = 90;
 /// what stops the register from being edited into vagueness while the pin stays:
 /// deleting the exit condition from the page fails here.
 const TRACKED = [
+  // PR2261 fixes the libraries; PR2265 preserves deployed draft derivation.
+  // Its workspace path dependencies must share the same Cargo source identity.
+  ...OPENMLS_BRIDGE_MANIFESTS.flatMap((manifest) =>
+    ["openmls_libcrux_crypto", "openmls_traits", "openmls_memory_storage", "openmls_rust_crypto"].map((id) => ({
+      id,
+      kind: "patch",
+      manifest,
+      forkUrl: "https://github.com/free2z/openmls",
+      forkRev: "7ded6597be8ddf7004046c8564fa97090d5e9633",
+      upstreamRepo: "openmls/openmls",
+      upstreamBranch: "main",
+      driftLimit: DEFAULT_DRIFT_LIMIT,
+      exitCrate: { name: "openmls_libcrux_crypto", stableAtLeast: "0.4.1" },
+      exitInstructions: "Verify the published provider carries the fixed DRBG/KEM requirements and preserves deployed draft derivation, "
+        + "then remove all four source bridges together and re-run shipping lock parity, KATs and old/new shipping interoperability tests.",
+      registerTokens: [manifest, id, "https://github.com/free2z/openmls", "7ded6597be8ddf7004046c8564fa97090d5e9633", "0.4.1"],
+    })),
+  ),
+  {
+    id: "z/openmls/openmls",
+    kind: "submodule",
+    forkUrl: "https://github.com/free2z/openmls",
+    forkBranch: "f2z/preserve-mls-draft-hpke-derivation",
+    upstreamRepo: "openmls/openmls",
+    upstreamBranch: "main",
+    exitPr: 2265,
+    driftLimit: DEFAULT_DRIFT_LIMIT,
+    registerTokens: ["z/openmls/openmls", "https://github.com/free2z/openmls",
+      "f2z/preserve-mls-draft-hpke-derivation", "openmls/openmls#2265"],
+  },
   {
     id: "z/zcash/librustzcash",
     kind: "submodule",
     forkUrl: "https://github.com/free2z/librustzcash",
-    forkBranch: "f2z/drop-stale-rustcrypto-rc-pins",
-    /// #3010's head is a DIFFERENT branch on the same fork. Both must stay at
-    /// the same commit or we are building something upstream is not reviewing.
+    forkBranch: "fix/parameter-download-tls-trust",
+    // Security overlay on the exact reviewed shipping base; upstream #3010
+    // reviews only the RustCrypto deletion, not the parameter-download port.
+    forkRev: "473543ce227332b8afd82a9edbf655c4bc4d7c50",
     prHeadBranch: "f2z/upstream-drop-stale-rustcrypto-rc-pins",
+    reviewedOverlay: {
+      base: "a2b8c95210046eb59ee71dd10fd2ad1e9329b238",
+      head: "473543ce227332b8afd82a9edbf655c4bc4d7c50",
+    },
+    exitInstructions: "Verify upstream carries both #3010's compatible RustCrypto pin removal and the maintained minreq 3 parameter-download path before dropping this fork. Re-run all incident-chain and native wallet checks; #3010 alone does not retire the TLS overlay.",
     upstreamRepo: "zcash/librustzcash",
     upstreamBranch: "main",
     exitPr: 3010,
     driftLimit: DEFAULT_DRIFT_LIMIT,
     registerTokens: [
       "https://github.com/free2z/librustzcash",
-      "f2z/drop-stale-rustcrypto-rc-pins",
+      "fix/parameter-download-tls-trust",
+      "473543ce227332b8afd82a9edbf655c4bc4d7c50",
+      "free2z/zuu#1235",
       "f2z/upstream-drop-stale-rustcrypto-rc-pins",
       "zcash/librustzcash#3010",
     ],
@@ -257,7 +302,7 @@ const HOLDS = [
     evidence: [
       { kind: "copies", path: ZUULI_LOCK, versions: ["0.10.9", "0.11.0"], sectionClaim: true },
       { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 14, sectionClaim: true },
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.11", count: 4, sectionClaim: true },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.11", count: 6, sectionClaim: true },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "f2z-msg-identity" }, on: "0.10" },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "zcash_primitives" }, on: "0.10" },
     ],
@@ -329,20 +374,19 @@ const HOLDS = [
   },
   {
     /// NOT librustzcash's. `zcash_note_encryption` is its own crate with its
-    /// own `[dependencies]`, and it is the reason every wallet lock carries
-    /// exactly one ChaCha20-Poly1305.
+    /// own `[dependencies]`, and keeps the Zcash half on ChaCha20-Poly1305 0.10.
+    /// The fixed OpenMLS optional provider now separately resolves 0.11.
     crate: "chacha20poly1305",
     held: "0.10",
     source: { kind: "manifest", path: NOTE_ENCRYPTION_MANIFEST, table: "dependencies", requires: "0.10" },
     registerToken: "z/zcash/zcash_note_encryption/Cargo.toml",
-    /// "Ours is currently the only copy" is the whole reason bumping to 0.11
-    /// costs a second AEAD in every wallet binary. One copy per wallet lock is
-    /// the measurement, so that is what is asserted.
+    /// Re-measured for the fixed OpenMLS source bridge: the three wallet MLS
+    /// roots add the optional 0.11 line; Zcash-only roots still carry one copy.
     evidence: [
       ...WALLET_LOCKS.map((lockPath) => ({
         kind: "copies",
         path: lockPath,
-        versions: ["0.10.1"],
+        versions: ["0.10.1", ...(lockPath.includes("f2zmsg") || lockPath.includes("e2e2z") || lockPath === ZUULI_LOCK ? ["0.11.0"] : [])],
       })),
       {
         kind: "edge",
@@ -350,10 +394,8 @@ const HOLDS = [
         from: { name: "zcash_note_encryption" },
         on: "0.10",
       },
-      /// Five: ours twice, plus zcash_note_encryption, hpke-rs-rust-crypto and
-      /// openmls_rust_crypto. Three of the five are not ours to move, which is
-      /// what makes a 0.11 bump cost a second AEAD rather than a migration.
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 5, rowClaim: true },
+      // Ours twice plus zcash_note_encryption; optional HPKE/OpenMLS moved to 0.11.
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 3, rowClaim: true },
     ],
   },
   {
@@ -424,7 +466,7 @@ const NARRATIVE_TOKENS = [
   "openmls/openmls#2188",
   "rs/deny.toml",
   // 5. z/ submodule policy.
-  "langchain/zcash/store.py",
+  "py/experiments/zcash-rag/store.py",
   "z/zcash/zcash",
   "z/hhanh00/warp",
   "z/hhanh00/zwallet",
@@ -1202,9 +1244,9 @@ export async function upstreamFindings(snapshot, deps = {}) {
       } else if (issue.pull_request.merged_at) {
         note(
           "exit",
-          `${tracked.id}: ${reference} MERGED (${issue.pull_request.merged_at}) — drop the fork`,
-          `Move the submodule back to https://github.com/${tracked.upstreamRepo} + \`${tracked.upstreamBranch}\`, ` +
-            `drop the pin, and retire section for \`${tracked.id}\` in ${REGISTER_PATH}.`,
+          `${tracked.id}: ${reference} MERGED (${issue.pull_request.merged_at}) — ${tracked.exitInstructions ? "review fork exit conditions" : "drop the fork"}`,
+          tracked.exitInstructions ?? (`Move the submodule back to https://github.com/${tracked.upstreamRepo} + \`${tracked.upstreamBranch}\`, ` +
+            `drop the pin, and retire section for \`${tracked.id}\` in ${REGISTER_PATH}.`),
         );
       } else if (issue.state === "closed") {
         note(
@@ -1242,9 +1284,9 @@ export async function upstreamFindings(snapshot, deps = {}) {
         note(
           "exit",
           `${tracked.id}: crates.io now publishes ${tracked.exitCrate.name} ${stable}`,
-          `The register expects the patch to retire once a real ${tracked.exitCrate.name} ` +
+          tracked.exitInstructions ?? (`The register expects the patch to retire once a real ${tracked.exitCrate.name} ` +
             `${tracked.exitCrate.stableAtLeast} exists. Re-read the second half of the exit ` +
-            "condition (the Zcash stack's secp256k1 version) before dropping the patch.",
+            "condition (the Zcash stack's secp256k1 version) before dropping the patch."),
         );
       }
     }
@@ -1287,7 +1329,12 @@ export async function upstreamFindings(snapshot, deps = {}) {
       const reviewed = await api(
         `repos/${forkRepo}/branches/${encodeURIComponent(tracked.prHeadBranch)}`,
       );
-      if (built.commit.sha !== reviewed.commit.sha) {
+      // A security overlay is allowed only for this independently reviewed pair.
+      // Any movement of either branch requires another explicit review.
+      const approvedOverlay = tracked.reviewedOverlay
+        && built.commit.sha === tracked.reviewedOverlay.head
+        && reviewed.commit.sha === tracked.reviewedOverlay.base;
+      if (built.commit.sha !== reviewed.commit.sha && !approvedOverlay) {
         note(
           "drift",
           `${tracked.id}: the branch we build and the branch upstream reviews have diverged`,
@@ -1397,11 +1444,11 @@ function runSelfTest() {
       "the fork submodule quietly moves to another branch",
       withGitmodules(
         baseline.gitmodules.replace(
-          "branch = f2z/drop-stale-rustcrypto-rc-pins",
+          "branch = fix/parameter-download-tls-trust",
           "branch = f2z/some-other-branch",
         ),
       ),
-      "registered fork branch f2z/drop-stale-rustcrypto-rc-pins",
+      "registered fork branch fix/parameter-download-tls-trust",
     ],
     [
       "a second, unregistered fork appears in z/",
@@ -1602,7 +1649,7 @@ function runSelfTest() {
       "no longer resolves zip321 at all",
     ],
     [
-      // The `sha2` correction says 14 packages share 0.10 and 4 are on 0.11.
+      // The `sha2` correction says 14 packages share 0.10 and 6 are on 0.11.
       // Counts are the most quietly-rotting kind of claim there is.
       "a consumer count the register states drifts",
       editSource(ZUULI_LOCK, ' "sha2 0.10.9",\n "zeroize",\n]', ' "zeroize",\n]'),
@@ -1696,8 +1743,8 @@ function runSelfTest() {
     ],
     [
       "a row's stated consumer count drifts from the measured one",
-      withRegister(baseline.register.replace("shared by 5 packages", "shared by 4 packages")),
-      'the `chacha20poly1305` row states a measurement this check re-reads, but does not say "5 packages"',
+      withRegister(baseline.register.replace("shared by 3 packages", "shared by 4 packages")),
+      'the `chacha20poly1305` row states a measurement this check re-reads, but does not say "3 packages"',
     ],
     [
       // The `sha2` correction's numbers live in a paragraph, not a cell, and a
@@ -1713,10 +1760,35 @@ function runSelfTest() {
     ],
     [
       "the register drops the langchain consumer of z/",
-      withRegister(baseline.register.replaceAll("langchain/zcash/store.py", "a script")),
-      "does not mention `langchain/zcash/store.py`",
+      withRegister(baseline.register.replaceAll("py/experiments/zcash-rag/store.py", "a script")),
+      "does not mention `py/experiments/zcash-rag/store.py`",
     ],
   ];
+
+  for (const lock of WALLET_LOCKS) {
+    cases.push([
+      `${lock} loses the upstream-held AEAD copy`,
+      editSource(lock, 'name = "chacha20poly1305"\nversion = "0.10.1"', 'name = "chacha20poly1305"\nversion = "0.99.0"'),
+      `${lock} carries chacha20poly1305`,
+    ]);
+  }
+
+  for (const manifest of OPENMLS_BRIDGE_MANIFESTS) {
+    const text = baseline.manifests[manifest];
+    for (const name of ["openmls_libcrux_crypto", "openmls_traits", "openmls_memory_storage", "openmls_rust_crypto"]) {
+      const line = text.split("\n").find((value) => value.startsWith(`${name} = { git`));
+      if (!line) throw new Error(`self-test lacks actual bridge ${manifest}#${name}`);
+      cases.push([
+        `${manifest}#${name} changes the reviewed upstream revision`,
+        withManifest(manifest, text.replace(line, line.replace("7ded6597be8ddf7004046c8564fa97090d5e9633", "0".repeat(40)))),
+        `${manifest}#${name}: registered rev`,
+      ], [
+        `${manifest}#${name} drops the registered bridge`,
+        withManifest(manifest, text.replace(line, "")),
+        `${manifest}#${name}: registered as a patch but absent`,
+      ]);
+    }
+  }
 
   for (const [name, snapshot, expected] of cases) {
     requireFailure(name, snapshot, expected);
@@ -1759,7 +1831,7 @@ async function runUpstreamSelfTest() {
       if (route.includes("/branches/")) return { commit: { sha: "b".repeat(40) } };
       throw new Error(`unexpected route ${route}`);
     },
-    cratesIo: async () => ({ crate: { max_stable_version: "0.5.3" } }),
+    cratesIo: async (name) => ({ crate: { max_stable_version: name === "openmls_libcrux_crypto" ? "0.4.0" : "0.5.3" } }),
     remoteHasBranch: () => true,
     today: new Date("2026-08-31T00:00:00Z"),
   });
@@ -1829,6 +1901,17 @@ async function runUpstreamSelfTest() {
       "is an issue, not a pull request",
     ],
     [
+      "the fixed OpenMLS bridge drifts before the release trigger",
+      {
+        ...quiet(),
+        githubJson: async (route) => route.includes("repos/openmls/openmls/compare/")
+          ? { status: "behind", ahead_by: 0, behind_by: 100 }
+          : quiet().githubJson(route),
+      },
+      baseline,
+      "openmls_libcrux_crypto: fork is 100 commits behind",
+    ],
+    [
       "the fork falls behind its upstream base",
       {
         ...quiet(),
@@ -1896,6 +1979,26 @@ async function runUpstreamSelfTest() {
       "last verified",
     ],
   ];
+
+  const overlayReplies = (head, base) => ({
+    ...quiet(),
+    githubJson: async (route) => {
+      if (route.startsWith("repos/free2z/librustzcash/branches/")) {
+        return { commit: { sha: route.includes("upstream-drop") ? base : head } };
+      }
+      return quiet().githubJson(route);
+    },
+  });
+  const approvedHead = "473543ce227332b8afd82a9edbf655c4bc4d7c50";
+  const approvedBase = "a2b8c95210046eb59ee71dd10fd2ad1e9329b238";
+  const approvedFindings = await upstreamFindings(baseline, overlayReplies(approvedHead, approvedBase));
+  if (approvedFindings.some((finding) => finding.headline.includes("have diverged"))) {
+    throw new Error("reviewed security overlay must pass its exact base/head pair");
+  }
+  cases.push(
+    ["the reviewed TLS overlay branch moves", overlayReplies("d".repeat(40), approvedBase), baseline, "have diverged"],
+    ["the reviewed upstream base branch moves", overlayReplies(approvedHead, "d".repeat(40)), baseline, "have diverged"],
+  );
 
   for (const [name, deps, snapshot, expected] of cases) {
     const findings = await upstreamFindings(snapshot, deps);

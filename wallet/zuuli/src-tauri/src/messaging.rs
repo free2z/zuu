@@ -1,4 +1,4 @@
-//! Enrollment — the three commands `docs/e2ee/CLIENT-CONTRACT.md` §2.2 keeps
+//! Enrollment — the three commands `docs/free2z/messaging/CLIENT-CONTRACT.md` §2.2 keeps
 //! out of `tauri-plugin-f2zmsg` on purpose.
 //!
 //! # Why these three live here and the other forty-three do not

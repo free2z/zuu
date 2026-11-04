@@ -136,7 +136,7 @@ const SINGLE_IMPLEMENTATION_DECLARATIONS = [
 ];
 // The bridge's hash-domain namespace. A label minted outside the shared
 // implementation is a second protocol wearing the same domain separation, and
-// `scripts/check-hash-domain-labels.mjs` would hold it to the same prefix-free
+// `scripts/free2z/check-hash-domain-labels.mjs` would hold it to the same prefix-free
 // set without ever asking who wrote it.
 const SINGLE_IMPLEMENTATION_LITERAL = "free2z/intent/v1/";
 const SOURCE_EXTENSIONS = new Set([

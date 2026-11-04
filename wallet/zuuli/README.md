@@ -41,7 +41,7 @@ remote at all.
   behalf. Implemented, not yet shipped end to end: it still needs an
   authenticated channel ([#461](https://github.com/free2z/zuu/issues/461)), and
   a custom-scheme deep link is not one. See
-  [`docs/intent-bridge/`](../../docs/intent-bridge/) and
+  [`docs/free2z/intent-bridge/`](../../docs/free2z/intent-bridge/) and
   [#905](https://github.com/free2z/zuu/issues/905).
 
 ## What ZUULI deliberately does not include
@@ -66,6 +66,9 @@ individual charging and settlement paths remain subject to the evidence and
 gaps in [STATUS.md](STATUS.md).
 
 ## Run it
+
+Use Node.js 24.x (CI: `24.22.2`) or 22.x from 22.12.0 (CI: `22.23.4`)
+for Vitest 5.
 
 ```bash
 npm install

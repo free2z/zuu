@@ -287,8 +287,8 @@
     "debugOrMockDisclosureAllowed": false,
     "reviewRequired": true,
     "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
-    "sourceDigest": "10f060b7499a147a8901c6813e6cd24ac7d221e8658c14e483e2c67966e39bff",
-    "contractDigest": "91a47f55049d80714376f9343d299aa54789a46903a0a003dc18a0b941898bbb",
+    "sourceDigest": "01f54ce8bba5c925b72df93e8513dd9969b91895602c64ea8af28f2022100758",
+    "contractDigest": "77ca9598b939f9746bbca650132ce966066b6e375f69922c1fca85ea5e5cf2bc",
     "captureConfig": "store/capture.json",
     "captureRecord": "store/capture-record.json",
     "forbiddenEmbeddedText": [

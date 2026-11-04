@@ -1,0 +1,388 @@
+{
+  "name": "openai_chat_strict_forced_streamed",
+  "feature": "tool_calling",
+  "source": "Shape of OpenAI Chat Completions streamed function calling (developers.openai.com, function-calling guide: first fragment carries id+name with empty arguments, later fragments carry arguments pieces, finish_reason \"tool_calls\", then the include_usage chunk). Ids, text and token counts are synthetic; this is not a captured response. Migrated from tests/fixtures/tool_calling/openai_strict_forced_streamed.json (#1142) with the same assertions.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "strict_tools": true
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "You are a patient algebra tutor. Grade answers with check_answer."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "check_answer",
+        "description": "Grade a student's answer to one question.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "question_id",
+            "answer"
+          ],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    ],
+    "tool_choice": {
+      "type": "function",
+      "function": {
+        "name": "check_answer"
+      }
+    },
+    "parallel_tool_calls": false,
+    "max_output_tokens": 256
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "check_answer",
+            "description": "Grade a student's answer to one question.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "question_id": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question_id",
+                "answer"
+              ],
+              "additionalProperties": false
+            },
+            "strict": true
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "function",
+        "function": {
+          "name": "check_answer"
+        }
+      },
+      "parallel_tool_calls": false
+    },
+    "provider_stream": [
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": null,
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "call_q1",
+                  "type": "function",
+                  "function": {
+                    "name": "check_answer",
+                    "arguments": ""
+                  }
+                }
+              ],
+              "refusal": null
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "question"
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "_id\":\""
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "q1"
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\"answer"
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\"x = 4"
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\"}"
+                  }
+                }
+              ]
+            },
+            "logprobs": null,
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "logprobs": null,
+            "finish_reason": "tool_calls"
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 96,
+          "completion_tokens": 21,
+          "total_tokens": 117,
+          "prompt_tokens_details": {
+            "cached_tokens": 0
+          },
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      "[DONE]"
+    ],
+    "events": [
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "id": "call_q1",
+        "name": "check_answer",
+        "arguments": ""
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "{\""
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "question"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "_id\":\""
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "q1"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "\",\"answer"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "\":\"x = 4"
+      },
+      {
+        "type": "tool_call_delta",
+        "index": 0,
+        "arguments": "\"}"
+      },
+      {
+        "type": "tool_call",
+        "id": "call_q1",
+        "name": "check_answer",
+        "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+      }
+    ],
+    "finish_reason": "tool_calls",
+    "usage": {
+      "input_tokens": 96,
+      "output_tokens": 21,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

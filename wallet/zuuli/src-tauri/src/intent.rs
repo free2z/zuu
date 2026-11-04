@@ -167,7 +167,7 @@ use tauri_plugin_zcash::ZcashExt as _;
 /// admitted — never from the inbound URL, and never from the request body.
 ///
 /// Each one is the verified App Link that app owns (`#977`,
-/// `docs/intent-bridge/association/`). Only the app whose package or team owns
+/// `docs/free2z/intent-bridge/association/`). Only the app whose package or team owns
 /// the domain association receives it, which is the property
 /// `CALLER-AUTHENTICATION.md` §4 rests the response half on.
 const REGISTERED_CALLERS: &[(&str, &str, &str)] = &[
@@ -1316,7 +1316,7 @@ fn fulfil_payment(request: &IntentRequest, txid: TxId) -> Result<Vec<u8>, Intent
 /// `ExecuteSendResult::txid` is `format!("{txid}")` over a `zcash_protocol::TxId`,
 /// which is the display (reversed) order every Zcash explorer uses. The wire
 /// field is opaque, so the choice has to be stated somewhere: it is stated here
-/// and in `docs/intent-bridge/AUTHORITY.md`, and a client that hex-encodes these
+/// and in `docs/free2z/intent-bridge/AUTHORITY.md`, and a client that hex-encodes these
 /// bytes gets the string a user would paste into an explorer.
 fn txid_from_rendered(rendered: &str) -> Result<TxId, IntentError> {
     let bytes = hex::decode(rendered).map_err(|_| IntentError::Unavailable)?;

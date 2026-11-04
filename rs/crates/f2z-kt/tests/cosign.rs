@@ -5,7 +5,7 @@
 //! client a bundle with a reassuring number of cosignatures in it, and the
 //! number means nothing. Anti-equivocation is the one property cosigning
 //! exists to provide, and
-//! [`ARCHITECTURE.md` §9.3](../../../docs/e2ee/ARCHITECTURE.md) already says
+//! [`ARCHITECTURE.md` §9.3](../../../docs/free2z/messaging/ARCHITECTURE.md) already says
 //! plainly that witnesses free2z operates are not independent witnesses — a
 //! count inflated by four strangers is strictly worse than a count of zero,
 //! because zero is true.

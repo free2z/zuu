@@ -1,0 +1,74 @@
+{
+  "name": "anthropic_request_tool_choice_named",
+  "feature": "tool_calling",
+  "source": "Migrated from tests/fixtures/anthropic/requests.json (#1140), case 'a named function is tool{name}'. Request translation only: no provider_stream, so the mock renders its own Anthropic text stream.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true,
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-anthropic",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Go."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "parameters": {
+          "type": "object"
+        }
+      },
+      {
+        "name": "other",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "function",
+      "function": {
+        "name": "other"
+      }
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "name": "lookup",
+          "input_schema": {
+            "type": "object"
+          }
+        },
+        {
+          "name": "other",
+          "input_schema": {
+            "type": "object"
+          }
+        }
+      ],
+      "tool_choice": {
+        "type": "tool",
+        "name": "other"
+      },
+      "response_format": null,
+      "parallel_tool_calls": null
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}
