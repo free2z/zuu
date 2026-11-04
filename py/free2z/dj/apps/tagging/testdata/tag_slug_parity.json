@@ -1,0 +1,166 @@
+{
+  "_comment": [
+    "Golden table for the ONE tag-slug derivation.",
+    "Python: py/dj/apps/tagging/slugs.py::slugify_tag, asserted by test_tag_slugs.py",
+    "JavaScript: ts/svelte/free2z/src/lib/tag-slug.js::slugifyTag, asserted by tests/tag-slug.test.mjs",
+    "Both suites go red if either implementation moves. That is the point."
+  ],
+  "max_length": 200,
+  "cases": [
+    {
+      "name": "zcash",
+      "slug": "zcash",
+      "why": "plain ascii tag"
+    },
+    {
+      "name": "Dahab",
+      "slug": "dahab",
+      "why": "case is folded -- the live GSC URL /search?tag=Dahab"
+    },
+    {
+      "name": "AlexeiNavalny",
+      "slug": "alexeinavalny",
+      "why": "camel case collapses to one token"
+    },
+    {
+      "name": "t-shirts",
+      "slug": "t-shirts",
+      "why": "an existing hyphen survives"
+    },
+    {
+      "name": "t shirts",
+      "slug": "t-shirts",
+      "why": "a space becomes the same separator -- COLLIDES with t-shirts"
+    },
+    {
+      "name": "T/Shirts",
+      "slug": "t-shirts",
+      "why": "a slash becomes the same separator -- COLLIDES with t-shirts"
+    },
+    {
+      "name": "zebra   husbandry ",
+      "slug": "zebra-husbandry",
+      "why": "whitespace runs and trailing space"
+    },
+    {
+      "name": "   ",
+      "slug": "",
+      "why": "whitespace only"
+    },
+    {
+      "name": "",
+      "slug": "",
+      "why": "empty"
+    },
+    {
+      "name": "..",
+      "slug": "",
+      "why": "path traversal has no slug at all"
+    },
+    {
+      "name": "../../etc/passwd",
+      "slug": "etc-passwd",
+      "why": "traversal is neutralised, not blocklisted"
+    },
+    {
+      "name": "%2e%2e",
+      "slug": "2e-2e",
+      "why": "percent escapes are just characters"
+    },
+    {
+      "name": "🔥",
+      "slug": "",
+      "why": "emoji only -- no hub, falls back to /search?tag="
+    },
+    {
+      "name": "🔥 zcash 🔥",
+      "slug": "zcash",
+      "why": "emoji around real text"
+    },
+    {
+      "name": "café",
+      "slug": "café",
+      "why": "precomposed e-acute"
+    },
+    {
+      "name": "café",
+      "slug": "café",
+      "why": "decomposed e-acute -- NFC makes it the same slug"
+    },
+    {
+      "name": "ПРИВЕТ",
+      "slug": "привет",
+      "why": "cyrillic uppercase"
+    },
+    {
+      "name": "日本語",
+      "slug": "日本語",
+      "why": "han"
+    },
+    {
+      "name": "straße",
+      "slug": "straße",
+      "why": "sharp s is a lowercase letter and survives"
+    },
+    {
+      "name": "STRASSE",
+      "slug": "strasse",
+      "why": "and does NOT collide with it -- lower(), not casefold()"
+    },
+    {
+      "name": "İstanbul",
+      "slug": "i̇stanbul",
+      "why": "dotted capital I lowercases to i + U+0307 in BOTH runtimes"
+    },
+    {
+      "name": "hello_world",
+      "slug": "hello-world",
+      "why": "underscore is not a letter"
+    },
+    {
+      "name": "a--b",
+      "slug": "a-b",
+      "why": "dash runs collapse"
+    },
+    {
+      "name": "-lead-",
+      "slug": "lead",
+      "why": "dashes trimmed from both ends"
+    },
+    {
+      "name": "ΟΔΟΣ",
+      "slug": "οδος",
+      "why": "greek final sigma"
+    },
+    {
+      "name": "C++",
+      "slug": "c",
+      "why": "trailing punctuation is trimmed"
+    },
+    {
+      "name": "N°1",
+      "slug": "n-1",
+      "why": "degree sign is a symbol, not a number"
+    },
+    {
+      "name": "3.14",
+      "slug": "3-14",
+      "why": "a dot inside a number is still a separator"
+    },
+    {
+      "name": "𝟙𝟚",
+      "slug": "𝟙𝟚",
+      "why": "astral mathematical digits are Nd and survive"
+    },
+    {
+      "name": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "slug": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "why": "the longest name taggit can store still round-trips whole"
+    },
+    {
+      "name": "the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog the quick brown fox jumps over the lazy dog and keeps running far past two hundred code points in total",
+      "slug": "the-quick-brown-fox-jumps-over-the-lazy-dog-the-quick-brown-fox-jumps-over-the-lazy-dog-the-quick-brown-fox-jumps-over-the-lazy-dog-the-quick-brown-fox-jumps-over-the-lazy-dog-the-quick-brown-fox",
+      "why": "past the bound: truncated at a word boundary (unreachable for a storable tag, since Tag.name is 100)"
+    }
+  ]
+}

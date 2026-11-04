@@ -20,6 +20,7 @@
 //! | `f2z_ai_calls_settled_total{upstream}` | counter | Calls handed to the settler, by how the upstream read ended: `finished`, `drained`, `not_started`, `panicked` (a bug, never operational) |
 //! | `f2z_ai_ready` / `f2z_ai_draining` | gauge | 1 or 0 |
 //! | `f2z_ai_catalog_version` | gauge | The verified catalogue in use; 0 when there is none |
+//! | `f2z_ai_idempotency_forms_total{outcome}` | counter | Keyed `/v1/chat` claims by what the form lookup found (`crate::idempotency::Outcome`): `miss`, `same`, `straddle` (a retry across a `child_directed` flip or key rotation, replayed by its recorded call id), and the degraded `unavailable`, `unknown_record`, `write_failed`, `orphaned` — each a retry that could have been charged twice, so **alert on any increase** of those four |
 //! | `f2z_ai_catalog_replays_total` | counter | Catalogues refused as a replay: `issued_at` more than `catalog_version_regression_bound_secs` (420, the producer's bound) below the newest catalogue installed (`catalog::State::install`). The platform's own version dips stay inside the bound and never count, so **alert on any increase** — it means a replay, or a producer that broke its bound |
 
 use std::fmt::Write as _;
@@ -143,6 +144,7 @@ pub struct Metrics {
     delivery_aborted: [AtomicU64; 2],
     catalog_version: AtomicU64,
     catalog_replays: AtomicU64,
+    idempotency_forms: [AtomicU64; crate::idempotency::Outcome::ALL.len()],
 }
 
 impl Default for Metrics {
@@ -161,6 +163,7 @@ impl Default for Metrics {
             delivery_aborted: std::array::from_fn(|_| AtomicU64::new(0)),
             catalog_version: AtomicU64::new(0),
             catalog_replays: AtomicU64::new(0),
+            idempotency_forms: std::array::from_fn(|_| AtomicU64::new(0)),
         }
     }
 }
@@ -266,6 +269,13 @@ impl Metrics {
     /// Count one catalogue refused as a replay (`catalog::Installed::Older`).
     pub fn record_catalog_replay(&self) {
         self.catalog_replays.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Count one keyed claim's form lookup ([`crate::idempotency`]).
+    pub fn record_idempotency_form(&self, outcome: crate::idempotency::Outcome) {
+        if let Some(slot) = self.idempotency_forms.get(outcome.index()) {
+            slot.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Record the catalogue version now in use (0: none).
@@ -415,6 +425,18 @@ impl Metrics {
             "f2z_ai_catalog_replays_total {}",
             load(&self.catalog_replays)
         );
+        out.push_str(
+            "# HELP f2z_ai_idempotency_forms_total Keyed claims by idempotency form lookup outcome.\n",
+        );
+        out.push_str("# TYPE f2z_ai_idempotency_forms_total counter\n");
+        for outcome in crate::idempotency::Outcome::ALL {
+            let value = self.idempotency_forms.get(outcome.index()).map_or(0, load);
+            let _ = writeln!(
+                out,
+                "f2z_ai_idempotency_forms_total{{outcome=\"{}\"}} {value}",
+                outcome.label()
+            );
+        }
         out
     }
 }
@@ -487,6 +509,26 @@ mod tests {
             "{text}"
         );
         assert!(!text.contains("418"), "{text}");
+    }
+
+    #[test]
+    fn every_idempotency_form_outcome_renders_from_zero() {
+        let m = Metrics::default();
+        m.record_idempotency_form(crate::idempotency::Outcome::Unavailable);
+        let text = m.render(Gauges {
+            active_streams: 0,
+            buffered_bytes: 0,
+            ready: true,
+            draining: false,
+        });
+        for outcome in crate::idempotency::Outcome::ALL {
+            let n = u8::from(outcome == crate::idempotency::Outcome::Unavailable);
+            let line = format!(
+                "f2z_ai_idempotency_forms_total{{outcome=\"{}\"}} {n}",
+                outcome.label()
+            );
+            assert!(text.contains(&line), "{line}\n{text}");
+        }
     }
 
     #[test]

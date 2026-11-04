@@ -57,7 +57,7 @@ export default function CreatorDonate(props: Props) {
                         wordBreak: "break-word",
                     }}
                 >
-                    Donate to {creator.username}
+                    Support {creator.username}
                 </DialogTitle>
 
                 <List

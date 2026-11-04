@@ -1,0 +1,1817 @@
+{
+  "source": "langcodes bundled IANA registry, Macrolanguage-bearing language subtags",
+  "cases": [
+    {
+      "input": "aae",
+      "tag": "aae"
+    },
+    {
+      "input": "aao",
+      "tag": "aao"
+    },
+    {
+      "input": "aat",
+      "tag": "aat"
+    },
+    {
+      "input": "abh",
+      "tag": "abh"
+    },
+    {
+      "input": "abv",
+      "tag": "abv"
+    },
+    {
+      "input": "acm",
+      "tag": "acm"
+    },
+    {
+      "input": "acq",
+      "tag": "acq"
+    },
+    {
+      "input": "acw",
+      "tag": "acw"
+    },
+    {
+      "input": "acx",
+      "tag": "acx"
+    },
+    {
+      "input": "acy",
+      "tag": "acy"
+    },
+    {
+      "input": "adf",
+      "tag": "adf"
+    },
+    {
+      "input": "aeb",
+      "tag": "aeb"
+    },
+    {
+      "input": "aec",
+      "tag": "aec"
+    },
+    {
+      "input": "afb",
+      "tag": "afb"
+    },
+    {
+      "input": "aii",
+      "tag": "aii"
+    },
+    {
+      "input": "ajp",
+      "tag": "apc"
+    },
+    {
+      "input": "ajt",
+      "tag": "aeb"
+    },
+    {
+      "input": "aju",
+      "tag": "jrb"
+    },
+    {
+      "input": "aln",
+      "tag": "aln"
+    },
+    {
+      "input": "als",
+      "tag": "sq"
+    },
+    {
+      "input": "apc",
+      "tag": "apc"
+    },
+    {
+      "input": "apd",
+      "tag": "apd"
+    },
+    {
+      "input": "arb",
+      "tag": "ar"
+    },
+    {
+      "input": "arq",
+      "tag": "arq"
+    },
+    {
+      "input": "ars",
+      "tag": "ars"
+    },
+    {
+      "input": "ary",
+      "tag": "ary"
+    },
+    {
+      "input": "arz",
+      "tag": "arz"
+    },
+    {
+      "input": "auz",
+      "tag": "auz"
+    },
+    {
+      "input": "avl",
+      "tag": "avl"
+    },
+    {
+      "input": "ayc",
+      "tag": "ayc"
+    },
+    {
+      "input": "ayh",
+      "tag": "ayh"
+    },
+    {
+      "input": "ayl",
+      "tag": "ayl"
+    },
+    {
+      "input": "ayn",
+      "tag": "ayn"
+    },
+    {
+      "input": "ayp",
+      "tag": "ayp"
+    },
+    {
+      "input": "ayr",
+      "tag": "ay"
+    },
+    {
+      "input": "azb",
+      "tag": "azb"
+    },
+    {
+      "input": "azj",
+      "tag": "az"
+    },
+    {
+      "input": "bbz",
+      "tag": "bbz"
+    },
+    {
+      "input": "bcc",
+      "tag": "bal"
+    },
+    {
+      "input": "bcl",
+      "tag": "bik"
+    },
+    {
+      "input": "bdt",
+      "tag": "bdt"
+    },
+    {
+      "input": "bgn",
+      "tag": "bgn"
+    },
+    {
+      "input": "bgp",
+      "tag": "bgp"
+    },
+    {
+      "input": "bgq",
+      "tag": "bgq"
+    },
+    {
+      "input": "bhk",
+      "tag": "fbl"
+    },
+    {
+      "input": "bhr",
+      "tag": "bhr"
+    },
+    {
+      "input": "bjn",
+      "tag": "bjn"
+    },
+    {
+      "input": "bjq",
+      "tag": "bzc"
+    },
+    {
+      "input": "bln",
+      "tag": "bln"
+    },
+    {
+      "input": "bmm",
+      "tag": "bmm"
+    },
+    {
+      "input": "bs",
+      "tag": "bs"
+    },
+    {
+      "input": "btj",
+      "tag": "btj"
+    },
+    {
+      "input": "bto",
+      "tag": "bto"
+    },
+    {
+      "input": "bve",
+      "tag": "bve"
+    },
+    {
+      "input": "bvu",
+      "tag": "bvu"
+    },
+    {
+      "input": "bxk",
+      "tag": "luy"
+    },
+    {
+      "input": "bxm",
+      "tag": "bxm"
+    },
+    {
+      "input": "bxr",
+      "tag": "bua"
+    },
+    {
+      "input": "bxu",
+      "tag": "bxu"
+    },
+    {
+      "input": "bzc",
+      "tag": "bzc"
+    },
+    {
+      "input": "cdo",
+      "tag": "cdo"
+    },
+    {
+      "input": "ciw",
+      "tag": "ciw"
+    },
+    {
+      "input": "cjy",
+      "tag": "cjy"
+    },
+    {
+      "input": "ckb",
+      "tag": "ckb"
+    },
+    {
+      "input": "cld",
+      "tag": "syr"
+    },
+    {
+      "input": "cmn",
+      "tag": "zh"
+    },
+    {
+      "input": "cnp",
+      "tag": "cnp"
+    },
+    {
+      "input": "cnr",
+      "tag": "sr-ME"
+    },
+    {
+      "input": "coa",
+      "tag": "coa"
+    },
+    {
+      "input": "cpx",
+      "tag": "cpx"
+    },
+    {
+      "input": "cqd",
+      "tag": "cqd"
+    },
+    {
+      "input": "cqu",
+      "tag": "quh"
+    },
+    {
+      "input": "crj",
+      "tag": "crj"
+    },
+    {
+      "input": "crk",
+      "tag": "crk"
+    },
+    {
+      "input": "crl",
+      "tag": "crl"
+    },
+    {
+      "input": "crm",
+      "tag": "crm"
+    },
+    {
+      "input": "csp",
+      "tag": "csp"
+    },
+    {
+      "input": "csw",
+      "tag": "csw"
+    },
+    {
+      "input": "cts",
+      "tag": "cts"
+    },
+    {
+      "input": "cwd",
+      "tag": "cr"
+    },
+    {
+      "input": "czh",
+      "tag": "czh"
+    },
+    {
+      "input": "czo",
+      "tag": "czo"
+    },
+    {
+      "input": "dgo",
+      "tag": "doi"
+    },
+    {
+      "input": "dhd",
+      "tag": "mwr"
+    },
+    {
+      "input": "dib",
+      "tag": "dib"
+    },
+    {
+      "input": "dik",
+      "tag": "din"
+    },
+    {
+      "input": "dip",
+      "tag": "dip"
+    },
+    {
+      "input": "diq",
+      "tag": "zza"
+    },
+    {
+      "input": "diw",
+      "tag": "diw"
+    },
+    {
+      "input": "dks",
+      "tag": "dks"
+    },
+    {
+      "input": "dty",
+      "tag": "dty"
+    },
+    {
+      "input": "dup",
+      "tag": "dup"
+    },
+    {
+      "input": "ebk",
+      "tag": "ebk"
+    },
+    {
+      "input": "ekk",
+      "tag": "et"
+    },
+    {
+      "input": "emk",
+      "tag": "man"
+    },
+    {
+      "input": "enb",
+      "tag": "enb"
+    },
+    {
+      "input": "esg",
+      "tag": "esg"
+    },
+    {
+      "input": "esi",
+      "tag": "esi"
+    },
+    {
+      "input": "esk",
+      "tag": "ik"
+    },
+    {
+      "input": "eyo",
+      "tag": "eyo"
+    },
+    {
+      "input": "fat",
+      "tag": "ak"
+    },
+    {
+      "input": "fbl",
+      "tag": "fbl"
+    },
+    {
+      "input": "ffm",
+      "tag": "ffm"
+    },
+    {
+      "input": "fub",
+      "tag": "fub"
+    },
+    {
+      "input": "fuc",
+      "tag": "ff"
+    },
+    {
+      "input": "fue",
+      "tag": "fue"
+    },
+    {
+      "input": "fuf",
+      "tag": "fuf"
+    },
+    {
+      "input": "fuh",
+      "tag": "fuh"
+    },
+    {
+      "input": "fui",
+      "tag": "fui"
+    },
+    {
+      "input": "fuq",
+      "tag": "fuq"
+    },
+    {
+      "input": "fuv",
+      "tag": "fuv"
+    },
+    {
+      "input": "gan",
+      "tag": "gan"
+    },
+    {
+      "input": "gax",
+      "tag": "gax"
+    },
+    {
+      "input": "gaz",
+      "tag": "om"
+    },
+    {
+      "input": "gbo",
+      "tag": "grb"
+    },
+    {
+      "input": "gbp",
+      "tag": "gbp"
+    },
+    {
+      "input": "gbq",
+      "tag": "gbq"
+    },
+    {
+      "input": "gda",
+      "tag": "gda"
+    },
+    {
+      "input": "gec",
+      "tag": "gec"
+    },
+    {
+      "input": "gju",
+      "tag": "gju"
+    },
+    {
+      "input": "gkp",
+      "tag": "gkp"
+    },
+    {
+      "input": "gmm",
+      "tag": "gmm"
+    },
+    {
+      "input": "gno",
+      "tag": "gon"
+    },
+    {
+      "input": "gnw",
+      "tag": "gnw"
+    },
+    {
+      "input": "gom",
+      "tag": "kok"
+    },
+    {
+      "input": "grj",
+      "tag": "grj"
+    },
+    {
+      "input": "grv",
+      "tag": "grv"
+    },
+    {
+      "input": "gry",
+      "tag": "gry"
+    },
+    {
+      "input": "gso",
+      "tag": "gso"
+    },
+    {
+      "input": "gug",
+      "tag": "gn"
+    },
+    {
+      "input": "gui",
+      "tag": "gui"
+    },
+    {
+      "input": "gun",
+      "tag": "gun"
+    },
+    {
+      "input": "gya",
+      "tag": "gba"
+    },
+    {
+      "input": "hae",
+      "tag": "hae"
+    },
+    {
+      "input": "hak",
+      "tag": "hak"
+    },
+    {
+      "input": "hax",
+      "tag": "hax"
+    },
+    {
+      "input": "hdn",
+      "tag": "hai"
+    },
+    {
+      "input": "hea",
+      "tag": "hmn"
+    },
+    {
+      "input": "hji",
+      "tag": "hji"
+    },
+    {
+      "input": "hma",
+      "tag": "hma"
+    },
+    {
+      "input": "hmc",
+      "tag": "hmc"
+    },
+    {
+      "input": "hmd",
+      "tag": "hmd"
+    },
+    {
+      "input": "hme",
+      "tag": "hme"
+    },
+    {
+      "input": "hmg",
+      "tag": "hmg"
+    },
+    {
+      "input": "hmh",
+      "tag": "hmh"
+    },
+    {
+      "input": "hmi",
+      "tag": "hmi"
+    },
+    {
+      "input": "hmj",
+      "tag": "hmj"
+    },
+    {
+      "input": "hml",
+      "tag": "hml"
+    },
+    {
+      "input": "hmm",
+      "tag": "hmm"
+    },
+    {
+      "input": "hmp",
+      "tag": "hmp"
+    },
+    {
+      "input": "hmq",
+      "tag": "hmq"
+    },
+    {
+      "input": "hms",
+      "tag": "hms"
+    },
+    {
+      "input": "hmw",
+      "tag": "hmw"
+    },
+    {
+      "input": "hmy",
+      "tag": "hmy"
+    },
+    {
+      "input": "hmz",
+      "tag": "hmz"
+    },
+    {
+      "input": "hnd",
+      "tag": "hnd"
+    },
+    {
+      "input": "hnj",
+      "tag": "hnj"
+    },
+    {
+      "input": "hno",
+      "tag": "hno"
+    },
+    {
+      "input": "hoj",
+      "tag": "hoj"
+    },
+    {
+      "input": "hr",
+      "tag": "hr"
+    },
+    {
+      "input": "hrm",
+      "tag": "hrm"
+    },
+    {
+      "input": "hsn",
+      "tag": "hsn"
+    },
+    {
+      "input": "huj",
+      "tag": "huj"
+    },
+    {
+      "input": "id",
+      "tag": "id"
+    },
+    {
+      "input": "ida",
+      "tag": "ida"
+    },
+    {
+      "input": "ike",
+      "tag": "iu"
+    },
+    {
+      "input": "ikt",
+      "tag": "ikt"
+    },
+    {
+      "input": "in",
+      "tag": "id"
+    },
+    {
+      "input": "jak",
+      "tag": "jak"
+    },
+    {
+      "input": "jat",
+      "tag": "jat"
+    },
+    {
+      "input": "jax",
+      "tag": "jax"
+    },
+    {
+      "input": "jye",
+      "tag": "jye"
+    },
+    {
+      "input": "kby",
+      "tag": "kby"
+    },
+    {
+      "input": "khk",
+      "tag": "mn"
+    },
+    {
+      "input": "kiu",
+      "tag": "kiu"
+    },
+    {
+      "input": "kmr",
+      "tag": "ku"
+    },
+    {
+      "input": "knc",
+      "tag": "kr"
+    },
+    {
+      "input": "kng",
+      "tag": "kg"
+    },
+    {
+      "input": "knn",
+      "tag": "knn"
+    },
+    {
+      "input": "koi",
+      "tag": "koi"
+    },
+    {
+      "input": "kpv",
+      "tag": "kv"
+    },
+    {
+      "input": "krt",
+      "tag": "krt"
+    },
+    {
+      "input": "kvb",
+      "tag": "kvb"
+    },
+    {
+      "input": "kvr",
+      "tag": "kvr"
+    },
+    {
+      "input": "kwy",
+      "tag": "kwy"
+    },
+    {
+      "input": "kxd",
+      "tag": "kxd"
+    },
+    {
+      "input": "lbk",
+      "tag": "bnc"
+    },
+    {
+      "input": "lbl",
+      "tag": "lbl"
+    },
+    {
+      "input": "lce",
+      "tag": "lce"
+    },
+    {
+      "input": "lcf",
+      "tag": "lcf"
+    },
+    {
+      "input": "ldi",
+      "tag": "ldi"
+    },
+    {
+      "input": "liw",
+      "tag": "liw"
+    },
+    {
+      "input": "lkb",
+      "tag": "lkb"
+    },
+    {
+      "input": "lko",
+      "tag": "lko"
+    },
+    {
+      "input": "lks",
+      "tag": "lks"
+    },
+    {
+      "input": "lri",
+      "tag": "lri"
+    },
+    {
+      "input": "lrm",
+      "tag": "lrm"
+    },
+    {
+      "input": "lsm",
+      "tag": "lsm"
+    },
+    {
+      "input": "ltg",
+      "tag": "ltg"
+    },
+    {
+      "input": "lto",
+      "tag": "lto"
+    },
+    {
+      "input": "lts",
+      "tag": "lts"
+    },
+    {
+      "input": "lvs",
+      "tag": "lv"
+    },
+    {
+      "input": "lwg",
+      "tag": "lwg"
+    },
+    {
+      "input": "lzh",
+      "tag": "lzh"
+    },
+    {
+      "input": "max",
+      "tag": "max"
+    },
+    {
+      "input": "meo",
+      "tag": "meo"
+    },
+    {
+      "input": "mfa",
+      "tag": "mfa"
+    },
+    {
+      "input": "mfb",
+      "tag": "mfb"
+    },
+    {
+      "input": "mhr",
+      "tag": "chm"
+    },
+    {
+      "input": "min",
+      "tag": "min"
+    },
+    {
+      "input": "mku",
+      "tag": "mku"
+    },
+    {
+      "input": "mlq",
+      "tag": "mlq"
+    },
+    {
+      "input": "mmr",
+      "tag": "mmr"
+    },
+    {
+      "input": "mnk",
+      "tag": "mnk"
+    },
+    {
+      "input": "mnp",
+      "tag": "mnp"
+    },
+    {
+      "input": "mqg",
+      "tag": "mqg"
+    },
+    {
+      "input": "mrj",
+      "tag": "mrj"
+    },
+    {
+      "input": "msc",
+      "tag": "msc"
+    },
+    {
+      "input": "msh",
+      "tag": "msh"
+    },
+    {
+      "input": "msi",
+      "tag": "msi"
+    },
+    {
+      "input": "mtr",
+      "tag": "mtr"
+    },
+    {
+      "input": "mui",
+      "tag": "mui"
+    },
+    {
+      "input": "mup",
+      "tag": "raj"
+    },
+    {
+      "input": "muq",
+      "tag": "muq"
+    },
+    {
+      "input": "mve",
+      "tag": "mve"
+    },
+    {
+      "input": "mvf",
+      "tag": "mvf"
+    },
+    {
+      "input": "mwk",
+      "tag": "mwk"
+    },
+    {
+      "input": "mww",
+      "tag": "mww"
+    },
+    {
+      "input": "myq",
+      "tag": "myq"
+    },
+    {
+      "input": "nan",
+      "tag": "nan"
+    },
+    {
+      "input": "nb",
+      "tag": "nb"
+    },
+    {
+      "input": "nhd",
+      "tag": "nhd"
+    },
+    {
+      "input": "niq",
+      "tag": "niq"
+    },
+    {
+      "input": "nle",
+      "tag": "nle"
+    },
+    {
+      "input": "nn",
+      "tag": "nn"
+    },
+    {
+      "input": "npi",
+      "tag": "ne"
+    },
+    {
+      "input": "nyd",
+      "tag": "nyd"
+    },
+    {
+      "input": "obk",
+      "tag": "obk"
+    },
+    {
+      "input": "ojb",
+      "tag": "ojb"
+    },
+    {
+      "input": "ojc",
+      "tag": "ojc"
+    },
+    {
+      "input": "ojg",
+      "tag": "oj"
+    },
+    {
+      "input": "ojs",
+      "tag": "ojs"
+    },
+    {
+      "input": "ojw",
+      "tag": "ojw"
+    },
+    {
+      "input": "oki",
+      "tag": "oki"
+    },
+    {
+      "input": "orc",
+      "tag": "orc"
+    },
+    {
+      "input": "orn",
+      "tag": "orn"
+    },
+    {
+      "input": "ors",
+      "tag": "ors"
+    },
+    {
+      "input": "ory",
+      "tag": "or"
+    },
+    {
+      "input": "otw",
+      "tag": "otw"
+    },
+    {
+      "input": "pbt",
+      "tag": "pbt"
+    },
+    {
+      "input": "pbu",
+      "tag": "ps"
+    },
+    {
+      "input": "pel",
+      "tag": "pel"
+    },
+    {
+      "input": "pes",
+      "tag": "fa"
+    },
+    {
+      "input": "pga",
+      "tag": "pga"
+    },
+    {
+      "input": "phr",
+      "tag": "phr"
+    },
+    {
+      "input": "pko",
+      "tag": "pko"
+    },
+    {
+      "input": "plt",
+      "tag": "mg"
+    },
+    {
+      "input": "pmu",
+      "tag": "phr"
+    },
+    {
+      "input": "pnb",
+      "tag": "lah"
+    },
+    {
+      "input": "prs",
+      "tag": "fa-AF"
+    },
+    {
+      "input": "pse",
+      "tag": "pse"
+    },
+    {
+      "input": "pst",
+      "tag": "pst"
+    },
+    {
+      "input": "qub",
+      "tag": "qub"
+    },
+    {
+      "input": "qud",
+      "tag": "qud"
+    },
+    {
+      "input": "quf",
+      "tag": "quf"
+    },
+    {
+      "input": "qug",
+      "tag": "qug"
+    },
+    {
+      "input": "quh",
+      "tag": "quh"
+    },
+    {
+      "input": "quk",
+      "tag": "quk"
+    },
+    {
+      "input": "qul",
+      "tag": "qul"
+    },
+    {
+      "input": "qup",
+      "tag": "qup"
+    },
+    {
+      "input": "qur",
+      "tag": "qur"
+    },
+    {
+      "input": "qus",
+      "tag": "qus"
+    },
+    {
+      "input": "quw",
+      "tag": "quw"
+    },
+    {
+      "input": "qux",
+      "tag": "qux"
+    },
+    {
+      "input": "quy",
+      "tag": "quy"
+    },
+    {
+      "input": "quz",
+      "tag": "qu"
+    },
+    {
+      "input": "qva",
+      "tag": "qva"
+    },
+    {
+      "input": "qvc",
+      "tag": "qvc"
+    },
+    {
+      "input": "qve",
+      "tag": "qve"
+    },
+    {
+      "input": "qvh",
+      "tag": "qvh"
+    },
+    {
+      "input": "qvi",
+      "tag": "qvi"
+    },
+    {
+      "input": "qvj",
+      "tag": "qvj"
+    },
+    {
+      "input": "qvl",
+      "tag": "qvl"
+    },
+    {
+      "input": "qvm",
+      "tag": "qvm"
+    },
+    {
+      "input": "qvn",
+      "tag": "qvn"
+    },
+    {
+      "input": "qvo",
+      "tag": "qvo"
+    },
+    {
+      "input": "qvp",
+      "tag": "qvp"
+    },
+    {
+      "input": "qvs",
+      "tag": "qvs"
+    },
+    {
+      "input": "qvw",
+      "tag": "qvw"
+    },
+    {
+      "input": "qvz",
+      "tag": "qvz"
+    },
+    {
+      "input": "qwa",
+      "tag": "qwa"
+    },
+    {
+      "input": "qwc",
+      "tag": "qwc"
+    },
+    {
+      "input": "qwh",
+      "tag": "qwh"
+    },
+    {
+      "input": "qws",
+      "tag": "qws"
+    },
+    {
+      "input": "qxa",
+      "tag": "qxa"
+    },
+    {
+      "input": "qxc",
+      "tag": "qxc"
+    },
+    {
+      "input": "qxh",
+      "tag": "qxh"
+    },
+    {
+      "input": "qxl",
+      "tag": "qxl"
+    },
+    {
+      "input": "qxn",
+      "tag": "qxn"
+    },
+    {
+      "input": "qxo",
+      "tag": "qxo"
+    },
+    {
+      "input": "qxp",
+      "tag": "qxp"
+    },
+    {
+      "input": "qxr",
+      "tag": "qxr"
+    },
+    {
+      "input": "qxt",
+      "tag": "qxt"
+    },
+    {
+      "input": "qxu",
+      "tag": "qxu"
+    },
+    {
+      "input": "qxw",
+      "tag": "qxw"
+    },
+    {
+      "input": "rag",
+      "tag": "rag"
+    },
+    {
+      "input": "rbk",
+      "tag": "rbk"
+    },
+    {
+      "input": "rbl",
+      "tag": "rbl"
+    },
+    {
+      "input": "rmc",
+      "tag": "rmc"
+    },
+    {
+      "input": "rmf",
+      "tag": "rmf"
+    },
+    {
+      "input": "rml",
+      "tag": "rml"
+    },
+    {
+      "input": "rmn",
+      "tag": "rmn"
+    },
+    {
+      "input": "rmo",
+      "tag": "rmo"
+    },
+    {
+      "input": "rmw",
+      "tag": "rmw"
+    },
+    {
+      "input": "rmy",
+      "tag": "rom"
+    },
+    {
+      "input": "rwr",
+      "tag": "rwr"
+    },
+    {
+      "input": "scs",
+      "tag": "scs"
+    },
+    {
+      "input": "sdc",
+      "tag": "sdc"
+    },
+    {
+      "input": "sdh",
+      "tag": "sdh"
+    },
+    {
+      "input": "sdn",
+      "tag": "sdn"
+    },
+    {
+      "input": "sfm",
+      "tag": "sfm"
+    },
+    {
+      "input": "sgc",
+      "tag": "sgc"
+    },
+    {
+      "input": "shu",
+      "tag": "shu"
+    },
+    {
+      "input": "skg",
+      "tag": "skg"
+    },
+    {
+      "input": "skr",
+      "tag": "skr"
+    },
+    {
+      "input": "spv",
+      "tag": "spv"
+    },
+    {
+      "input": "spy",
+      "tag": "kln"
+    },
+    {
+      "input": "sr",
+      "tag": "sr"
+    },
+    {
+      "input": "src",
+      "tag": "sc"
+    },
+    {
+      "input": "sro",
+      "tag": "sro"
+    },
+    {
+      "input": "ssh",
+      "tag": "ssh"
+    },
+    {
+      "input": "swc",
+      "tag": "sw-CD"
+    },
+    {
+      "input": "swh",
+      "tag": "sw"
+    },
+    {
+      "input": "swv",
+      "tag": "swv"
+    },
+    {
+      "input": "taq",
+      "tag": "taq"
+    },
+    {
+      "input": "tdx",
+      "tag": "tdx"
+    },
+    {
+      "input": "tec",
+      "tag": "tec"
+    },
+    {
+      "input": "thv",
+      "tag": "thv"
+    },
+    {
+      "input": "thz",
+      "tag": "thz"
+    },
+    {
+      "input": "tkg",
+      "tag": "tkg"
+    },
+    {
+      "input": "tmw",
+      "tag": "tmw"
+    },
+    {
+      "input": "ttq",
+      "tag": "tmh"
+    },
+    {
+      "input": "tuy",
+      "tag": "tuy"
+    },
+    {
+      "input": "tw",
+      "tag": "tw"
+    },
+    {
+      "input": "txy",
+      "tag": "txy"
+    },
+    {
+      "input": "ubl",
+      "tag": "ubl"
+    },
+    {
+      "input": "umu",
+      "tag": "del"
+    },
+    {
+      "input": "unm",
+      "tag": "unm"
+    },
+    {
+      "input": "urk",
+      "tag": "urk"
+    },
+    {
+      "input": "uzn",
+      "tag": "uz"
+    },
+    {
+      "input": "uzs",
+      "tag": "uzs"
+    },
+    {
+      "input": "vbk",
+      "tag": "vbk"
+    },
+    {
+      "input": "vkk",
+      "tag": "vkk"
+    },
+    {
+      "input": "vkt",
+      "tag": "vkt"
+    },
+    {
+      "input": "vro",
+      "tag": "vro"
+    },
+    {
+      "input": "wbr",
+      "tag": "wbr"
+    },
+    {
+      "input": "wry",
+      "tag": "wry"
+    },
+    {
+      "input": "wsg",
+      "tag": "wsg"
+    },
+    {
+      "input": "wuu",
+      "tag": "wuu"
+    },
+    {
+      "input": "xhe",
+      "tag": "xhe"
+    },
+    {
+      "input": "xmm",
+      "tag": "xmm"
+    },
+    {
+      "input": "xmv",
+      "tag": "xmv"
+    },
+    {
+      "input": "xmw",
+      "tag": "xmw"
+    },
+    {
+      "input": "xnr",
+      "tag": "xnr"
+    },
+    {
+      "input": "xpe",
+      "tag": "kpe"
+    },
+    {
+      "input": "xsl",
+      "tag": "den"
+    },
+    {
+      "input": "ydd",
+      "tag": "yi"
+    },
+    {
+      "input": "yhd",
+      "tag": "yhd"
+    },
+    {
+      "input": "yih",
+      "tag": "yih"
+    },
+    {
+      "input": "yud",
+      "tag": "yud"
+    },
+    {
+      "input": "yue",
+      "tag": "yue-Hant"
+    },
+    {
+      "input": "zaa",
+      "tag": "zaa"
+    },
+    {
+      "input": "zab",
+      "tag": "zab"
+    },
+    {
+      "input": "zac",
+      "tag": "zac"
+    },
+    {
+      "input": "zad",
+      "tag": "zad"
+    },
+    {
+      "input": "zae",
+      "tag": "zae"
+    },
+    {
+      "input": "zaf",
+      "tag": "zaf"
+    },
+    {
+      "input": "zai",
+      "tag": "zap"
+    },
+    {
+      "input": "zam",
+      "tag": "zam"
+    },
+    {
+      "input": "zao",
+      "tag": "zao"
+    },
+    {
+      "input": "zaq",
+      "tag": "zaq"
+    },
+    {
+      "input": "zar",
+      "tag": "zar"
+    },
+    {
+      "input": "zas",
+      "tag": "zas"
+    },
+    {
+      "input": "zat",
+      "tag": "zat"
+    },
+    {
+      "input": "zav",
+      "tag": "zav"
+    },
+    {
+      "input": "zaw",
+      "tag": "zaw"
+    },
+    {
+      "input": "zax",
+      "tag": "zax"
+    },
+    {
+      "input": "zca",
+      "tag": "zca"
+    },
+    {
+      "input": "zch",
+      "tag": "zch"
+    },
+    {
+      "input": "zeh",
+      "tag": "zeh"
+    },
+    {
+      "input": "zgb",
+      "tag": "zgb"
+    },
+    {
+      "input": "zgm",
+      "tag": "zgm"
+    },
+    {
+      "input": "zgn",
+      "tag": "zgn"
+    },
+    {
+      "input": "zhd",
+      "tag": "zhd"
+    },
+    {
+      "input": "zhn",
+      "tag": "zhn"
+    },
+    {
+      "input": "zlj",
+      "tag": "zlj"
+    },
+    {
+      "input": "zlm",
+      "tag": "zlm"
+    },
+    {
+      "input": "zln",
+      "tag": "zln"
+    },
+    {
+      "input": "zlq",
+      "tag": "zlq"
+    },
+    {
+      "input": "zmi",
+      "tag": "zmi"
+    },
+    {
+      "input": "zoo",
+      "tag": "zoo"
+    },
+    {
+      "input": "zpa",
+      "tag": "zpa"
+    },
+    {
+      "input": "zpb",
+      "tag": "zpb"
+    },
+    {
+      "input": "zpc",
+      "tag": "zpc"
+    },
+    {
+      "input": "zpd",
+      "tag": "zpd"
+    },
+    {
+      "input": "zpe",
+      "tag": "zpe"
+    },
+    {
+      "input": "zpf",
+      "tag": "zpf"
+    },
+    {
+      "input": "zpg",
+      "tag": "zpg"
+    },
+    {
+      "input": "zph",
+      "tag": "zph"
+    },
+    {
+      "input": "zpi",
+      "tag": "zpi"
+    },
+    {
+      "input": "zpj",
+      "tag": "zpj"
+    },
+    {
+      "input": "zpk",
+      "tag": "zpk"
+    },
+    {
+      "input": "zpl",
+      "tag": "zpl"
+    },
+    {
+      "input": "zpm",
+      "tag": "zpm"
+    },
+    {
+      "input": "zpn",
+      "tag": "zpn"
+    },
+    {
+      "input": "zpo",
+      "tag": "zpo"
+    },
+    {
+      "input": "zpp",
+      "tag": "zpp"
+    },
+    {
+      "input": "zpq",
+      "tag": "zpq"
+    },
+    {
+      "input": "zpr",
+      "tag": "zpr"
+    },
+    {
+      "input": "zps",
+      "tag": "zps"
+    },
+    {
+      "input": "zpt",
+      "tag": "zpt"
+    },
+    {
+      "input": "zpu",
+      "tag": "zpu"
+    },
+    {
+      "input": "zpv",
+      "tag": "zpv"
+    },
+    {
+      "input": "zpw",
+      "tag": "zpw"
+    },
+    {
+      "input": "zpx",
+      "tag": "zpx"
+    },
+    {
+      "input": "zpy",
+      "tag": "zpy"
+    },
+    {
+      "input": "zpz",
+      "tag": "zpz"
+    },
+    {
+      "input": "zqe",
+      "tag": "zqe"
+    },
+    {
+      "input": "zsm",
+      "tag": "ms"
+    },
+    {
+      "input": "zsr",
+      "tag": "zsr"
+    },
+    {
+      "input": "zte",
+      "tag": "zte"
+    },
+    {
+      "input": "ztg",
+      "tag": "ztg"
+    },
+    {
+      "input": "ztl",
+      "tag": "ztl"
+    },
+    {
+      "input": "ztm",
+      "tag": "ztm"
+    },
+    {
+      "input": "ztn",
+      "tag": "ztn"
+    },
+    {
+      "input": "ztp",
+      "tag": "ztp"
+    },
+    {
+      "input": "ztq",
+      "tag": "ztq"
+    },
+    {
+      "input": "zts",
+      "tag": "zts"
+    },
+    {
+      "input": "ztt",
+      "tag": "ztt"
+    },
+    {
+      "input": "ztu",
+      "tag": "ztu"
+    },
+    {
+      "input": "ztx",
+      "tag": "ztx"
+    },
+    {
+      "input": "zty",
+      "tag": "zty"
+    },
+    {
+      "input": "zyb",
+      "tag": "za"
+    },
+    {
+      "input": "zyg",
+      "tag": "zyg"
+    },
+    {
+      "input": "zyj",
+      "tag": "zyj"
+    },
+    {
+      "input": "zyn",
+      "tag": "zyn"
+    },
+    {
+      "input": "zzj",
+      "tag": "zzj"
+    },
+    {
+      "input": "ajp-Latn",
+      "tag": "apc-Latn"
+    },
+    {
+      "input": "ajt-TN",
+      "tag": "aeb-TN"
+    },
+    {
+      "input": "gom-IN",
+      "tag": "kok-IN"
+    },
+    {
+      "input": "tw-Latn",
+      "tag": "ak-Latn"
+    },
+    {
+      "input": "knn-Latn",
+      "tag": "knn-Latn"
+    },
+    {
+      "input": "mnk-Latn",
+      "tag": "mnk-Latn"
+    }
+  ]
+}
