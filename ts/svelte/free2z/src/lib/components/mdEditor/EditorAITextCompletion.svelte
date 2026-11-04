@@ -166,6 +166,7 @@
         }
         if (refusal.key_resolved === true) {
           pending = null;
+          quote = null;
           localStorage.removeItem(pendingKey(submittedActor));
         }
         throw new Error("generation");
