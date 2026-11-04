@@ -833,8 +833,10 @@ class AIModel(models.Model):
     supports_logprobs = models.BooleanField(default=False, db_default=False)
     supports_penalties = models.BooleanField(default=False, db_default=False)
     temperature_top_p_exclusive = models.BooleanField(default=False, db_default=False)
-    sampling_temperature = models.BooleanField(null=True, default=None)
-    sampling_top_p = models.BooleanField(null=True, default=None)
+    # NULL is "not declared". blank=True lets full_clean accept that state;
+    # BooleanField rejects None when blank stays false, even with null=True.
+    sampling_temperature = models.BooleanField(null=True, blank=True, default=None)
+    sampling_top_p = models.BooleanField(null=True, blank=True, default=None)
     supports_reasoning_effort = models.BooleanField(
         default=False,
         db_default=False,

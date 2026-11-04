@@ -9,6 +9,6 @@ class Migration(migrations.Migration):
         migrations.AddField(model_name="aimodel", name="supports_logprobs", field=models.BooleanField(default=False, db_default=False)),
         migrations.AddField(model_name="aimodel", name="supports_penalties", field=models.BooleanField(default=False, db_default=False)),
         migrations.AddField(model_name="aimodel", name="temperature_top_p_exclusive", field=models.BooleanField(default=False, db_default=False)),
-        migrations.AddField(model_name="aimodel", name="sampling_temperature", field=models.BooleanField(null=True, default=None)),
-        migrations.AddField(model_name="aimodel", name="sampling_top_p", field=models.BooleanField(null=True, default=None)),
+        migrations.AddField(model_name="aimodel", name="sampling_temperature", field=models.BooleanField(null=True, blank=True, default=None)),
+        migrations.AddField(model_name="aimodel", name="sampling_top_p", field=models.BooleanField(null=True, blank=True, default=None)),
     ]
