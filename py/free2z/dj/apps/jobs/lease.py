@@ -11,9 +11,10 @@ a PEER's startup and deletes the worker row (``sql/schema.sql:553-561``),
 never re-registers (``schema.sql:542-549``). So a live worker that lagged
 once -- a Cloud SQL blip during a rolling deploy -- is "orphaned" for the
 life of the process, and ``select_stalled_jobs_by_heartbeat`` counts a
-``worker_id IS NULL`` row at any age. That ambiguity is the only reason
-the merged reclaimer (``reclaim.py``) needs a 900-2100s *age* threshold,
-and that age is the entire healing latency of.
+``worker_id IS NULL`` row at any age. For an unleased attempt that
+ambiguity makes an immediate retry unsafe. Task budgets still bound
+ordinary recovery; lease silence is only one
+part of the recovery latency (see the recovery contract below).
 
 WHAT THIS DOES INSTEAD
 ----------------------
@@ -84,7 +85,10 @@ So ``JOB_LEASE_STALE_SECONDS`` must exceed ``CLOUD_SQL_FAILOVER_BUDGET_
 SECONDS + beat_seconds() + handoff_timeout_seconds()`` (90 + 15 + 7 =
 112 at the defaults) and ``RELEASE_ATTEMPTS`` hand-offs; the registry
 test pins both inequalities. The price is healing latency after a real
-crash -- 180s plus a sweep, instead of 60s -- and it is the right
+crash -- at least 180s of silence plus scheduling and sweep delay,
+not a one-minute guarantee. Ordinary attempts also wait for their task
+runtime plus margin and a stale/missing worker heartbeat; only matching
+durable abandonment evidence bypasses those latter gates. This is the right
 price: a late heal is a slow queue, an early one is a double charge.
 ``procrastinate_lease_beat_failed`` (per process, per beat) and
 ``procrastinate_lease_fenced`` (per fence) are counted by
@@ -131,10 +135,15 @@ SIGKILLed between its exit DELETE and its ``finish_job`` -- a window
 this module CREATES, because the ownership check has to precede the
 status write for the fence to mean anything. For all of those the
 lease says nothing, and the reclaimer falls back to what it had before
-this module existed: procrastinate's worker heartbeat (``worker_id IS
-NULL`` or ``last_heartbeat`` stale) plus the age floor. A live worker
-is never heartbeat-stale, so the SIGKILL window heals and the
-finished-and-about-to-persist run is left alone.
+this module existed: a stale/missing worker heartbeat AND the task's
+finite runtime plus margin (at least the age floor). A missing
+``worker_id`` alone is not death evidence: a peer can prune a live worker.
+A live heartbeat with no lease remains protected even past that runtime,
+which can be an estimate. ``NEVER`` bodies are not replayed. A SIGKILL
+window for a reclaimable task heals once these gates pass; a live run
+finished and about to persist is left alone. A confirmed beat-thread stall
+requests graceful shutdown with a finite hard-exit backstop, so a wedged
+process cannot heartbeat indefinitely and hide unleased acquisitions.
 
 THE FENCE IS A HANDOVER: A FENCED RUN WRITES NOTHING
 ----------------------------------------------------
@@ -323,13 +332,15 @@ second charge (the fresh reviewers' HIGH in round 1, MEDIUM in round 2).
   is queued BEHIND the outstanding DELETEs on the one thread. If a late
   DELETE lands after all and removes our row, the re-INSERT recreates
   it; nobody beats it (``release`` unregistered it), so the reclaimer
-  finds it silent and requeues through the leased path. If the row is
-  still there (no DELETE ran) or is a replacement's, ``DO NOTHING``
+  can find the durable abandonment marker after the silence and age gates.
+  If the row is still there (no DELETE ran) or is a replacement's, ``DO NOTHING``
   touches nothing. Either way a ``doing`` row this run could not verify
-  is one the reclaimer WILL find, within ``JOB_LEASE_STALE_SECONDS``
-  plus a sweep -- a ``NEVER`` task included, which the fallback path
-  would not recover even after a restart. And because the outage that
-  made the DELETE uncertain is usually still going on when the
+  is discoverable after ``JOB_LEASE_STALE_SECONDS`` of silence AND the
+  age floor, plus scheduling and sweep delay, provided the cleanup commits.
+  An ``after_body`` marker never authorizes a ``NEVER`` replay; only matching
+  ``before_body`` proof can do that. If cleanup cannot commit, the ordinary
+  stale/missing-worker and task-runtime guards still apply. And because the
+  outage that made the DELETE uncertain is usually still going on when the
   re-INSERT runs, a cleanup that fails is **retried one beat later**,
   up to ``CLEANUP_ATTEMPTS`` times (twelve beats: longer than a
   failover -- and it is beats of ELAPSED time, not wake-ups, because
@@ -603,10 +614,20 @@ BEAT_FAILED_EVENT = 'procrastinate_lease_beat_failed'
 # its deadline plus outcome margin is evidence of a stall, including beats and
 # releases with no acquisition running. Queued handoff timeouts alone do not
 # establish that: an earlier batch may still be making valid progress. Restart
-# requests are bounded to once until an acquisition later succeeds. Reclaimer eligibility still requires a stale/missing worker
-# heartbeat.
+# requests are bounded to once until an acquisition later succeeds. A restart
+# already armed remains irreversible even if an acquisition later succeeds.
+# Ordinary reclaimer eligibility still requires a stale/missing worker heartbeat.
 _acquire_stall_lock = threading.Lock()
 _acquire_stall_restart_sent = False
+
+# A restart is irreversible once requested. Give unrelated task bodies a
+# bounded chance to drain through Procrastinate's SIGTERM handler, then exit
+# even if shutdown is waiting on a sync body or cancellation is suppressed.
+# This is a process-local guarantee, not a claim about supervisor policy.
+RESTART_EXIT_GRACE_SECONDS = 30.0
+RESTART_EXIT_CODE = 75
+_restart_exit_lock = threading.Lock()
+_restart_exit_armed = False
 
 
 class LeaseLost(Exception):
@@ -655,7 +676,22 @@ def handoff_timeout_seconds() -> float:
 
 
 def _request_worker_restart() -> None:
-    """Ask the worker process supervisor to restart this wedged process."""
+    """Request graceful shutdown, then guarantee a finite fail-closed exit.
+
+    Arm BEFORE signalling: a SIGTERM handler can itself block. The daemon
+    timer uses os._exit so stuck Python cleanup/cancellation cannot keep the
+    worker alive. Later progress never cancels an already requested shutdown,
+    and repeated requests cannot extend the grace period or signal twice.
+    """
+    global _restart_exit_armed
+    with _restart_exit_lock:
+        if _restart_exit_armed:
+            return
+        _restart_exit_armed = True
+        timer = threading.Timer(
+            RESTART_EXIT_GRACE_SECONDS, os._exit, args=(RESTART_EXIT_CODE,))
+        timer.daemon = True
+        timer.start()
     os.kill(os.getpid(), signal.SIGTERM)
 
 
@@ -683,8 +719,8 @@ def _record_acquire_outcome(exc: BaseException | None, *, beater=None) -> None:
             {'event': 'procrastinate_lease_batch_stall_restart'},
             'ERROR',
             'procrastinate lease thread remained blocked beyond its active '
-            'batch deadline; sending SIGTERM so the worker supervisor '
-            'restarts this process',
+            'batch deadline; requesting bounded process shutdown so an '
+            'external supervisor can restart it',
         )
         _request_worker_restart()
 

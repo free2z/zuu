@@ -16,4 +16,4 @@ ENV BUILD_SHA=$BUILD_SHA
 LABEL org.opencontainers.image.source="https://github.com/free2z/zuu" org.opencontainers.image.revision=$BUILD_SHA
 WORKDIR /py
 ENTRYPOINT ["python"]
-CMD ["-m", "gunicorn", "dj.free2z.wsgi:application", "--bind", "0.0.0.0:8000"]
+CMD ["-m", "gunicorn", "dj.free2z.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--timeout", "120"]

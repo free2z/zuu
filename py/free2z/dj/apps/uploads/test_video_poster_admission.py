@@ -26,7 +26,7 @@ from django.utils import timezone
 from procrastinate.contrib.django import app
 from procrastinate.contrib.django.models import ProcrastinateJob
 
-from dj.apps.jobs.models import QuarantinedJob
+from dj.apps.jobs.models import JobLease, QuarantinedJob
 from dj.apps.uploads import tasks, video_utils
 from dj.apps.uploads.models import GenericFile, ImageVariant
 
@@ -217,7 +217,10 @@ def test_the_sweep_never_re_attempts_a_video_that_had_a_job(creator_factory, cap
 def test_admission_counts_nonterminal_jobs_until_terminal(
     creator_factory,
 ):
-    """Requeueing a running job does not release its admission slot."""
+    """Simulate recovery in PostgreSQL and exercise production admission counting.
+
+    SQL changes the statuses; this does not execute the reclaimer or a worker.
+    """
     owner = creator_factory()
     stale_video = _video(owner, "stale.mp4")
     fresh_video = _video(owner, "fresh.mp4")
@@ -228,9 +231,14 @@ def test_admission_counts_nonterminal_jobs_until_terminal(
             "UPDATE procrastinate_jobs SET status='doing' WHERE id = ANY(%s)",
             [[stale_id, fresh_id]],
         )
+    old = timezone.now() - timedelta(hours=2)
+    JobLease.objects.create(
+        job_id=stale_id, token=uuid4(), task_name=TASK, queue="images",
+        started_at=old, last_beat_at=old, attempt=0,
+    )
     assert tasks._live_poster_jobs_for_owner(owner.pk) == 2
 
-    # Reclaiming it to todo still occupies the same slot.
+    # Simulate the requeue to todo; it still occupies the same slot.
     with connection.cursor() as cursor:
         cursor.execute(
             "UPDATE procrastinate_jobs SET status='todo' WHERE id=%s",

@@ -52,10 +52,11 @@ const KNOWN_SOURCES = new Set(["crates.io", "local", "git"]);
 // different dependency and must fail here until someone reviews it. Remove this
 // with the patch, when `bip32 0.6.0` is published.
 export const REVIEWED_GIT_SOURCES = new Set([
-  // PR2265 preserves deployed MLS draft derivation with fixed DRBG/KEM.
+  // PR2265 preserves deployed MLS draft derivation with fixed DRBG/KEM; PR2266
+  // adds strict small-order Ed25519 screening to the same provider source.
   // Retire with the exact registered bridge in docs/DEPENDENCIES.md.
-  "git+https://github.com/free2z/openmls?rev=7ded6597be8ddf7004046c8564fa97090d5e9633" +
-    "#7ded6597be8ddf7004046c8564fa97090d5e9633",
+  "git+https://github.com/0bkevin/openmls?rev=6e96a4411ea2669f05ac22dd0e0424c1c93f5055" +
+    "#6e96a4411ea2669f05ac22dd0e0424c1c93f5055",
   "git+https://github.com/free2z/crates?rev=131d490ef75ccd23111cc7f3df91e4a88fc971ae" +
     "#131d490ef75ccd23111cc7f3df91e4a88fc971ae",
 ]);

@@ -64,3 +64,15 @@ Looking for ideas on where to start? Check out our [issues page](https://github.
 Contributions that are merged and deployed to production are eligible for cryptocurrency rewards (Zcash), typically ranging from 1-3 ZEC for small improvements.
 
 For more detailed guidelines, please refer to our [CONTRIBUTING.md](CONTRIBUTING.md) file.
+
+### Dependency reconciliation (issue #1338)
+
+The lock has Express 4.22.3 and body-parser 1.20.9, both of which request
+`qs ~6.16.0`. The override moves the resolved qs from 6.16.1 to 6.17.1;
+[GHSA-w4cr-vjpx-p82q](https://github.com/ljharb/qs/security/advisories/GHSA-w4cr-vjpx-p82q)
+identifies 6.17.0 as fixed. The current Express 4 and body-parser 1 releases
+remain in place, rather than changing the dev server's major API. The lock has
+no `query-string` or `decode-uri-component` dependency, so query-string 10
+(Node >=22, ESM) has no consumer to upgrade and the unused decoder override
+is removed. Reassess it if a future graph introduces a consumer: URL decoding
+and module compatibility belong to that consumer, not this absent path.

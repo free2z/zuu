@@ -12,6 +12,7 @@ import {
   localizedError,
   translateMessage,
 } from "$lib/i18n-message";
+import { markStreamPerformance } from "$lib/utils/rtk-ui";
 
 const RTK_MESSAGES = {
   mediaPermissionWarning: defineMessage(
@@ -81,6 +82,7 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
     liveStreamStore.setConnectionStatus("initializing");
 
     try {
+      markStreamPerformance("rtk-init-start");
       meeting = await RealtimeKitClient.init({
         authToken,
         defaults: {
@@ -90,6 +92,7 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
         },
         overrides,
       });
+      markStreamPerformance("rtk-init-end");
     } catch (initError: unknown) {
       const err = initError as { message?: string; name?: string };
       signal?.throwIfAborted();
@@ -178,7 +181,9 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
     // provider join failures reach the viewer's normal retry/error path.
     if (!isHost && streamType !== "private") {
       try {
+        markStreamPerformance("meeting-join-start");
         await meeting.join();
+        markStreamPerformance("meeting-join-end");
         signal?.throwIfAborted();
         liveStreamStore.setConnectionStatus("connected");
       } catch (joinError) {
