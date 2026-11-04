@@ -46,7 +46,7 @@ from rest_framework import status
 
 
 from dj.apps.g12f.models import Creator
-from dj.apps.tuzis.welcome import identity_welcome_key, welcome_new_account
+from dj.apps.tuzis.welcome import identity_welcome_key, remember_welcome_grant, welcome_new_account
 from dj.apps.identity.auth_context import (
     require_recent_auth, RecentAuthenticationRequired, record_existing_session_reauth,
 )
@@ -957,11 +957,12 @@ class SocialLoginView(APIView):
             # (AtomicMiddleware). Never fails the sign-up.
             # Keyed on the provider identity, not the account: an unlinked
             # identity that provisions a new account gets no second grant.
-            welcome_new_account(
+            grant = welcome_new_account(
                 creator, path=f"social:{provider}",
                 identity_key=identity_welcome_key(
                     provider, uid),
             )
+            remember_welcome_grant(request, grant)
             created = True
             linked = True
 

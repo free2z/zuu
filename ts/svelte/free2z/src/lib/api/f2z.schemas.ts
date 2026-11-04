@@ -1836,6 +1836,11 @@ export interface CreatorProfileDetail {
   banner_image?: FeaturedImage | null;
   /** Active PostgreSQL snapshot of this committed 2Z balance, encoded as canonical decimal xmax:xip_count. Compare xmax ascending as an unsigned 64-bit integer, then xip_count descending. Applies to read-only observations from the same database; absent on representations without a balance snapshot. */
   readonly balance_snapshot?: string;
+  /**
+     * Confirmed welcome grant in this signup session; null otherwise.
+     * @nullable
+     */
+  readonly welcome_grant: string | null;
 }
 
 /**

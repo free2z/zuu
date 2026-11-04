@@ -1802,7 +1802,7 @@
     "notCharged": "Vous n’avez pas été débité.",
     "writeIntro": "Écrire votre zPage d’introduction",
     "buy": "Acheter des 2Z",
-    "postCost": "Une publication coûte 1 2Z, environ un centime. C’est pour cela qu’il n’y a pas de spam ici. Vous avez {balance} 2Z.",
+    "postCost": "Cette publication coûte {cost} 2Z. Ce petit coût décourage le spam. Vous avez {balance} 2Z.",
     "giftIntro": "Écrivez une zPage pour vous présenter : les membres peuvent offrir des 2Z aux auteurs qu’ils veulent lire davantage.",
     "giftWaiting": "Votre zPage est votre présentation. Les membres peuvent offrir des 2Z aux auteurs qu’ils veulent lire davantage.",
     "yourPages": "Vos zPages",
@@ -3292,5 +3292,12 @@
       "invalid": "Ce lien a expiré. Reconnectez-vous pour garder votre compte.",
       "failed": "Votre compte n'a pas pu être gardé. Veuillez réessayer."
     }
+  },
+  "credits": {
+    "title": "Pourquoi un centime par publication ?",
+    "welcome": "Bienvenue ! Vous avez reçu {amount} 2Z en crédits de plateforme. Publier coûte à partir de 1 2Z, environ un centime de dollar, pour garder Free2Z sans publicité et décourager le spam.",
+    "dismiss": "Fermer le message de bienvenue",
+    "model": "Les 2Z sont des crédits pour les actions sur Free2Z. Publier coûte à partir de 1 2Z, environ un centime de dollar. Ce petit coût décourage le spam et aide à garder Free2Z sans publicité. Votre première zPage est gratuite ; en créer une autre nécessite un solde de 1 2Z sans le dépenser.",
+    "sources": "Les nouveaux comptes éligibles reçoivent des crédits de bienvenue. Vous pouvez acheter des 2Z ou recevoir des cadeaux de membres qui souhaitent vous lire davantage. Présentez-vous dans une zPage pour que les lecteurs vous découvrent."
   }
 }

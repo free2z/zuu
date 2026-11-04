@@ -226,6 +226,7 @@ def test_social_sign_up_grants_the_welcome_2z_and_sign_in_again_does_not(
     first = _social_login(api_client, mocker, provider, f"{provider}-uid-1")
     assert first.status_code == 200, first.content
     assert first.data["created"] is True
+    assert Decimal(api_client.session["welcome_grant"]["amount"]) == 10
     creator = SocialIdentity.objects.get(
         provider=provider, provider_uid=f"{provider}-uid-1").creator
     key = welcome.identity_welcome_key(provider, f"{provider}-uid-1")
@@ -234,6 +235,7 @@ def test_social_sign_up_grants_the_welcome_2z_and_sign_in_again_does_not(
     second = _social_login(APIClient(), mocker, provider, f"{provider}-uid-1")
     assert second.status_code == 200, second.content
     assert second.data["created"] is False
+    assert "welcome_grant" not in second.wsgi_request.session
     assert_welcomed_once(creator, key=key)
 
 
@@ -318,6 +320,7 @@ def test_zcash_wallet_sign_up_is_exempt_and_grants_nothing(
 def test_twitter_sign_up_grants_the_welcome_2z_and_sign_in_again_does_not(mocker):
     response = _twitter_callback(Client(), mocker, "brand-new-x")
     assert response.status_code == 302, response.content
+    assert Decimal(response.wsgi_request.session["welcome_grant"]["amount"]) == 10
     creator = TwitterProfile.objects.get(twitter_id="brand-new-x").creator
     assert creator is not None
     key = welcome.identity_welcome_key("x", "brand-new-x")
@@ -779,3 +782,48 @@ def test_the_insert_site_scanner_sees_every_shape():
                    "UserProfile.objects.get_or_create(user=u)",
                    "Creator.objects.filter(pk=1).update(x=1)"]:
         assert not list(_account_insert_sites(ast.parse(benign))), benign
+
+
+@pytest.mark.parametrize("amount", [0, 3, 10])
+def test_signup_presentation_uses_actual_receipt(api_client, settings, amount, creator_factory):
+    settings.WELCOME_GRANT_2Z = amount
+    assert _password_sign_up(api_client, "welcome-copy").status_code == 201
+    creator = Creator.objects.get(username="welcome-copy")
+    login = api_client.post("/api/auth/login/", {
+        "username": creator.username, "password": PASSWORD,
+        "captcha_result": "ci-valid-captcha",
+    }, format="json")
+    assert login.status_code == 204, login.content
+    response = api_client.get("/api/auth/user/")
+    assert response.status_code == 200, response.content
+    assert response.data["id"] == creator.pk
+    actual = response.data["welcome_grant"]
+    if amount:
+        assert Decimal(actual) == Decimal(amount)
+    else:
+        assert actual is None
+
+    # The real private endpoint must not expose another account's marker,
+    # even if an older signup receipt remains in this session.
+    other = creator_factory()
+    api_client.force_login(other)
+    session = api_client.session
+    session["welcome_grant"] = {"creator_id": creator.pk, "amount": "10.000"}
+    session.save()
+    response = api_client.get("/api/auth/user/")
+    assert response.status_code == 200, response.content
+    assert response.data["id"] == other.pk
+    assert response.data["welcome_grant"] is None
+
+    # A fresh existing-account login has no signup receipt to display.
+    fresh = APIClient()
+    fresh.force_login(creator)
+    response = fresh.get("/api/auth/user/")
+    assert response.status_code == 200, response.content
+    assert response.data["welcome_grant"] is None
+
+
+def test_failed_grant_has_no_welcome_presentation(api_client, mocker):
+    mocker.patch("dj.apps.tuzis.welcome.grant_welcome", side_effect=RuntimeError("fixture"))
+    assert _password_sign_up(api_client, "welcome-no-copy").status_code == 201
+    assert "welcome_grant" not in api_client.session

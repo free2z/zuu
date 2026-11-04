@@ -11909,6 +11909,11 @@ components:
             as canonical decimal xmax:xip_count. Compare xmax ascending as an unsigned
             64-bit integer, then xip_count descending. Applies to read-only observations
             from the same database; absent on representations without a balance snapshot.
+        welcome_grant:
+          type: string
+          nullable: true
+          readOnly: true
+          description: Confirmed welcome grant in this signup session; null otherwise.
       required:
       - can_stream
       - fans_count
@@ -11920,6 +11925,7 @@ components:
       - tuzis
       - twitter
       - username
+      - welcome_grant
       - zpages
     CreatorProfileUpdate:
       type: object
