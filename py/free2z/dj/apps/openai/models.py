@@ -852,6 +852,14 @@ class AIModel(models.Model):
         ),
     )
 
+    tools_require_effort_none = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Signed controls.tools_require_effort_none: tools require the provider's "
+        "non-reasoning default; explicit non-none effort with tools is refused before "
+        "a hold (zuu#1177). Enable only with reviewed provider evidence.",
+    )
+
     objects = AIModelQuerySet.as_manager()
 
     class Meta:

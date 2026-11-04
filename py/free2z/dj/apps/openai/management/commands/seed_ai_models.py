@@ -298,6 +298,13 @@ NO_CHAT_COMPLETIONS_TOOLS = frozenset({
 TOOL_MODELS = STRUCTURED_OUTPUT_MODELS - NO_CHAT_COMPLETIONS_TOOLS
 STRICT_TOOL_MODELS = TOOL_MODELS
 
+# Official OpenAI migrate-to-responses guide (verified 2026-11-04):
+# GPT-5.4+ Chat Completions tools require effort none. These are the rows
+# that admit tools and default to none (their model pages). Frozen in 0032.
+TOOLS_REQUIRE_EFFORT_NONE = frozenset({
+    (OPENAI, "gpt-5.4"), (OPENAI, "gpt-5.4-mini"), (OPENAI, "gpt-5.4-nano"),
+})
+
 # Signed ``capabilities.reasoning_effort`` + ``controls.effort_levels``
 # (zuu#1170, migration 0028). Each model's levels from its own page on
 # developers.openai.com/api/docs/models/<id> ("Reasoning.effort supports:..."),
@@ -593,6 +600,7 @@ class Command(BaseCommand):
                     "supports_strict_tools": (provider, model) in STRICT_TOOL_MODELS,
                     "supports_reasoning": (provider, model) in REASONING_EFFORT_LEVELS,
                     "supports_reasoning_effort": (provider, model) in REASONING_EFFORT_LEVELS,
+                    "tools_require_effort_none": (provider, model) in TOOLS_REQUIRE_EFFORT_NONE,
                     "reasoning_effort_levels": list(
                         REASONING_EFFORT_LEVELS.get((provider, model), ())),
                     **({"ttfb_timeout_ms": REASONING_TIMEOUT_MS,

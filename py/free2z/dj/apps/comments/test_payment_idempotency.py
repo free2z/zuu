@@ -182,3 +182,53 @@ def test_simultaneous_duplicate_votes_debit_once(
     comment.refresh_from_db()
     assert voter.tuzis == Decimal("9")
     assert comment.tuzis == 1
+
+
+@pytest.mark.parametrize("route_kind", ["root", "page", "conversation", "reply"])
+def test_all_post_refusals_share_cost_snapshot_and_charge_nothing(
+    api_client, creator_factory, route_kind,
+):
+    from dj.apps.g12f.models import zPage
+    from dj.apps.openai.models import AIModel, Conversation
+    author = creator_factory(tuzis=Decimal("0"))
+    owner = creator_factory()
+    parent = Comment.objects.create(author=owner, content="parent")
+    if route_kind == "page":
+        page = zPage.objects.create(creator=owner, title="Public", content="hi", is_published=True, free2zaddr=str(uuid.uuid4()), vanity="credits-page")
+        url = f"/api/comments/zpage/{page.free2zaddr}/"
+    elif route_kind == "conversation":
+        model = AIModel.objects.create(model="credit-test", display_name="Test", max_tokens=4096)
+        conversation = Conversation.objects.create(user=owner, display_name="Public", is_public=True, ai_model=model)
+        url = f"/api/comments/ai_conversation/{conversation.id}/"
+    elif route_kind == "reply":
+        url = f"/api/comments/{parent.uuid}/replies/"
+    else:
+        url = "/api/comments/"
+    api_client.force_authenticate(user=author)
+    before = Comment.objects.count()
+    response = api_client.post(url, {"content": "keep my draft", "tuzis": 3}, format="json", HTTP_IDEMPOTENCY_KEY=_key())
+    assert response.status_code == 402, response.data
+    assert response.data["code"] == "insufficient_funds"
+    assert Decimal(response.data["cost"]) == 3
+    assert Decimal(response.data["balance"]) == 0
+    assert Decimal(response.data["shortfall"]) == 3
+    author.refresh_from_db()
+    assert author.tuzis == 0
+    assert Comment.objects.count() == before
+
+
+def test_every_post_refusing_endpoint_documents_the_shared_402():
+    from pathlib import Path
+    import yaml
+    schema = yaml.safe_load((Path(__file__).parents[2] / "free2z/openapi/f2z.yaml").read_text())
+    # Both content types (zpage, ai_conversation) use the same typed route.
+    for path, name in [
+        ("/api/comments/", "InsufficientFundsError"),
+        ("/api/comments/{type}/{uuid}/", "InsufficientFundsError"),
+        ("/api/comments/{uuid}/replies/", "InsufficientFundsError"),
+        ("/api/zpage/", "ZPageCreateNeeds2ZError"),
+    ]:
+        response = schema["paths"][path]["post"]["responses"]["402"]
+        assert response["content"]["application/json"]["schema"]["$ref"].endswith("/" + name)
+        fields = schema["components"]["schemas"][name]
+        assert {"code", "cost", "balance", "shortfall"} <= set(fields["required"])
