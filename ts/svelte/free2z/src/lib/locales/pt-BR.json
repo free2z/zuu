@@ -1106,7 +1106,21 @@
       "libraryEmpty": "Você ainda não enviou documentos PDF.",
       "cloudImageAlt": "Documento PDF da sua nuvem",
       "imageAccessTitle": "Seus leitores não poderiam ver este documento PDF"
-    }
+    },
+    "aiTextTitle": "Draft with AI",
+    "aiTextPrompt": "Prompt (sent to the selected provider)",
+    "aiTextPromptPlaceholder": "Describe the text you want. Draft content is never sent automatically.",
+    "aiTextModel": "Model",
+    "aiTextQuote": "Show price and destination",
+    "aiTextLoadError": "AI text models are unavailable. Try again later.",
+    "aiTextGenerateError": "Text generation failed. Review your choice and try again.",
+    "aiTextRetention": "Provider privacy and retention policy",
+    "aiTextWorking": "Generating…",
+    "aiTextSubmit": "Generate text (up to {price} 2Z)",
+    "aiTextPreview": "Preview — nothing has been inserted yet",
+    "aiTextCharged": "Charged {price} 2Z",
+    "aiTextAccept": "Insert text",
+    "aiTextDiscard": "Discard"
   },
   "dashboard": {
     "pages": {
