@@ -91,6 +91,13 @@ class MeetingJoinRequestSerializer(serializers.Serializer):
     """Body of a start/join POST to a public meeting."""
 
     expected_actor_id = ActorIDField(required=False, help_text='Original viewer account ID; required for a first-party paid PPV join under the active economic policy.')
+    admission_idempotency_key = serializers.UUIDField(
+        required=False,
+        help_text=(
+            'Stable UUID for one paid PPV join attempt. Reuse it when retrying '
+            'an ambiguous provider response; generate a new one for a new join.'
+        ),
+    )
     role = serializers.ChoiceField(
         choices=[HOST_ROLE, VIEWER_ROLE],
         required=False,

@@ -1,19 +1,24 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
-import { AUTH_STORE_LOADER } from "./dev-source-module";
+import { AUTH_STORE_LOADER, devSourceModuleLoader } from "./dev-source-module";
 
 const USER = "streamaudienceowner";
 const DASHBOARD = `/${USER}/dashboard/stream`;
 const SECRET = "owner-a-private-secret";
+const LIVE_STREAM_STORE_LOADER = devSourceModuleLoader(
+  "/src/lib/stores/liveStreamStore.ts",
+);
 
 declare global {
   interface Window {
     hostTest: {
       copied: string[];
       sdkCalls: any[];
+      joinCalls: number;
       left: number;
       finishProvider: () => void;
+      finishSecondProvider: () => void;
       finishLeave: () => void;
-      endRoom: () => void;
+      endRoom: (state?: string) => void;
     };
   }
 }
@@ -31,8 +36,10 @@ async function prepareSession(page: Page) {
     window.hostTest = {
       copied: [],
       sdkCalls: [],
+      joinCalls: 0,
       left: 0,
       finishProvider: () => {},
+      finishSecondProvider: () => {},
       finishLeave: () => {},
       endRoom: () => {},
     };
@@ -120,9 +127,25 @@ async function stubProvider(
   held = false,
   canRecord = false,
   heldLeave = false,
+  failDuringInit = false,
+  failSecondInit = false,
+  failSecondInitWithRoomFailure = false,
+  terminalDuringInit?: "kicked" | "rejected",
+  terminalSecondInit?: "kicked" | "rejected",
+  heldSecondInit = false,
 ) {
   await page.evaluate(
-    async ({ held, canRecord, heldLeave }) => {
+    async ({
+      held,
+      canRecord,
+      heldLeave,
+      failDuringInit,
+      failSecondInit,
+      failSecondInitWithRoomFailure,
+      terminalDuringInit,
+      terminalSecondInit,
+      heldSecondInit,
+    }) => {
       const text = await (await fetch("/src/lib/utils/rtk-manager.ts")).text();
       const path = text.match(
         /from \"([^\"]*cloudflare_realtimekit[^\"]*)\"/,
@@ -132,6 +155,9 @@ async function stubProvider(
       const { default: SDK } = await import(path);
       const meeting = {
         meta: { meetingTitle: "owner-a-room" },
+        join: async () => {
+          window.hostTest.joinCalls++;
+        },
         recording: {
           recordingState: "IDLE",
           addListener: () => {},
@@ -140,12 +166,38 @@ async function stubProvider(
         self: {
           on: (
             name: string,
-            callback: (event: { state: string }) => Promise<void>,
+            callback: (event: any) => Promise<void> | void,
           ) => {
-            if (name === "roomLeft")
-              window.hostTest.endRoom = () => {
-                void callback({ state: "left" });
+            if (name === "roomLeft") {
+              if (terminalDuringInit) {
+                const state = terminalDuringInit;
+                terminalDuringInit = undefined;
+                callback({ state });
+              }
+              if (terminalSecondInit && window.hostTest.sdkCalls.length === 2) {
+                const state = terminalSecondInit;
+                terminalSecondInit = undefined;
+                callback({ state });
+              }
+              if (failDuringInit) {
+                failDuringInit = false;
+                // The manager installs its store listener before its promise
+                // resolves; this failure precedes the dashboard listener.
+                callback({ state: "failed" });
+              }
+              if (
+                failSecondInitWithRoomFailure &&
+                window.hostTest.sdkCalls.length === 2
+              ) {
+                failSecondInitWithRoomFailure = false;
+                // The retry SDK init has resolved, but the manager is still
+                // attaching its listeners when the room failure arrives.
+                callback({ state: "failed" });
+              }
+              window.hostTest.endRoom = (state = "left") => {
+                void callback({ state });
               };
+            }
           },
           off: () => {},
           permissions: { canRecord },
@@ -165,18 +217,176 @@ async function stubProvider(
       };
       SDK.init = async (options: any) => {
         window.hostTest.sdkCalls.push(options);
+        if (failSecondInit && window.hostTest.sdkCalls.length === 2)
+          throw new Error("synthetic SDK initialization failure");
         if (held) {
           held = false;
           await new Promise<void>((resolve) => {
             window.hostTest.finishProvider = resolve;
           });
         }
+        if (heldSecondInit && window.hostTest.sdkCalls.length === 2) {
+          await new Promise<void>((resolve) => {
+            window.hostTest.finishSecondProvider = resolve;
+          });
+        }
         return meeting;
       };
     },
-    { held, canRecord, heldLeave },
+    {
+      held,
+      canRecord,
+      heldLeave,
+      failDuringInit,
+      failSecondInit,
+      failSecondInitWithRoomFailure,
+      terminalDuringInit,
+      terminalSecondInit,
+      heldSecondInit,
+    },
   );
 }
+
+test("takeover during host retry SDK initialization abandons and cleans up the stale meeting", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(
+    page,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    undefined,
+    undefined,
+    true,
+  );
+  const bodies: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        })
+      : route.fulfill({ json: {} }),
+  );
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+  await page.evaluate(() => window.hostTest.endRoom("failed"));
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(2);
+  await page.evaluate((user) => {
+    const channel = new BroadcastChannel(`f2z:host-seat:${user}`);
+    channel.postMessage({
+      kind: "takeover",
+      session: "new-host",
+      meetingType: "broadcast",
+    });
+    channel.close();
+  }, USER);
+  await expect(page.getByTestId("stream-seat-panel")).toHaveAttribute(
+    "data-seat-state",
+    "superseded",
+  );
+  await page.evaluate(() => window.hostTest.finishSecondProvider());
+  await expect.poll(async () => (await meetingState(page)).room).toBeNull();
+  expect(bodies).toHaveLength(2);
+  await expect(page.getByTestId("host-reconnecting")).toHaveCount(0);
+  await expect
+    .poll(async () => page.evaluate(() => window.hostTest.left))
+    .toBeGreaterThanOrEqual(2);
+});
+
+test("initial host SDK failure does not announce success while recovery is pending", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, false, false, true);
+  const bodies: any[] = [];
+  let finishRetry!: () => void;
+  const retryHeld = new Promise<void>((resolve) => (finishRetry = resolve));
+  await page.route(`**/api/dyte/${USER}/broadcast`, async (route) => {
+    bodies.push(route.request().postDataJSON());
+    if (bodies.length === 2) await retryHeld;
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) =>
+    route.request().method() === "GET"
+      ? route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        })
+      : route.fulfill({ json: {} }),
+  );
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => bodies.length).toBe(2);
+  await expect(
+    page.getByText("The stream started successfully. You are live!", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  finishRetry();
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(2);
+});
+
+test("failed room during gated host initialization retries with the same seat", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, true, false, false, true);
+  const bodies: any[] = [];
+  const releases: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          active: false,
+          host_session: null,
+          meeting_type: null,
+          ttl_seconds: 60,
+        },
+      });
+    releases.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => bodies.length).toBe(1);
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+  await page.evaluate(() => window.hostTest.finishProvider());
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1]).toMatchObject({
+    role: "host",
+    host_session: bodies[0].host_session,
+  });
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(2);
+  expect(releases).toEqual([]);
+});
 
 async function meetingState(page: Page) {
   return page.evaluate(async () => {
@@ -233,6 +443,308 @@ test("same-account private start copies and navigates with the original username
     new URL(`/${USER}/private/${SECRET}`, page.url()).toString(),
   ]);
 });
+
+test("failed host room reinitializes with the same seat and keeps that seat", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page);
+  const bodies: any[] = [];
+  const releases: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          active: false,
+          host_session: null,
+          meeting_type: null,
+          ttl_seconds: 60,
+        },
+      });
+    releases.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => bodies.length).toBe(1);
+  await page.evaluate(() => window.hostTest.endRoom("failed"));
+  await expect.poll(() => bodies.length).toBe(2);
+  expect(bodies[1]).toMatchObject({
+    role: "host",
+    host_session: bodies[0].host_session,
+  });
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(2);
+  expect(releases).toEqual([]);
+  await expect(page.getByTestId("stream-seat-panel")).toHaveCount(0);
+});
+
+test("room failure during host retry initialization releases the seat without retrying forever", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, false, false, false, false, true);
+  const bodies: any[] = [];
+  const releases: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    bodies.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { auth_token: `host-token-${bodies.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          active: false,
+          host_session: null,
+          meeting_type: null,
+          ttl_seconds: 60,
+        },
+      });
+    releases.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+  await page.evaluate(() => window.hostTest.endRoom("failed"));
+
+  await expect(page.getByTestId("host-reconnect")).toBeVisible();
+  await expect.poll(() => releases.length).toBe(1);
+  expect(releases[0]).toMatchObject({
+    action: "release",
+    host_session: bodies[0].host_session,
+  });
+  expect(bodies).toHaveLength(2);
+  expect(bodies[1]).toMatchObject({
+    role: "host",
+    host_session: bodies[0].host_session,
+  });
+  expect(await meetingState(page)).toMatchObject({ calls: 2, room: null });
+  await page.waitForTimeout(300);
+  expect(bodies).toHaveLength(2);
+  expect(releases).toHaveLength(1);
+});
+
+const hostTerminalCases = [
+  {
+    state: "kicked",
+    message:
+      "You were removed from the live room. Reconnect to start a new broadcast.",
+  },
+  {
+    state: "rejected",
+    message:
+      "The live room rejected the connection. Reconnect to start a new broadcast.",
+  },
+] as const;
+
+for (const { state, message } of hostTerminalCases) {
+  test(`${state} during initial host SDK initialization releases the seat and offers reconnect`, async ({
+    page,
+  }) => {
+    await openDashboard(page);
+    await stubProvider(page, false, false, false, false, false, false, state);
+    const bodies: any[] = [];
+    const releases: any[] = [];
+    await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: { auth_token: `host-token-${bodies.length}` },
+      });
+    });
+    await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        });
+      releases.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+
+    await page.getByTestId("stream-start").click();
+    await expect(page.getByTestId("host-reconnect")).toBeVisible();
+    await expect(
+      page.locator("main").getByText(message, { exact: false }),
+    ).toBeVisible();
+    await expect.poll(() => releases.length).toBe(1);
+    expect(releases[0]).toMatchObject({
+      action: "release",
+      host_session: bodies[0].host_session,
+    });
+    expect(await meetingState(page)).toMatchObject({ calls: 1, room: null });
+    await expect(
+      page.getByText("The stream started successfully. You are live!", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await page.waitForTimeout(300);
+    expect(bodies).toHaveLength(1);
+    expect(releases).toHaveLength(1);
+  });
+
+  test(`${state} during host retry SDK initialization releases the seat without retrying forever`, async ({
+    page,
+  }) => {
+    await openDashboard(page);
+    await stubProvider(
+      page,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      undefined,
+      state,
+    );
+    const bodies: any[] = [];
+    const releases: any[] = [];
+    await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+      bodies.push(route.request().postDataJSON());
+      return route.fulfill({
+        json: { auth_token: `host-token-${bodies.length}` },
+      });
+    });
+    await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        });
+      releases.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+
+    await page.getByTestId("stream-start").click();
+    await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+    await page.evaluate(() => window.hostTest.endRoom("failed"));
+    await expect(page.getByTestId("host-reconnect")).toBeVisible();
+    await expect(
+      page.locator("main").getByText(message, { exact: false }),
+    ).toBeVisible();
+    await expect.poll(() => releases.length).toBe(1);
+    expect(releases[0]).toMatchObject({
+      action: "release",
+      host_session: bodies[0].host_session,
+    });
+    expect(bodies).toHaveLength(2);
+    expect(bodies[1]).toMatchObject({
+      role: "host",
+      host_session: bodies[0].host_session,
+    });
+    expect(await meetingState(page)).toMatchObject({ calls: 2, room: null });
+    await page.waitForTimeout(300);
+    expect(bodies).toHaveLength(2);
+    expect(releases).toHaveLength(1);
+  });
+}
+
+test("kicked host ends its seat and gets an explicit reconnect action", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page);
+  const releases: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) =>
+    route.fulfill({ json: { auth_token: "host-token" } }),
+  );
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          active: false,
+          host_session: null,
+          meeting_type: null,
+          ttl_seconds: 60,
+        },
+      });
+    releases.push(route.request().postDataJSON());
+    return route.fulfill({ json: {} });
+  });
+  await page.getByTestId("stream-start").click();
+  await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+  await page.evaluate(() => window.hostTest.endRoom("kicked"));
+  await expect(page.getByTestId("host-reconnect")).toBeVisible();
+  await expect(
+    page.getByText(
+      "You were removed from the live room. Reconnect to start a new broadcast.",
+    ),
+  ).toBeVisible();
+  await expect.poll(() => releases.length).toBe(1);
+  expect(releases[0]).toMatchObject({ action: "release" });
+});
+
+for (const failure of ["token", "initialization"] as const) {
+  test(`failed host retry ${failure} ends the seat and offers reconnect`, async ({
+    page,
+  }) => {
+    await openDashboard(page);
+    await stubProvider(
+      page,
+      false,
+      false,
+      false,
+      false,
+      failure === "initialization",
+    );
+    const bodies: any[] = [];
+    const releases: any[] = [];
+    await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+      bodies.push(route.request().postDataJSON());
+      if (failure === "token" && bodies.length === 2)
+        return route.fulfill({ status: 503, body: "synthetic token failure" });
+      return route.fulfill({
+        json: { auth_token: `host-token-${bodies.length}` },
+      });
+    });
+    await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        });
+      releases.push(route.request().postDataJSON());
+      return route.fulfill({ json: {} });
+    });
+
+    await page.getByTestId("stream-start").click();
+    await expect.poll(async () => (await meetingState(page)).calls).toBe(1);
+    await page.evaluate(() => window.hostTest.endRoom("failed"));
+    await expect(page.getByTestId("host-reconnect")).toBeVisible();
+    await expect(
+      page.getByText(
+        "The stream could not reconnect. Reconnect to start a new broadcast.",
+        { exact: true },
+      ),
+    ).toBeVisible();
+    await expect.poll(() => releases.length).toBe(1);
+    expect(releases[0]).toMatchObject({
+      action: "release",
+      host_session: bodies[0].host_session,
+    });
+    await expect(page.getByTestId("stream-start")).toBeEnabled();
+  });
+}
 
 test("late public grant after A -> B -> A releases the original seat without joining and permits retry", async ({
   page,
@@ -682,6 +1194,7 @@ test("a failed viewer copy completion after client navigation cannot leave a sta
 }) => {
   await openLiveHost(page);
   await holdViewerCopy(page, true);
+  page.once("dialog", (dialog) => dialog.accept());
   await page.evaluate(async () => {
     const path =
       "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
@@ -730,6 +1243,10 @@ for (const width of [320, 390, 1280]) {
     await expect(record).toBeVisible();
     await expect(copy).toBeVisible();
     const media = page.locator("rtk-meeting");
+    await expect(media).toBeVisible();
+    // The host opened the meeting, but the provider's setup screen still owns
+    // the final join action so the host can choose pre-join media settings.
+    expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
     const h = (await header.boundingBox())!;
     const m = (await media.boundingBox())!;
     expect(m.y).toBeGreaterThanOrEqual(h.y + h.height - 1);
@@ -834,6 +1351,10 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
     }
     const header = page.getByTestId("private-call-header");
     await expect(header).toBeVisible();
+    await expect(page.locator("rtk-meeting")).toBeVisible();
+    // Private rooms also retain the provider setup screen; initializing the
+    // meeting must not implicitly enable camera/microphone or enter the room.
+    expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
     await expect(
       header.getByRole("button", { name: "Copy Link", exact: true }),
     ).toBeVisible();
@@ -962,6 +1483,214 @@ for (const [code, message] of [
     expect(requests).toEqual(["POST", "GET"]);
   });
 }
+
+test("a private meeting stays mounted through offline and reconnecting overlays", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, true);
+  const secret = "private-meeting-survives-offline";
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, (route) =>
+    route.fulfill({
+      json: { auth_token: "private-offline-room", e2ee: false },
+    }),
+  );
+  await page.route(
+    `**/api/dyte/${USER}/private/${secret}/recording**`,
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      return route.fulfill({
+        json: path.endsWith("/recording-visibility")
+          ? { recording: false }
+          : { recording_state: "IDLE" },
+      });
+    },
+  );
+
+  await page.evaluate(
+    async ({ user, secret }) => {
+      const path =
+        "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+      const { goto } = await import(path);
+      await goto(`/${user}/private/${secret}?lang=en`);
+    },
+    { user: USER, secret },
+  );
+  const header = page.getByTestId("private-call-header");
+  const meeting = page.locator("rtk-meeting");
+  const recordButton = header.getByRole("button", {
+    name: "Record livestream",
+    exact: true,
+  });
+  await expect(header).toBeVisible();
+  await expect(recordButton).toBeVisible();
+  await expect(meeting).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  await expect(header.locator("..")).not.toHaveAttribute("inert", "");
+  await recordButton.focus();
+  await expect(recordButton).toBeFocused();
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    (window as any).__privateMeetingBeforeRecovery =
+      document.querySelector("rtk-meeting");
+    liveStreamStore.setOffline(true);
+    liveStreamStore.setConnectionStatus("disconnected");
+  }, LIVE_STREAM_STORE_LOADER);
+
+  await expect(
+    page.getByRole("heading", { name: "You are Offline" }),
+  ).toBeVisible();
+  const reconnect = page.getByTestId("private-call-reconnect");
+  await expect(reconnect).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(reconnect).not.toBeFocused();
+  await reconnect.focus();
+  await expect(header).toBeVisible();
+  await expect(header.locator("..")).toHaveAttribute("inert", "");
+  await expect(meeting).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__privateMeetingBeforeRecovery ===
+        document.querySelector("rtk-meeting"),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("disconnected");
+    liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(header.locator("..")).toHaveAttribute("inert", "");
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(recordButton).toBeFocused();
+
+  await page.evaluate(async (loader) => {
+    const external = document.createElement("button");
+    external.id = "external-focus-target";
+    document.body.append(external);
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.getByTestId("private-call-reconnect")).toBeFocused();
+  await page.locator("#external-focus-target").focus();
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.locator("#external-focus-target")).toBeFocused();
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("disconnected");
+  }, LIVE_STREAM_STORE_LOADER);
+  const reconnecting = page
+    .getByRole("status")
+    .filter({ hasText: /Reconnecting/ });
+  await expect(reconnecting).toBeVisible();
+  await expect(reconnecting).toHaveCSS("pointer-events", "none");
+  await expect(reconnecting.locator("button, a, [tabindex='0']")).toHaveCount(
+    0,
+  );
+  expect(
+    await reconnecting.evaluate((node) =>
+      node.contains(document.activeElement),
+    ),
+  ).toBe(false);
+  await expect(meeting).toHaveCount(1);
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__privateMeetingBeforeRecovery ===
+        document.querySelector("rtk-meeting"),
+    ),
+  ).toBe(true);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(
+    page.getByRole("status").filter({ hasText: /Reconnecting/ }),
+  ).toHaveCount(0);
+  await expect(header).toBeVisible();
+  await expect(meeting).toHaveCount(1);
+  expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
+});
+
+test("an offline focus restore tick cannot steal focus after leaving a private call", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, true);
+  const secret = "private-focus-restore-teardown";
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, (route) =>
+    route.fulfill({
+      json: { auth_token: "private-focus-restore-room", e2ee: false },
+    }),
+  );
+  await page.route(
+    `**/api/dyte/${USER}/private/${secret}/recording**`,
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      return route.fulfill({
+        json: path.endsWith("/recording-visibility")
+          ? { recording: false }
+          : { recording_state: "IDLE" },
+      });
+    },
+  );
+
+  await page.evaluate(
+    async ({ user, secret }) => {
+      const path =
+        "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+      const { goto } = await import(path);
+      await goto(`/${user}/private/${secret}?lang=en`);
+    },
+    { user: USER, secret },
+  );
+  const recordButton = page
+    .getByTestId("private-call-header")
+    .getByRole("button", { name: "Record livestream", exact: true });
+  await expect(recordButton).toBeVisible();
+
+  // Keep both focus targets outside the route so they survive its teardown.
+  await page.evaluate(() => {
+    const saved = document.createElement("button");
+    saved.id = "saved-external-focus-target";
+    const current = document.createElement("button");
+    current.id = "current-external-focus-target";
+    document.body.append(saved, current);
+    saved.focus();
+  });
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.getByTestId("private-call-reconnect")).toBeFocused();
+
+  // Going online queues the restoration tick. Start navigation in the same
+  // browser task so route teardown aborts that pending callback.
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    const path =
+      "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+    const { goto } = await import(path);
+    liveStreamStore.setOffline(false);
+    await goto("/dashboard?lang=en");
+  }, LIVE_STREAM_STORE_LOADER);
+  const currentTarget = page.locator("#current-external-focus-target");
+  await currentTarget.focus();
+  await expect(page.getByTestId("private-call-header")).toHaveCount(0);
+  await expect(currentTarget).toBeFocused();
+  await page.waitForTimeout(50);
+  await expect(currentTarget).toBeFocused();
+});
 
 test("a private-call recovery response cannot navigate a changed account", async ({
   page,
@@ -1141,6 +1870,142 @@ for (const initialFailure of [false, true]) {
     ).toHaveCount(0);
   });
 }
+
+test("private recovery stays single-flight while provider leave is pending", async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  await prepareSession(page);
+  const secret = "3f961c9d-aee4-4d87-83eb-6f7ba892e1c4";
+  let releaseJoin!: () => void;
+  let joinRequested = false;
+  const joinGate = new Promise<void>((resolve) => {
+    releaseJoin = resolve;
+  });
+  let joins = 0;
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    joinRequested = true;
+    joins++;
+    await joinGate;
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${joins}`, e2ee: false },
+    });
+  });
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => joinRequested).toBe(true);
+  await stubProvider(page, false, true, true);
+  releaseJoin();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => joins).toBe(1);
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect.poll(() => page.evaluate(() => window.hostTest.left)).toBe(1);
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("connected");
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await page.waitForTimeout(2_000);
+  expect(joins).toBe(1);
+
+  await page.evaluate(() => window.hostTest.finishLeave());
+  await expect.poll(() => joins).toBe(2);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(2);
+});
+
+test("an online event does not overlap a gated initial private join", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await prepareSession(page);
+  const secret = "private-initial-join-online-single-flight";
+  let attempts = 0;
+  let releaseInitial!: () => void;
+  const initialGate = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    attempts++;
+    await initialGate;
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${attempts}`, e2ee: false },
+    });
+  });
+
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => attempts).toBe(1);
+  await stubProvider(page, false, true);
+  await page.evaluate(() => window.dispatchEvent(new Event("online")));
+
+  // The retry timer is longer than this wait. The still-pending initial token
+  // request must remain the only request even when online recovery fires.
+  await page.waitForTimeout(2_200);
+  expect(attempts).toBe(1);
+  releaseInitial();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => attempts).toBe(1);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(1);
+});
+
+test("private recovery retries a failed join after coming back online", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await prepareSession(page);
+  const secret = "private-recovery-retries-room";
+  let attempts = 0;
+  let releaseInitial!: () => void;
+  const initialGate = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, async (route) => {
+    attempts++;
+    if (attempts === 1) await initialGate;
+    if (attempts === 2) {
+      await route.fulfill({
+        status: 503,
+        json: { detail: "temporary outage" },
+      });
+      return;
+    }
+    await route.fulfill({
+      json: { auth_token: `synthetic-private-${attempts}`, e2ee: false },
+    });
+  });
+  await page.goto(`/${USER}/private/${secret}?lang=en`);
+  await expect.poll(() => attempts).toBe(1);
+  await stubProvider(page, false, true);
+  releaseInitial();
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+  await expect.poll(() => attempts).toBe(1);
+
+  // A failed room while offline must not start recovery. Returning online
+  // should re-arm recovery; the first attempt fails transiently and a later
+  // scheduled attempt must proceed after the in-flight guard is released.
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+    liveStreamStore.setConnectionStatus("failed");
+  }, LIVE_STREAM_STORE_LOADER);
+  await page.waitForTimeout(1_300);
+  expect(attempts).toBe(1);
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect.poll(() => attempts, { timeout: 10_000 }).toBe(3);
+  await expect
+    .poll(() => page.evaluate(() => window.hostTest.sdkCalls.length))
+    .toBe(2);
+  await expect(page.getByTestId("private-call-header")).toBeVisible();
+});
 
 test("a private-call route change during a rejected join retains reload controls", async ({
   page,
