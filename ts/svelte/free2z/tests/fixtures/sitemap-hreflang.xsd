@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The sitemaps.org 0.9 content model, plus Google's hreflang annotation.
+
+  This is the published 0.9 schema (same element names, same sequence, same
+  value spaces for loc/changefreq/priority) with one addition: `xhtml:link`
+  after `loc`, which is where Google documents the localized-version
+  annotation. The official sitemap.xsd has no extension point at all, so
+  validating an hreflang sitemap against it verbatim would reject every
+  document Google asks for — hence a local copy rather than a fetched one.
+
+  `lastmod` is narrowed from the official union of W3C-datetime profiles to
+  xs:dateTime because that is the only form this codebase emits (isoDate() in
+  src/lib/server/sitemap.ts always produces a full UTC timestamp). Narrower is
+  the safe direction: it cannot accept something the real schema rejects.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:sm="http://www.sitemaps.org/schemas/sitemap/0.9"
+           xmlns:xhtml="http://www.w3.org/1999/xhtml"
+           targetNamespace="http://www.sitemaps.org/schemas/sitemap/0.9"
+           elementFormDefault="qualified">
+
+  <xs:import namespace="http://www.w3.org/1999/xhtml"
+             schemaLocation="xhtml-link.xsd"/>
+
+  <xs:element name="urlset">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="sm:url" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="url">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="loc" type="sm:tLoc"/>
+        <xs:element ref="xhtml:link" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="lastmod" type="xs:dateTime" minOccurs="0"/>
+        <xs:element name="changefreq" type="sm:tChangeFreq" minOccurs="0"/>
+        <xs:element name="priority" type="sm:tPriority" minOccurs="0"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="sitemapindex">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element ref="sm:sitemap" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:element name="sitemap">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="loc" type="sm:tLoc"/>
+        <xs:element name="lastmod" type="xs:dateTime" minOccurs="0"/>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="tLoc">
+    <xs:restriction base="xs:anyURI">
+      <xs:minLength value="12"/>
+      <xs:maxLength value="2048"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="tChangeFreq">
+    <xs:restriction base="xs:string">
+      <xs:enumeration value="always"/>
+      <xs:enumeration value="hourly"/>
+      <xs:enumeration value="daily"/>
+      <xs:enumeration value="weekly"/>
+      <xs:enumeration value="monthly"/>
+      <xs:enumeration value="yearly"/>
+      <xs:enumeration value="never"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <xs:simpleType name="tPriority">
+    <xs:restriction base="xs:decimal">
+      <xs:minInclusive value="0.0"/>
+      <xs:maxInclusive value="1.0"/>
+    </xs:restriction>
+  </xs:simpleType>
+</xs:schema>

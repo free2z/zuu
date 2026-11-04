@@ -1,71 +1,32 @@
 ---
-title: Revenue Share Agreement
+title: Creator Earnings and Service Terms
 ---
 
-## Introduction
+You can earn USD for qualifying pay-per-view livestreams and SDK application services on Free2Z. These earnings are payment obligations owed by 2Z Inc. for services you provide. Your earnings balance is separate from your 2Z credits.
 
-This Revenue Share Agreement (the "Agreement") sets forth the terms and conditions of the revenue share program (the "Program") on the Free2Z platform (the "Platform"). This Agreement is supplementary to the broader Terms of Service of Free2Z and is binding upon users who participate in the Program.
+This page explains how participation works. Read the [full Creator Compensation Agreement and service terms](https://free2z.cash/api/economy/agreement/) before accepting them in Credits & Earnings. That document contains the terms you accept; this explanation does not replace it.
 
-### **Definitions**
+## Before you offer a paid service
 
-For the purposes of the Agreement:
-**Partner**: A Partner in the context of the Free2Z platform is a user who has been accepted into the Revenue Share Program.
+Complete creator verification, have your identity and authority reviewed, and accept the creator agreement and the terms for the service you will provide. No minimum 2Z balance is required for verification. Check that Credits & Earnings shows you are eligible for compensation before offering paid services. Verification and agreement acceptance alone do not make every service eligible.
 
-**Partnership**: In this setting, Partnership refers to the relationship between Free2Z and an accepted Partner under the Revenue Share Program. It does not imply a legal partnership in the traditional business sense.
+You must have the rights and permissions needed for your content or application contribution. You keep ownership and grant 2Z the rights it needs to deliver the agreed service. 2Z supplies the platform access, handles credit charges and support, and provides applicable purchaser remedies.
 
-**Revenue Share:** Revenue Share refers to the distribution of a portion of the platform's revenue to Partners. It is contingent upon specific criteria and is subject to the rules and discretion of the Company.
+## Services that earn USD
 
-## Service Fee and Purchase of 2Z Tokens
+- **Pay-per-view livestreams:** provide the offered live performance or presentation. Earnings depend on the delivered paid session and the creator portion actually collected. Watching your own stream does not earn compensation.
+- **SDK application services:** supply the licensed application contribution described in your offer. Earnings depend on completed qualifying calls and the developer allocation after provider costs and agreed charges. Free use and using your own application do not earn compensation.
 
-- Upon acquiring 2Z tokens ("2Zs"), users may incur a nominal service fee, which is applied to support platform maintenance and development.
-- 2Zs are credited to the user's account, enabling access to various platform-specific services and functionalities.
+The service terms explain pricing, delivery, and how compensation is calculated. Credits & Earnings shows earned USD and recent qualifying activity.
 
-## Utilization of 2Z Tokens
+Sharing 2Z credits, subscriptions, and memberships are ways to support other users within Free2Z. They do not earn USD under this agreement.
 
-- Users may utilize 2Zs for various services on the Platform, including subscriptions, donations, pay-per-view (PPV) events, and other functionalities as provided.
+## Getting paid
 
-## Partnership and Revenue Share Eligibility
+Request an available USD amount in Credits & Earnings and give your own authorized shielded Zcash address. 2Z pays from its funds; you do not redeem or burn credits to receive earnings.
 
-- Users may apply to become partners in the Program through a competitive and selective process.
-- **Discretionary Partner Selection:** The decision to accept users into the Revenue Share Program as partners lies entirely at the discretion of the Company. This selection process is conducted by the company based on its own criteria and considerations, which may be subject to change without prior notice.
-- **No Entitlement or Guarantee**: Applying for partnership does not guarantee acceptance into the Program. the Company reserves the right to accept or reject any application for partnership based on its own judgment and business interests
-- Approved partners may be eligible for discretionary revenue payouts from Free2Z, which may involve the redemption of 2Zs under specific conditions set by Free2Z.
+Identity, address authority, sanctions, and tax review must be complete before payment. Tax paperwork can delay payment without cancelling the amount owed. See [creator verification](./08-aml-kyc-policy.md) and [creator payments](./07-token-redemption-policy.md) for details.
 
+The agreement sets the ordinary payment due date at 30 calendar days after verified settlement, subject to lawful holds. Ending participation does not cancel earnings already owed or require a new service agreement to collect them. Mandatory purchaser and creator rights remain protected.
 
-## Compliance Requirements for Partners
-
-- Applicants for partnership must undergo Anti-Money Laundering (AML) and Know Your Customer (KYC) verification processes.
-- Partners are subject to ongoing sanctions screening and compliance checks.
-
-## Termination of Partnership
-
-- **Right to Terminate Partnership:** The Company reserves the unequivocal right to terminate a user’s participation as a partner in the Revenue Share Program at any time and for any reason, at the company's sole discretion.
-- **Forfeiture of 2Zs:** Upon termination, partners will automatically forfeit any unredeemed 2Z tokens.
-- **Notification of Termination:** While the Company may, at its discretion, provide notice of termination, it is under no obligation to furnish any explanation for the termination decision.
-- **2Z Tokens Upon Termination**: In the event of partnership termination, the handling of any unredeemed 2Z tokens will be at the discretion of the Company, in accordance with the terms of service.
-
-## Revenue Payout
-
-- **Payout Schedule and Discretion:** The Company reserves the sole discretion to determine the timing and occurrence of revenue payouts to Partners. Payouts are not guaranteed and will be made at intervals determined by the Company, if at all.
-- **Payout Method:** Any financial rewards to partners are determined and distributed at the Company's discretion, which may involve various methods, including but not limited to cryptocurrencies like Zcash.
-- **Discretionary Nature of Payouts**: Partners recognize that any financial rewards are a discretionary privilege offered by the Company and are not a guaranteed or contractual right.
-
-## Risks and Limitations
-
-- Users acknowledge the inherent risks associated with digital platforms, including potential hacking, security breaches, and the risk of insolvency or bankruptcy of the Company.
-- The Company maintains measures to mitigate such risks but does not guarantee absolute protection against them.
-
-## Amendments to the Agreement
-
-- The Company reserves the right to modify the terms of this Agreement. Changes will be effective immediately upon posting on the Platform.
-- Continued participation in the Program after such changes signifies acceptance of the new terms.
-
-## Governing Law
-
-- This Agreement is governed by the Country where Free2Z is established.
-
-## Contact Information
-
-- For inquiries or concerns regarding this Agreement, please contact us at [help@free2z.com](mailto:help@free2z.com).
-
-By participating in the Revenue Share Program on Free2Z, you acknowledge and agree to be bound by this Revenue Share Agreement.
+Questions about your agreement or a service: [help@free2z.com](mailto:help@free2z.com).

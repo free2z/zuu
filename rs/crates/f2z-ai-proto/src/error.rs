@@ -363,6 +363,7 @@ pub const PRE_CALL_DETAILS: &[&str] = &[
     "model_max_output_tokens",
     // A `reasoning_effort` level outside the signed list (free2z/zuu#1151).
     "effort_levels",
+    "conflict",
 ];
 
 /// The settlement of a non-streamed call that failed: the typed form of a
