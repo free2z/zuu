@@ -57,7 +57,7 @@ services:
     platform: linux/amd64
     image: free2z-backend:local
     environment: *backend-environment
-    command: [-m, gunicorn, 'dj.free2z.wsgi:application', --bind, '0.0.0.0:8000', --workers, '2']
+    command: [-m, gunicorn, 'dj.free2z.wsgi:application', --bind, '0.0.0.0:8000', --workers, '2', --timeout, '120']
     depends_on:
       migrate:
         condition: service_completed_successfully
