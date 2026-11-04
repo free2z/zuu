@@ -67,6 +67,16 @@
         );
     } finally {
       if (seq === quoteSequence && actor === loadActor) loading = false;
+      if (
+        seq === quoteSequence &&
+        actor === loadActor &&
+        choices.length === 0 &&
+        !error
+      )
+        error = $t(
+          "editor.aiTextEmpty",
+          "No text models are currently available.",
+        );
     }
   }
   async function getQuote() {
@@ -344,6 +354,14 @@
       </section>
     {/if}
     {#if error}<p role="alert">{error}</p>{/if}
+    {#if !loading && choices.length === 0}<p role="status">
+        {$t("editor.aiTextEmpty", "No text models are currently available.")}
+      </p>
+      <button
+        class="w-fit rounded-md border px-3 py-2"
+        onclick={() => void load()}
+        >{$t("editor.aiTextCatalogueRetry", "Retry model list")}</button
+      >{/if}
     {#if preview}<section aria-live="polite" class="grid gap-2">
         <p>
           {$t(
