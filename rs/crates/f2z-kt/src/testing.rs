@@ -125,7 +125,7 @@ impl EntryBuilder {
             log_id,
             handle: Handle::new(handle.as_bytes().to_vec()).unwrap(),
             entry_version: 1,
-            kind: EntryKind::SameKey,
+            kind: EntryKind::InitialBind,
             identity_pk: identity.isk.public,
             directory_auth_pk: identity.dak.public,
             devices: Vec::new(),
@@ -141,6 +141,9 @@ impl EntryBuilder {
     #[must_use]
     pub const fn version(mut self, version: u32) -> Self {
         self.entry_version = version;
+        if version > 1 && matches!(self.kind, EntryKind::InitialBind) {
+            self.kind = EntryKind::SameKey;
+        }
         self
     }
 
@@ -324,6 +327,16 @@ impl EntryBuilder {
     pub fn same_key(self, auth: &Key) -> DirectoryEntry {
         let entry = self.tbs();
         let auth_signature = auth.sign(&entry.signing_bytes().unwrap());
+        if entry.entry_version == 1 && entry.kind == EntryKind::InitialBind {
+            return DirectoryEntry {
+                entry,
+                authorization: EntryAuthorization::InitialBind {
+                    assertion: f2z_codec::types::Payload::new(vec![1]).unwrap(),
+                    identity_signature: Signature::zero(),
+                    auth_signature,
+                },
+            };
+        }
         DirectoryEntry {
             entry,
             authorization: EntryAuthorization::SameKey { auth_signature },
@@ -439,7 +452,11 @@ pub fn entry_bytes(entry: &DirectoryEntry) -> Vec<u8> {
 /// If the envelope will not encode.
 #[must_use]
 pub fn envelope_without_claim(entry: &DirectoryEntry) -> Vec<u8> {
-    let bytes = entry_bytes(entry);
+    let mut entry = entry.clone();
+    if let EntryAuthorization::InitialBind { assertion, .. } = &mut entry.authorization {
+        *assertion = f2z_codec::types::Payload::new(Vec::new()).unwrap();
+    }
+    let bytes = entry_bytes(&entry);
     SubmissionEnvelope::new(&bytes, None, Signature::zero())
         .unwrap()
         .encode_canonical()
@@ -581,6 +598,12 @@ impl Harness {
         Self::build(name, false, Vec::new()).await
     }
 
+    /// Stand up an explicit no-authority log that also recognises the listed
+    /// witness keys. Used when a client acceptance test needs both properties.
+    pub async fn unvouched_with_witnesses(name: &str, witnesses: Vec<PublicKey>) -> Self {
+        Self::build(name, false, witnesses).await
+    }
+
     /// Stand up a log that **recognises** `witnesses` as cosigners.
     ///
     /// Separate from [`Harness::vouched`] on purpose: a log with no configured
@@ -645,6 +668,26 @@ impl Harness {
     /// If any part will not encode.
     pub fn envelope(&self, entry: &DirectoryEntry, identity: &Identity, now_ms: u64) -> Vec<u8> {
         self.envelope_with(entry, identity, now_ms, true)
+    }
+
+    /// Return the exact directory entry carried by [`Harness::envelope`].
+    /// First-entry fixtures add their assertion and identity binding while the
+    /// envelope is built, so chaining from the pre-issuance builder value would
+    /// hash bytes the log never accepted.
+    #[must_use]
+    pub fn issued_entry(
+        &self,
+        entry: &DirectoryEntry,
+        identity: &Identity,
+        now_ms: u64,
+    ) -> DirectoryEntry {
+        let envelope = self.envelope(entry, identity, now_ms);
+        let submission = f2z_codec::decode_canonical::<SubmissionEnvelope>(&envelope)
+            .unwrap()
+            .into_value();
+        f2z_codec::decode_canonical::<DirectoryEntry>(submission.entry.as_slice())
+            .unwrap()
+            .into_value()
     }
 
     /// Attach an assertion **regardless of entry kind**, with a correctly
@@ -763,12 +806,13 @@ impl Harness {
         with_assertion: bool,
         overrides: AssertionOverrides,
     ) -> Vec<u8> {
-        let bytes = entry_bytes(entry);
-        let digest = labels::entry_value(&bytes);
+        let mut committed_entry = entry.clone();
         let handle = f2z_authority::types::Handle::parse(entry.entry.handle.as_slice()).unwrap();
 
-        let wants_assertion =
-            entry.entry.entry_version == 1 || matches!(entry.entry.kind, EntryKind::PlatformReset);
+        let wants_assertion = matches!(
+            entry.entry.kind,
+            EntryKind::InitialBind | EntryKind::PlatformReset
+        );
         let assertion = match (&self.issuer, with_assertion && wants_assertion) {
             (Some(issuer), true) => {
                 let intent = if entry.entry.entry_version == 1 {
@@ -816,6 +860,37 @@ impl Harness {
             _ => None,
         };
 
+        if let EntryAuthorization::InitialBind {
+            assertion: committed_assertion,
+            identity_signature: committed_identity_signature,
+            ..
+        } = &mut committed_entry.authorization
+        {
+            let assertion_digest = assertion
+                .as_ref()
+                .map(|assertion| assertion.digest().unwrap())
+                .unwrap_or_else(f2z_codec::types::Digest::zero);
+            let tbs_bytes = committed_entry.entry.signing_bytes().unwrap();
+            let binding = f2z_authority::InitialBindBindingTBS::new(
+                f2z_authority::types::LogId::new(*self.log_id.as_bytes()),
+                handle.clone(),
+                committed_entry.entry.identity_pk,
+                assertion_digest,
+                f2z_kt_core::labels::entry_tbs_digest(&tbs_bytes),
+            )
+            .unwrap();
+            let signature = identity.isk.sign(&binding.signing_bytes().unwrap());
+            *committed_identity_signature = signature;
+            let bytes = assertion
+                .as_ref()
+                .map(|assertion| assertion.encode_canonical().unwrap())
+                .unwrap_or_default();
+            *committed_assertion = f2z_codec::types::Payload::new(bytes).unwrap();
+        }
+
+        let bytes = entry_bytes(&committed_entry);
+        let digest = labels::entry_value(&bytes);
+
         let binding = self
             .log
             .authority()
@@ -828,7 +903,11 @@ impl Harness {
             .unwrap();
         let identity_signature = identity.isk.sign(&binding.signing_bytes().unwrap());
 
-        let assertion_bytes = assertion.as_ref().map(|a| a.encode_canonical().unwrap());
+        let assertion_bytes = if matches!(committed_entry.entry.kind, EntryKind::InitialBind) {
+            None
+        } else {
+            assertion.as_ref().map(|a| a.encode_canonical().unwrap())
+        };
         SubmissionEnvelope::new(&bytes, assertion_bytes.as_deref(), identity_signature)
             .unwrap()
             .encode_canonical()
