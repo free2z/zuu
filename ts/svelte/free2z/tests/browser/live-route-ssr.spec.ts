@@ -303,6 +303,27 @@ test.describe("#2420 paid-stream links unfurl as the creator's card", () => {
           ]);
         }
         const page = await context.newPage();
+        // PPV joins now require the provider's session identity from live
+        // status. Keep this fixture live so the authenticated positive
+        // control reaches the join POST; the anonymous assertion below still
+        // proves hydration leaves the viewer gated.
+        await page.route(`**/api/dyte/${PAID_USER}/live-status`, (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+              is_live: true,
+              participant_count: 1,
+              streams: [
+                {
+                  type: "ppv",
+                  participant_count: 1,
+                  session_id: "00000000-0000-4000-8000-000000000012",
+                },
+              ],
+            }),
+          }),
+        );
         const joins: { method: string; path: string; body: unknown }[] = [];
         page.on("request", (req) => {
           const path = new URL(req.url()).pathname;
