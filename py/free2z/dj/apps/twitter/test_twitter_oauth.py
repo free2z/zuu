@@ -308,10 +308,26 @@ def test_the_callback_refuses_a_state_this_browser_did_not_start(
     get_twitter_user.assert_not_called()
 
 
+@pytest.fixture
+def twitter_signup_request():
+    from django.contrib.sessions.middleware import SessionMiddleware
+    request = RequestFactory().get("/api/twitter/callback")
+    SessionMiddleware(lambda request: None).process_request(request)
+    return request
+
+
+def assert_welcome_marker(request, creator):
+    from dj.apps.tuzis.models import TuziGrant
+    grant = TuziGrant.objects.get(creator=creator)
+    assert request.session["welcome_grant"] == {
+        "creator_id": creator.pk, "amount": str(grant.amount),
+    }
+
+
 @pytest.mark.django_db
 @pytest.mark.parametrize("provider_handle", ["api", "TrEnDiNg"])
 def test_new_twitter_account_does_not_claim_reserved_handle(
-    provider_handle, mocker,
+    provider_handle, mocker, twitter_signup_request,
 ):
     profile = TwitterProfile.objects.create(
         twitter_id="reserved-handle-user",
@@ -319,7 +335,7 @@ def test_new_twitter_account_does_not_claim_reserved_handle(
     )
     login = mocker.patch("dj.apps.twitter.views.login")
     record_login = mocker.patch("dj.apps.twitter.views.record_login")
-    request = mocker.Mock()
+    request = twitter_signup_request
 
     TwitterCallbackView().handle_new_twitter_user({
         "id": profile.twitter_id,
@@ -331,6 +347,7 @@ def test_new_twitter_account_does_not_claim_reserved_handle(
 
     profile.refresh_from_db()
     assert profile.creator.username == provider_handle + "1"
+    assert_welcome_marker(request, profile.creator)
     login.assert_called_once_with(request, profile.creator)
     record_login.assert_called_once_with(
         request, profile.creator, methods=["fed:twitter"],
@@ -376,7 +393,7 @@ def test_colliding_twitter_handle_refuses_to_provision(mocker, creator_factory):
 
 
 @pytest.mark.django_db
-def test_unique_twitter_handle_provisions_and_logs_in_as_before(mocker):
+def test_unique_twitter_handle_provisions_and_logs_in_as_before(mocker, twitter_signup_request):
     """Positive control for the refusal above: same flow, free handle."""
     from django.contrib.auth import get_user_model
 
@@ -387,7 +404,7 @@ def test_unique_twitter_handle_provisions_and_logs_in_as_before(mocker):
     )
     login = mocker.patch("dj.apps.twitter.views.login")
     record_login = mocker.patch("dj.apps.twitter.views.record_login")
-    request = mocker.Mock()
+    request = twitter_signup_request
 
     TwitterCallbackView().handle_new_twitter_user({
         "id": profile.twitter_id,
@@ -399,6 +416,7 @@ def test_unique_twitter_handle_provisions_and_logs_in_as_before(mocker):
 
     profile.refresh_from_db()
     assert profile.creator.username == "brandnewhandle"
+    assert_welcome_marker(request, profile.creator)
     assert User.objects.filter(username__iexact="brandnewhandle").count() == 1
     login.assert_called_once_with(request, profile.creator)
     record_login.assert_called_once_with(

@@ -766,7 +766,11 @@
       "audioEmbed": "Audio embed",
       "iframe": "Iframe",
       "qrCode": "QR code",
-      "footnote": "Footnote"
+      "footnote": "Footnote",
+      "video": "Video",
+      "audio": "Audio",
+      "document": "Document",
+      "embedLink": "Embed link"
     },
     "slashMenu": {
       "title": "Commands",
@@ -1020,7 +1024,80 @@
     "insertVideo": "Insert video",
     "uploadingVideo": "Uploading video…",
     "uploadingMedia": "Uploading files…",
-    "checkingMediaAccess": "Checking media access…"
+    "checkingMediaAccess": "Checking media access…",
+    "embedLinkHint": "Paste an HTTP(S) URL. Preview uses the same embed and privacy controls as your published page.",
+    "embedUrl": "URL",
+    "insertEmbed": "Insert embed",
+    "insertEmbedLink": "Embed an HTTP(S) URL",
+    "invalidEmbedLink": "Enter a complete HTTP or HTTPS URL.",
+    "publicMediaUpload": "Files uploaded here are public. Anyone with the link can open them.",
+    "restrictedEmbedLink": "Choose this file from Your Cloud so we can check access and ask before sharing it with readers.",
+    "unsupportedMedia": "Some files are unsupported. Choose one of the listed file types.",
+    "uploadProgress": "Upload progress",
+    "cancelUpload": "Cancel upload",
+    "documentChanged": "The document changed. Choose the insertion point again.",
+    "insertLinkFailed": "Unable to insert link.",
+    "insert": {
+      "video": "Upload or choose video",
+      "audio": "Upload or choose audio",
+      "document": "Upload or choose a PDF"
+    },
+    "mediaPicker": {
+      "imageAccessMakeMembersBody": "“{name}” is private, so not even your subscribers can open it. Share this file with subscribers so they can open it on this page.",
+      "imageAccessMakePublicBody": "“{name}” is not public, so some readers cannot open it. Making it public lets anyone with the link open it.",
+      "imageAccessMakeMembers": "Share with subscribers",
+      "imageAccessMakePublic": "Make it public"
+    },
+    "audioPicker": {
+      "imageFallback": "Audio file {id}",
+      "cloudImageOpenFailed": "Unable to open that audio file.",
+      "imageAccessCheckFailed": "Could not check who can open that audio file. Please try again.",
+      "imageAccessChangeUnknown": "We could not confirm that change. Check who can see the audio file in your reloaded library before publishing.",
+      "imageAccessChangeFailed": "Could not change who can see that audio file.",
+      "addImage": "Add Audio file",
+      "imageDialogDescription": "Upload from this device or choose a audio file already saved in your Free2Z cloud.",
+      "deviceImageDropzone": "Select device audio files",
+      "dropImagesNow": "Drop audio files to add them",
+      "dropImagesMultipleHint": "You can add multiple audio files at once.",
+      "dropImagesTitle": "Drop audio files anywhere here",
+      "selectImages": "Select Audio files",
+      "searchSelectedImages": "Search selected audio files",
+      "addMoreImages": "Add more audio files",
+      "removeImage": "Remove audio file",
+      "noSelectedImagesFound": "No matching audio files",
+      "imageSelected": "audio file selected",
+      "imagesSelected": "audio files selected",
+      "cloudImageResults": "Uploaded audio file results",
+      "loadingLibrary": "Loading uploaded audio files…",
+      "libraryEmpty": "You do not have any uploaded audio files yet.",
+      "cloudImageAlt": "Audio file from your cloud",
+      "imageAccessTitle": "Your readers would not see this audio file"
+    },
+    "documentPicker": {
+      "imageFallback": "PDF document {id}",
+      "cloudImageOpenFailed": "Unable to open that PDF document.",
+      "imageAccessCheckFailed": "Could not check who can open that PDF document. Please try again.",
+      "imageAccessChangeUnknown": "We could not confirm that change. Check who can see the PDF document in your reloaded library before publishing.",
+      "imageAccessChangeFailed": "Could not change who can see that PDF document.",
+      "addImage": "Add PDF document",
+      "imageDialogDescription": "Upload from this device or choose a PDF document already saved in your Free2Z cloud.",
+      "deviceImageDropzone": "Select device PDF documents",
+      "dropImagesNow": "Drop PDF documents to add them",
+      "dropImagesMultipleHint": "You can add multiple PDF documents at once.",
+      "dropImagesTitle": "Drop PDF documents anywhere here",
+      "selectImages": "Select PDF documents",
+      "searchSelectedImages": "Search selected PDF documents",
+      "addMoreImages": "Add more PDF documents",
+      "removeImage": "Remove PDF document",
+      "noSelectedImagesFound": "No matching PDF documents",
+      "imageSelected": "PDF document selected",
+      "imagesSelected": "PDF documents selected",
+      "cloudImageResults": "Uploaded PDF document results",
+      "loadingLibrary": "Loading uploaded PDF documents…",
+      "libraryEmpty": "You do not have any uploaded PDF documents yet.",
+      "cloudImageAlt": "PDF document from your cloud",
+      "imageAccessTitle": "Your readers would not see this PDF document"
+    }
   },
   "dashboard": {
     "pages": {
@@ -1497,6 +1574,9 @@
       "hostReconnectFailed": "The stream could not reconnect. Reconnect to start a new broadcast.",
       "hostReconnecting": "Reconnecting… Your broadcast seat is being held.",
       "hostRejected": "The live room rejected the connection. Reconnect to start a new broadcast.",
+      "shareToConverse": "Share to Converse",
+      "reviewLiveAnnouncement": "Review and edit your announcement before posting. Your livestream will continue while you write.",
+      "notLivePublic": "Only an active public livestream can be shared.",
       "earnMoreTuzis": "Earn more 2Z by engaging with the community.",
       "ended": "Stream ended.",
       "leaveConfirmation": "The stream is active. Are you sure you want to leave? This will end the stream.",
@@ -1730,7 +1810,7 @@
     "notCharged": "You have not been charged.",
     "writeIntro": "Write your intro zPage",
     "buy": "Buy 2Z",
-    "postCost": "A post costs 1 2Z, about a penny. That is why there is no spam here. You have {balance} 2Z.",
+    "postCost": "This post costs {cost} 2Z. The small posting cost discourages spam. You have {balance} 2Z.",
     "giftIntro": "Write a zPage introducing yourself: members can gift 2Z to writers they want to read more from.",
     "giftWaiting": "Your zPage is your introduction. Members can gift 2Z to writers they want to read more from.",
     "yourPages": "Your zPages",
@@ -3222,5 +3302,12 @@
       "invalid": "This link has expired. Sign in again to keep your account.",
       "failed": "Your account could not be kept. Please try again."
     }
+  },
+  "credits": {
+    "title": "Why a penny a post?",
+    "welcome": "Welcome! You received {amount} 2Z in platform credits. A post starts at 1 2Z, about a US penny, to keep Free2Z free of ads and discourage spam.",
+    "dismiss": "Dismiss welcome message",
+    "model": "2Z are platform credits for actions on Free2Z. A post starts at 1 2Z, about a US penny. This small cost discourages spam and helps keep Free2Z free of ads. Your first zPage is free; creating another requires a balance of 1 2Z and does not spend it.",
+    "sources": "Eligible new accounts receive a welcome grant. You can buy 2Z, or receive gifts from members who want to hear more from you. Introduce yourself with a zPage so readers can get to know you."
   }
 }

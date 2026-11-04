@@ -26,6 +26,7 @@ class AIModelSerializer(serializers.ModelSerializer):
             'supports_strict_tools',
             'supports_reasoning_effort',
             'reasoning_effort_levels',
+            'tools_require_effort_none',
         ]
 
 

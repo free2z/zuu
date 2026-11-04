@@ -189,7 +189,7 @@ async function mountBrowserFixture(
       );
     }
   }
-  await page.goto("/search");
+  await page.goto("/search", { waitUntil: "domcontentloaded" });
   const mountFixture = () =>
     page.evaluate(
       async ({ fixtureModule, props }) => {
@@ -469,6 +469,101 @@ test("a label that wraps an enabled choice control uses a pointer; disabled or t
   ]) {
     await expect(page.locator(selector)).toHaveCSS("cursor", "default");
   }
+});
+
+test("for-associated choice labels activate only enabled controls and use accurate cursors", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await mountPrimitiveFixture(page);
+  const enabled = page.getByTestId("label-associated-enabled");
+  const checkbox = page.locator("#associated-enabled");
+  await expect(enabled).toHaveCSS("cursor", "pointer");
+  await expect(checkbox).not.toBeChecked();
+  await enabled.click();
+  await expect(checkbox).toBeChecked();
+  await expect(page.getByTestId("associated-changes")).toHaveText("1");
+  const second = page.getByTestId("label-associated-second");
+  await expect(second).toHaveCSS("cursor", "pointer");
+  await second.click();
+  await expect(checkbox).not.toBeChecked();
+  await expect(page.getByTestId("associated-changes")).toHaveText("2");
+  await page
+    .getByRole("button", { name: "Toggle associated disabled" })
+    .click();
+  await expect(enabled).not.toHaveCSS("cursor", "pointer");
+  await expect(second).not.toHaveCSS("cursor", "pointer");
+  // Playwright treats a disabled label's native control as disabled too.
+  // Force the pointer click so the browser's inactivity is actually exercised.
+  await enabled.click({ force: true });
+  await expect(checkbox).not.toBeChecked();
+  await expect(page.getByTestId("associated-changes")).toHaveText("2");
+  await page
+    .getByRole("button", { name: "Toggle associated disabled" })
+    .click();
+  await expect(enabled).toHaveCSS("cursor", "pointer");
+  await checkbox.focus();
+  await expect(checkbox).toBeFocused();
+  await page.keyboard.press("Space");
+  await expect(checkbox).toBeChecked();
+  await expect(page.getByTestId("associated-changes")).toHaveText("3");
+
+  const missing = page.getByTestId("label-associated-missing");
+  await expect(missing).not.toHaveCSS("cursor", "pointer");
+  await missing.evaluate((label) => {
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.id = "associated-missing";
+    label.after(input);
+  });
+  await expect(missing).toHaveCSS("cursor", "pointer");
+  await missing.click();
+  await expect(page.locator("#associated-missing")).toBeChecked();
+  await page.locator("#associated-missing").evaluate((input) => input.remove());
+  await expect(missing).not.toHaveCSS("cursor", "pointer");
+
+  for (const kind of ["native", "radio"]) {
+    const label = page.getByTestId(`label-associated-${kind}`);
+    await expect(label).toHaveCSS("cursor", "pointer");
+    await label.click();
+    const input = page.locator(`#associated-${kind}`);
+    await expect(input).toBeChecked();
+    await input.evaluate((element) => {
+      const fieldset = document.createElement("fieldset");
+      element.before(fieldset);
+      fieldset.append(element);
+      fieldset.disabled = true;
+    });
+    await expect(label).not.toHaveCSS("cursor", "pointer");
+    await label.click({ force: true });
+    await expect(input).toBeChecked();
+  }
+  const fileLabel = page.getByTestId("label-associated-file");
+  await expect(fileLabel).toHaveCSS("cursor", "pointer");
+  const chooser = page.waitForEvent("filechooser");
+  await fileLabel.click();
+  expect((await chooser).isMultiple()).toBe(false);
+  await page
+    .locator("#associated-file")
+    .evaluate((input) => input.setAttribute("disabled", ""));
+  await expect(fileLabel).not.toHaveCSS("cursor", "pointer");
+  let reopened = false;
+  page.on("filechooser", () => {
+    reopened = true;
+  });
+  await fileLabel.click({ force: true });
+  expect(reopened).toBe(false);
+
+  const disabled = page.getByTestId("label-associated-disabled");
+  await expect(disabled).not.toHaveCSS("cursor", "pointer");
+  await disabled.click({ force: true });
+  await expect(page.locator("#associated-disabled")).not.toBeChecked();
+  await expect(page.getByTestId("label-associated-text")).not.toHaveCSS(
+    "cursor",
+    "pointer",
+  );
+  expect(errors).toEqual([]);
 });
 
 test("shared command, dropdown, and select primitives expose enabled and disabled cursor states", async ({
