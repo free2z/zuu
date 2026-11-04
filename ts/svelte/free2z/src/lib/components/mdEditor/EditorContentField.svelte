@@ -1,9 +1,11 @@
 <script lang="ts">
   import { getCurrentLocale, tStore as t } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { Plus } from "@lucide/svelte";
   import EditorFloatingToolbar from "./EditorFloatingToolbar.svelte";
+  import EditorEmbedLink from "./EditorEmbedLink.svelte";
+  import type { EditorMediaKind } from "./editorMedia";
   import EditorImagePicker from "./EditorImagePicker.svelte";
   import EditorMentionMenu from "./EditorMentionMenu.svelte";
   import EditorSlashMenu from "./EditorSlashMenu.svelte";
@@ -112,6 +114,20 @@
   let imagePickerRef = $state<{
     openPicker: (defaultTab?: "device" | "cloud") => void;
   } | null>(null);
+  let mediaPickerRef = $state<{ openPicker: () => void } | null>(null);
+  let linkPickerRef = $state<{ openPicker: () => void } | null>(null);
+  let mediaType = $state<EditorMediaKind>("video");
+  let insertEmbed: (url: string) => void = () => {};
+  async function openMediaPicker(kind: EditorMediaKind | "link") {
+    insertEmbed = editor.captureEmbedInsertion();
+    if (kind === "link") {
+      linkPickerRef?.openPicker();
+      return;
+    }
+    mediaType = kind;
+    await tick();
+    mediaPickerRef?.openPicker();
+  }
   let isMac = $state(false);
 
   const slashCommands = $derived.by(() => createSlashCommands($t));
@@ -129,6 +145,7 @@
     mediaSlot: () => ({ slot: "body", subscriberOnly }),
     isAbandoned: editorAbandoned,
     openImagePicker: () => imagePickerRef?.openPicker("device"),
+    openMediaPicker,
     resize: resizeTextarea,
     onSelectionSettled: scheduleInsertControlUpdate,
   });
@@ -314,6 +331,19 @@
   onChooseCloudImage={editor.insertCloudImage}
   onUploadLocalImages={editor.insertLocalImages}
   {subscriberOnly}
+/>
+
+<EditorImagePicker
+  bind:this={mediaPickerRef}
+  {mediaType}
+  uploadMode="embed"
+  onChooseCloudImage={(item) => insertEmbed(item.url)}
+  onUploadLocalImages={() => false}
+  {subscriberOnly}
+/>
+<EditorEmbedLink
+  bind:this={linkPickerRef}
+  onInsert={(url) => insertEmbed(url)}
 />
 
 <!--
