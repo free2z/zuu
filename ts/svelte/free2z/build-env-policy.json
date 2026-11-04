@@ -1,0 +1,10 @@
+{
+  "_readme": [
+    "Every VITE_* source reference must have a defined build value or an explicit optional entry.",
+    "Vite replaces these values at build time; missing required values must fail validation.",
+    "Build recipes live in build/free2z. Optional entries explain product behavior when a value is absent.",
+    "The validator rejects stale entries that no source reference uses."
+  ],
+  "optional": [],
+  "knownDefects": []
+}

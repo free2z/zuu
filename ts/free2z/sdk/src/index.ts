@@ -14,6 +14,7 @@ export {
   type LocalErrorCode,
 } from "./error.js";
 export { formatMilli2z } from "./format.js";
+export { REPORT_DETAIL_MAX_CHARS } from "./report.js";
 export {
   MAX_TOOL_ROUNDS,
   ToolCallAccumulator,
