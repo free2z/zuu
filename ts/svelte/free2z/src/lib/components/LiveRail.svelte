@@ -159,8 +159,10 @@
                 class="pointer-events-none absolute inset-0 rounded-full bg-linear-to-b from-white/[0.07] to-transparent"
                 aria-hidden="true"
               ></span>
+              <!-- Hover detail: a single soft light sweep across the pill. -->
+              <span class="sheen" aria-hidden="true"></span>
 
-              <span class="live-ring relative shrink-0 rounded-full">
+              <span class="live-ring avatar-pop relative shrink-0 rounded-full">
                 <span
                   class="grid size-8 place-items-center overflow-hidden rounded-full text-[10px] font-bold text-white"
                   style:background={it.img && !it.broken ? undefined : it.tint}
@@ -257,6 +259,60 @@
     }
   }
 
+  /* Hover/focus micro-interaction: everything below animates only transform
+     and opacity, so it runs on the compositor. */
+  .avatar-pop {
+    transition: transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .capsule:hover .avatar-pop,
+  .capsule:focus-visible .avatar-pop {
+    transform: scale(1.08) rotate(-4deg);
+  }
+  .capsule:hover .live-ring::after,
+  .capsule:focus-visible .live-ring::after {
+    animation: none;
+    opacity: 1;
+    transition: opacity 300ms ease-out;
+  }
+
+  .sheen {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    border-radius: inherit;
+    overflow: hidden;
+  }
+  .sheen::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 40%;
+    background: linear-gradient(
+      100deg,
+      transparent,
+      rgb(255 255 255 / 0.12),
+      transparent
+    );
+    transform: translateX(-120%) skewX(-12deg);
+    opacity: 0;
+  }
+  .capsule:hover .sheen::before,
+  .capsule:focus-visible .sheen::before {
+    animation: sheen-sweep 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+  @keyframes sheen-sweep {
+    0% {
+      transform: translateX(-120%) skewX(-12deg);
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(320%) skewX(-12deg);
+      opacity: 0;
+    }
+  }
+
   .capsule:hover {
     box-shadow:
       0 8px 24px -12px rgb(239 68 68 / 0.55),
@@ -293,6 +349,17 @@
   @media (prefers-reduced-motion: reduce) {
     .live-dot::after,
     .live-ring::after {
+      animation: none;
+    }
+    .avatar-pop {
+      transition: none;
+    }
+    .capsule:hover .avatar-pop,
+    .capsule:focus-visible .avatar-pop {
+      transform: none;
+    }
+    .capsule:hover .sheen::before,
+    .capsule:focus-visible .sheen::before {
       animation: none;
     }
   }
