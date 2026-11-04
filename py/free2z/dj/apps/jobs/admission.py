@@ -9,6 +9,9 @@ def live_job_rows(task):
     Keep a ``doing`` row in the cap until it is terminal. A stale lease makes
     the reclaimer eligible to move the row; it does not guarantee when that
     requeue happens, so releasing its slot earlier could exceed the cap.
+    Every ``todo``, ``doing`` and ``aborting`` row counts, including stale
+    leases; terminal rows alone release capacity. Existing jobs are not moved
+    or rejected by admission.
     """
     task_name = getattr(task, "task_name", task)
     if task_name != "uploads.generate_video_poster":
