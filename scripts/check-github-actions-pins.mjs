@@ -402,6 +402,7 @@ const REQUIRED_CRYPTO_KAT_ARM_JOB_LINES = [
   "    runs-on: ubuntu-24.04-arm",
   "    timeout-minutes: 30",
   "    steps:",
+  ...bootstrapStep.trimEnd().split("\n"),
   `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
   "      - name: Resolve the pinned Rust toolchain",
   "        id: rust_toolchain",
