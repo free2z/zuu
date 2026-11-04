@@ -1,20 +1,18 @@
-export type CommentAuthor = {
-    username: string;
-    avatar_image?: {
-        url?: string;
-        thumbnail?: string;
-    };
-};
+import type {
+  CommentAuthor as ApiCommentAuthor,
+  CommentList,
+  ThreadAccessEnum,
+} from "$lib/api/f2z.schemas";
 
-export type CommentData = {
-    uuid: string;
-    author: CommentAuthor;
-    parent: string | null;
-    headline: string;
-    content: string;
-    tuzis: number;
-    created_at: string;
-    updated_at: string;
-    num_children: number;
-    content_url: string | null;
+export type CommentAuthor = ApiCommentAuthor;
+
+export type CommentThreadAccess = ThreadAccessEnum;
+
+export type CommentData = Omit<
+  CommentList,
+  "content_url" | "num_children" | "tuzis"
+> & {
+  content_url: CommentList["content_url"] | null;
+  num_children: CommentList["num_children"];
+  tuzis: NonNullable<CommentList["tuzis"]>;
 };

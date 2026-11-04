@@ -135,6 +135,8 @@ RUST_VERSION_ENV_WORKFLOWS=(
 # exact expected text rather than by pattern so the failure message tells the
 # next person precisely what to write.
 DOC_PINS=(
+  $'build/free2z/host-tools.json\t  "rust_version": "%CHANNEL%",'
+  $'build/free2z/host-tools.json\t      "url": "https://static.rust-lang.org/dist/rust-%CHANNEL%-x86_64-unknown-linux-gnu.tar.xz",'
   $'wallet/zuuallet/README.md\t- [Rust](https://rustup.rs/) %MSRV%+ (edition 2024)'
   $'wallet/plugins/tauri-plugin-zcash/README.md\tcargo +%CHANNEL% check --locked'
   $'wallet/plugins/tauri-plugin-zcash/README.md\tcargo +%CHANNEL% test --locked'

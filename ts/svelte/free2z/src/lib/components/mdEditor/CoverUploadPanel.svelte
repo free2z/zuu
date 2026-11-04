@@ -18,7 +18,10 @@
 <div
   class="rounded-2xl border border-dashed border-border/60 bg-muted/20 p-8 text-center"
   role="region"
-  aria-label="Drop an image here to upload a cover"
+  aria-label={$t(
+    "editor.coverDropzoneLabel",
+    "Drop an image here to upload a cover image",
+  )}
   ondragenter={onDragState}
   ondragover={onDragState}
   ondragleave={onDragState}
@@ -38,7 +41,7 @@
       <p class="text-xs text-muted-foreground">
         {$t(
           "editor.coverUploadHint",
-          "The final cover will be cropped to the standard banner ratio before it is saved.",
+          "Any shape works. Your whole image is used — cropping is optional.",
         )}
       </p>
     </div>

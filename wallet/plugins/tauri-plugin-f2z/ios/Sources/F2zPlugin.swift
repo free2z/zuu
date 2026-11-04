@@ -6,7 +6,8 @@ import UIKit
 import WebKit
 
 private struct RedirectArgs: Decodable { let https: String?; let privateScheme: String? }
-private struct AuthArgs: Decodable { let attemptId: String; let url: String; let redirectUri: String; let timeoutMs: UInt64 }
+/// `ephemeral` is optional: an older Rust core never sends it.
+private struct AuthArgs: Decodable { let attemptId: String; let url: String; let redirectUri: String; let timeoutMs: UInt64; let ephemeral: Bool? }
 private struct CancelArgs: Decodable { let attemptId: String }
 private struct BrowserArgs: Decodable { let url: String }
 
@@ -73,6 +74,9 @@ final class F2zPlugin: Plugin, ASWebAuthenticationPresentationContextProviding {
                     session = ASWebAuthenticationSession(url: url, callbackURLScheme: redirect.scheme, completionHandler: completion)
                 }
                 session.presentationContextProvider = self
+                // No cookies shared with Safari: the sign-in page cannot reuse
+                // another account's web session. Opt-in; the default is unchanged.
+                session.prefersEphemeralWebBrowserSession = args.ephemeral ?? false
                 self.pending = invoke; self.attempt = args.attemptId; self.auth = session
                 let expiry = DispatchWorkItem { [weak self] in
                     guard let self, self.attempt == args.attemptId else { return }

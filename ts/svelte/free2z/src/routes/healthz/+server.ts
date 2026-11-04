@@ -1,8 +1,9 @@
 import { json } from "@sveltejs/kit";
-import { env } from "$env/dynamic/public";
+import * as env from "$app/env/public";
+import * as privateEnv from "$app/env/private";
 import type { RequestHandler } from "./$types";
 
-// Liveness + deployed-commit probe for the #494 CI/CD pipeline.
+// Liveness + deployed-commit probe for the  CI/CD pipeline.
 //
 // Two gates read this:
 //   * main-integration.yml polls it on stage.free2z.cash and only promotes a
@@ -20,6 +21,8 @@ export const GET: RequestHandler = () => {
     {
       ok: true,
       commit: env.PUBLIC_BUILD_SHA || "dev",
+      deployment_commit: privateEnv.DEPLOYMENT_SHA || "dev",
+      release_id: privateEnv.APP_RELEASE_ID || "dev",
     },
     {
       headers: {

@@ -1,0 +1,1599 @@
+{
+  "_comment": [
+    "Golden cross-runtime table for zPage language URLs.",
+    "",
+    "Three surfaces have to agree on one question -- 'what is this variant's",
+    "URL, and what is that URL's canonical?' -- and they run in two languages:",
+    "",
+    "  * the SvelteKit article page, via articleCanonicalHref() /",
+    "    articleLanguageAlternates() in src/lib/zpage-language.js,",
+    "  * the sitemap, via zpageEntries() in src/lib/server/sitemap.ts,",
+    "  * the Django crawler prerender tier, via the port in",
+    "    py/dj/apps/g12f/views/crawler.py.",
+    "",
+    "If they disagree, a search engine sees a sitemap URL whose page declares a",
+    "different rel=canonical and discards the entire hreflang cluster. So this",
+    "file is the single expected answer, asserted by BOTH suites:",
+    "",
+    "  ts/svelte/free2z/tests/sitemap-language.test.mjs",
+    "  ts/svelte/free2z/tests/text-direction.test.mjs   (the `direction` table)",
+    "  py/dj/apps/g12f/test_crawler_language.py",
+    "",
+    "Change one implementation without the other and both suites fail.",
+    "",
+    "`available_languages` is exactly what the zPage API reports for a",
+    "published page -- real languages sorted by tag, with a non-language source",
+    "(the legacy `und` sentinel) kept at the front.",
+    "",
+    "Every REAL language is advertisable. A variant is skipped only",
+    "when its tag names no language at all -- `und`, `mul`, private use. It is",
+    "NOT filtered to the four locales the product UI is translated into: an",
+    "hreflang needs a valid BCP-47 tag, not a tag we ship a navbar in, and",
+    "that filter is why a creator's published `zh-Hans` translation was",
+    "advertised nowhere and reachable from nowhere. Script and region stay",
+    "exact -- `zh-Hans` is never `zh`, `pt-PT` is never `pt-BR`.",
+    "",
+    "`sitemap` lists the <loc> values that one published zPage contributes, in",
+    "order, each with the xhtml:link cluster attached to it.",
+    "",
+    "`range` and `normalize` pin the two duplicated ALGORITHMS, not just their",
+    "URL output. resolveContentLanguageRange /",
+    "_resolve_content_language_range decide which variant a language RANGE",
+    "means, and the normalizers decide what a `?lang=` even is. Both exist",
+    "twice, in two runtimes, and a divergence lets one URL serve two languages",
+    "with contradicting canonicals -- which is what `?lang=cmn` did until the",
+    "Python side learned ICU's macrolanguage canonicalization.",
+    "",
+    "The script comparison is the LIKELY script (CLDR likely-subtags), not a",
+    "spelled-out subtag: `zh-TW` and `zh-CN` name no script and are the",
+    "commonest hand-written Chinese tags, so a guard reading only an explicit",
+    "subtag served a Taiwanese reader Simplified text with no disclosure.",
+    "`Intl.Locale.maximize()` and `langcodes.Language.maximize()` agree on",
+    "every tag reachable here; these cases are what holds them together.",
+    "",
+    "Bare `yue` normalizes to `yue-Hant` in BOTH runtimes: Cantonese",
+    "is a language, not a script variant of `zh`, and written Cantonese is",
+    "overwhelmingly traditional. Bare `zh` deliberately does NOT get the same",
+    "treatment and stays `zh` -- see the module docstring in",
+    "`py/f2z/languages.py`. Both are pinned above because a default applied in",
+    "one runtime and not the other is exactly the one-URL-two-languages bug",
+    "this file exists to stop.",
+    "",
+    "`direction` pins the third duplicated algorithm: which WAY a",
+    "variant's text runs. contentDirectionAttribute (JS) and",
+    "languages.direction_attribute (Python) are the two implementations, and",
+    "this tier renders the same URL as SvelteKit, so a divergence lays one",
+    "article out two different ways depending on which upstream answered.",
+    "",
+    "It pins the ANSWER, not the intermediate script, on purpose: ICU and",
+    "langcodes are free to disagree about `ur` being `Arab` or `Aran` -- both",
+    "are right-to-left -- and pinning the script would fail on a difference",
+    "that changes no layout. A tag that names no language is `auto`, never",
+    "`ltr`: 'unknown' and 'left-to-right' are different declarations, and the",
+    "browser reading the text itself beats guessing.",
+    "",
+    "`normalize_runtime_divergence` is the honest residue: tags that are",
+    "well-formed BCP-47 but absent from the IANA registry. The JS tier",
+    "forwards them, the API answers 400, and both tiers then render",
+    "DEFAULT_LOCALE -- so the rendered answer still agrees. Each suite asserts",
+    "its own column, and neither may grow a case where the two tiers would",
+    "render different CONTENT."
+  ],
+  "base": "/alice/post",
+  "cases": [
+    {
+      "name": "untranslated English article is untouched by any of this",
+      "source_language": "en",
+      "available_languages": [
+        "en"
+      ],
+      "canonical_by_actual": {
+        "en": "/alice/post"
+      },
+      "alternates": [
+        {
+          "hreflang": "en",
+          "href": "/alice/post"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post",
+          "alternates": []
+        }
+      ]
+    },
+    {
+      "name": "legacy und-only article names no language anywhere",
+      "source_language": "und",
+      "available_languages": [
+        "und"
+      ],
+      "canonical_by_actual": {
+        "und": "/alice/post"
+      },
+      "alternates": [],
+      "sitemap": [
+        {
+          "loc": "/alice/post",
+          "alternates": []
+        }
+      ]
+    },
+    {
+      "name": "single non-English variant still owns the clean URL",
+      "source_language": "es",
+      "available_languages": [
+        "es"
+      ],
+      "canonical_by_actual": {
+        "es": "/alice/post"
+      },
+      "alternates": [
+        {
+          "hreflang": "es",
+          "href": "/alice/post"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post",
+          "alternates": []
+        }
+      ]
+    },
+    {
+      "name": "English source plus a published Spanish translation",
+      "source_language": "en",
+      "available_languages": [
+        "en",
+        "es"
+      ],
+      "canonical_by_actual": {
+        "en": "/alice/post?lang=en",
+        "es": "/alice/post?lang=es"
+      },
+      "alternates": [
+        {
+          "hreflang": "en",
+          "href": "/alice/post?lang=en"
+        },
+        {
+          "hreflang": "es",
+          "href": "/alice/post?lang=es"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post?lang=en",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=es",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "und source plus Spanish keeps the clean URL indexable",
+      "source_language": "und",
+      "available_languages": [
+        "und",
+        "es"
+      ],
+      "canonical_by_actual": {
+        "und": "/alice/post",
+        "es": "/alice/post?lang=es"
+      },
+      "alternates": [
+        {
+          "hreflang": "es",
+          "href": "/alice/post?lang=es"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post",
+          "alternates": [
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=es",
+          "alternates": [
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "no English variant at all: the source owns a ?lang= URL",
+      "source_language": "es",
+      "available_languages": [
+        "es",
+        "fr"
+      ],
+      "canonical_by_actual": {
+        "es": "/alice/post?lang=es",
+        "fr": "/alice/post?lang=fr"
+      },
+      "alternates": [
+        {
+          "hreflang": "es",
+          "href": "/alice/post?lang=es"
+        },
+        {
+          "hreflang": "fr",
+          "href": "/alice/post?lang=fr"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post?lang=es",
+          "alternates": [
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "fr",
+              "href": "/alice/post?lang=fr"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=fr",
+          "alternates": [
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "fr",
+              "href": "/alice/post?lang=fr"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "und source plus a language the UI is not translated into",
+      "source_language": "und",
+      "available_languages": [
+        "und",
+        "de"
+      ],
+      "canonical_by_actual": {
+        "und": "/alice/post",
+        "de": "/alice/post?lang=de"
+      },
+      "alternates": [
+        {
+          "hreflang": "de",
+          "href": "/alice/post?lang=de"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post",
+          "alternates": [
+            {
+              "hreflang": "de",
+              "href": "/alice/post?lang=de"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=de",
+          "alternates": [
+            {
+              "hreflang": "de",
+              "href": "/alice/post?lang=de"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "neither variant is a UI locale, and both are still advertised",
+      "source_language": "de",
+      "available_languages": [
+        "de",
+        "es"
+      ],
+      "canonical_by_actual": {
+        "de": "/alice/post?lang=de",
+        "es": "/alice/post?lang=es"
+      },
+      "alternates": [
+        {
+          "hreflang": "de",
+          "href": "/alice/post?lang=de"
+        },
+        {
+          "hreflang": "es",
+          "href": "/alice/post?lang=es"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post?lang=de",
+          "alternates": [
+            {
+              "hreflang": "de",
+              "href": "/alice/post?lang=de"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=es",
+          "alternates": [
+            {
+              "hreflang": "de",
+              "href": "/alice/post?lang=de"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "the the application contract article: English source, published Simplified Chinese",
+      "source_language": "en",
+      "available_languages": [
+        "en",
+        "zh-Hans"
+      ],
+      "canonical_by_actual": {
+        "en": "/alice/post?lang=en",
+        "zh-Hans": "/alice/post?lang=zh-Hans"
+      },
+      "alternates": [
+        {
+          "hreflang": "en",
+          "href": "/alice/post?lang=en"
+        },
+        {
+          "hreflang": "zh-Hans",
+          "href": "/alice/post?lang=zh-Hans"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post?lang=en",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "zh-Hans",
+              "href": "/alice/post?lang=zh-Hans"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=zh-Hans",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "zh-Hans",
+              "href": "/alice/post?lang=zh-Hans"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "both Chinese scripts stay two distinct languages",
+      "source_language": "en",
+      "available_languages": [
+        "en",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "canonical_by_actual": {
+        "en": "/alice/post?lang=en",
+        "zh-Hans": "/alice/post?lang=zh-Hans",
+        "zh-Hant": "/alice/post?lang=zh-Hant"
+      },
+      "alternates": [
+        {
+          "hreflang": "en",
+          "href": "/alice/post?lang=en"
+        },
+        {
+          "hreflang": "zh-Hans",
+          "href": "/alice/post?lang=zh-Hans"
+        },
+        {
+          "hreflang": "zh-Hant",
+          "href": "/alice/post?lang=zh-Hant"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post?lang=en",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "zh-Hans",
+              "href": "/alice/post?lang=zh-Hans"
+            },
+            {
+              "hreflang": "zh-Hant",
+              "href": "/alice/post?lang=zh-Hant"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=zh-Hans",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "zh-Hans",
+              "href": "/alice/post?lang=zh-Hans"
+            },
+            {
+              "hreflang": "zh-Hant",
+              "href": "/alice/post?lang=zh-Hant"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=zh-Hant",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "zh-Hans",
+              "href": "/alice/post?lang=zh-Hans"
+            },
+            {
+              "hreflang": "zh-Hant",
+              "href": "/alice/post?lang=zh-Hant"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a single stored macrolanguage alias owns its clean URL",
+      "source_language": "cmn",
+      "available_languages": [
+        "cmn"
+      ],
+      "canonical_by_actual": {
+        "cmn": "/alice/post"
+      },
+      "alternates": [
+        {
+          "hreflang": "cmn",
+          "href": "/alice/post"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post",
+          "alternates": []
+        }
+      ]
+    },
+    {
+      "name": "stored macrolanguage alias and canonical spelling remain addressable",
+      "source_language": "en",
+      "available_languages": [
+        "en",
+        "cmn",
+        "zh"
+      ],
+      "canonical_by_actual": {
+        "en": "/alice/post?lang=en",
+        "cmn": "/alice/post?lang=cmn",
+        "zh": "/alice/post?lang=zh"
+      },
+      "alternates": [
+        {
+          "hreflang": "en",
+          "href": "/alice/post?lang=en"
+        },
+        {
+          "hreflang": "cmn",
+          "href": "/alice/post?lang=cmn"
+        },
+        {
+          "hreflang": "zh",
+          "href": "/alice/post?lang=zh"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post?lang=en",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "cmn",
+              "href": "/alice/post?lang=cmn"
+            },
+            {
+              "hreflang": "zh",
+              "href": "/alice/post?lang=zh"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=cmn",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "cmn",
+              "href": "/alice/post?lang=cmn"
+            },
+            {
+              "hreflang": "zh",
+              "href": "/alice/post?lang=zh"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=zh",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "cmn",
+              "href": "/alice/post?lang=cmn"
+            },
+            {
+              "hreflang": "zh",
+              "href": "/alice/post?lang=zh"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "a single European Portuguese variant is not relabelled Brazilian",
+      "source_language": "pt-PT",
+      "available_languages": [
+        "pt-PT"
+      ],
+      "canonical_by_actual": {
+        "pt-PT": "/alice/post"
+      },
+      "alternates": [
+        {
+          "hreflang": "pt-PT",
+          "href": "/alice/post"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post",
+          "alternates": []
+        }
+      ]
+    },
+    {
+      "name": "every supported locale, including the regional tag",
+      "source_language": "en",
+      "available_languages": [
+        "en",
+        "es",
+        "fr",
+        "pt-BR"
+      ],
+      "canonical_by_actual": {
+        "en": "/alice/post?lang=en",
+        "es": "/alice/post?lang=es",
+        "fr": "/alice/post?lang=fr",
+        "pt-BR": "/alice/post?lang=pt-BR"
+      },
+      "alternates": [
+        {
+          "hreflang": "en",
+          "href": "/alice/post?lang=en"
+        },
+        {
+          "hreflang": "es",
+          "href": "/alice/post?lang=es"
+        },
+        {
+          "hreflang": "fr",
+          "href": "/alice/post?lang=fr"
+        },
+        {
+          "hreflang": "pt-BR",
+          "href": "/alice/post?lang=pt-BR"
+        },
+        {
+          "hreflang": "x-default",
+          "href": "/alice/post"
+        }
+      ],
+      "sitemap": [
+        {
+          "loc": "/alice/post?lang=en",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "fr",
+              "href": "/alice/post?lang=fr"
+            },
+            {
+              "hreflang": "pt-BR",
+              "href": "/alice/post?lang=pt-BR"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=es",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "fr",
+              "href": "/alice/post?lang=fr"
+            },
+            {
+              "hreflang": "pt-BR",
+              "href": "/alice/post?lang=pt-BR"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=fr",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "fr",
+              "href": "/alice/post?lang=fr"
+            },
+            {
+              "hreflang": "pt-BR",
+              "href": "/alice/post?lang=pt-BR"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        },
+        {
+          "loc": "/alice/post?lang=pt-BR",
+          "alternates": [
+            {
+              "hreflang": "en",
+              "href": "/alice/post?lang=en"
+            },
+            {
+              "hreflang": "es",
+              "href": "/alice/post?lang=es"
+            },
+            {
+              "hreflang": "fr",
+              "href": "/alice/post?lang=fr"
+            },
+            {
+              "hreflang": "pt-BR",
+              "href": "/alice/post?lang=pt-BR"
+            },
+            {
+              "hreflang": "x-default",
+              "href": "/alice/post"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "range": [
+    {
+      "requested": "zh-Hans",
+      "available": [
+        "en",
+        "zh-Hans"
+      ],
+      "resolved": "zh-Hans"
+    },
+    {
+      "requested": "zh",
+      "available": [
+        "en",
+        "zh-Hans"
+      ],
+      "resolved": "zh-Hans"
+    },
+    {
+      "requested": "zh",
+      "available": [
+        "en",
+        "zh-Hant"
+      ],
+      "resolved": "zh-Hant"
+    },
+    {
+      "requested": "zh",
+      "available": [
+        "en",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "zh-TW",
+      "available": [
+        "en",
+        "zh-Hans"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "zh-TW",
+      "available": [
+        "en",
+        "zh-Hant"
+      ],
+      "resolved": "zh-Hant"
+    },
+    {
+      "requested": "zh-TW",
+      "available": [
+        "en",
+        "zh-Hans",
+        "zh-Hant"
+      ],
+      "resolved": "zh-Hant"
+    },
+    {
+      "requested": "zh-CN",
+      "available": [
+        "en",
+        "zh-Hant"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "zh-CN",
+      "available": [
+        "en",
+        "zh-Hans"
+      ],
+      "resolved": "zh-Hans"
+    },
+    {
+      "requested": "zh-Hant",
+      "available": [
+        "en",
+        "zh-CN"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "zh-Hans",
+      "available": [
+        "en",
+        "zh-TW"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "zh-Hans-CN",
+      "available": [
+        "en",
+        "zh-Hans"
+      ],
+      "resolved": "zh-Hans"
+    },
+    {
+      "requested": "zh-Hans-CN",
+      "available": [
+        "zh-Hant"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "sr-Latn",
+      "available": [
+        "en",
+        "sr"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "zh-Hant",
+      "available": [
+        "zh"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "pt-BR",
+      "available": [
+        "pt"
+      ],
+      "resolved": "pt"
+    },
+    {
+      "requested": "en-GB",
+      "available": [
+        "en"
+      ],
+      "resolved": "en"
+    },
+    {
+      "requested": "cmn",
+      "available": [
+        "en",
+        "zh-Hans"
+      ],
+      "resolved": "zh-Hans"
+    },
+    {
+      "requested": "cmn",
+      "available": [
+        "en",
+        "cmn"
+      ],
+      "resolved": "cmn"
+    },
+    {
+      "requested": "tw",
+      "available": [
+        "en",
+        "tw"
+      ],
+      "resolved": "tw"
+    },
+    {
+      "requested": "zh",
+      "available": [
+        "en",
+        "cmn"
+      ],
+      "resolved": "cmn"
+    },
+    {
+      "requested": "pt",
+      "available": [
+        "en",
+        "pt-PT"
+      ],
+      "resolved": "pt-PT"
+    },
+    {
+      "requested": "pt-BR",
+      "available": [
+        "en",
+        "pt-PT"
+      ],
+      "resolved": "pt-PT"
+    },
+    {
+      "requested": "en-GB",
+      "available": [
+        "en-US"
+      ],
+      "resolved": "en-US"
+    },
+    {
+      "requested": "zh",
+      "available": [
+        "en",
+        "es"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "und",
+      "available": [
+        "en",
+        "und"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "not a tag!",
+      "available": [
+        "en"
+      ],
+      "resolved": null
+    },
+    {
+      "requested": "en",
+      "available": [],
+      "resolved": null
+    }
+  ],
+  "normalize": [
+    {
+      "input": "en",
+      "tag": "en"
+    },
+    {
+      "input": "EN",
+      "tag": "en"
+    },
+    {
+      "input": "zh-hans",
+      "tag": "zh-Hans"
+    },
+    {
+      "input": "ZH-HANS",
+      "tag": "zh-Hans"
+    },
+    {
+      "input": "zh_Hans",
+      "tag": "zh-Hans"
+    },
+    {
+      "input": "zh-TW",
+      "tag": "zh-TW"
+    },
+    {
+      "input": "zh-CN",
+      "tag": "zh-CN"
+    },
+    {
+      "input": "pt",
+      "tag": "pt-BR"
+    },
+    {
+      "input": "pt_br",
+      "tag": "pt-BR"
+    },
+    {
+      "input": "pt-PT",
+      "tag": "pt-PT"
+    },
+    {
+      "input": "cmn",
+      "tag": "zh"
+    },
+    {
+      "input": "zh",
+      "tag": "zh"
+    },
+    {
+      "input": "yue",
+      "tag": "yue-Hant"
+    },
+    {
+      "input": "YUE",
+      "tag": "yue-Hant"
+    },
+    {
+      "input": "yue-Hans",
+      "tag": "yue-Hans"
+    },
+    {
+      "input": "iw",
+      "tag": "he"
+    },
+    {
+      "input": "in",
+      "tag": "id"
+    },
+    {
+      "input": "tl",
+      "tag": "fil"
+    },
+    {
+      "input": "mo",
+      "tag": "ro"
+    },
+    {
+      "input": "sh",
+      "tag": "sr-Latn"
+    },
+    {
+      "input": "und",
+      "tag": null
+    },
+    {
+      "input": "mul",
+      "tag": null
+    },
+    {
+      "input": "zxx",
+      "tag": null
+    },
+    {
+      "input": "mis",
+      "tag": null
+    },
+    {
+      "input": "qaa",
+      "tag": null
+    },
+    {
+      "input": "x-private",
+      "tag": null
+    },
+    {
+      "input": "i-klingon",
+      "tag": null
+    },
+    {
+      "input": "en-u-ca-buddhist",
+      "tag": null
+    },
+    {
+      "input": "en-x-draft",
+      "tag": null
+    },
+    {
+      "input": "de",
+      "tag": "de"
+    },
+    {
+      "input": "ja",
+      "tag": "ja"
+    },
+    {
+      "input": "fil",
+      "tag": "fil"
+    },
+    {
+      "input": "nb",
+      "tag": "nb"
+    },
+    {
+      "input": "no",
+      "tag": "no"
+    },
+    {
+      "input": "sr-Latn",
+      "tag": "sr-Latn"
+    },
+    {
+      "input": "uz-Cyrl",
+      "tag": "uz-Cyrl"
+    },
+    {
+      "input": "es-419",
+      "tag": "es-419"
+    },
+    {
+      "input": "en-GB",
+      "tag": "en-GB"
+    },
+    {
+      "input": "zh-Hant-TW",
+      "tag": "zh-Hant-TW"
+    },
+    {
+      "input": "tw",
+      "tag": "tw"
+    },
+    {
+      "input": "knn",
+      "tag": "knn"
+    },
+    {
+      "input": "mnk",
+      "tag": "mnk"
+    },
+    {
+      "input": "arb",
+      "tag": "ar"
+    },
+    {
+      "input": "swh",
+      "tag": "sw"
+    },
+    {
+      "input": "zsm",
+      "tag": "ms"
+    },
+    {
+      "input": "als",
+      "tag": "sq"
+    },
+    {
+      "input": "prs",
+      "tag": "fa-AF"
+    },
+    {
+      "input": "ajp",
+      "tag": "apc"
+    },
+    {
+      "input": "ajt",
+      "tag": "aeb"
+    },
+    {
+      "input": "gom",
+      "tag": "kok"
+    }
+  ],
+  "explicit": [
+    {
+      "input": "cmn",
+      "tag": "cmn"
+    },
+    {
+      "input": "CMN",
+      "tag": "cmn"
+    },
+    {
+      "input": "cmn-hans-cn",
+      "tag": "cmn-Hans-CN"
+    },
+    {
+      "input": "gom-IN",
+      "tag": "gom-IN"
+    },
+    {
+      "input": "ajp-Latn",
+      "tag": "ajp-Latn"
+    },
+    {
+      "input": "tw",
+      "tag": "tw"
+    },
+    {
+      "input": "tw-GH",
+      "tag": "tw-GH"
+    },
+    {
+      "input": "zh-Hans",
+      "tag": "zh-Hans"
+    },
+    {
+      "input": "pt",
+      "tag": "pt-BR"
+    },
+    {
+      "input": "en-US",
+      "tag": "en-US"
+    },
+    {
+      "input": "sgn-BR",
+      "tag": "bzs"
+    },
+    {
+      "input": "art-lojban",
+      "tag": "jbo"
+    },
+    {
+      "input": "zh-hakka",
+      "tag": "hak"
+    },
+    {
+      "input": "prs",
+      "tag": "fa-AF"
+    },
+    {
+      "input": "sh",
+      "tag": "sr-Latn"
+    },
+    {
+      "input": "und",
+      "tag": null
+    },
+    {
+      "input": "<script>",
+      "tag": null
+    }
+  ],
+  "direction": [
+    {
+      "tag": "ar",
+      "dir": "rtl"
+    },
+    {
+      "tag": "fa",
+      "dir": "rtl"
+    },
+    {
+      "tag": "he",
+      "dir": "rtl"
+    },
+    {
+      "tag": "ur",
+      "dir": "rtl"
+    },
+    {
+      "tag": "ar-EG",
+      "dir": "rtl"
+    },
+    {
+      "tag": "he-IL",
+      "dir": "rtl"
+    },
+    {
+      "tag": "ur-PK",
+      "dir": "rtl"
+    },
+    {
+      "tag": "fa-AF",
+      "dir": "rtl"
+    },
+    {
+      "tag": "ar-Latn",
+      "dir": "ltr"
+    },
+    {
+      "tag": "he-Latn",
+      "dir": "ltr"
+    },
+    {
+      "tag": "ur-Latn",
+      "dir": "ltr"
+    },
+    {
+      "tag": "pa-Arab",
+      "dir": "rtl"
+    },
+    {
+      "tag": "pa",
+      "dir": "ltr"
+    },
+    {
+      "tag": "pa-Guru",
+      "dir": "ltr"
+    },
+    {
+      "tag": "ps",
+      "dir": "rtl"
+    },
+    {
+      "tag": "sd",
+      "dir": "rtl"
+    },
+    {
+      "tag": "dv",
+      "dir": "rtl"
+    },
+    {
+      "tag": "yi",
+      "dir": "rtl"
+    },
+    {
+      "tag": "ckb",
+      "dir": "rtl"
+    },
+    {
+      "tag": "ku",
+      "dir": "ltr"
+    },
+    {
+      "tag": "en",
+      "dir": "ltr"
+    },
+    {
+      "tag": "es",
+      "dir": "ltr"
+    },
+    {
+      "tag": "fr",
+      "dir": "ltr"
+    },
+    {
+      "tag": "pt-BR",
+      "dir": "ltr"
+    },
+    {
+      "tag": "zh-Hans",
+      "dir": "ltr"
+    },
+    {
+      "tag": "zh-Hant",
+      "dir": "ltr"
+    },
+    {
+      "tag": "zh-TW",
+      "dir": "ltr"
+    },
+    {
+      "tag": "zh-CN",
+      "dir": "ltr"
+    },
+    {
+      "tag": "ja",
+      "dir": "ltr"
+    },
+    {
+      "tag": "ko",
+      "dir": "ltr"
+    },
+    {
+      "tag": "ru",
+      "dir": "ltr"
+    },
+    {
+      "tag": "hi",
+      "dir": "ltr"
+    },
+    {
+      "tag": "th",
+      "dir": "ltr"
+    },
+    {
+      "tag": "ta",
+      "dir": "ltr"
+    },
+    {
+      "tag": "te",
+      "dir": "ltr"
+    },
+    {
+      "tag": "sr",
+      "dir": "ltr"
+    },
+    {
+      "tag": "sr-Latn",
+      "dir": "ltr"
+    },
+    {
+      "tag": "uz-Cyrl",
+      "dir": "ltr"
+    },
+    {
+      "tag": "bn",
+      "dir": "ltr"
+    },
+    {
+      "tag": "el",
+      "dir": "ltr"
+    },
+    {
+      "tag": "und",
+      "dir": "auto"
+    },
+    {
+      "tag": "mul",
+      "dir": "auto"
+    },
+    {
+      "tag": "zxx",
+      "dir": "auto"
+    },
+    {
+      "tag": "mis",
+      "dir": "auto"
+    },
+    {
+      "tag": "x-private",
+      "dir": "auto"
+    },
+    {
+      "tag": "zz-ZZ",
+      "dir": "auto"
+    },
+    {
+      "tag": "art",
+      "dir": "auto"
+    },
+    {
+      "tag": "klingon",
+      "dir": "auto"
+    },
+    {
+      "tag": "",
+      "dir": "auto"
+    }
+  ],
+  "normalize_runtime_divergence": [
+    {
+      "input": "art",
+      "js": "art",
+      "python": null
+    },
+    {
+      "input": "nic",
+      "js": "nic",
+      "python": null
+    },
+    {
+      "input": "zz-ZZ",
+      "js": "zz-ZZ",
+      "python": null
+    },
+    {
+      "input": "klingon",
+      "js": "klingon",
+      "python": null
+    }
+  ]
+}

@@ -807,3 +807,22 @@ fn a_tool_call_delta_frame_is_pinned_and_skippable_by_an_old_reader() {
         Ok(Event::ToolCallDelta(_))
     ));
 }
+
+#[test]
+fn tools_effort_control_is_a_strict_boolean_with_compatible_absence() {
+    use f2z_ai_proto::catalog::ModelControls;
+    for (wire, expected) in [
+        ("{}", false),
+        (r#"{"tools_require_effort_none":false}"#, false),
+        (r#"{"tools_require_effort_none":true}"#, true),
+    ] {
+        let control: ModelControls = serde_json::from_str(wire).unwrap();
+        assert_eq!(control.tools_require_effort_none, expected);
+        let encoded = serde_json::to_value(control).unwrap();
+        assert_eq!(encoded.get("tools_require_effort_none").is_some(), expected);
+    }
+    for bad in ["null", "1", r#""true""#, "[]", "{}"] {
+        let wire = format!(r#"{{"tools_require_effort_none":{bad}}}"#);
+        assert!(serde_json::from_str::<ModelControls>(&wire).is_err());
+    }
+}
