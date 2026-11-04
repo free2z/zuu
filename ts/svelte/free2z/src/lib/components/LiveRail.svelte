@@ -54,11 +54,15 @@
   class="relative z-10 -mb-6 px-4 sm:px-6 md:-mt-2 md:-mb-8 lg:-mt-5 lg:-mb-16 lg:px-8"
 >
   <div
-    class="mx-auto flex max-w-7xl min-w-0 flex-col gap-2.5 {narrow
+    class="live-card relative mx-auto flex max-w-7xl min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border border-border/60 bg-card/30 p-3 backdrop-blur-sm sm:p-4 {narrow
       ? 'lg:max-w-6xl'
       : ''}"
   >
-    <div class="flex items-center gap-3">
+    <span
+      class="pointer-events-none absolute -top-16 -left-16 size-48 rounded-full bg-red-500/10 blur-3xl"
+      aria-hidden="true"
+    ></span>
+    <div class="relative flex items-center gap-3 px-1">
       <h2
         id="homepage-live-now-heading"
         class="flex shrink-0 items-center gap-2 font-mono text-[11px] font-bold tracking-[0.2em] text-red-500 uppercase"
@@ -77,7 +81,7 @@
     </div>
 
     <ul
-      class="rail-scroll -mx-4 -my-2 flex min-w-0 items-center gap-2.5 overflow-x-auto px-4 py-2 sm:mx-0 sm:px-0"
+      class="rail-scroll relative -mx-3 -my-2 flex min-w-0 items-center gap-2.5 overflow-x-auto px-3 py-2 sm:-mx-4 sm:px-4"
     >
       {#each items as it (it.key)}
         <li class="shrink-0">
@@ -194,13 +198,11 @@
       transparent
     );
   }
+  .live-card {
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04);
+  }
   .rail-scroll::-webkit-scrollbar {
     display: none;
-  }
-  @media (min-width: 640px) {
-    .rail-scroll {
-      mask-image: none;
-    }
   }
 
   @media (prefers-reduced-motion: reduce) {
