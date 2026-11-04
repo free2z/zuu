@@ -43,7 +43,7 @@ test("text completion quotes a chosen model and requires preview acceptance", as
   test.setTimeout(120_000);
   const calls: Record<string, unknown>[] = [];
   const requestKeys: string[] = [];
-  let promptFailures = 1;
+  let promptAttempts = 0;
   const textChoices = [
     {
       id: "text-a",
@@ -112,10 +112,21 @@ test("text completion quotes a chosen model and requires preview acceptance", as
         const body = JSON.parse(request.postData() || "{}");
         calls.push(body);
         requestKeys.push(request.headers()["idempotency-key"] ?? "");
-        if (promptFailures-- > 0) {
+        if (promptAttempts++ === 0) {
           await route.fulfill({
             status: 503,
             json: { detail: "Temporary provider failure" },
+          });
+          return;
+        }
+        if (promptAttempts === 2) {
+          await route.fulfill({
+            status: 402,
+            json: {
+              code: "insufficient_funds",
+              key_resolved: true,
+              detail: "No charge was made.",
+            },
           });
           return;
         }
@@ -170,20 +181,267 @@ test("text completion quotes a chosen model and requires preview acceptance", as
   const retry = page.getByRole("button", { name: "Retry exact request" });
   await expect(retry).toBeVisible();
   await retry.click();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(retry).toHaveCount(0);
+  await modelChoice.selectOption("text-a");
+  await page
+    .getByRole("button", { name: "Show price and destination" })
+    .click();
+  await expect(
+    page.getByText(/Your prompt will be sent to OpenAI/),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Generate text (up to 4 2Z)" })
+    .click();
   await expect(page.getByText("A reviewed paragraph.")).toBeVisible();
   await expect(editor).toHaveValue("Existing draft stays here.");
   expect(calls.at(-1)).toMatchObject({
-    model: "text-b",
+    model: "text-a",
     prompt: calls[0].prompt,
     quote_token: "quote-bound-to-prompt",
     max_output_tokens: 256,
   });
-  expect(calls.at(-1)).toEqual(calls.at(-2));
-  expect(requestKeys.at(-1)).toBe(requestKeys.at(-2));
+  expect(calls[1]).toEqual(calls[2]);
+  expect(requestKeys[0]).toBe(requestKeys[1]);
+  expect(calls[1]).toMatchObject({ model: "text-b", prompt: calls[0].prompt });
   await page.getByRole("button", { name: "Insert text" }).click();
   await expect(editor).toHaveValue(
     "Existing draft stays here.\n\nA reviewed paragraph.",
   );
+});
+
+test("text completion keeps the newest quote when responses arrive out of order", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const choices = [
+    {
+      id: "quote-a",
+      provider: "openai",
+      display_name: "Quote A",
+      destination: "OpenAI",
+      privacy_policy_url: "https://openai.com/policies/privacy-policy/",
+      availability: "Ready",
+      queue: "Now",
+    },
+    {
+      id: "quote-b",
+      provider: "anthropic",
+      display_name: "Quote B",
+      destination: "Anthropic",
+      privacy_policy_url: "https://www.anthropic.com/legal/privacy",
+      availability: "Ready B",
+      queue: "Queued B",
+    },
+  ];
+  let releaseA!: () => void;
+  let quoteAStarted!: () => void;
+  const quoteA = new Promise<void>((resolve) => {
+    releaseA = resolve;
+  });
+  const startedA = new Promise<void>((resolve) => {
+    quoteAStarted = resolve;
+  });
+  const quoteBodies: Record<string, unknown>[] = [];
+  const paid: Record<string, unknown>[] = [];
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "quote-race-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  await page.route(
+    (url) => url.pathname.startsWith("/api/"),
+    async (route) => {
+      const req = route.request(),
+        path = new URL(req.url()).pathname;
+      if (path === "/api/auth/user/") return route.fulfill({ json: CREATOR });
+      if (path === "/api/ai/creator-options/" && req.method() === "GET")
+        return route.fulfill({ json: { cover: [], completion: choices } });
+      if (path === "/api/ai/creator-options/" && req.method() === "POST") {
+        const body = JSON.parse(req.postData() || "{}");
+        quoteBodies.push(body);
+        if (body.prompt === "prompt A") {
+          quoteAStarted();
+          await quoteA;
+          return route.fulfill({
+            json: {
+              choice: choices[0],
+              model: choices[0].id,
+              requested_output_tokens: 256,
+              max_output_tokens: 100,
+              max_charge_2z: 11,
+              quote_token: "token-A",
+              availability: "A",
+              queue: "A",
+            },
+          });
+        }
+        return route.fulfill({
+          json: {
+            choice: choices[1],
+            model: choices[1].id,
+            requested_output_tokens: 256,
+            max_output_tokens: 128,
+            max_charge_2z: 22,
+            quote_token: "token-B",
+            availability: "Ready B",
+            queue: "Queued B",
+          },
+        });
+      }
+      if (path === "/api/ai/prompt/" && req.method() === "POST") {
+        paid.push(JSON.parse(req.postData() || "{}"));
+        return route.fulfill({
+          json: {
+            response: "B result",
+            provider: "anthropic",
+            model: "model-b",
+            display_name: "Quote B",
+            tuzis_charged: 3,
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        });
+      }
+      return route.fulfill({ json: {} });
+    },
+  );
+  await page.goto("/edit");
+  await expect(page.locator("textarea.writing-area-textarea")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByText("Draft with AI").click();
+  const prompt = page.getByLabel("Prompt (sent to the selected provider)");
+  const model = page.getByRole("combobox");
+  await expect(model.locator('option[value="quote-b"]')).toHaveCount(1);
+  await model.selectOption("quote-a");
+  await prompt.fill("prompt A");
+  const quoteButton = page.getByRole("button", {
+    name: "Show price and destination",
+  });
+  await quoteButton.click();
+  await startedA;
+  await model.selectOption("quote-b");
+  await prompt.fill("prompt B");
+  await quoteButton.click();
+  await expect(page.getByText(/Maximum charge: 22 2Z/)).toBeVisible();
+  releaseA();
+  await expect(page.getByText(/Maximum charge: 22 2Z/)).toBeVisible();
+  await expect(
+    page.getByText(/Your prompt will be sent to Anthropic/),
+  ).toBeVisible();
+  await expect(page.getByText(/Maximum charge: 11 2Z/)).toHaveCount(0);
+  await page
+    .getByRole("button", { name: "Generate text (up to 22 2Z)" })
+    .click();
+  await expect(page.getByText("B result")).toBeVisible();
+  expect(quoteBodies).toHaveLength(2);
+  expect(paid).toEqual([
+    {
+      model: "quote-b",
+      prompt: "prompt B",
+      max_output_tokens: 256,
+      quote_token: "token-B",
+    },
+  ]);
+});
+
+test("text quote refusal is visible and only an explicit retry can submit", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  let quotes = 0,
+    paid = 0;
+  const choice = {
+    id: "retry-model",
+    provider: "openai",
+    display_name: "Retry model",
+    destination: "OpenAI",
+    privacy_policy_url: "https://openai.com/policies/privacy-policy/",
+    availability: "Ready",
+    queue: "Now",
+  };
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "quote-error-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  await page.route(
+    (url) => url.pathname.startsWith("/api/"),
+    async (route) => {
+      const req = route.request(),
+        path = new URL(req.url()).pathname;
+      if (path === "/api/auth/user/") return route.fulfill({ json: CREATOR });
+      if (path === "/api/ai/creator-options/" && req.method() === "GET")
+        return route.fulfill({ json: { cover: [], completion: [choice] } });
+      if (path === "/api/ai/creator-options/" && req.method() === "POST") {
+        if (quotes++ === 0)
+          return route.fulfill({
+            status: 409,
+            json: { detail: "Model unavailable" },
+          });
+        return route.fulfill({
+          json: {
+            choice,
+            model: choice.id,
+            requested_output_tokens: 256,
+            max_output_tokens: 256,
+            max_charge_2z: 5,
+            quote_token: "fresh-quote",
+            availability: "Ready",
+            queue: "Now",
+          },
+        });
+      }
+      if (path === "/api/ai/prompt/" && req.method() === "POST") {
+        paid++;
+        return route.fulfill({
+          json: {
+            response: "Recovered",
+            provider: "openai",
+            model: "m",
+            display_name: "Retry model",
+            tuzis_charged: 1,
+            input_tokens: 1,
+            output_tokens: 1,
+          },
+        });
+      }
+      return route.fulfill({ json: {} });
+    },
+  );
+  await page.goto("/edit");
+  await expect(page.locator("textarea.writing-area-textarea")).toBeVisible({
+    timeout: 30_000,
+  });
+  await page.getByText("Draft with AI").click();
+  await page
+    .getByLabel("Prompt (sent to the selected provider)")
+    .fill("Only my explicit prompt");
+  await page
+    .getByRole("button", { name: "Show price and destination" })
+    .click();
+  await expect(page.getByRole("alert")).toContainText(
+    "Could not price this prompt",
+  );
+  await expect(page.getByRole("button", { name: /Generate text/ })).toHaveCount(
+    0,
+  );
+  expect(paid).toBe(0);
+  await page
+    .getByRole("button", { name: "Show price and destination" })
+    .click();
+  await expect(page.getByText(/Maximum charge: 5 2Z/)).toBeVisible();
+  await page.getByRole("button", { name: /Generate text/ }).click();
+  await expect(page.getByText("Recovered")).toBeVisible();
+  expect(quotes).toBe(2);
+  expect(paid).toBe(1);
 });
 
 test("cover generation discloses destination and price and gates explicit fallback", async ({
