@@ -63,12 +63,14 @@ use crate::transport::Transport;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Outcome {
-    /// The log was pinned for the first time and its head cosigned.
+    /// The log was pinned for the first time and its cosignature recorded.
+    /// Delivery can remain pending if the log did not acknowledge it.
     Pinned {
         /// The epoch pinned.
         epoch: u64,
     },
-    /// New epochs were verified and cosigned.
+    /// New epochs were verified and their cosignature recorded. Delivery can
+    /// remain pending if the log did not acknowledge it.
     Cosigned {
         /// The epoch now held.
         epoch: u64,
@@ -78,6 +80,12 @@ pub enum Outcome {
     /// The log has not moved. Nothing to do, and nothing wrong.
     UpToDate {
         /// The epoch held.
+        epoch: u64,
+    },
+    /// The held head has not changed, but its cosignature remains pending
+    /// delivery.
+    DeliveryPending {
+        /// The epoch of the queued cosignature.
         epoch: u64,
     },
     /// A fault was found, evidence written, and the witness halted.
@@ -234,9 +242,20 @@ impl Witness {
             // rollback. `accept` names which, so the evidence carries the right
             // `FaultKind` rather than the nearest one.
             return match view.accept(&served) {
-                Ok(()) => Ok(Outcome::UpToDate {
-                    epoch: stored.epoch,
-                }),
+                Ok(()) => {
+                    self.prepare_legacy_delivery(&mut stored)?;
+                    if self.retry_pending(&mut stored, now_ms)? {
+                        Ok(Outcome::UpToDate {
+                            epoch: stored.epoch,
+                        })
+                    } else {
+                        let epoch = stored
+                            .pending_cosignature
+                            .as_ref()
+                            .map_or(stored.epoch, |pending| pending.statement.epoch);
+                        Ok(Outcome::DeliveryPending { epoch })
+                    }
+                }
                 Err(error) => Err(self.record_and_halt(
                     &mut stored,
                     WitnessError::Fault(fault_for(error), error),
@@ -269,7 +288,8 @@ impl Witness {
     fn pin(&mut self, head: &SignedTreeHead, now_ms: u64) -> Result<Outcome> {
         let view = LogView::pin(self.settings.log_id, self.settings.accepted_log_pk, head)
             .map_err(|error| WitnessError::Fault(fault_for(error), error))?;
-        let state = WitnessState::pin(&view, head, now_ms)?;
+        let mut state = WitnessState::pin(&view, head, now_ms)?;
+        state.pending_cosignature = Some(self.cosignature(head, now_ms)?);
         // Step 5 before step 6, on the very first head too.
         state::store(&self.settings.state_path, &state)?;
         log::warn!(
@@ -277,7 +297,7 @@ impl Witness {
             crate::hex(self.settings.log_id.as_bytes()),
             head.sth.epoch
         );
-        self.emit(head, now_ms)?;
+        self.retry_pending(&mut state, now_ms)?;
         Ok(Outcome::Pinned {
             epoch: head.sth.epoch,
         })
@@ -370,24 +390,24 @@ impl Witness {
 
         // ---- Step 5. Persist, durably, BEFORE emitting anything. ------------
         stored.advance_to(view, last, now_ms);
+        // Keep only the current verified head pending. An older failed POST
+        // is superseded after this newer head has passed all proof/fault
+        // checks; the signed local history remains available independently.
+        stored.pending_cosignature = Some(self.cosignature(last, now_ms)?);
+        stored.delivery_known = 1;
         state::store(&self.settings.state_path, stored)?;
 
         // ---- Step 6. Emit. --------------------------------------------------
-        self.emit(last, now_ms)?;
+        self.retry_pending(stored, now_ms)?;
         Ok(Outcome::Cosigned {
             epoch: last.sth.epoch,
             advanced: last.sth.epoch.saturating_sub(from),
         })
     }
 
-    /// Sign a cosignature, append it to this witness's own history, and push it
-    /// to the log.
+    /// Build the deterministic cosignature for a verified head.
     ///
-    /// The local append happens **before** the push. If the log is unreachable
-    /// the witness has still recorded what it attested to, which is §7.5's
-    /// whole point: the party under audit must not be the only distributor of
-    /// the evidence used to audit it.
-    fn emit(&self, head: &SignedTreeHead, now_ms: u64) -> Result<()> {
+    fn cosignature(&self, head: &SignedTreeHead, now_ms: u64) -> Result<WitnessCosignature> {
         let statement = WitnessCosignatureTBS {
             label: label_field(labels::LABEL_COSIG)
                 .map_err(|error| WitnessError::Local(error.to_string()))?,
@@ -402,27 +422,57 @@ impl Witness {
         let signing_bytes = statement
             .signing_bytes()
             .map_err(|error| WitnessError::Local(error.to_string()))?;
-        let cosignature = WitnessCosignature {
+        Ok(WitnessCosignature {
             statement,
             signature: Signature::new(self.key.sign(&signing_bytes).to_bytes()),
-        };
+        })
+    }
 
-        self.evidence.append_cosignature(&cosignature)?;
-
-        let bytes = cosignature
-            .encode_canonical()
-            .map_err(|error| WitnessError::Local(error.to_string()))?;
-        match self.transport.cosign(&bytes) {
-            Ok(()) => log::info!("cosigned epoch {}", head.sth.epoch),
-            // Not fatal, and not a fault. The witness has verified and
-            // recorded; the log failing to collect its own cosignature is the
-            // log's problem, and the next poll will try again.
-            Err(error) => log::warn!(
-                "cosignature for epoch {} not delivered: {error}",
-                head.sth.epoch
-            ),
+    /// Attempt the one durable statement for the held head. This is called at
+    /// most once in a poll. The history append and log POST are idempotent for
+    /// the same canonical statement, covering crashes and ambiguous HTTP
+    /// acknowledgements between these steps.
+    fn retry_pending(&self, stored: &mut WitnessState, now_ms: u64) -> Result<bool> {
+        if let Some(cosignature) = stored.pending_cosignature.clone() {
+            if cosignature.statement.witness_pk != self.witness_pk {
+                return Err(WitnessError::Local(
+                    "pending cosignature belongs to a different witness key".to_owned(),
+                ));
+            }
+            self.evidence.append_cosignature(&cosignature)?;
+            let bytes = cosignature
+                .encode_canonical()
+                .map_err(|error| WitnessError::Local(error.to_string()))?;
+            match self.transport.cosign(&bytes) {
+                Ok(()) => {
+                    stored.pending_cosignature = None;
+                    stored.delivery_known = 1;
+                    stored.updated_at_ms = now_ms;
+                    state::store(&self.settings.state_path, stored)?;
+                    log::info!("cosigned epoch {}", cosignature.statement.epoch);
+                }
+                // Not fatal, and not a fault. The witness has verified and
+                // recorded; the normal next poll retries the same bytes.
+                Err(error) => log::warn!(
+                    "cosignature for epoch {} not delivered; it remains pending: {error}",
+                    cosignature.statement.epoch
+                ),
+            }
         }
-        Ok(())
+        Ok(stored.pending_cosignature.is_none())
+    }
+
+    /// Legacy state files predate delivery tracking. Reconstruct the exact
+    /// statement the old loop would have signed: state.updated_at_ms was the
+    /// `observed_at_ms` passed to its post-persist emit. Do this only after the
+    /// caller has restored and checked the stored head against the poll.
+    fn prepare_legacy_delivery(&self, stored: &mut WitnessState) -> Result<()> {
+        if stored.delivery_known != 0 || stored.halted != 0 {
+            return Ok(());
+        }
+        stored.pending_cosignature = Some(self.cosignature(&stored.head, stored.updated_at_ms)?);
+        stored.delivery_known = 1;
+        state::store(&self.settings.state_path, stored)
     }
 
     /// Write evidence, persist the halt, and hand the fault back.
