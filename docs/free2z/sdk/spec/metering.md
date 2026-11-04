@@ -118,7 +118,7 @@ the charge exactly:
 
 ```
 provider_milli  = ceil(cost_nusd / 10⁴)                            what the call cost
-developer_milli = floor(cost_nusd × (10000 + m) × b / 10¹²)        the markup, credited to the developer
+developer_milli = floor(cost_nusd × (10000 + m) × b / 10¹²)        the markup: the developer allocation
 platform_milli  = total_milli − provider_milli − developer_milli    the rest, including the round-up
 ```
 
@@ -152,22 +152,27 @@ The `platform_milli ≥ 0` property holds only when `collected_milli_2z =
 total_milli`; a shortfall is the one case where it does not, and the call
 record says so.
 
-The developer's `developer_milli` is credited to the developer's own Free2Z
-account **as 2Z platform credits, and nothing else in v1**: there is no
-cash-out, and the credit is spendable exactly as any other 2Z. A markup
+The developer's `developer_milli` is the per-call **developer allocation**.
+How the developer is compensated for it is defined by the **Free2Z Creator
+Compensation Agreement** (cc-2026-10-v2, schedule `sdk-application-2026-10-v2`), which
+is canonical and which this contract does not restate. Under that agreement
+2Z Inc. owes compensation in USD from its own funds, and it is not a
+redemption of usage credits. It applies only after the developer's
+authenticated acceptance, a verified legal-payee binding and activation;
+publication alone does not activate it. 2Z remain usage credits throughout:
+there is no cash-out of a 2Z balance. A markup
 above `0` is only ever applied for an app the platform has **manually
 approved** for markup, and never above the approved value: `b` is
 bounded by `approved_markup_bps` at every hold ([oidc.md](./oidc.md)
 §2, §2.2 above), so an unapproved app is priced as if `b = 0` and an
 app whose approval was withdrawn stops earning on the next hold.
 **v1 has no automatic reversal of markup**: when a
-user's purchase is refunded or charged back, the developer's credit is
-not touched by the ledger. Earnings are recorded **per (user,
-developer)**, so a manual, administrative clawback under the developer
-terms is possible, and the approval gate is what makes that tractable.
+user's purchase is refunded or charged back, the developer allocations
+already recorded are not touched by the ledger. Allocations are recorded
+**per (user, developer)**, so a manual adjustment under the agreement's §4
+is possible, and the approval gate is what makes that tractable.
 Automatic reversal is a v2 item ([purchase.md](./purchase.md) §3.1).
-Anything beyond that is governed by the developer terms, not this
-contract.
+Anything beyond that is governed by the agreement, not this contract.
 
 ### 2.4 What `/v1/models` publishes
 

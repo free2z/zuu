@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-delete-account-url"
+description = "Enables the delete_account_url command without any pre-configured scope."
+commands.allow = ["delete_account_url"]
+
+[[permission]]
+identifier = "deny-delete-account-url"
+description = "Denies the delete_account_url command without any pre-configured scope."
+commands.deny = ["delete_account_url"]

@@ -2,10 +2,10 @@
 // On destroy, do NOT move the node back to the placeholder; Svelte is tearing it down.
 // Just remove the portaled node from its parent and clean up the placeholder.
 export function portal(node: HTMLElement) {
-  if (typeof document === 'undefined') return {} as any;
+  if (typeof document === "undefined") return {} as any;
 
   const target = document.body;
-  const placeholder = document.createComment('portal-anchor');
+  const placeholder = document.createComment("portal-anchor");
 
   // Insert a placeholder where the node currently is and move to body
   node.parentNode?.insertBefore(placeholder, node);
@@ -13,7 +13,7 @@ export function portal(node: HTMLElement) {
 
   // Debug: mark node for easier inspection
   try {
-    node.setAttribute('data-portaled', 'true');
+    node.setAttribute("data-portaled", "true");
   } catch {}
 
   return {
