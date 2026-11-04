@@ -46,7 +46,7 @@
 </script>
 
 <!-- Live rail: a quiet strip that reads as the header line of the page below
-     it (same column, mono label, dashed rule). The negative bottom margin
+     it (same column, mono label over a dashed rule, like "Featured Story"). The negative bottom margin
      cancels most of the shell gap so it sits with the hero, not apart from it. -->
 <section
   data-testid="homepage-live-now"
@@ -54,24 +54,30 @@
   class="relative z-10 -mb-6 px-4 sm:px-6 md:-mt-2 md:-mb-8 lg:-mt-5 lg:-mb-16 lg:px-8"
 >
   <div
-    class="mx-auto flex max-w-7xl min-w-0 items-center gap-3 {narrow
+    class="mx-auto flex max-w-7xl min-w-0 flex-col gap-2.5 {narrow
       ? 'lg:max-w-6xl'
       : ''}"
   >
-    <h2
-      id="homepage-live-now-heading"
-      class="flex shrink-0 items-center gap-2 font-mono text-[11px] font-bold tracking-[0.2em] text-red-500 uppercase"
-    >
-      <span class="live-dot" aria-hidden="true"></span>
-      <span>{$t("homepage.liveNow", "Live Now")}</span>
-      <span
-        class="font-normal tracking-normal text-muted-foreground"
-        aria-hidden="true">· {items.length}</span
+    <div class="flex items-center gap-3">
+      <h2
+        id="homepage-live-now-heading"
+        class="flex shrink-0 items-center gap-2 font-mono text-[11px] font-bold tracking-[0.2em] text-red-500 uppercase"
       >
-    </h2>
+        <span class="live-dot" aria-hidden="true"></span>
+        <span>{$t("homepage.liveNow", "Live Now")}</span>
+        <span
+          class="font-normal tracking-normal text-muted-foreground"
+          aria-hidden="true">· {items.length}</span
+        >
+      </h2>
+      <span
+        class="h-px min-w-8 flex-1 border-t border-dashed border-border/50"
+        aria-hidden="true"
+      ></span>
+    </div>
 
     <ul
-      class="rail-scroll -my-2 -mr-4 flex min-w-0 items-center gap-2.5 overflow-x-auto py-2 pr-4 pl-1 sm:mr-0 sm:pr-0"
+      class="rail-scroll -mx-4 -my-2 flex min-w-0 items-center gap-2.5 overflow-x-auto px-4 py-2 sm:mx-0 sm:px-0"
     >
       {#each items as it (it.key)}
         <li class="shrink-0">
@@ -122,11 +128,6 @@
         </li>
       {/each}
     </ul>
-
-    <span
-      class="hidden h-px min-w-8 flex-1 border-t border-dashed border-border/50 sm:block"
-      aria-hidden="true"
-    ></span>
   </div>
 </section>
 
