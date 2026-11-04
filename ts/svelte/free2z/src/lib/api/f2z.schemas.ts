@@ -6387,6 +6387,13 @@ export const TaggingAutocompleteListType = {
   zpage: 'zpage',
 } as const;
 
+export type TaggingZpageSuggestionsDecideCreateParams = {
+/**
+ * Variant whose validator is supplied and returned; omit for canonical article.
+ */
+lang?: string;
+};
+
 export type TuzisMySubscribersListParams = {
 /**
  * A page number within the paginated result set.
