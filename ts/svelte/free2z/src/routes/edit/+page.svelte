@@ -2797,10 +2797,6 @@
           editorActionToastIds.add(
             operationNotice.error(saveError, {
               duration: Infinity,
-              action: {
-                label: $t("editor.saveConflictReload", "Reload"),
-                onClick: () => reloadWithDraft(documentGeneration),
-              },
             }),
           );
         validationErrors = {};
