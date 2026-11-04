@@ -1,6 +1,7 @@
 """October retirement: durable refusal, migration history, and no provider I/O."""
 import importlib
 import time
+from contextlib import contextmanager
 from io import StringIO
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -25,14 +26,25 @@ SNAPSHOTS = ("gpt-4.1-nano-2025-04-14", "o1-2024-12-17",
 MIGRATION = "0031_retire_october_2026_models"
 
 
+@contextmanager
+def _restore_leaf_schema():
+    # Migration targets under test are historical, not cleanup targets. Restore
+    # every current leaf even if a downgrade or an assertion raises.
+    leaves = MigrationExecutor(connection).loader.graph.leaf_nodes()
+    try:
+        yield
+    finally:
+        MigrationExecutor(connection).migrate(leaves)
+
+
 @pytest.mark.django_db(transaction=True)
 def test_actual_migration_disables_aliases_and_pins_preserving_history():
     call_command("seed_ai_models", stdout=StringIO())
     executor = MigrationExecutor(connection)
     before = [("openai", "0030_cap_gpt41_window")]
     after = [("openai", MIGRATION)]
-    executor.migrate(before)
-    try:
+    with _restore_leaf_schema():
+        executor.migrate(before)
         historical = executor.loader.project_state(before).apps.get_model("openai", "AIModel")
         old = timezone.now()
         rows = []
@@ -63,18 +75,47 @@ def test_actual_migration_disables_aliases_and_pins_preserving_history():
             locker.rollback()
         executor = MigrationExecutor(connection)
         executor.migrate(after)
-        assert AIModel.objects.filter(pk__in=rows).count() == len(rows)
-        assert not AIModel.objects.filter(pk__in=rows, is_enabled=True).exists()
-        assert not AIModel.objects.filter(pk__in=rows, is_ga=True).exists()
-        assert all(r.updated_at > old for r in AIModel.objects.filter(pk__in=rows))
-        assert AIModel.objects.get(pk=january.pk).is_enabled
-        assert AIModel.objects.get(pk=foreign.pk).is_enabled
+        retired = executor.loader.project_state(after).apps.get_model("openai", "AIModel")
+        assert retired.objects.filter(pk__in=rows).count() == len(rows)
+        assert not retired.objects.filter(pk__in=rows, is_enabled=True).exists()
+        assert not retired.objects.filter(pk__in=rows, is_ga=True).exists()
+        assert all(r.updated_at > old for r in retired.objects.filter(pk__in=rows))
+        assert retired.objects.get(pk=january.pk).is_enabled
+        assert retired.objects.get(pk=foreign.pk).is_enabled
         assert list(RateCardModel.objects.order_by("pk").values()) == cards
         # A code rollback must not turn an unavailable provider back on.
         MigrationExecutor(connection).migrate(before)
-        assert not AIModel.objects.filter(pk__in=rows, is_enabled=True).exists()
-    finally:
-        MigrationExecutor(connection).migrate(after)
+        assert not historical.objects.filter(pk__in=rows, is_enabled=True).exists()
+    # Query the full live model only after the current leaf schema is restored.
+    assert AIModel.objects.filter(pk__in=rows).count() == len(rows)
+    assert all(not row.is_enabled and not row.is_ga
+               for row in AIModel.objects.filter(pk__in=rows))
+
+
+@pytest.mark.django_db(transaction=True)
+def test_historical_schema_restores_current_leaves_after_assertion_failure():
+    with pytest.raises(AssertionError, match="injected historical assertion"):
+        with _restore_leaf_schema():
+            executor = MigrationExecutor(connection)
+            executor.migrate([("openai", MIGRATION)])
+            historical = executor.loader.project_state(
+                [("openai", MIGRATION)]).apps.get_model("openai", "AIModel")
+            assert "tools_require_effort_none" not in {
+                field.name for field in historical._meta.concrete_fields}
+            with connection.cursor() as cursor:
+                columns = connection.introspection.get_table_description(
+                    cursor, AIModel._meta.db_table)
+            assert "tools_require_effort_none" not in {column.name for column in columns}
+            raise AssertionError("injected historical assertion")
+
+    executor = MigrationExecutor(connection)
+    assert not executor.migration_plan(executor.loader.graph.leaf_nodes())
+    # A real insert and full read exercise the latest columns after unwinding.
+    row = AIModel.objects.create(
+        provider="openai", model="schema-restoration-control", max_tokens=4096,
+        tools_require_effort_none=True)
+    row.refresh_from_db()
+    assert row.tools_require_effort_none is True
 
 
 @pytest.mark.django_db

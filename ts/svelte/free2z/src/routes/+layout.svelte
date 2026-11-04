@@ -5,6 +5,7 @@
   import "$lib/i18n"; // Initialize i18n
   import { Toaster } from "$lib/components/ui/sonner/index.js";
   import * as Tooltip from "$lib/components/ui/tooltip/index.js";
+  import WelcomeCredits from "$lib/components/WelcomeCredits.svelte";
   import Navbar from "$lib/components/layout/Navbar.svelte";
   import AuthModalHost from "$lib/components/auth/AuthModalHost.svelte";
   import { translationJobsInUse } from "$lib/stores/translationJobsInUse";
@@ -548,6 +549,7 @@
         class:px-2={$pageStore.url.pathname !== "/"}
         class="flex flex-1 flex-col md:p-0"
       >
+        {#if !sdkFlow}<WelcomeCredits />{/if}
         <slot />
       </main>
       {#if !hideChrome}

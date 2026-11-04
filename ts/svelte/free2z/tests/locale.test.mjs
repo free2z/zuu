@@ -579,3 +579,37 @@ test("RealtimeKit language packs match the shipped LangDict", async () => {
     );
   }
 });
+
+// These keys are composed at runtime, so the literal-key census above cannot
+// detect a picker silently falling back to English in another UI language.
+test("all media picker modes have localized labels, state and access copy", async () => {
+  const { videoPickerCopy } =
+    await import("../src/lib/components/mdEditor/videoPickerCopy.ts");
+  for (const locale of APP_LOCALES) {
+    const { editor } = readCatalog(LOCALES, locale);
+    for (const kind of ["video", "audio", "document"]) {
+      assert.ok(editor.commandNames[kind], `${locale}: ${kind} menu label`);
+      assert.ok(editor.insert[kind], `${locale}: ${kind} menu description`);
+      for (const key of Object.keys(videoPickerCopy).filter(
+        (key) => key !== "editor.imageFileHint",
+      )) {
+        const localKey = key.slice("editor.".length);
+        assert.equal(
+          typeof editor[`${kind}Picker`][localKey],
+          "string",
+          `${locale}: ${kind} picker ${localKey}`,
+        );
+        assert.ok(editor[`${kind}Picker`][localKey].trim());
+      }
+    }
+    for (const key of [
+      "imageAccessMakeMembersBody",
+      "imageAccessMakePublicBody",
+    ]) {
+      assert.ok(
+        editor.mediaPicker[key].includes("{name}"),
+        `${locale}: access confirmation names the file`,
+      );
+    }
+  }
+});

@@ -31,7 +31,7 @@ from drf_spectacular.utils import (
 )
 
 from dj.apps.dyte.models import PUBLIC_MEETING_TYPES, CreatorMeeting
-from dj.apps.tuzis.welcome import welcome_new_account
+from dj.apps.tuzis.welcome import remember_welcome_grant, welcome_new_account
 from dj.apps.identity.auth_context import AMR_PASSWORD, record_login
 from dj.apps.g12f.captcha import (
     CAPTCHA_UNAVAILABLE_MESSAGE,
@@ -160,7 +160,8 @@ class SignUpView(
         c.save(update_fields=['password', 'password_set', 'updated_at'])
         #every new account starts with the welcome 2Z. Same
         # transaction as the account (AtomicMiddleware); never fails sign-up.
-        welcome_new_account(c, path="password")
+        grant = welcome_new_account(c, path="password")
+        remember_welcome_grant(request, grant)
 
         # self.perform_create(serializer)
         # headers = self.get_success_headers(serializer.data)

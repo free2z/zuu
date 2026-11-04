@@ -815,6 +815,8 @@ export interface CatalogModelCapabilities {
  * Crate ``ModelControls``: signed narrowing of what a capability admits.
  */
 export interface CatalogModelControls {
+  /** With tools, explicit non-none reasoning effort is refused before reservation. Omitted effort uses the provider default. */
+  tools_require_effort_none?: boolean;
   /** The reasoning_effort levels the model takes (non-empty, distinct). Present only when capabilities.reasoning_effort is true; absent = not narrowed. A level a gateway cannot express is ignored there. */
   effort_levels?: string[];
 }
@@ -1834,6 +1836,11 @@ export interface CreatorProfileDetail {
   banner_image?: FeaturedImage | null;
   /** Active PostgreSQL snapshot of this committed 2Z balance, encoded as canonical decimal xmax:xip_count. Compare xmax ascending as an unsigned 64-bit integer, then xip_count descending. Applies to read-only observations from the same database; absent on representations without a balance snapshot. */
   readonly balance_snapshot?: string;
+  /**
+     * Confirmed welcome grant in this signup session; null otherwise.
+     * @nullable
+     */
+  readonly welcome_grant: string | null;
 }
 
 /**

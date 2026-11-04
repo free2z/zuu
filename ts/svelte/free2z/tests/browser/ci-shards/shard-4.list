@@ -13,3 +13,4 @@ editor-create-idempotency.spec.ts
 editor-direction.spec.ts
 editor-empty-draft-save-state.spec.ts
 theme-preference.spec.ts
+welcome-credits.spec.ts

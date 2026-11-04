@@ -1,6 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-//  posting costs a penny by design, and a new account starts at 0.
+// Posting starts at a penny by design; this fixture has spent its welcome grant.
 //
 // The verification bar from the issue: a creator holding 0 2Z attempts a post,
 // and the UI shows the cost, the balance and BOTH ways in (be gifted 2Z after
@@ -20,68 +20,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const DESKTOP_VIEWPORT = { width: 1280, height: 900 };
 
-async function installSession(
-  page: Page,
-  tuzis: string | undefined,
-  zpages?: number,
-) {
-  const creator = {
-    id: 1460,
-    username: "penny-test-user",
-    full_name: "Penny Test User",
-    ...(tuzis === undefined ? {} : { tuzis }),
-    ...(zpages === undefined ? {} : { zpages }),
-  };
-  const posts: unknown[] = [];
-
-  await page.addInitScript((c) => {
-    localStorage.setItem(
-      "auth",
-      JSON.stringify({ isAuthenticated: true, creator: c, loading: false }),
-    );
-  }, creator);
-
-  await page.route("**/api/**", async (route) => {
-    const request = route.request();
-    const pathname = new URL(request.url()).pathname;
-    if (!pathname.startsWith("/api/")) {
-      await route.continue();
-      return;
-    }
-    if (pathname === "/api/auth/user/") {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(creator),
-      });
-      return;
-    }
-    if (pathname === "/api/comments/" && request.method() === "POST") {
-      posts.push(JSON.parse(request.postData() || "{}"));
-      // The server's contract: 402 with a machine-readable shortfall.
-      await route.fulfill({
-        status: 402,
-        contentType: "application/json",
-        body: JSON.stringify({
-          error: "Not enough tuzis",
-          code: "insufficient_funds",
-          action: "comment",
-          cost: "1",
-          balance: tuzis ?? "0",
-          shortfall: "1",
-        }),
-      });
-      return;
-    }
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ count: 0, next: null, results: [] }),
-    });
-  });
-
-  return { posts };
-}
+import { installSession } from "./posting-cost-session";
 
 test("a 0-balance creator is told the price and both ways in, before and after posting, and keeps the draft", async ({
   page,
@@ -96,8 +35,10 @@ test("a 0-balance creator is told the price and both ways in, before and after p
   // Before a word is written: the price, why, the balance, and both doors.
   const notice = page.getByTestId("posting-cost-notice");
   await expect(notice).toBeVisible();
-  await expect(notice).toContainText("A post costs 1 2Z, about a penny.");
-  await expect(notice).toContainText("That is why there is no spam here.");
+  await expect(notice).toContainText("This post costs 1 2Z.");
+  await expect(notice).toContainText(
+    "The small posting cost discourages spam.",
+  );
   await expect(notice).toContainText("You have 0 2Z.");
   await expect(notice).toContainText(
     "members can gift 2Z to writers they want to read more from",
@@ -121,6 +62,12 @@ test("a 0-balance creator is told the price and both ways in, before and after p
     "_blank",
   );
 
+  // The explanation must follow the actual selected action cost.
+  await page.locator("#converse-weight").fill("3");
+  await expect(notice).toContainText("This post costs 3 2Z.");
+  await page.locator("#converse-weight").fill("1");
+  await expect(notice).toContainText("This post costs 1 2Z.");
+
   // Not a wall: the composer is still there and still usable.
   await expect(body).toBeEditable();
   await body.fill("hello, I am new here");
@@ -131,6 +78,7 @@ test("a 0-balance creator is told the price and both ways in, before and after p
   // generic failure.
   const refused = page.getByTestId("insufficient-funds");
   await expect(refused).toBeVisible();
+  await expect(refused).toContainText("You have not been charged.");
   await expect(refused).toContainText(
     "This costs 1 2Z. You have 0 2Z, so you need 1 more.",
   );

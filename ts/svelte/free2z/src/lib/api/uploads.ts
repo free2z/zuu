@@ -38,6 +38,7 @@ export async function uploadPublicFile(
      */
     limitChecked?: boolean;
     signal?: AbortSignal;
+    onProgress?: (loaded: number, total: number) => void;
   } = {},
 ): Promise<PublicUploadResult> {
   // Refuse locally, naming the limit, before a byte goes up.
@@ -61,6 +62,7 @@ export async function uploadPublicFile(
     file,
     headers: csrfToken ? { "X-CSRFToken": csrfToken } : {},
     signal: options.signal,
+    onProgress: options.onProgress,
   });
 
   try {
