@@ -10,7 +10,7 @@
   } from "$lib/services/stream";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
-  import { liveStreamStore } from "$lib/stores/liveStreamStore";
+  import { liveStreamStore, meetingStore } from "$lib/stores/liveStreamStore";
   import type { PublicStreamType } from "$lib/services/stream";
   import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
   import {
@@ -227,7 +227,7 @@
   }
 
   // Subscribe to store
-  $: meeting = $liveStreamStore.meeting;
+  $: meeting = $meetingStore;
   $: connectionStatus = $liveStreamStore.connectionStatus;
   $: isOffline = $liveStreamStore.isOffline;
   $: storeError = $liveStreamStore.error;
