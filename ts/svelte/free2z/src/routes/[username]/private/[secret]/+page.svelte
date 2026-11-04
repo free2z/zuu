@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, beforeUpdate, tick } from "svelte";
   import { browser } from "$app/env";
   import { get } from "svelte/store";
   import { goto } from "$app/navigation";
@@ -33,6 +33,8 @@
   let meeting: RealtimeKitClient | null = null;
   let serverRecording = false;
   let recordingTimer: ReturnType<typeof setInterval> | undefined;
+  let wasOffline = false;
+  let focusBeforeOffline: HTMLElement | null = null;
   let hostMeetingError = false;
   const abort = new AbortController();
   // Disable native recording before attaching the meeting: its provider-default
@@ -84,6 +86,40 @@
   let disconnectTimer: ReturnType<typeof setTimeout> | undefined;
   $: isOffline = $liveStreamStore.isOffline;
   $: connectionStatus = $liveStreamStore.connectionStatus;
+
+  function canRestoreFocus(target: HTMLElement | null) {
+    return Boolean(
+      target?.isConnected &&
+      !target.matches(":disabled") &&
+      !target.closest("[inert], [hidden]") &&
+      target.getClientRects().length > 0,
+    );
+  }
+
+  // Capture before Svelte applies inert to the meeting, then move focus only
+  // after the offline action is present in the DOM. Reconnecting stays a
+  // passive status announcement and does not take or contain focus.
+  beforeUpdate(() => {
+    if (!browser || isOffline === wasOffline) return;
+    wasOffline = isOffline;
+    if (isOffline) {
+      const active = document.activeElement;
+      focusBeforeOffline = active instanceof HTMLElement ? active : null;
+      void tick().then(() => {
+        const reconnect = document.querySelector<HTMLButtonElement>(
+          '[data-testid="private-call-reconnect"]',
+        );
+        if (reconnect?.isConnected) reconnect.focus();
+      });
+      return;
+    }
+
+    const target = focusBeforeOffline;
+    focusBeforeOffline = null;
+    void tick().then(() => {
+      if (canRestoreFocus(target)) target?.focus();
+    });
+  });
   $: if (connectionStatus === "connected") {
     clearTimeout(retryTimer);
     clearTimeout(disconnectTimer);
@@ -565,7 +601,9 @@
           "Please check your internet connection.",
         )}
       </p>
-      <Button onclick={recoverPrivateStream}
+      <Button
+        data-testid="private-call-reconnect"
+        onclick={recoverPrivateStream}
         ><RefreshCw class="mr-2 h-4 w-4" />{$t(
           "stream.reconnect",
           "Reconnect",
@@ -575,7 +613,7 @@
   {/if}
   {#if meeting && (connectionStatus === "disconnected" || connectionStatus === "failed") && !isOffline}
     <div
-      class="absolute inset-0 z-40 flex items-center justify-center bg-black/70 text-white"
+      class="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/70 text-white"
       role="status"
     >
       <div class="flex flex-col items-center gap-3">

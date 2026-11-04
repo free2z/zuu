@@ -1477,6 +1477,8 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
   await expect(meeting).toBeVisible();
   await expect(meeting).toHaveCount(1);
   await expect(header.locator("..")).not.toHaveAttribute("inert", "");
+  await recordButton.focus();
+  await expect(recordButton).toBeFocused();
   await page.evaluate(async (loader) => {
     const { liveStreamStore } = await new Function(loader)();
     (window as any).__privateMeetingBeforeRecovery =
@@ -1488,6 +1490,10 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
   await expect(
     page.getByRole("heading", { name: "You are Offline" }),
   ).toBeVisible();
+  const reconnect = page.getByTestId("private-call-reconnect");
+  await expect(reconnect).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(reconnect).not.toBeFocused();
   await expect(header).toBeVisible();
   await expect(header.locator("..")).toHaveAttribute("inert", "");
   await expect(meeting).toBeVisible();
@@ -1503,11 +1509,27 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
   await page.evaluate(async (loader) => {
     const { liveStreamStore } = await new Function(loader)();
     liveStreamStore.setOffline(false);
+    liveStreamStore.setConnectionStatus("connected");
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(recordButton).toBeFocused();
+
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
     liveStreamStore.setConnectionStatus("disconnected");
   }, LIVE_STREAM_STORE_LOADER);
-  await expect(
-    page.getByRole("status").filter({ hasText: /Reconnecting/ }),
-  ).toBeVisible();
+  const reconnecting = page
+    .getByRole("status")
+    .filter({ hasText: /Reconnecting/ });
+  await expect(reconnecting).toBeVisible();
+  await expect(reconnecting).toHaveCSS("pointer-events", "none");
+  await expect(reconnecting.locator("button, a, [tabindex='0']")).toHaveCount(
+    0,
+  );
+  expect(
+    await reconnecting.evaluate((node) =>
+      node.contains(document.activeElement),
+    ),
+  ).toBe(false);
   await expect(meeting).toHaveCount(1);
   expect(
     await page.evaluate(
