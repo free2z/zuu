@@ -190,3 +190,9 @@ OpenAI-compatible services, not just OpenAI. Certifi's [release](https://github.
 updates the trust bundle. The main lock and CI audit lock are regenerated with
 the pinned lock tools; no other tracked requirements lock contains these pins.
 
+The separate local media test server moves Flask 3.0.0 to 3.1.3 and Flask-CORS
+4.0.0 to 6.0.0. Flask 3.1 drops Python 3.8; the backend contract is 3.12.
+The server intentionally retains its all-origin CORS policy and loopback bind.
+[Flask's release](https://github.com/pallets/flask/releases/tag/3.1.3) and
+[Flask-CORS advisory](https://github.com/advisories/GHSA-8vgw-p6qm-5gr7)
+describe fixes included by these versions.
