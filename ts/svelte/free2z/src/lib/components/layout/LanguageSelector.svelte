@@ -15,6 +15,7 @@
     tStore as t,
     type SupportedLocale,
   } from "$lib/i18n";
+  import { invalidateAll } from "$app/navigation";
 
   let selectedLocale = $state<SupportedLocale>($locale);
   const activeLanguage = $derived(
@@ -26,9 +27,10 @@
     selectedLocale = $locale;
   });
 
-  function chooseLanguage(nextLocale: SupportedLocale) {
+  async function chooseLanguage(nextLocale: SupportedLocale) {
     selectedLocale = nextLocale;
     setLocale(nextLocale);
+    await invalidateAll();
   }
 </script>
 
@@ -55,7 +57,7 @@
       {#each languageOptions as option}
         <DropdownMenuRadioItem
           value={option.code}
-          onclick={() => chooseLanguage(option.code)}
+          onclick={() => void chooseLanguage(option.code)}
         >
           <span lang={option.code}>{option.label}</span>
         </DropdownMenuRadioItem>

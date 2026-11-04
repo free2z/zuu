@@ -1,13 +1,20 @@
 <script lang="ts">
-  import { env } from "$env/dynamic/public";
+  import * as env from "$app/env/public";
   import { onDestroy } from "svelte";
-  import { uploadPublicFile } from "$lib/api/uploads";
+  import { apiFetch } from "$lib/api/config";
+  import {
+    UploadRequestError,
+    explainUploadRejection,
+    uploadErrorMessage,
+    uploadPublicFile,
+  } from "$lib/api/uploads";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tabs from "$lib/components/ui/tabs";
-  import { tStore as t } from "$lib/i18n";
+  import { getCurrentLocale, tStore as t } from "$lib/i18n";
   import { isAuthenticated } from "$lib/stores/auth";
-  import { toast } from "svelte-sonner";
+  import FeaturedImageFrame from "$lib/components/FeaturedImageFrame.svelte";
+  import { toast, captureAccountToast } from "$lib/toast.js";
   import {
     ImagePlus,
     Images,
@@ -21,6 +28,7 @@
   import CoverUploadPanel from "./CoverUploadPanel.svelte";
   import type { CoverLibraryImage, CoverLibraryResponse } from "./coverTypes";
   import { appendMediaPage } from "./mediaLibrary.js";
+  import { coverFileExtension } from "$lib/utils/cover-image";
   import { resolveMediaUrl, slugify } from "./utils";
 
   interface Props {
@@ -31,8 +39,6 @@
     onCoverImageChange?: () => void;
   }
 
-  const COVER_WIDTH = 1600;
-  const COVER_HEIGHT = 400;
   const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
   let {
@@ -58,6 +64,7 @@
 
   let cropSourceUrl = $state("");
   let cropSourceObjectUrl = $state<string | null>(null);
+  let cropSourceFile = $state<File | null>(null);
   let cropSourceTitle = $state("");
   let cropUploading = $state(false);
 
@@ -91,15 +98,6 @@
     coverImageId = null;
     showCover = false;
     notifyCoverChange();
-  }
-
-  function handleHostKeydown(event: KeyboardEvent) {
-    if (event.key !== "Enter" && event.key !== " ") {
-      return;
-    }
-
-    event.preventDefault();
-    openAssetDialog("upload");
   }
 
   function handleDragState(event: DragEvent) {
@@ -165,7 +163,13 @@
       );
 
       if (!response.ok) {
-        throw new Error(`Failed to load your cloud (${response.status})`);
+        throw new Error(
+          $t(
+            "editor.cloudImagesLoadFailedWithStatus",
+            "Failed to load your cloud ({status}).",
+            { status: response.status },
+          ),
+        );
       }
 
       const data = (await response.json()) as CoverLibraryResponse;
@@ -180,7 +184,11 @@
       libraryPage = page + 1;
       libraryError = "";
     } catch (error: any) {
-      libraryError = error?.message || "Failed to load your cloud";
+      console.error("Failed to load cover library:", error);
+      libraryError = $t(
+        "editor.cloudImagesLoadFailed",
+        "Failed to load your cloud.",
+      );
     } finally {
       libraryLoading = false;
       libraryLoadingMore = false;
@@ -197,24 +205,35 @@
   function resetCropState() {
     revokeCropSourceUrl();
     cropSourceUrl = "";
+    cropSourceFile = null;
     cropSourceTitle = "";
   }
 
   async function beginCropFromFile(file: File, suggestedTitle: string) {
+    const operationNotice = captureAccountToast();
     if (!file.type.startsWith("image/")) {
-      toast.error("Please choose an image file for the cover.");
+      operationNotice.error(
+        $t(
+          "editor.coverImageRequired",
+          "Please choose an image file for the cover.",
+        ),
+      );
       return;
     }
 
     resetCropState();
     cropSourceObjectUrl = URL.createObjectURL(file);
     cropSourceUrl = cropSourceObjectUrl;
+    // Kept so an uncropped, in-bounds cover can be uploaded byte-for-byte
+    // instead of being re-encoded for no reason. See `cover-image.ts`.
+    cropSourceFile = file;
     cropSourceTitle = suggestedTitle;
     assetDialogOpen = false;
     cropDialogOpen = true;
   }
 
   async function beginCropFromLibraryItem(item: CoverLibraryImage) {
+    const operationNotice = captureAccountToast();
     if (loadingLibraryItemId) {
       return;
     }
@@ -227,7 +246,13 @@
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to load image (${response.status})`);
+        throw new Error(
+          $t(
+            "editor.imageLoadFailedWithStatus",
+            "Failed to load image ({status}).",
+            { status: response.status },
+          ),
+        );
       }
 
       const blob = await response.blob();
@@ -239,9 +264,15 @@
         type: blob.type || item.mime_type,
       });
 
-      await beginCropFromFile(file, item.title || item.name || "cover");
+      await beginCropFromFile(
+        file,
+        item.title || item.name || $t("editor.coverImageName", "Cover image"),
+      );
     } catch (error: any) {
-      toast.error(error?.message || "Unable to open that image.");
+      console.error("Failed to open cover image:", error);
+      operationNotice.error(
+        $t("editor.cloudImageOpenFailed", "Unable to open that image."),
+      );
     } finally {
       loadingLibraryItemId = null;
     }
@@ -258,31 +289,52 @@
     libraryError = "";
   }
 
-  async function uploadCroppedCover(blob: Blob) {
+  async function uploadCover(blob: Blob) {
     const articleSlug = slugify(title || cropSourceTitle || "zpage-cover");
-    const fileName = `${articleSlug || "zpage-cover"}-cover.jpg`;
-    const file = new File([blob], fileName, { type: "image/jpeg" });
+    // The extension has to match the bytes: the server sniffs the upload and
+    // returns a 400 when the declared extension names a different format
+    //. This used to be a hardcoded `.jpg` because every cover really
+    // was a JPEG; now the dialog may hand back WebP, PNG or the creator's own
+    // untouched file.
+    const type = blob.type || "image/jpeg";
+    const fileName = `${articleSlug || "zpage-cover"}-cover.${coverFileExtension(type)}`;
+    const file = new File([blob], fileName, { type });
 
     return uploadPublicFile(
       file,
-      title.trim() || cropSourceTitle || "Zpage cover",
+      title.trim() ||
+        cropSourceTitle ||
+        $t("editor.coverImageName", "Cover image"),
     );
   }
 
   async function confirmCrop(blob: Blob) {
+    const operationNotice = captureAccountToast();
     cropUploading = true;
 
     try {
-      const uploaded = await uploadCroppedCover(blob);
+      const uploaded = await uploadCover(blob);
 
       coverImageId = uploaded.id;
       coverImage = resolveMediaUrl(uploaded.url || uploaded.thumbnail || "");
       showCover = true;
       cropDialogOpen = false;
       notifyCoverChange();
-      toast.success("Cover image updated.");
+      operationNotice.success(
+        $t("editor.coverUpdated", "Cover image updated."),
+      );
     } catch (error: any) {
-      toast.error(error?.message || "Failed to update the cover image.");
+      console.error("Failed to update cover image:", error);
+      // Name the file, its size and the reason. A 403 is re-read
+      // against the limit first: nginx's refusal carries no body to explain it.
+      const explained = await explainUploadRejection(error, {
+        request: apiFetch,
+      });
+      operationNotice.error(
+        explained instanceof UploadRequestError
+          ? uploadErrorMessage(explained, $t, getCurrentLocale())
+          : $t("editor.coverUpdateFailed", "Failed to update the cover image."),
+      );
     } finally {
       cropUploading = false;
     }
@@ -319,90 +371,105 @@
 
 <div class="relative">
   <div
-    class={`group relative cursor-pointer overflow-hidden transition-all duration-300 outline-none ${
+    role="group"
+    class={`group relative overflow-hidden transition-all duration-300 ${
       hasCover() ? "h-56 bg-muted/20 md:h-72" : "h-24 md:h-32"
     } ${dragActive ? "bg-primary/5" : ""}`}
-    role="button"
-    tabindex="0"
-    aria-label="Add or change the cover image"
-    onclick={() => openAssetDialog("upload")}
-    onkeydown={handleHostKeydown}
     ondragenter={handleDragState}
     ondragover={handleDragState}
     ondragleave={handleDragState}
     ondrop={handleDrop}
   >
-    {#if hasCover()}
-      <img
-        src={coverImage}
-        alt="Cover"
-        class="absolute inset-0 h-full w-full object-cover"
-      />
-      <div
-        class="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background/40"
-      ></div>
-    {:else}
-      <div
-        class="absolute inset-0 bg-gradient-to-b from-muted/60 via-muted/25 to-transparent"
-      ></div>
-      <div
-        class={`pointer-events-none absolute inset-x-4 inset-y-3 rounded-xl border border-dashed transition-all duration-300 md:inset-x-6 ${
-          dragActive
-            ? "border-primary/50 opacity-100"
-            : "border-border/70 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100"
-        }`}
-      ></div>
-    {/if}
+    <button
+      type="button"
+      data-testid="editor-cover-activate"
+      aria-label={$t(
+        "editor.coverImageAction",
+        "Add or change the cover image",
+      )}
+      class="absolute inset-0 z-10 cursor-pointer rounded-[inherit] bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0 focus-visible:ring-inset"
+      onclick={() => openAssetDialog("upload")}
+    >
+      <span class="sr-only">
+        {$t("editor.coverImageAction", "Add or change the cover image")}
+      </span>
+    </button>
 
-    {#if hasCover()}
-      <div
-        class="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent"
-      ></div>
-    {/if}
-
-    {#if dragActive}
-      <div
-        class="absolute inset-0 flex items-center justify-center bg-background/30 px-6"
-      >
+    <div aria-hidden="true" class="pointer-events-none absolute inset-0">
+      {#if hasCover()}
+        <FeaturedImageFrame
+          src={coverImage}
+          alt={$t("editor.coverImageAlt", "Article cover")}
+          loading="eager"
+          class="absolute inset-0 h-full w-full"
+        />
         <div
-          class="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background/92 px-4 py-2 text-sm text-foreground shadow-sm"
+          class="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-background/40"
+        ></div>
+      {:else}
+        <div
+          class="absolute inset-0 bg-gradient-to-b from-muted/60 via-muted/25 to-transparent"
+        ></div>
+        <div
+          data-testid="editor-cover-focus-border"
+          class={`pointer-events-none absolute inset-x-4 inset-y-3 rounded-xl border border-dashed transition-all duration-300 md:inset-x-6 ${
+            dragActive
+              ? "border-primary/50 opacity-100"
+              : "border-border/70 opacity-0 group-focus-within:opacity-100 group-hover:opacity-100"
+          }`}
+        ></div>
+      {/if}
+
+      {#if hasCover()}
+        <div
+          class="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent"
+        ></div>
+      {/if}
+
+      {#if dragActive}
+        <div
+          class="absolute inset-0 flex items-center justify-center bg-background/30 px-6"
         >
-          <UploadCloud class="h-4 w-4 text-primary" />
-          <span>{$t("editor.dropCover", "Drop an image here")}</span>
+          <div
+            class="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background/92 px-4 py-2 text-sm text-foreground shadow-sm"
+          >
+            <UploadCloud class="h-4 w-4 text-primary" />
+            <span>{$t("editor.dropCover", "Drop an image here")}</span>
+          </div>
         </div>
-      </div>
-    {:else if !hasCover()}
-      <div
-        class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-6"
-      >
-        <span
-          class="flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-muted-foreground/70 shadow-sm ring-1 ring-border/40 transition-colors duration-300 group-hover:text-foreground/80 md:h-9 md:w-9"
+      {:else if !hasCover()}
+        <div
+          class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5 px-6"
         >
-          <ImagePlus class="h-4 w-4" />
-        </span>
-        <p
-          class="text-xs font-medium text-muted-foreground/70 transition-colors duration-300 group-hover:text-foreground/80 md:text-sm"
-        >
-          {$t("editor.coverInlineHint", "Add a cover image")}
-        </p>
-        <p class="hidden text-[11px] text-muted-foreground/50 md:block">
-          {$t("editor.coverInlineSubhint", "Drag and drop, or click to browse")}
-        </p>
-      </div>
-    {/if}
+          <span
+            class="flex h-8 w-8 items-center justify-center rounded-full bg-background/80 text-muted-foreground/70 shadow-sm ring-1 ring-border/40 transition-colors duration-300 group-hover:text-foreground/80 md:h-9 md:w-9"
+          >
+            <ImagePlus class="h-4 w-4" />
+          </span>
+          <p
+            class="text-xs font-medium text-muted-foreground/70 transition-colors duration-300 group-hover:text-foreground/80 md:text-sm"
+          >
+            {$t("editor.coverInlineHint", "Add a cover image")}
+          </p>
+          <p class="hidden text-[11px] text-muted-foreground/50 md:block">
+            {$t(
+              "editor.coverInlineSubhint",
+              "Drag and drop, or click to browse",
+            )}
+          </p>
+        </div>
+      {/if}
+    </div>
 
     {#if hasCover()}
       <div
-        class="absolute top-4 right-4 flex items-center gap-2 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100"
+        class="absolute top-4 right-4 z-20 flex items-center gap-2 opacity-0 transition-opacity duration-200 group-focus-within:opacity-100 group-hover:opacity-100"
       >
         <Button
           variant="secondary"
           size="sm"
           class="h-8 rounded-full bg-background/88 px-3 text-xs shadow-sm backdrop-blur-sm"
-          onclick={(event) => {
-            event.stopPropagation();
-            openAssetDialog("upload");
-          }}
+          onclick={() => openAssetDialog("upload")}
         >
           <ImagePlus class="h-3.5 w-3.5" />
           {$t("editor.changeCover", "Change")}
@@ -412,13 +479,10 @@
           variant="ghost"
           size="sm"
           class="h-8 rounded-full bg-background/72 px-3 text-xs text-foreground shadow-sm backdrop-blur-sm"
-          onclick={(event) => {
-            event.stopPropagation();
-            clearCover();
-          }}
+          onclick={clearCover}
         >
           <Trash2 class="h-3.5 w-3.5" />
-          {$t("editor.removeCover", "Remove")}
+          {$t("editor.removeCover", "Remove cover")}
         </Button>
       </div>
     {/if}
@@ -436,7 +500,7 @@
       <Dialog.Description>
         {$t(
           "editor.coverDialogDescription",
-          "Every cover is cropped to a standard 1600 × 400 banner before it is attached to the zpage.",
+          "Any shape works — tall, square or panoramic. Your whole image is shown everywhere on Free2Z.",
         )}
       </Dialog.Description>
     </Dialog.Header>
@@ -508,9 +572,8 @@
 <CoverCropDialog
   bind:open={cropDialogOpen}
   sourceUrl={cropSourceUrl}
+  sourceFile={cropSourceFile}
   uploading={cropUploading}
-  coverWidth={COVER_WIDTH}
-  coverHeight={COVER_HEIGHT}
   onOpenChange={handleCropDialogChange}
   onConfirm={confirmCrop}
 />

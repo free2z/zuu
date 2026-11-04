@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "rust_version": "1.97.1",
+  "tools": {
+    "patchelf": {
+      "url": "https://github.com/NixOS/patchelf/releases/download/0.19.2/patchelf-0.19.2-x86_64.tar.gz",
+      "sha256": "2abdc34fbe949c995a1baa4ec310896a085588a45a99cd0d726851bdfac2a4bb"
+    },
+    "rust": {
+      "url": "https://static.rust-lang.org/dist/rust-1.97.1-x86_64-unknown-linux-gnu.tar.xz",
+      "sha256": "88f28fa9af20594179f85d6df67078dfd6fa93e2f6da5e1e9b0ac4997988ca4f"
+    },
+    "gh": {
+      "url": "https://github.com/cli/cli/releases/download/v2.83.2/gh_2.83.2_linux_amd64.tar.gz",
+      "sha256": "ca6e7641214fbd0e21429cec4b64a7ba626fd946d8f9d6d191467545b092015e"
+    }
+  },
+  "qualification_image": "docker.io/library/debian@sha256:ec31d744f83f4a73447ba045aaab9409997efe5cc706eca4890c1be36cc1606a"
+}

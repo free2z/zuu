@@ -1,0 +1,2 @@
+# Intentionally empty: Orval's targeted post-generation formatter must not
+# inherit the repository-wide exclusion for generated API clients.

@@ -13,6 +13,7 @@ const toolchainEnvPath = "wallet/zuuli/scripts/android-toolchain-env.sh";
 const target = "armv7-linux-androideabi";
 const ndk = "27.0.12077973";
 const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
+// Re-derived for the Java trust helper, test and public-fixture selectors.
 // Re-derived after #1072 adds SDK/proto/mobile-check selectors.
 // Re-derived for #1084: root canonical toolchain added; wallet restatement remains.
 // Re-derived for #984's distinct Rust output and the tracked OpenMLS provider
@@ -27,13 +28,18 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "87cf6fef4ac30d5eb8ab50535b766c4c197441b7dc008090bab19b25f99859ca";
+  "426c1966a4b7378315b6d364dd9f8f438c977a85d3500d9c2de2f9b799c9b4f3";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
 const messagingContractInputs = [
   "docs/free2z/messaging/CLIENT-CONTRACT.md",
   "docs/free2z/messaging/WIRE.md",
+];
+const requiredJavaTrustSelectors = [
+  '.github/scripts/RemoveDistrustedRoots.java',
+  '.github/scripts/test_java_trust.py',
+  '.github/scripts/java-trust-fixtures/*',
 ];
 const requiredWalletBoundarySelectors = [
   "wallet/shared/*",
@@ -171,6 +177,10 @@ function check(
     if (!allSelectedPatterns.has(input)) {
       failures.push(`wallet package-boundary input must select ZUULI: ${input}`);
     }
+  }
+
+  for (const input of requiredJavaTrustSelectors) {
+    if (!selectedPatterns.includes(input)) failures.push(`Java trust input must select the full ZUULI suite: ${input}`);
   }
 
   if (!android) failures.push("required rust_android_32 job is missing");
@@ -398,6 +408,11 @@ function runSelfTest(workflow, toolchainEnv) {
       "|wallet/zuuli/src/features/chat/*|",
       "messaging changes must retain the full wallet/zuuli/* selector",
     ],
+    ...requiredJavaTrustSelectors.map((input) => {
+      const [from, to] = selectorMutation(input);
+      return [`Java trust input no longer selects ZUULI: ${input}`, from, to,
+        `Java trust input must select the full ZUULI suite: ${input}`];
+    }),
     ...requiredWalletBoundarySelectors.map((input) => {
       const [from, to] = selectorMutation(input);
       return [
