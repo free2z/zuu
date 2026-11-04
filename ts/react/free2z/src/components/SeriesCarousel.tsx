@@ -1,5 +1,6 @@
 import React from 'react';
-import SwiperCore, { Autoplay, Navigation } from 'swiper';
+import SwiperCore from 'swiper';
+import { Autoplay, Navigation } from 'swiper/modules';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Card, CardContent, CardMedia, Typography, Avatar } from '@mui/material';
 import 'swiper/css';

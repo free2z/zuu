@@ -6,7 +6,7 @@ on npm or crates.io yet; build from source and test against mocks.
 
 > **Version requirement.** This guide uses `preflight`, `formatMilli2z`,
 > typed error codes, `ChatRequest::new` and `Milli2z::display_2z`, which are
-> in the `sdk-v0.2.0` release and later, not in the older `534d2a58` preview.
+> in the `sdk-v0.2.0` release and later (this guide's tag: `sdk-v0.4.0`), not in the older `534d2a58` preview.
 > Follow the [source-install guide](./SOURCE-PREVIEW.md) with that tag, and
 > move all three Tauri pieces — `@free2z/sdk`, `@free2z/tauri-plugin-f2z-api`
 > and `tauri-plugin-f2z` — to the same tag together.
@@ -57,6 +57,9 @@ import {
 import { nativeBridge } from "@free2z/tauri-plugin-f2z-api";
 
 const client = new Client(new NativeTransport(nativeBridge));
+// Google Play, or iOS outside the US storefront: no payment links in this
+// build, and its capability does not grant f2z:allow-open-billing.
+const STORE_BUILD = false;
 
 export async function firstApp(): Promise<void> {
   // 1. Sign in, suggesting a lifetime budget. The user decides.
@@ -106,10 +109,13 @@ export async function firstApp(): Promise<void> {
   switch (check.kind) {
     case "ready":
       break;
-    case "needs_top_up": // balance too low
-      return offerPurchase(check.required2z);
+    case "needs_top_up": // balance too low. Apps don't sell 2Z:
+      // STORE_BUILD (Google Play; iOS outside the US storefront) shows only
+      // "Manage Free2Z account"; other builds may open Free2Z billing (0.4.0).
+      return STORE_BUILD ? client.openManageAccount() : client.openBilling();
     case "needs_budget": // this app's budget is used up; buying 2Z will not help
-      return linkToBudget("https://free2z.cash/account/apps", check.resetsAt);
+      // CLIENT_ID: your registration's public client_id, an app constant.
+      return linkToBudget(`https://free2z.cash/account/apps?client_id=${CLIENT_ID}`, check.resetsAt);
     case "too_large": // can never run as asked
       return askToShorten();
   }
@@ -184,9 +190,9 @@ it is a developer hint, not user copy, and not stable.
 
 | What happened | TypeScript `code` | Rust | Show the user |
 |---|---|---|---|
-| Not enough 2Z | `insufficient_balance` (402) | `ErrorCode::InsufficientBalance` | "You need N more 2Z" → purchase; re-read the balance after `credited` |
-| App budget used up | `cap_exceeded` (403) | `ErrorCode::CapExceeded` | "Raise this app's budget" → `https://free2z.cash/account/apps`, or wait for `details.resets_at` |
-| Debt after a refund | `account_in_debt` (403) | `ErrorCode::AccountInDebt` | Show `debt_milli_2z` and the buy surface; never auto-retry |
+| Not enough 2Z | `insufficient_balance` (402) | `ErrorCode::InsufficientBalance` | "You need N more 2Z". Web, direct-download desktop and Apple-US-storefront builds may call `openBilling()` (Rust `client.billing_url()`, SDK 0.4.0): the user's Free2Z billing page ([billing URL contract](./INTEGRATION.md#get-2z--the-billing-url-contract)). Store builds (Google Play, iOS outside the US storefront) show "Manage Free2Z account" (`openManageAccount()`) only ([store compliance](./STORE-COMPLIANCE.md#2-the-line)). Re-read the balance on foreground; never sell 2Z in the app |
+| App budget used up | `cap_exceeded` (403) | `ErrorCode::CapExceeded` | "Raise this app's budget" → `https://free2z.cash/account/apps?client_id=<client_id>` ([URL contract](./INTEGRATION.md#manage-free2z-account-the-url-contract)), or wait for `details.resets_at` |
+| Debt after a refund | `account_in_debt` (403) | `ErrorCode::AccountInDebt` | Show `debt_milli_2z`; never auto-retry. Web, direct-download desktop and Apple-US-storefront builds may call `openBilling()`; store builds show "Manage Free2Z account" (`openManageAccount()`) only ([store compliance](./STORE-COMPLIANCE.md#2-the-line)) |
 | Too long | `context_length_exceeded` (400) | `ErrorCode::ContextLengthExceeded` | Shorten the input or lower `max_output_tokens` |
 | Busy | `rate_limited`, `concurrency_limit` (429), `unavailable` (503) | same codes; `retry_after` | "Busy, retrying" — honour `retryAfterSeconds`; never suggest buying 2Z |
 | Session over | `signed_out`, `token_revoked`, `invalid_token` | `Error::SignedOut` | Sign-in screen; stop spending |
@@ -229,12 +235,17 @@ retry is always a **new** idempotency key.
 - **Persistence.** `session.persistence === "memory_only"` means the OS
   keychain was unavailable: a restart will ask the user to sign in again;
   tell them.
+- **Account deletion.** Link `https://free2z.cash/account/delete` from
+  your settings, opened in the system browser; the App Store and Google Play
+  require it, and it is the URL to give Play Console. A deleted account's
+  session ends like any revoked one ([spec/oidc.md §5.2](./spec/oidc.md#52-account-deletion-httpsfree2zcashaccountdelete)).
 
 ## 7. Where next
 
-- [Integration handoff](./INTEGRATION.md) — the Tauri boundary, purchases,
-  cancellation and receipts in depth.
+- [Integration handoff](./INTEGRATION.md) — the Tauri boundary, the account
+  and billing exits, cancellation and receipts in depth.
 - [Chat API](./spec/chat-api.md) — every event and field on the wire.
 - [Metering](./spec/metering.md) — how a charge is computed, with worked
   examples.
-- [Purchases](./spec/purchase.md) — card and Zcash checkout and polling.
+- [Purchases](./spec/purchase.md) — legacy for apps: apps don't sell 2Z.
+  The contract the deprecated purchase API (SDK 0.3.0 clients) relies on.

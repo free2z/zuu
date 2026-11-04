@@ -23,6 +23,8 @@ import {
   validateCaptureRecord,
 } from "./store-screenshot-contract.mjs";
 
+import { captureTlsDockerArguments, CAPTURE_TLS_BOOTSTRAP, assertCaptureTlsRuntime } from "./capture-tls.mjs";
+
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const manifestPath = resolve(projectRoot, "store/manifest.json");
 const disclosurePattern = /\b(?:mock|fixture|debug|localhost|playwright|seed phrase|private key|secret key)\b|[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/iu;
@@ -118,19 +120,21 @@ async function runInCaptureContainer(argv, config, expectedDigests) {
   const npmCommand = ["npm", ...CAPTURE_NPM_CI_ARGUMENTS].join(" ");
   await command("docker", [
     "run", "--rm", "--platform", config.browser.platform, "--ipc=host",
-    "--env", "HOME=/root", "--env", "CI=1", "--env", "ZUULI_STORE_CAPTURE_CONTAINER=1",
+    "--env", "CI=1", "--env", "ZUULI_STORE_CAPTURE_CONTAINER=1",
     ...npmEnvironment,
+    ...await captureTlsDockerArguments(),
     "--env", `ZUULI_STORE_EXPECTED_SOURCE_DIGEST=${expectedDigests.sourceDigest}`,
     "--env", `ZUULI_STORE_EXPECTED_CONTRACT_DIGEST=${expectedDigests.contractDigest}`,
     "--env", `ZUULI_STORE_EXPECTED_MANIFEST_DIGEST=${expectedDigests.manifestDigest}`,
     "--env", `HOST_UID=${process.getuid()}`, "--env", `HOST_GID=${process.getgid()}`,
     "--volume", `${projectRoot}:/work`, "--volume", "/work/node_modules", "--workdir", "/work",
     config.browser.containerImage,
-    "bash", "-lc", `: > "$NPM_CONFIG_USERCONFIG" && : > "$NPM_CONFIG_GLOBALCONFIG" && node scripts/store-screenshot-preflight.mjs && ${npmCommand} && node scripts/store-screenshot-preflight.mjs && node scripts/store-screenshot-capture.mjs ${argv[0]} && chown -R "$HOST_UID:$HOST_GID" store/media store/capture-record.json store/manifest.json dist`,
+    "bash", "-lc", `${CAPTURE_TLS_BOOTSTRAP} && node scripts/capture-tls.mjs --verify-runtime && : > "$NPM_CONFIG_USERCONFIG" && : > "$NPM_CONFIG_GLOBALCONFIG" && node scripts/store-screenshot-preflight.mjs && ${npmCommand} && node scripts/store-screenshot-preflight.mjs && node scripts/store-screenshot-capture.mjs ${argv[0]} && chown -R "$HOST_UID:$HOST_GID" store/media store/capture-record.json store/manifest.json dist`,
   ]);
 }
 
 async function assertCaptureRuntime(config) {
+  await assertCaptureTlsRuntime();
   if (process.platform !== "linux" || process.arch !== "x64") fail("capture worker is not the declared Linux/amd64 runtime");
   try {
     await access("/.dockerenv");

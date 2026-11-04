@@ -14,7 +14,7 @@ const AudioVisualizer: React.FC<AudioVisualizerProps> = ({ src }) => {
     const audioRef = useRef<HTMLAudioElement>(null);
     const audioContextRef = useRef<AudioContext | null>(null);
     const analyserRef = useRef<AnalyserNode | null>(null);
-    const dataArrayRef = useRef<Uint8Array | null>(null);
+    const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
     const [isAudioPlaying, setIsAudioPlaying] = useState(false);
 
     const handleAudioPlay = async () => {

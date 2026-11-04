@@ -14,14 +14,18 @@ pub const DEFAULT_API_BASE: &str = "https://free2z.cash/api/sdk/v1";
 pub const DEFAULT_AI_BASE: &str = "https://ai.free2z.cash/v1";
 
 /// The scopes a new [`Config`] asks for: sign-in, a refresh token, the
-/// balance, purchases and AI. Narrow them with [`Config::with_scopes`] to what
-/// the app actually uses — the user sees each one on the consent screen.
+/// balance and AI. Narrow them with [`Config::with_scopes`] to what the app
+/// actually uses — the user sees each one on the consent screen.
+///
+/// Since 0.4.0 this no longer includes `purchase:create`: apps don't sell 2Z,
+/// they send the user to Free2Z billing ([`crate::Client::billing_url`]). An
+/// app that still calls the deprecated purchase API must ask for
+/// `purchase:create` explicitly with [`Config::with_scopes`].
 pub const DEFAULT_SCOPES: &[&str] = &[
     "openid",
     "profile",
     "offline_access",
     "balance:read",
-    "purchase:create",
     "ai:invoke",
 ];
 
@@ -44,6 +48,10 @@ pub struct Config {
     pub api_base: String,
     /// The AI gateway root (`…/v1`).
     pub ai_base: String,
+    /// The Free2Z website's origin, where the account pages live
+    /// (`/account/apps`, `/account/delete`, `/buy-2z`). `None`, the default: the
+    /// issuer's origin, which is the website for every Free2Z deployment.
+    pub web_origin: Option<String>,
     /// The limit on one non-streaming request and on waiting for a token-store
     /// operation. A store timeout is `Error::Storage`; its blocking operation
     /// may finish later, so durability is uncertain until it completes. Each
@@ -59,6 +67,11 @@ pub struct Config {
     /// treated as interrupted. The gateway sends a `: ping` every 15 s while
     /// it waits on a provider, so this is a dead-connection detector.
     pub stream_idle_timeout: Duration,
+    /// The app is child-directed: set it exactly when the app's Free2Z
+    /// registration is `child_directed`. The SDK then refuses, locally,
+    /// what the server refuses for such an app — today a report's `detail`
+    /// ([`crate::ai::Ai::report_call`]). Default `false`.
+    pub child_directed: bool,
 }
 
 impl Config {
@@ -71,9 +84,11 @@ impl Config {
             scopes: DEFAULT_SCOPES.iter().map(|s| (*s).to_owned()).collect(),
             api_base: DEFAULT_API_BASE.to_owned(),
             ai_base: DEFAULT_AI_BASE.to_owned(),
+            web_origin: None,
             request_timeout: Duration::from_secs(30),
             callback_timeout: Duration::from_secs(600),
             stream_idle_timeout: Duration::from_secs(90),
+            child_directed: false,
         }
     }
 
@@ -109,6 +124,14 @@ impl Config {
         self
     }
 
+    /// Another website origin for the account pages (`https://host[:port]`,
+    /// no path). Only for a deployment whose website is not its issuer.
+    #[must_use]
+    pub fn with_web_origin(mut self, origin: impl Into<String>) -> Self {
+        self.web_origin = Some(origin.into());
+        self
+    }
+
     /// The limit on one non-streaming request.
     #[must_use]
     pub fn with_request_timeout(mut self, timeout: Duration) -> Self {
@@ -130,6 +153,13 @@ impl Config {
         self
     }
 
+    /// Mark the app child-directed, matching its Free2Z registration.
+    #[must_use]
+    pub fn with_child_directed(mut self, child_directed: bool) -> Self {
+        self.child_directed = child_directed;
+        self
+    }
+
     pub(crate) fn validate(&self) -> Result<Validated, Error> {
         if self.client_id.trim().is_empty() {
             return Err(Error::Config("client_id is empty".into()));
@@ -146,15 +176,24 @@ impl Config {
         server_url(&api_base, "api_base")?;
         let ai_base = self.ai_base.trim_end_matches('/').to_owned();
         server_url(&ai_base, "ai_base")?;
+        let web_origin = crate::account::web_origin(&issuer_url, self.web_origin.as_deref())?;
+        let manage_account_url = crate::account::manage_url(&web_origin, &self.client_id)?;
+        let delete_account_url = crate::account::delete_url(&web_origin);
+        let billing_url = crate::account::billing_url(&web_origin, &self.client_id)?;
         Ok(Validated {
             issuer,
             client_id: self.client_id.clone(),
             scopes: self.scopes.clone(),
             api_base,
             ai_base,
+            web_origin,
+            manage_account_url,
+            delete_account_url,
+            billing_url,
             request_timeout: self.request_timeout,
             callback_timeout: self.callback_timeout,
             stream_idle_timeout: self.stream_idle_timeout,
+            child_directed: self.child_directed,
         })
     }
 }
@@ -167,9 +206,15 @@ pub(crate) struct Validated {
     pub scopes: Vec<String>,
     pub api_base: String,
     pub ai_base: String,
+    /// `scheme://host[:port]`, no trailing slash.
+    pub web_origin: String,
+    pub manage_account_url: String,
+    pub delete_account_url: String,
+    pub billing_url: String,
     pub request_timeout: Duration,
     pub callback_timeout: Duration,
     pub stream_idle_timeout: Duration,
+    pub child_directed: bool,
 }
 
 impl Validated {
@@ -225,7 +270,50 @@ mod tests {
     fn production_defaults_validate() {
         let v = Config::new("app_1").validate().unwrap();
         assert_eq!(v.issuer, "https://free2z.cash");
+        assert_eq!(v.web_origin, "https://free2z.cash");
         assert!(v.wants("ai:invoke"));
+        assert_eq!(v.billing_url, "https://free2z.cash/buy-2z?client_id=app_1");
+    }
+
+    #[test]
+    fn default_scopes_no_longer_ask_to_create_purchases() {
+        assert!(!DEFAULT_SCOPES.contains(&"purchase:create"));
+        let v = Config::new("app_1").validate().unwrap();
+        assert!(!v.wants("purchase:create"));
+        assert_eq!(
+            v.scope_string(),
+            "openid profile offline_access balance:read ai:invoke"
+        );
+        // An app that still uses the deprecated purchase API asks for it.
+        let explicit = Config::new("app_1")
+            .with_scopes(["openid", "purchase:create"])
+            .validate()
+            .unwrap();
+        assert!(explicit.wants("purchase:create"));
+    }
+
+    #[test]
+    fn the_billing_url_follows_the_configured_web_origin() {
+        let v = Config::new("a b&c")
+            .with_issuer("https://id.staging.example/realm")
+            .validate()
+            .unwrap();
+        assert_eq!(
+            v.billing_url,
+            "https://id.staging.example/buy-2z?client_id=a+b%26c"
+        );
+        let v = Config::new("c")
+            .with_web_origin("https://www.staging.example/")
+            .validate()
+            .unwrap();
+        assert_eq!(
+            v.billing_url,
+            "https://www.staging.example/buy-2z?client_id=c"
+        );
+        assert_eq!(
+            v.manage_account_url,
+            "https://www.staging.example/account/apps?client_id=c"
+        );
     }
 
     #[test]
@@ -238,6 +326,9 @@ mod tests {
             .with_issuer("http://127.0.0.1:9/")
             .with_api_base("http://[::1]:9/api/sdk/v1");
         assert_eq!(ok.validate().unwrap().issuer, "http://127.0.0.1:9");
+        assert_eq!(ok.validate().unwrap().web_origin, "http://127.0.0.1:9");
+        let bad = Config::new("app_1").with_web_origin("http://free2z.cash");
+        assert!(matches!(bad.validate(), Err(Error::Config(_))));
     }
 
     #[test]

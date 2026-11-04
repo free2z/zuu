@@ -10,6 +10,7 @@ import { useGlobalState } from "./state/global"
 
 
 export interface PublicCreator {
+    id: number
     username: string
     is_verified: boolean
     total: number
@@ -23,26 +24,39 @@ export interface PublicCreator {
     banner_image: FeaturedImage | null
 }
 
+type CreatorDetailProps = {
+    initialCreator?: PublicCreator
+}
 
-export default function CreatorDetail() {
+
+export default function CreatorDetail({ initialCreator }: CreatorDetailProps) {
     const [loading, setLoading] = useGlobalState("loading")
     const [_, setSnackbarState] = useGlobalState("snackbar")
 
-    const [creator, setCreator] = useState({
+    const [fetchedCreator, setFetchedCreator] = useState({
         username: "",
         is_verified: false,
         total: 0,
         zpages: 0,
     } as PublicCreator)
+    const creator = initialCreator || fetchedCreator
 
     const params = useParams()
 
     useEffect(() => {
+        // RootSplitter already loaded this payload to distinguish a creator
+        // from a historic root zPage. Reuse it instead of doubling the main
+        // profile API load, especially while classic is the outage fallback.
+        if (initialCreator) {
+            setLoading(false)
+            return
+        }
+
         setLoading(true)
         axios
             .get(`/api/creator/${params.id}/`)
             .then((res) => {
-                setCreator(res.data)
+                setFetchedCreator(res.data)
                 setLoading(false)
             })
             .catch((res) => {
@@ -54,7 +68,7 @@ export default function CreatorDetail() {
                 })
                 setLoading(false)
             })
-    }, [params.id])
+    }, [initialCreator, params.id])
 
     if (!creator.username) {
         return null

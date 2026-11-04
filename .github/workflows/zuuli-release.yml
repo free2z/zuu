@@ -37,8 +37,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  NODE_OPTIONS: --use-openssl-ca
   CI: true
-  ZUULI_NODE_VERSION: "24.18.0"
+  ZUULI_NODE_VERSION: "24.22.2"
   # Restates rust-toolchain.toml because GitHub cannot compute a
   # workflow-level `env:` from a file. scripts/check-rust-toolchain.sh fails
   # the pull request if this ever stops matching the source of truth.
@@ -64,6 +65,29 @@ jobs:
       run:
         working-directory: wallet/zuuli
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ github.event_name == 'push' && github.sha || inputs.source_sha }}
@@ -72,7 +96,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
           cache: npm
           cache-dependency-path: wallet/zuuli/package-lock.json
       - run: npm ci
@@ -203,6 +227,29 @@ jobs:
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
       BUNDLE_FROZEN: "true"
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
@@ -217,11 +264,13 @@ jobs:
         working-directory: .
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
           java-version: "21.0.12"
+      - name: Remove distrusted Java CA roots
+        run: sudo "$JAVA_HOME/bin/java" "$GITHUB_WORKSPACE/.github/scripts/RemoveDistrustedRoots.java" "$JAVA_HOME/lib/security/cacerts"
       # dtolnay/rust-toolchain's version branches hardcode the compiler in
       # action.yml, so this commit is itself the version pin and the trailing
       # comment is its only readable record. Bumping the toolchain means moving
@@ -322,6 +371,29 @@ jobs:
     env:
       ANDROID_UPLOAD_CERT_SHA256: ${{ vars.ANDROID_UPLOAD_CERT_SHA256 }}
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
         with:
           distribution: temurin
@@ -715,6 +787,29 @@ jobs:
       run:
         working-directory: wallet/zuuli
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
@@ -797,6 +892,29 @@ jobs:
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
       ZUULI_BUILD_PLATFORM: ios
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
@@ -815,7 +933,7 @@ jobs:
           xcodebuild -version | grep -Fx 'Xcode 26.6'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
           toolchain: ${{ env.ZUULI_RUST_VERSION }}
@@ -912,6 +1030,29 @@ jobs:
     outputs:
       artifact_sha256: ${{ steps.sign.outputs.artifact_sha256 }}
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-zuuli-ios-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
@@ -920,7 +1061,7 @@ jobs:
       # like the upload job's, and the job still installs no dependencies.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
       - name: Verify source-bound artifact
         env:
           EXPECTED_ARCHIVE_SHA256: ${{ needs.ios-build.outputs.artifact_sha256 }}
@@ -1108,6 +1249,29 @@ jobs:
       run:
         working-directory: wallet/zuuli
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
@@ -1159,13 +1323,36 @@ jobs:
     outputs:
       payload_sha256: ${{ steps.upload.outputs.payload_sha256 }}
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-zuuli-ios-verified-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
           path: verified-ios
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
       - name: Verify source-bound artifact
         env:
           EXPECTED_IPA_SHA256: ${{ needs.ios-verify.outputs.artifact_sha256 }}
@@ -1254,13 +1441,36 @@ jobs:
       run:
         working-directory: wallet/zuuli
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-zuuli-ios-uploaded-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
@@ -1328,7 +1538,7 @@ jobs:
       id-token: write
       attestations: write
     container:
-      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406
+      image: ghcr.io/free2z/zuuli-linux-ci@sha256:bb07838e6e6c4a138943e1254a7f1613c4860e4bfabc87fd1e0d18073de1015f
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -1339,6 +1549,29 @@ jobs:
     env:
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - name: Verify pinned Linux build image
         working-directory: /
         run: |
@@ -1360,7 +1593,7 @@ jobs:
         run: git submodule update --init z/zcash/librustzcash
         working-directory: .
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with: { node-version: "24.18.0" }
+        with: { node-version: "24.22.2" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with: { toolchain: "${{ env.ZUULI_RUST_VERSION }}" }
       - name: Restore reviewed Linux Rust dependencies
@@ -1493,6 +1726,29 @@ jobs:
     env:
       ZUULI_RELEASE_SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
@@ -1510,7 +1766,7 @@ jobs:
           sudo xcode-select --switch /Applications/Xcode_26.6.app
           xcodebuild -version | grep -Fx 'Xcode 26.6'
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with: { node-version: "24.18.0" }
+        with: { node-version: "24.22.2" }
       - uses: dtolnay/rust-toolchain@032958afbdc797a9164d3bc0b56325c1308924a5 # 1.97.1
         with:
           {
@@ -1607,6 +1863,29 @@ jobs:
       ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
       ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-zuuli-macos-unsigned-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
@@ -1615,7 +1894,7 @@ jobs:
       # like the upload job's, and the job still installs no dependencies.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
       - name: Verify source-bound artifact
         env:
           EXPECTED_APP_SHA256: ${{ needs.macos-build.outputs.artifact_sha256 }}
@@ -1976,13 +2255,36 @@ jobs:
       run:
         working-directory: wallet/zuuli
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
-          node-version: "24.18.0"
+          node-version: "24.22.2"
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: internal-zuuli-macos-signed-${{ needs.prepare.outputs.identity }}-${{ needs.prepare.outputs.source_sha }}
@@ -2206,6 +2508,29 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ needs.prepare.outputs.source_sha }}

@@ -47,3 +47,7 @@ debug = 0
 
 # Independent resolution: this daemon is not linked into the messaging or wallet workspace.
 [workspace]
+
+[[test]]
+name = "production_handoff_fixture"
+path = "tests/fixtures/handoff_fixture.rs"
