@@ -16,9 +16,13 @@ budget and balance → pick a model → preflight a strict request → stream it
 parse structured JSON → read the receipt → sign out**, plus the recovery
 screens for "not enough 2Z" and "this app's budget is used up".
 
-The Rust version of this app is compiled and run by CI against local fakes:
+The Rust version of this app runs against local fakes:
 [`rs/crates/f2z-sdk/examples/first_app.rs`](../../../rs/crates/f2z-sdk/examples/first_app.rs)
 (`cargo run -p f2z-sdk --example first_app`). The TypeScript version is below.
+The public-export regression [`first-app.test.mjs`](../../../ts/free2z/sdk/test/first-app.test.mjs)
+checks this sequence through both transports; `npm run test:package` also runs it
+against an installed tarball and compiles a strict public TypeScript consumer.
+See the [21-finding reconciliation](./DX-AUDIT-1135.md) for remaining gaps and limits.
 
 ## 1. Six things to know first
 
@@ -33,8 +37,9 @@ The Rust version of this app is compiled and run by CI against local fakes:
 
 ## 2. Register your app
 
-Register a **public native client** in the Free2Z developer console (a
-Tauri or browser app cannot keep a secret). You get a `client_id`, which is
+Register a **public native client** in [Your apps](https://free2z.cash/developers/apps)
+([walkthrough](./INTEGRATION.md#registration-and-the-native-boundary)); a
+Tauri or browser app cannot keep a secret. You get a `client_id`, which is
 public configuration. Register your redirect URIs exactly
 ([rules](./spec/oidc.md#3-redirect-uris)). Optionally set a default
 per-user budget (`default_spend_cap_2z` + `default_cap_period`).
