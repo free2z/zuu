@@ -1572,6 +1572,76 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
   expect(await page.evaluate(() => window.hostTest.joinCalls)).toBe(0);
 });
 
+test("an offline focus restore tick cannot steal focus after leaving a private call", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(page, false, true);
+  const secret = "private-focus-restore-teardown";
+  await page.route(`**/api/dyte/${USER}/private/${secret}`, (route) =>
+    route.fulfill({
+      json: { auth_token: "private-focus-restore-room", e2ee: false },
+    }),
+  );
+  await page.route(
+    `**/api/dyte/${USER}/private/${secret}/recording**`,
+    (route) => {
+      const path = new URL(route.request().url()).pathname;
+      return route.fulfill({
+        json: path.endsWith("/recording-visibility")
+          ? { recording: false }
+          : { recording_state: "IDLE" },
+      });
+    },
+  );
+
+  await page.evaluate(
+    async ({ user, secret }) => {
+      const path =
+        "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+      const { goto } = await import(path);
+      await goto(`/${user}/private/${secret}?lang=en`);
+    },
+    { user: USER, secret },
+  );
+  const recordButton = page
+    .getByTestId("private-call-header")
+    .getByRole("button", { name: "Record livestream", exact: true });
+  await expect(recordButton).toBeVisible();
+
+  // Keep both focus targets outside the route so they survive its teardown.
+  await page.evaluate(() => {
+    const saved = document.createElement("button");
+    saved.id = "saved-external-focus-target";
+    const current = document.createElement("button");
+    current.id = "current-external-focus-target";
+    document.body.append(saved, current);
+    saved.focus();
+  });
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setOffline(true);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(page.getByTestId("private-call-reconnect")).toBeFocused();
+
+  // Going online queues the restoration tick. Start navigation in the same
+  // browser task so route teardown aborts that pending callback.
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
+    const path =
+      "/node_modules/@sveltejs/kit/src/runtime/app/navigation/client.js";
+    const { goto } = await import(path);
+    liveStreamStore.setOffline(false);
+    await goto("/dashboard?lang=en");
+  }, LIVE_STREAM_STORE_LOADER);
+  const currentTarget = page.locator("#current-external-focus-target");
+  await currentTarget.focus();
+  await expect(page.getByTestId("private-call-header")).toHaveCount(0);
+  await expect(currentTarget).toBeFocused();
+  await page.waitForTimeout(50);
+  await expect(currentTarget).toBeFocused();
+});
+
 test("a private-call recovery response cannot navigate a changed account", async ({
   page,
 }) => {
