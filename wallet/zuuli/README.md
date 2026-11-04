@@ -67,6 +67,9 @@ gaps in [STATUS.md](STATUS.md).
 
 ## Run it
 
+Use Node.js 24.x (CI: `24.22.2`) or 22.x from 22.12.0 (CI: `22.23.4`)
+for Vitest 5.
+
 ```bash
 npm install
 VITE_MOCK=1 npm run dev  # browser fixtures for UI exploration/screenshots
