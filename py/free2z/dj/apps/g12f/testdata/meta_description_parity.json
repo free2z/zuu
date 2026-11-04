@@ -1,0 +1,171 @@
+{
+  "_comment": [
+    "Shared Python and Svelte fallback meta-description cases.",
+    "Python: py/free2z/dj/apps/g12f/meta_description.py compact_text().",
+    "Svelte: ts/svelte/free2z/src/lib/seo.ts compactText().",
+    "Inputs are synthetic. Each case specifies value and expected output; fallback defaults to an empty string and max_length defaults to 200."
+  ],
+  "cases": [
+    {
+      "name": "plain prose is only whitespace-collapsed",
+      "value": "For years, I believed I had the perfect job.\n\nI thrived on the flexibility.",
+      "expected": "For years, I believed I had the perfect job. I thrived on the flexibility."
+    },
+    {
+      "name": "A heading and embed produce only heading text",
+      "value": "# Maps\n\n\n\n::embed[/uploadz/public/example/clip.mp4]",
+      "expected": "Maps"
+    },
+    {
+      "name": "An embed is not description text",
+      "value": "::embed[https://youtu.be/abc_DEFgh12?si=sample_under_score]",
+      "fallback": "Read this article and discover more independent creators on Free2Z.",
+      "expected": "Read this article and discover more independent creators on Free2Z."
+    },
+    {
+      "name": "a bare URL keeps its underscores",
+      "value": "Watch the call: https://youtu.be/abc_DEFgh12?si=sample_under_score and bring questions.",
+      "expected": "Watch the call: https://youtu.be/abc_DEFgh12?si=sample_under_score and bring questions."
+    },
+    {
+      "name": "emphasis markers are stripped at word boundaries",
+      "value": "This is *bold* and _italic_ and __very bold__ text.",
+      "expected": "This is bold and italic and very bold text."
+    },
+    {
+      "name": "snake_case is not emphasis",
+      "value": "Call get_user_by_id() before render_page().",
+      "expected": "Call get_user_by_id() before render_page()."
+    },
+    {
+      "name": "links keep their label; images and fenced code do not",
+      "value": "See [the docs](https://free2z.cash/docs).\n\n![a chart](/img/chart.png)\n\n```python\nprint('hi')\n```\n\nDone.",
+      "expected": "See the docs. Done."
+    },
+    {
+      "name": "a four-backtick fence is closed by four backticks, not by the literal ``` line inside it",
+      "value": "````md\ninside the block\n```\nstill inside\n````\n\nThe prose that should be the description.",
+      "expected": "The prose that should be the description."
+    },
+    {
+      "name": "an UNTERMINATED four-backtick block is not closed by the ``` line inside it -- everything after it is still code",
+      "value": "Intro sentence.\n\n````md\ncode\n```\nmore code, no close",
+      "expected": "Intro sentence."
+    },
+    {
+      "name": "an unterminated fence in a truncated excerpt does not leak",
+      "value": "Intro paragraph.\n\n```js\nconst x = 1;\nconst y = 2;",
+      "expected": "Intro paragraph."
+    },
+    {
+      "name": "an INLINE run of backticks is prose, not an unterminated fence -- only a line-anchored ``` opens one",
+      "value": "Type ``` to open a code block, then keep writing.",
+      "expected": "Type to open a code block, then keep writing."
+    },
+    {
+      "name": "`::İframe[x]` is text: Python's Unicode IGNORECASE folds U+0130 onto `i`, JavaScript's `/i` does not, so both are ASCII",
+      "value": "::İframe[/x.mp4] is not a directive.",
+      "expected": "::İframe[/x.mp4] is not a directive."
+    },
+    {
+      "name": "no raw newline, tab or CRLF ever reaches the attribute",
+      "value": "Line one.\r\n\r\nLine two.\r\n\tLine three.",
+      "expected": "Line one. Line two. Line three."
+    },
+    {
+      "name": "Python `\\s` and ECMAScript `\\s` are different sets -- every whitespace-ish character is folded before either is consulted",
+      "value": "alphabeta gamma delta\u001cepsilon﻿zeta　eta",
+      "expected": "alpha beta gamma delta epsilon zeta eta"
+    },
+    {
+      "name": "ZWJ and ZWNJ are NOT stripped -- they are meaning, not noise (a joined emoji, and Persian/Indic shaping)",
+      "value": "Built by 👩‍💻 developers.",
+      "expected": "Built by 👩‍💻 developers."
+    },
+    {
+      "name": "blockquotes, lists and tables become prose",
+      "value": "> Quote it.\n\n- first\n- second\n\n| a | b |\n| --- | --- |\n| 1 | 2 |",
+      "expected": "Quote it. first second a b 1 2"
+    },
+    {
+      "name": "an Arabic-Indic digit is NOT an ordered-list marker -- Python's `\\d` matches it and JavaScript's does not, so both use [0-9]",
+      "value": "١. مقدمة\n1. ASCII item",
+      "expected": "١. مقدمة ASCII item"
+    },
+    {
+      "name": "a hashtag and a comparison are not markdown",
+      "value": "Filed under #zcash when latency > 200ms.",
+      "expected": "Filed under #zcash when latency > 200ms."
+    },
+    {
+      "name": "HTML is stripped; an autolink keeps its URL",
+      "value": "<p>Read <b>this</b> at <https://free2z.cash/a_b>.</p>",
+      "expected": "Read this at https://free2z.cash/a_b."
+    },
+    {
+      "name": "a tag spanning a newline is still a tag, and an HTML comment is not description text",
+      "value": "<!-- editor note -->\n<img\n  src=\"/img/chart.png\"\n  alt=\"chart\">After the chart.",
+      "expected": "After the chart."
+    },
+    {
+      "name": "a bare comparison is NOT a tag -- `<[^>]*>` and Django's strip_tags both ate this",
+      "value": "Alert when latency < 200 and error rate > 5 per minute.",
+      "expected": "Alert when latency < 200 and error rate > 5 per minute."
+    },
+    {
+      "name": "`std::vector` is text the article renders, not a directive -- only the renderer's own ::embed/::iframe/::qrcode shape is markup",
+      "value": "Use std::vector here, and https://ex.com/a::b stays whole.",
+      "expected": "Use std::vector here, and https://ex.com/a::b stays whole."
+    },
+    {
+      "name": "BOTH tiers read the same 4,000-code-point window: Django only holds a Substr, so SSR must not see further either",
+      "value": "```\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n```\n\nVisible prose after it.",
+      "fallback": "Read this article and discover more independent creators on Free2Z.",
+      "expected": "Read this article and discover more independent creators on Free2Z."
+    },
+    {
+      "name": "KNOWN LIMITATION: escapes are unwrapped BEFORE the markers are stripped, so an escaped emphasis character does not survive as a literal -- but no stray backslash reaches the attribute",
+      "value": "A literal \\_underscore\\_ is a known limitation.",
+      "expected": "A literal underscore is a known limitation."
+    },
+    {
+      "name": "Text is cut at a word boundary within the code-point budget",
+      "value": "A sample article describes a quiet morning in a community garden. Volunteers prepare the beds, plant new seeds, and water the paths.\n\nThe neighbors share tools and compare their plans for the coming season. This example contains enough words to exercise truncation without using a published article.",
+      "expected": "A sample article describes a quiet morning in a community garden. Volunteers prepare the beds, plant new seeds, and water the paths. The neighbors share tools and compare their plans for the coming…"
+    },
+    {
+      "name": "one token longer than the whole window is cut mid-token rather than collapsing the description to nothing",
+      "value": "https://free2z.cash/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "https://free2z.cash/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…"
+    },
+    {
+      "name": "an astral emoji costs ONE code point -- 155 of them is under the bound even though JavaScript's String#length would say 305",
+      "value": "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂 tail",
+      "expected": "🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂🙂 tail"
+    },
+    {
+      "name": "whitespace-only input falls back",
+      "value": "   \n\n\t ",
+      "fallback": "Fallback copy.",
+      "expected": "Fallback copy."
+    },
+    {
+      "name": "an empty string falls back -- `value ?? fallback` did not",
+      "value": "",
+      "fallback": "Fallback copy.",
+      "expected": "Fallback copy."
+    },
+    {
+      "name": "the fallback goes through the same derivation",
+      "value": "::embed[/uploadz/public/x/clip.mp4]",
+      "fallback": "# Fallback\n\nheading",
+      "expected": "Fallback heading"
+    },
+    {
+      "name": "max_length is honoured when a caller overrides it",
+      "value": "A sample article describes a quiet morning in a community garden. Volunteers prepare the beds, plant new seeds, and water the paths.\n\nThe neighbors share tools and compare their plans for the coming season. This example contains enough words to exercise truncation without using a published article.",
+      "max_length": 60,
+      "expected": "A sample article describes a quiet morning in a community…"
+    }
+  ]
+}

@@ -3,7 +3,8 @@ import { Buffer } from 'buffer';
 // TODO: make dynamic
 // export const current_f2z_address = "zs16d60pj9ws682ewchraejujscf4crsuatyc83gzwnlgzzyphc3ydhynqv9p40gygnts83cfy5q23"
 // export const current_f2z_address = "zs1wkh9qdpznatw07gfv3xf0ewed0hhqp9vjt02kcmckz7jfxet7ld3ujldzlcke8a5fympvvndp39"
-export const current_f2z_address = "zs1lm4vumxdpuz08w237n0lpxz490uq5nxasz6mql555f96hql4h7kc3ucf2a42j7mp0slck2uvjjk"
+// export const current_f2z_address = "zs1lm4vumxdpuz08w237n0lpxz490uq5nxasz6mql555f96hql4h7kc3ucf2a42j7mp0slck2uvjjk"
+export const current_f2z_address = "u1ac9rjvjddcnshvawyc39qujxgll2yu07w5gehstq72z6rjmzurf5c9f65jjedfaedx2h8ajlc6ya0qyfec9mexkwajnfxj00m3a63p2zva6xr9s5ll08yfylth5wkunwvfk0c7qclz436wrc63q2f6089at5l4dxaz6avuq86sxvufyx3c9972cc0y5w3zlyf5erc40cghlwsn4alpk"
 
 export function getURI(
     address: string,

@@ -29,7 +29,7 @@ A pending or unknown settlement is not a zero charge. This crate does not
 perform authorization, reserve balances, settle ledger entries, or certify
 that a service endpoint is deployed.
 
-The current release is `0.2.0`, Git tag `sdk-v0.2.0`; it is not available
+The current release is `0.3.0`, Git tag `sdk-v0.3.0`; it is not available
 on crates.io yet, so pin the tag. Source verification uses Rust 1.97.1:
 
 ```text

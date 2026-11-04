@@ -67,10 +67,21 @@ export interface ChatRequest {
 }
 export interface Session {
   signedIn: boolean;
+  /** The stable account id. Key local data by this, never by a display name. */
   subject: string | null;
   grantedScopes: string[];
   persistence: 'persistent' | 'memory_only';
   generation: string;
+  /**
+   * The Free2Z username to show for the signed-in account, from the verified
+   * ID token of its sign-in. Present only when the `profile` scope was
+   * granted (and the session was signed in by a plugin that reports it);
+   * otherwise absent. Display only: not unique (usernames compare
+   * case-insensitively) and not stable (the user may rename the account).
+   */
+  preferredUsername?: string;
+  /** The account's display name, when it has one and `profile` was granted. */
+  name?: string;
 }
 /** Scopes are configured in the Rust Builder; inspect the actual grantedScopes. */
 export interface SignInOptions {
@@ -88,6 +99,15 @@ export interface SignInOptions {
   spendCap?: Decimal;
   /** The period of `spendCap`; absent keeps the screen's own. */
   spendPeriod?: 'day' | 'week' | 'month' | 'total';
+  /**
+   * Sign in without the browser's cookies, so the page cannot reuse another
+   * account's web session: iOS `prefersEphemeralWebBrowserSession`, Android
+   * an ephemeral Custom Tab where the browser supports one; desktop ignores
+   * it. Default `false`. iOS then also skips its "wants to use … to sign in"
+   * prompt, and the user always types their credentials. For "use a different
+   * account", pass `prompt: 'login'`, which works on every platform.
+   */
+  ephemeral?: boolean;
 }
 export interface Balance {
   available_milli_2z: Decimal;
@@ -168,6 +188,7 @@ export interface Purchase {
   rail_data: Record<string, unknown>;
   [key: string]: unknown;
 }
+/** @deprecated Since 0.4.0: apps don't sell 2Z; see `NativeBridge.openBilling`. */
 export interface PurchaseRequest { rail: 'card' | 'zcash'; quantity2z: Decimal; idempotencyKey: string }
 /** `sessionGeneration`: refuse (`session_changed`) unless the session is still this one. */
 export interface ChatOperation { operationId: string; idempotencyKey: string; sessionGeneration?: Decimal }
@@ -216,6 +237,19 @@ export interface Grant {
   enforcement_reason?: 'ok' | 'platform_disabled' | 'ledger_cutover_pending' | 'ledger_cap_pending' | 'unknown';
   as_of: string;
 }
+/**
+ * Why the user reports an AI output. Offer these as preset choices: apps that
+ * children may use should not offer a free-text box.
+ */
+export type ReportReason = 'incorrect' | 'inappropriate' | 'unsafe' | 'other';
+/** The report receipt; the same `report_id` when the user reports the call again. */
+export interface CallReport {
+  report_id: string; call_id: string;
+  /** A reason newer than the native core arrives as `'unknown'`. */
+  reason: ReportReason | 'unknown';
+  created_at: string;
+  [key: string]: unknown;
+}
 export interface NativeBridge {
   session(): Promise<Session>;
   /** Rejects with a `NativeError`; see `SignInErrorCode` for why the browser step ended. */
@@ -225,9 +259,13 @@ export interface NativeBridge {
   grant(): Promise<Grant>;
   models(): Promise<ModelCatalog>;
   estimate(request: ChatRequest): Promise<Estimate>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   createPurchase(request: PurchaseRequest): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   purchase(id: string): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   waitForPurchase(id: string, options?: PollOptions): Promise<Purchase>;
+  /** @deprecated Since 0.4.0: apps don't sell 2Z. Link users to Free2Z billing with `openBilling()` (or Manage in store builds). Kept working for apps built on 0.3.0. */
   openCheckout(id: string): Promise<void>;
   /** Persist both caller-owned keys BEFORE this call. No automatic retry with a new key. */
   startChat(request: ChatRequest, operation: ChatOperation): Promise<ChatOpened>;
@@ -237,6 +275,36 @@ export interface NativeBridge {
   cancelChat(operationId: string): Promise<void>;
   call(callId: string): Promise<CallRecord>;
   waitForCall(callId: string, options?: PollOptions): Promise<CallRecord>;
+  /** `{web origin}/account/apps?client_id=<this app>`: this app's access and budget, and the account. */
+  manageAccountUrl(): Promise<string>;
+  /** Opens `manageAccountUrl()` in the system browser (never a webview). Label it "Manage Free2Z account". */
+  openManageAccount(): Promise<void>;
+  /** `{web origin}/account/delete`: the account deletion page. */
+  deleteAccountUrl(): Promise<string>;
+  /** Opens `deleteAccountUrl()` in the system browser: the stores' in-app deletion path. */
+  openDeleteAccount(): Promise<void>;
+  /**
+   * `{web origin}/buy-2z?client_id=<this app>`: the user's Free2Z billing page
+   * (Zcash first, card second). Apps don't sell 2Z; this is where a user who
+   * needs 2Z gets them. Opt-in: needs the explicit `f2z:allow-billing-url`
+   * permission, which no default grants.
+   */
+  billingUrl(): Promise<string>;
+  /**
+   * Opens `billingUrl()` in the system browser (never a webview); takes no URL
+   * from JavaScript. Opt-in: needs the explicit `f2z:allow-open-billing`
+   * permission. A Google Play build, or an iOS build outside the US
+   * storefront, must not grant it: show `openManageAccount()` instead.
+   */
+  openBilling(): Promise<void>;
+  /**
+   * Report a call's AI output, in the app (Play's AI-Generated Content policy,
+   * App Store 4.7). Free2Z keeps the call id, reason and `detail`, never the
+   * content; the app's developer and Free2Z moderation see it. `detail`: at most
+   * 200 characters, one line, prefer an app-defined preset. Rejects with
+   * `invalid_request` (`details.field`) before any network call.
+   */
+  reportCall(callId: string, reason: ReportReason, detail?: string): Promise<CallReport>;
 }
 const command = <T>(name: string, args?: Record<string, unknown>): Promise<T> => invoke<T>(`plugin:f2z|${name}`, args);
 export const nativeBridge: NativeBridge = {
@@ -256,4 +324,12 @@ export const nativeBridge: NativeBridge = {
   cancelChat: (operationId) => command('cancel_chat', { operationId }),
   call: (callId) => command('call', { callId }),
   waitForCall: (callId, options = {}) => command('wait_for_call', { callId, options }),
+  manageAccountUrl: () => command('manage_account_url'),
+  openManageAccount: () => command('open_manage_account'),
+  deleteAccountUrl: () => command('delete_account_url'),
+  openDeleteAccount: () => command('open_delete_account'),
+  billingUrl: () => command('billing_url'),
+  openBilling: () => command('open_billing'),
+  reportCall: (callId, reason, detail) =>
+    command('report_call', detail === undefined ? { callId, reason } : { callId, reason, detail }),
 };

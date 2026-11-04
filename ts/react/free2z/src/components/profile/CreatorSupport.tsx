@@ -52,7 +52,9 @@ export default function CreatorSupport(props: Props) {
   const isSmallHeight = useMediaQuery('(max-height:560px)')
   const [currentUser, _scu] = useGlobalState("creator")
 
-  const is_subbed = currentUser.stars.indexOf(props.creator?.username) !== -1
+  const is_subbed = Array.isArray(currentUser.star_ids)
+    ? currentUser.star_ids.includes(props.creator.id)
+    : currentUser.stars.indexOf(props.creator?.username) !== -1
 
   const handleClose = () => {
     setOpen(false);
@@ -229,7 +231,7 @@ export default function CreatorSupport(props: Props) {
         >
           {{
             "panel-subscribe": is_subbed ? "SUBSCRIBED" : "SUBSCRIBE",
-            "panel-donate": "DONATE",
+            "panel-donate": "SUPPORT",
           }[initialPanel] || null}
         </Button>
       ) : (

@@ -360,3 +360,32 @@ fn hex32(s: &str) -> [u8; 32] {
     }
     out
 }
+
+#[test]
+fn tools_effort_restriction_is_signed_and_tampering_is_refused() {
+    let mut tree: Value = serde_json::from_slice(&fixture("catalog.json")).unwrap();
+    tree["models"][0]["controls"] = serde_json::json!({"tools_require_effort_none":true});
+    let (body, sig) = sign_tree(&tree);
+    let verified = verify_now(&body, &sig, &[load().key]).unwrap();
+    assert!(verified.models[0].controls.tools_require_effort_none);
+    tree["models"][0]["controls"]["tools_require_effort_none"] = serde_json::json!(false);
+    assert!(verify_now(&serde_json::to_vec(&tree).unwrap(), &sig, &[load().key]).is_err());
+    tree["models"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("controls");
+    assert!(verify_now(&serde_json::to_vec(&tree).unwrap(), &sig, &[load().key]).is_err());
+}
+
+#[test]
+fn even_signed_tools_effort_controls_refuse_non_booleans() {
+    for value in [Value::Null, serde_json::json!(1), serde_json::json!("true")] {
+        let mut tree: Value = serde_json::from_slice(&fixture("catalog.json")).unwrap();
+        tree["models"][0]["controls"] = serde_json::json!({"tools_require_effort_none":value});
+        let (body, sig) = sign_tree(&tree);
+        assert!(matches!(
+            verify_now(&body, &sig, &[load().key]),
+            Err(CatalogError::Json(_))
+        ));
+    }
+}

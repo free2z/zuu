@@ -1,4 +1,28 @@
 /**
+ * Every Zcash address encoding in use — transparent (base58check), Sapling and
+ * Unified (bech32/bech32m), TEX — is plain alphanumeric ASCII. Nothing else can
+ * appear in a real address.
+ *
+ * Pastes, however, routinely carry more than the address: a wrapped block adds
+ * newlines, and chat clients, webmail and PDF viewers add ZERO-WIDTH characters
+ * (U+200B ZWSP, U+200C ZWNJ, U+200D ZWJ, U+2060 word joiner, U+180E). Those are
+ * the dangerous ones — JavaScript's `\s` does not match any of them, so a
+ * whitespace-only strip lets an invisible character through, and the stored
+ * payout address then *looks* correct while being wrong. That is unrecoverable
+ * money.
+ *
+ * So this keeps printable ASCII (U+0021–U+007E) and drops everything else,
+ * which covers whitespace, zero-width characters, control characters and any
+ * non-ASCII lookalike in one rule.
+ */
+export const PRINTABLE_ASCII_ONLY = /[^\x21-\x7e]+/g;
+
+/** Strip anything that cannot be part of a Zcash address from user input. */
+export function sanitizeZcashAddressInput(value: string): string {
+  return value.replace(PRINTABLE_ASCII_ONLY, "");
+}
+
+/**
  * Where a full address genuinely does not fit, truncate the MIDDLE and always
  * keep the tail — never `slice(0, n) + "..."`.
  *
