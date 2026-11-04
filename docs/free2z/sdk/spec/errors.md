@@ -236,3 +236,11 @@ it.
   ([chat-api.md](./chat-api.md) §2.5).
 - **`message` is not stable** and MUST NOT be parsed; `code` and `details`
   are.
+
+Sampling refusals use `400 invalid_request` with `details.field` and
+`details.reason`: `null` (present null), `range` (invalid type or range),
+`unsupported` (adapter or signed capability), `requires_logprobs`
+(`top_logprobs` without `logprobs: true`), `conflict` (signed sampling
+exclusivity; field `controls`), or `n_unsupported` (`n` other than 1).
+No caller value is included in these diagnostics. Plan-time refusals are durable
+terminal idempotency answers before any hold or provider request.

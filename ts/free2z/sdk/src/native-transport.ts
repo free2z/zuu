@@ -38,9 +38,10 @@ type NativeJson =
   | { [key: string]: NativeJson };
 export type NativeChatRequest = Omit<
   ChatRequest,
-  "max_output_tokens" | "tools" | "response_format"
+  "max_output_tokens" | "tools" | "response_format" | "seed"
 > & {
   max_output_tokens?: string;
+  seed?: string;
   tools?: {
     name: string;
     description?: string;
@@ -137,11 +138,13 @@ function parameters(value: unknown, depth = 0): NativeJson {
 function request(value: ChatRequest): NativeChatRequest {
   const {
     max_output_tokens,
+    seed,
     tools,
     response_format: format,
     ...rest
   } = reasoningEffort(toolOptions(responseFormat(strictOutput(value))));
   const result: NativeChatRequest = { ...rest };
+  if (seed !== undefined) result.seed = seed.toString();
   if (format?.type === "json_object") result.response_format = format;
   else if (format !== undefined)
     // The schema is ordinary JSON, like tool parameters: bigint becomes a
