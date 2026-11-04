@@ -51,8 +51,13 @@ test("allowlist is exactly the known entries, each with an issue and a 30-day ex
     [
       ["GHSA-5gmw-xhrv-c9v3", "tinypool", "1173"],
       ["GHSA-85c8-ppgw-ccpr", "tinypool", "1174"],
-      ["GHSA-68fv-2mgg-jv7q", "source-map-js", "1176"],
     ],
   );
   for (const e of ALLOWLIST) assert.match(e.expires, /^2026-11-0[34]$/);
+});
+
+test("retired source-map-js advisory fails without an exception", () => {
+  const r = evaluate(report(adv("source-map-js", "GHSA-68fv-2mgg-jv7q")), ALLOWLIST, before);
+  assert.equal(r.problems.length, 1);
+  assert.deepEqual(r.waived, []);
 });
