@@ -58,7 +58,8 @@ def make_contract(creator):
         is_public=True,live_now=True,lifecycle_state='live',provider_session_id=uuid.uuid4(),
         host_session_id=uuid.uuid4(),price_per_minute='100.00')
     admission=products.prepare_livestream_admission(host_id=creator.pk,viewer_id=viewer.pk,
-        meeting_id=meeting.meeting_id,price_per_minute='100.00',viewer_account_epoch=viewer.kt_account_epoch)
+        meeting_id=meeting.meeting_id,price_per_minute='100.00',
+        idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     key=uuid.uuid4().hex*2
     event=WebhookDelivery.objects.create(provider_event_id=uuid.uuid4(),event_type='meeting.participantLeft',
         endpoint='general',business_event_key=key,payload_sha256='a'*64)

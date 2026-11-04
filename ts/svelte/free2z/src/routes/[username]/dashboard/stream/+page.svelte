@@ -80,6 +80,8 @@
   $: connected = $isConnected;
   $: count = $participantCount;
   $: isOffline = $liveStreamStore.isOffline;
+  $: connectionStatus = $liveStreamStore.connectionStatus;
+  $: connectionError = $liveStreamStore.error;
 
   function formatDecimal(value: number) {
     return new Intl.NumberFormat($locale, {
@@ -206,6 +208,9 @@
   let isLeaving = false;
   let meetingEl: HTMLElement;
   let hostMeetingError = false;
+  let hostReconnectFailed = false;
+  let reconnecting = false;
+  let hostReconnectRunning = false;
   // Wait for the web component's initial preset setup before attaching the
   // meeting, so its native Record toggle is never mounted for a host.
   function hostMeeting(node: HTMLElement, current: typeof meeting) {
@@ -266,6 +271,7 @@
   let accountGeneration = 0;
   let account: { id: number; username: string } | null = null;
   let startController: AbortController | null = null;
+  let hostReconnectController: AbortController | null = null;
   type OwnedSeat = { actor: HostOwner; session: string };
   let seatOwner: OwnedSeat | null = null;
   // One creator can hold only one seat. Keep that abandoned grant until its
@@ -346,6 +352,8 @@
         accountGeneration++;
         startController?.abort();
         startController = null;
+        hostReconnectController?.abort();
+        hostReconnectController = null;
         endSeat();
         if (abandonedSeat && isSameAccount(abandonedSeat.actor)) {
           const released = abandonedSeat;
@@ -570,6 +578,8 @@
     if (!owner || superseded) return;
     superseded = true;
     startController?.abort();
+    startController = null;
+    hostReconnectController?.abort();
     stopHeartbeat?.();
     stopHeartbeat = null;
     seatState = "superseded";
@@ -601,7 +611,7 @@
   }
 
   function handleBeforeUnload(event: BeforeUnloadEvent) {
-    if (!connected || isLeaving) return;
+    if (seatState !== "live" || !meeting || isLeaving) return;
     event.preventDefault();
     event.returnValue = "";
     return "";
@@ -625,7 +635,7 @@
   }
 
   beforeNavigate(({ cancel, to }) => {
-    if (connected && !isLeaving) {
+    if (seatState === "live" && meeting && !isLeaving) {
       if (
         !confirm(
           $t(
@@ -644,6 +654,9 @@
           const cleanupAndNavigate = async () => {
             const leave = cleanup;
             cleanup = null;
+            ownedMeeting = null;
+            startController?.abort();
+            startController = null;
             if (leave) await leave();
             if (owner && isCurrentOwner(owner)) goto(to.url);
           };
@@ -687,6 +700,7 @@
     destroyed = true;
     unsubscribeAccount();
     startController?.abort();
+    hostReconnectController?.abort();
     authGuardReady = false;
     endSeat();
     clearInterval(recheckTimer);
@@ -715,6 +729,7 @@
 
     loading = true;
     error = null;
+    hostReconnectFailed = false;
     privateResumeAvailable = false;
 
     // A take-over continues the broadcast that is already live, so it is
@@ -740,6 +755,7 @@
       isCurrentOwner(owner) &&
       operationNotice.isCurrent() &&
       startController === controller;
+    let recoveryPending = false;
 
     try {
       if (startType === "private") {
@@ -829,30 +845,94 @@
         await cleanupFn();
         return;
       }
-      cleanup = cleanupFn;
+      let onHostRoomLeft: ((event: { state: string }) => void) | null = null;
+      const onHostRoomJoined = () => {
+        if (ownedMeeting === meetingInstance) reconnecting = false;
+      };
+      cleanup = async () => {
+        if (onHostRoomLeft)
+          meetingInstance?.self.off("roomLeft", onHostRoomLeft);
+        meetingInstance?.self.off("roomJoined", onHostRoomJoined);
+        await cleanupFn();
+      };
       ownedMeeting = meetingInstance;
 
       if (meetingInstance) {
-        meetingInstance.self.on(
-          "roomLeft",
-          async ({ state }: { state: string }) => {
-            // Leaving because another tab took over is not "stream ended":
-            // handleSuperseded() owns that exit and its message.
-            if (superseded || !isCurrentStart()) return;
-            if (state === "left" || state === "ended") {
-              isLeaving = true;
-              endSeat();
-              const leave = cleanup;
-              cleanup = null;
-              if (leave) await leave();
-              if (!isCurrentStart()) return;
-              operationNotice.success(
-                $t("dashboard.stream.ended", "Stream ended."),
-              );
-              goto(`/${owner.username}/dashboard/pages`);
-            }
-          },
-        );
+        const hostMeetingInstance = meetingInstance;
+        onHostRoomLeft = async ({ state }: { state: string }) => {
+          if (
+            superseded ||
+            isLeaving ||
+            !isCurrentOwner(owner) ||
+            seatOwner?.session !== session ||
+            ownedMeeting !== hostMeetingInstance
+          )
+            return;
+          if (state === "disconnected") {
+            return;
+          }
+          if (state === "failed") {
+            reconnecting = true;
+            await reconnectHost(owner, session, startType);
+            return;
+          }
+          if (state === "kicked" || state === "rejected") {
+            const message =
+              state === "kicked"
+                ? $t(
+                    "dashboard.stream.hostKicked",
+                    "You were removed from the live room. Reconnect to start a new broadcast.",
+                  )
+                : $t(
+                    "dashboard.stream.hostRejected",
+                    "The live room rejected the connection. Reconnect to start a new broadcast.",
+                  );
+            hostReconnectFailed = true;
+            error = message;
+            endSeat();
+            const leave = cleanup;
+            cleanup = null;
+            ownedMeeting = null;
+            if (leave) await leave();
+            return;
+          }
+          if (state === "left" || state === "ended") {
+            isLeaving = true;
+            endSeat();
+            const leave = cleanup;
+            cleanup = null;
+            ownedMeeting = null;
+            if (leave) await leave();
+            startController = null;
+            if (!isCurrentOwner(owner)) return;
+            operationNotice.success(
+              $t("dashboard.stream.ended", "Stream ended."),
+            );
+            goto(`/${owner.username}/dashboard/pages`);
+          }
+        };
+        meetingInstance.self.on("roomLeft", onHostRoomLeft);
+        meetingInstance.self.on("roomJoined", onHostRoomJoined);
+        const initStatus = get(liveStreamStore).connectionStatus;
+        if (initStatus === "kicked" || initStatus === "rejected") {
+          // The manager can see a terminal roomLeft before this owner
+          // listener exists. Run the normal seat-release path and do not
+          // report this initialization as a successful broadcast.
+          await onHostRoomLeft({ state: initStatus });
+          return;
+        }
+        // The manager owns a roomLeft listener while it initializes the
+        // meeting. A failure can arrive after that listener is attached but
+        // before this host-specific handler is installed. The store retains
+        // that state, so hand it to the normal recovery path now.
+        if (get(liveStreamStore).connectionStatus === "failed") {
+          // Initial SDK failure starts recovery. Do not complete the start
+          // operation or announce success while that recovery is pending.
+          recoveryPending = true;
+          reconnecting = true;
+          void onHostRoomLeft({ state: "failed" });
+          return;
+        }
       }
 
       operationNotice.success(
@@ -861,6 +941,8 @@
           "The stream started successfully. You are live!",
         ),
       );
+      loading = false;
+      startController = null;
     } catch (err: any) {
       if (!isCurrentStart() || controller.signal.aborted) return;
       console.error("Failed to start stream:", err);
@@ -877,7 +959,174 @@
         err.code.startsWith("privateCall.recording");
       operationNotice.error(error);
     } finally {
-      if (isCurrentStart()) loading = false;
+      if (!recoveryPending && isCurrentStart()) loading = false;
+    }
+  }
+
+  async function reconnectHost(
+    owner: HostOwner,
+    session: string,
+    type: PublicStreamType,
+  ) {
+    if (
+      hostReconnectRunning ||
+      !isCurrentOwner(owner) ||
+      seatOwner?.session !== session
+    )
+      return;
+    hostReconnectRunning = true;
+    const controller = new AbortController();
+    hostReconnectController = controller;
+    const isCurrentReconnect = () =>
+      !controller.signal.aborted &&
+      hostReconnectController === controller &&
+      !superseded &&
+      seatState === "live" &&
+      isCurrentOwner(owner) &&
+      seatOwner?.session === session &&
+      seatOwner.actor.id === owner.id &&
+      seatOwner.actor.username === owner.username &&
+      !isLeaving;
+    reconnecting = true;
+    hostReconnectFailed = false;
+    error = null;
+    const notice = captureAccountToast();
+    const oldCleanup = cleanup;
+    cleanup = null;
+    ownedMeeting = null;
+    let waitingForRoomJoin = false;
+    try {
+      if (oldCleanup) await oldCleanup();
+      if (!isCurrentReconnect()) return;
+      // Reissuing the host token with this tab's existing session resumes its
+      // seat and avoids a competing broadcaster during provider recovery.
+      const { auth_token } = await StreamService.initStream(
+        owner.username,
+        type,
+        {
+          role: "host",
+          hostSession: session,
+          signal: controller.signal,
+        },
+      );
+      if (!isCurrentReconnect()) return;
+      const initialized = await initRtkMeeting({
+        authToken: auth_token,
+        streamType: type,
+        isHost: true,
+        signal: controller.signal,
+        ...getHostStreamMediaOptions(videoQuality),
+      });
+      if (!isCurrentReconnect()) {
+        await initialized.cleanup();
+        return;
+      }
+      // initRtkMeeting can observe a terminal roomLeft before this dashboard
+      // listener is attached. Handle retained states before adopting the
+      // meeting; calling the failed handler here would re-enter reconnectHost
+      // while its guard is still held.
+      const initStatus = get(liveStreamStore).connectionStatus;
+      if (initStatus === "kicked" || initStatus === "rejected") {
+        await initialized.cleanup();
+        if (!isCurrentReconnect()) return;
+        error =
+          initStatus === "kicked"
+            ? $t(
+                "dashboard.stream.hostKicked",
+                "You were removed from the live room. Reconnect to start a new broadcast.",
+              )
+            : $t(
+                "dashboard.stream.hostRejected",
+                "The live room rejected the connection. Reconnect to start a new broadcast.",
+              );
+        hostReconnectFailed = true;
+        startController = null;
+        endSeat();
+        if (notice.isCurrent()) notice.error(error);
+        return;
+      }
+      if (initStatus === "failed") {
+        await initialized.cleanup();
+        throw new Error("host room failed during reconnect initialization");
+      }
+      let onRoomLeft: ((event: { state: string }) => void) | null = null;
+      const onRoomJoined = () => {
+        if (ownedMeeting === initialized.meeting) {
+          reconnecting = false;
+          startController = null;
+        }
+      };
+      cleanup = async () => {
+        if (onRoomLeft) initialized.meeting?.self.off("roomLeft", onRoomLeft);
+        initialized.meeting?.self.off("roomJoined", onRoomJoined);
+        await initialized.cleanup();
+      };
+      ownedMeeting = initialized.meeting;
+      if (!initialized.meeting)
+        throw new Error("RealtimeKit did not create a meeting");
+      waitingForRoomJoin = true;
+      const nextMeeting = initialized.meeting;
+      onRoomLeft = async ({ state }: { state: string }) => {
+        if (
+          !isCurrentOwner(owner) ||
+          seatOwner?.session !== session ||
+          ownedMeeting !== nextMeeting ||
+          isLeaving
+        )
+          return;
+        if (state === "disconnected") return;
+        if (state === "failed") {
+          reconnecting = true;
+          await reconnectHost(owner, session, type);
+        } else if (state === "kicked" || state === "rejected") {
+          error =
+            state === "kicked"
+              ? $t(
+                  "dashboard.stream.hostKicked",
+                  "You were removed from the live room. Reconnect to start a new broadcast.",
+                )
+              : $t(
+                  "dashboard.stream.hostRejected",
+                  "The live room rejected the connection. Reconnect to start a new broadcast.",
+                );
+          hostReconnectFailed = true;
+          endSeat();
+          const leave = cleanup;
+          cleanup = null;
+          ownedMeeting = null;
+          if (leave) await leave();
+        } else if (state === "left" || state === "ended") {
+          isLeaving = true;
+          endSeat();
+          const leave = cleanup;
+          cleanup = null;
+          ownedMeeting = null;
+          if (leave) await leave();
+          isLeaving = false;
+          toast.success($t("dashboard.stream.ended", "Stream ended."));
+          void goto(`/${owner.username}/dashboard/pages`);
+        }
+      };
+      nextMeeting.self.on("roomLeft", onRoomLeft);
+      nextMeeting.self.on("roomJoined", onRoomJoined);
+      liveStreamStore.setError(null, null);
+    } catch (err) {
+      if (!isCurrentReconnect()) return;
+      console.error("Failed to reconnect host stream:", err);
+      endSeat();
+      hostReconnectFailed = true;
+      startController = null;
+      error = $t(
+        "dashboard.stream.hostReconnectFailed",
+        "The stream could not reconnect. Reconnect to start a new broadcast.",
+      );
+      if (notice.isCurrent()) notice.error(error);
+      reconnecting = false;
+    } finally {
+      hostReconnectRunning = false;
+      if (hostReconnectController === controller)
+        hostReconnectController = null;
+      if (!waitingForRoomJoin) reconnecting = false;
     }
   }
 
@@ -912,6 +1161,7 @@
     if (!owner || !sharePath || !browser) return;
     const operationNotice = captureAccountToast();
     const isCurrentCopy = () =>
+      !isLeaving &&
       isCurrentOwner(owner) &&
       operationNotice.isCurrent() &&
       streamSharePath === sharePath;
@@ -995,6 +1245,28 @@
               )}
             </p>
           </div>
+        </div>
+      {/if}
+
+      {#if reconnecting || (meeting && connectionStatus === "disconnected")}
+        <div
+          data-testid="host-reconnecting"
+          role="status"
+          aria-live="polite"
+          class="absolute top-4 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-yellow-500/30 bg-card/95 px-5 py-3 text-sm font-medium text-yellow-700 shadow-lg dark:text-yellow-300"
+        >
+          {$t(
+            "dashboard.stream.hostReconnecting",
+            "Reconnecting… Your broadcast seat is being held.",
+          )}
+        </div>
+      {/if}
+      {#if meeting && connectionStatus === "failed" && connectionError}
+        <div
+          role="alert"
+          class="absolute top-4 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-destructive/30 bg-card/95 px-5 py-3 text-sm text-destructive shadow-lg"
+        >
+          {connectionError}
         </div>
       {/if}
 
@@ -1372,6 +1644,15 @@
                       "privateCall.returnToCurrent",
                       "Return to current call",
                     )}
+                  </Button>
+                {/if}
+                {#if hostReconnectFailed}
+                  <Button
+                    data-testid="host-reconnect"
+                    disabled={loading || seatState === "checking"}
+                    onclick={() => void startStream()}
+                  >
+                    {$t("dashboard.stream.hostReconnect", "Reconnect")}
                   </Button>
                 {/if}
               {/if}

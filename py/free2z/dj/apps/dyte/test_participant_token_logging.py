@@ -58,7 +58,7 @@ def test_add_participant_never_logs_the_auth_token(
 ):
     viewer = creator_factory(username="viewer1")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(200, {"success": True, "data": {
             "id": "abc", "token": TOKEN,
         }}),
@@ -82,7 +82,7 @@ def test_add_participant_logs_only_allowlisted_error_fields(
 ):
     """Callers retry on `error`, so the reason must survive -- but only it."""
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(404, {
             "success": False,
             "error": {"code": 404, "message": "No meeting found"},
@@ -114,7 +114,7 @@ def test_error_envelope_carrying_a_token_still_leaks_nothing(
     """
     viewer = creator_factory(username="viewer3")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(207, {
             "success": False,
             "error": {"code": 207, "message": "partial"},
@@ -137,7 +137,7 @@ def test_a_nested_provider_error_field_is_not_logged_verbatim(
     """Only known-scalar allowlisted fields reach the log, never a container."""
     viewer = creator_factory(username="viewer4")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(400, {
             "success": False,
             "error": {"code": {"nested": TOKEN}, "message": {"also": TOKEN}},
@@ -163,7 +163,7 @@ def test_a_credential_embedded_in_a_provider_message_is_redacted(
     """
     viewer = creator_factory(username="viewer5")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(207, {
             "success": False,
             "error": {
@@ -194,7 +194,7 @@ def test_redaction_keeps_a_meeting_uuid_readable(
     """
     viewer = creator_factory(username="viewer6")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(404, {
             "success": False,
             "error": {
@@ -218,7 +218,7 @@ def test_a_non_numeric_provider_code_is_not_logged(
     """`code` is logged as a strict number, so it can carry nothing else."""
     viewer = creator_factory(username="viewer7")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(400, {
             "success": False,
             "error": {"code": TOKEN, "message": "bad"},
@@ -248,7 +248,7 @@ def test_a_shapeless_credential_from_this_response_is_still_redacted(
     odd_token = "tok.a-b-c.d-e-f.g-h-i.j-k-l"
     assert "eyJ" not in odd_token
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(207, {
             "success": False,
             "error": {"code": 207, "message": f"created with {odd_token}"},
@@ -271,7 +271,7 @@ def test_a_message_that_is_nothing_but_the_token_is_redacted_whole(
     viewer = creator_factory(username="viewer9")
     odd_token = "tok.a-b-c.d-e-f.g-h-i.j-k-l"
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(207, {
             "success": False,
             "error": {"code": 207, "message": odd_token},
@@ -293,7 +293,7 @@ def test_a_token_copied_inside_the_error_subtree_is_redacted(
     viewer = creator_factory(username="viewer10")
     odd_token = "tok.a-b-c.d-e-f.g-h-i.j-k-l"
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(400, {
             "success": False,
             "error": {
@@ -317,7 +317,7 @@ def test_an_unvettably_large_body_drops_the_message(
     """A body too big to vet exhaustively must not leak prose from it."""
     viewer = creator_factory(username="viewer11")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(400, {
             "success": False,
             "error": {"code": 400, "message": "boom"},
@@ -350,7 +350,7 @@ def test_a_malformed_2xx_is_not_logged_as_ok(
     """
     viewer = creator_factory(username=f"viewer_{abs(hash(str(payload))) % 9999}")
     mocker.patch(
-        "dj.apps.dyte.client.requests.post",
+        "dj.apps.dyte.client._SESSION.post",
         return_value=_Resp(200, payload),
     )
 
@@ -375,7 +375,7 @@ def test_add_participant_survives_a_non_json_provider_response(
         def json(self):
             raise ValueError("not json")
 
-    mocker.patch("dj.apps.dyte.client.requests.post", return_value=_Html())
+    mocker.patch("dj.apps.dyte.client._SESSION.post", return_value=_Html())
 
     with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
         DyteClient("org").add_participant(viewer, MEETING_ID)
