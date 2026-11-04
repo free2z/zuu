@@ -150,5 +150,5 @@
 	branch = main
 [submodule "z/openmls/openmls"]
 	path = z/openmls/openmls
-	url = https://github.com/free2z/openmls
-	branch = f2z/preserve-mls-draft-hpke-derivation
+	url = https://github.com/0bkevin/openmls
+	branch = f2z/strict-ed25519-small-order
