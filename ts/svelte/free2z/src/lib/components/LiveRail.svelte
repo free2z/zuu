@@ -148,10 +148,10 @@
               data-testid="homepage-live-now-card"
               href={it.href}
               aria-label={it.label}
-              class="capsule group relative flex items-center gap-2.5 overflow-hidden rounded-full border border-white/10 bg-background/40 py-1.5 pr-5 pl-1.5 backdrop-blur-sm transition-[transform,border-color,box-shadow] duration-200 hover:-translate-y-px hover:border-red-500/40 focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
+              class="capsule group relative flex items-center gap-2.5 overflow-hidden rounded-full border border-white/10 bg-background/40 py-1.5 pr-5 pl-1.5 backdrop-blur-sm transition-[transform,border-color,box-shadow] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] hover:-translate-y-px hover:border-red-500/40 focus-visible:ring-2 focus-visible:ring-red-500/60 focus-visible:outline-none motion-reduce:transition-none motion-reduce:hover:translate-y-0"
             >
               <span
-                class="pointer-events-none absolute inset-0 scale-150 opacity-15 blur-xl saturate-150 transition-opacity duration-300 group-hover:opacity-30"
+                class="pointer-events-none absolute inset-0 scale-150 opacity-15 blur-xl saturate-150 transition-opacity duration-500 group-hover:opacity-25"
                 style:background={it.tint}
                 aria-hidden="true"
               ></span>
@@ -159,8 +159,6 @@
                 class="pointer-events-none absolute inset-0 rounded-full bg-linear-to-b from-white/[0.07] to-transparent"
                 aria-hidden="true"
               ></span>
-              <!-- Hover detail: a single soft light sweep across the pill. -->
-              <span class="sheen" aria-hidden="true"></span>
 
               <span class="live-ring avatar-pop relative shrink-0 rounded-full">
                 <span
@@ -262,60 +260,22 @@
   /* Hover/focus micro-interaction: everything below animates only transform
      and opacity, so it runs on the compositor. */
   .avatar-pop {
-    transition: transform 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: transform 500ms cubic-bezier(0.22, 1, 0.36, 1);
   }
   .capsule:hover .avatar-pop,
   .capsule:focus-visible .avatar-pop {
-    transform: scale(1.08) rotate(-4deg);
+    transform: scale(1.05);
   }
   .capsule:hover .live-ring::after,
   .capsule:focus-visible .live-ring::after {
     animation: none;
-    opacity: 1;
-    transition: opacity 300ms ease-out;
-  }
-
-  .sheen {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-    border-radius: inherit;
-    overflow: hidden;
-  }
-  .sheen::before {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 0;
-    width: 40%;
-    background: linear-gradient(
-      100deg,
-      transparent,
-      rgb(255 255 255 / 0.12),
-      transparent
-    );
-    transform: translateX(-120%) skewX(-12deg);
-    opacity: 0;
-  }
-  .capsule:hover .sheen::before,
-  .capsule:focus-visible .sheen::before {
-    animation: sheen-sweep 900ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
-  }
-  @keyframes sheen-sweep {
-    0% {
-      transform: translateX(-120%) skewX(-12deg);
-      opacity: 1;
-    }
-    100% {
-      transform: translateX(320%) skewX(-12deg);
-      opacity: 0;
-    }
+    opacity: 0.8;
+    transition: opacity 500ms cubic-bezier(0.22, 1, 0.36, 1);
   }
 
   .capsule:hover {
     box-shadow:
-      0 8px 24px -12px rgb(239 68 68 / 0.55),
+      0 8px 24px -14px rgb(239 68 68 / 0.4),
       inset 0 1px 0 rgb(255 255 255 / 0.06);
   }
 
@@ -357,10 +317,6 @@
     .capsule:hover .avatar-pop,
     .capsule:focus-visible .avatar-pop {
       transform: none;
-    }
-    .capsule:hover .sheen::before,
-    .capsule:focus-visible .sheen::before {
-      animation: none;
     }
   }
 </style>
