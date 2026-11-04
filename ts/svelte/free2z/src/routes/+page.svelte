@@ -2,7 +2,6 @@
   import { formatDate } from "$lib/utils/date";
   import { onMount } from "svelte";
   import * as env from "$app/env/public";
-  import { Radio, Ticket, Users } from "@lucide/svelte";
   import { dytePublicDiscoveryList } from "$lib/api/dyte/dyte";
   import type { PublicMeetingList } from "$lib/api/f2z.schemas";
   import { locale, tStore as t } from "$lib/i18n";
@@ -27,6 +26,7 @@
   import MobileFeed from "$lib/components/MobileFeed.svelte";
   import MobileIntro from "$lib/components/MobileIntro.svelte";
   import DesktopIntro from "$lib/components/DesktopIntro.svelte";
+  import LiveRail from "$lib/components/LiveRail.svelte";
   import { blockedUsernames, isBlockedIn } from "$lib/stores/blocks";
   import { streamWatchPath } from "$lib/utils/stream-path";
   import {
@@ -110,6 +110,7 @@
     (p) => !isBlockedIn($blockedUsernames, p?.creator?.username),
   );
   let liveNow = data.liveNow;
+  $: showIntro = !data.authenticated && !$isAuthenticated;
   const creators = (() => {
     const all = data.creators || [];
     const seen = new Set();
@@ -126,6 +127,21 @@
     return new Intl.NumberFormat($locale, {
       maximumFractionDigits: 2,
     }).format(amount);
+  }
+
+  function liveModeLabel(stream: {
+    meeting_type: string;
+    price_per_minute?: unknown;
+  }): string {
+    if (stream.meeting_type === "broadcast") {
+      return $t("homepage.liveModeFree", "Free");
+    }
+    if (stream.meeting_type === "subscribers-only") {
+      return $t("homepage.liveModeSubscribers", "Subscribers");
+    }
+    return $t("stream.pricePerMinuteShort", "{amount} 2Z/min", {
+      amount: livePrice(stream.price_per_minute),
+    });
   }
 
   function liveTypeName(type: string): string {
@@ -257,114 +273,17 @@
   class="mesh-gradient relative flex flex-1 flex-col gap-12 pt-4 pb-10 md:gap-16 md:pt-8 md:pb-16 lg:gap-24 lg:pt-12 lg:pb-24"
 >
   {#if liveNow?.results.length}
-    <section
-      data-testid="homepage-live-now"
-      class="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8"
-      aria-labelledby="homepage-live-now-heading"
-    >
-      <div
-        class="glass-card overflow-hidden rounded-2xl border border-red-500/20 bg-red-500/[0.03] p-4 sm:p-6"
-      >
-        <div class="mb-4 flex items-center justify-between gap-4">
-          <div class="flex min-w-0 items-center gap-3">
-            <span class="relative flex size-2 shrink-0">
-              <span
-                class="absolute inline-flex size-full animate-ping rounded-full bg-red-500 opacity-60"
-              ></span>
-              <span class="relative inline-flex size-2 rounded-full bg-red-500"
-              ></span>
-            </span>
-            <h2
-              id="homepage-live-now-heading"
-              class="text-lg font-black tracking-tight sm:text-xl"
-            >
-              {$t("homepage.liveNow", "Live Now")}
-            </h2>
-          </div>
-          <span
-            class="shrink-0 font-mono text-[10px] font-bold tracking-widest text-red-500 uppercase"
-            >{$t("stream.live", "LIVE")}</span
-          >
-        </div>
-
-        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {#each liveNow.results as stream (stream.username + ":" + stream.meeting_type)}
-            <a
-              data-testid="homepage-live-now-card"
-              href={streamWatchPath(stream.username, stream.meeting_type)}
-              class="group flex min-w-0 items-center gap-3 rounded-xl border border-border/60 bg-background/60 p-3 transition-colors hover:border-red-500/50 hover:bg-background"
-              aria-label={$t(
-                "homepage.watchLiveStream",
-                "Watch {username}'s {type} stream",
-                {
-                  username: stream.username,
-                  type: liveTypeName(stream.meeting_type),
-                },
-              )}
-            >
-              <div
-                class="grid size-12 shrink-0 place-items-center overflow-hidden rounded-full border border-red-500/30 bg-muted"
-              >
-                {#if buildImageUrl(stream.avatar)}
-                  <img
-                    src={buildImageUrl(stream.avatar)}
-                    alt=""
-                    loading="lazy"
-                    decoding="async"
-                    class="size-full object-cover"
-                  />
-                {:else}
-                  <span class="text-sm font-bold text-muted-foreground"
-                    >{stream.username?.slice(0, 2).toUpperCase()}</span
-                  >
-                {/if}
-              </div>
-
-              <div class="min-w-0 flex-1">
-                <div class="flex min-w-0 items-center gap-2">
-                  <span class="min-w-0 font-bold break-words"
-                    >@{stream.username}</span
-                  >
-                  <span
-                    class="relative inline-flex shrink-0 items-center rounded-md bg-red-600 px-1.5 py-0.5 text-[10px] font-bold text-white"
-                  >
-                    <span class="relative mr-1 flex size-1.5">
-                      <span
-                        class="absolute inline-flex size-full animate-ping rounded-full bg-white opacity-75"
-                      ></span>
-                      <span
-                        class="relative inline-flex size-1.5 rounded-full bg-white"
-                      ></span>
-                    </span>
-                    {$t("stream.live", "LIVE")}
-                  </span>
-                </div>
-                <div
-                  class="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-                >
-                  {#if stream.meeting_type === "broadcast"}
-                    <Radio class="size-3.5 shrink-0" aria-hidden="true" />
-                    <span>{$t("homepage.liveModeFree", "Free")}</span>
-                  {:else if stream.meeting_type === "subscribers-only"}
-                    <Users class="size-3.5 shrink-0" aria-hidden="true" />
-                    <span
-                      >{$t("homepage.liveModeSubscribers", "Subscribers")}</span
-                    >
-                  {:else}
-                    <Ticket class="size-3.5 shrink-0" aria-hidden="true" />
-                    <span>
-                      {$t("stream.pricePerMinuteShort", "{amount} 2Z/min", {
-                        amount: livePrice(stream.price_per_minute),
-                      })}
-                    </span>
-                  {/if}
-                </div>
-              </div>
-            </a>
-          {/each}
-        </div>
-      </div>
-    </section>
+    <LiveRail
+      streams={liveNow.results}
+      narrow={showIntro}
+      imageUrl={buildImageUrl}
+      modeLabel={liveModeLabel}
+      ariaLabel={(stream) =>
+        $t("homepage.watchLiveStream", "Watch {username}'s {type} stream", {
+          username: stream.username,
+          type: liveTypeName(stream.meeting_type),
+        })}
+    />
   {/if}
 
   <!-- Mobile feed (below md): a plain reverse-chronological list with search.
