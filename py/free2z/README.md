@@ -172,3 +172,27 @@ paid balances, reservations, receipts and audit rows stay intact. Thus old
 through existing URL normalization after migration. Rerunning is a no-op.
 Reversing the migration leaves canonical labels in place: there is no safe
 way to infer which spelling an originally canonical row used.
+
+### Dependency reconciliation (issue #1338)
+
+The backend image uses Python 3.12; its runtime authority is `requirements/main.in`
+plus the generated hash lock. `django-dbbackup` 5.4.0 and `google-cloud-pubsub`
+2.43.0 were already present in both. This update moves PyAV 19.0.1 to 19.0.2,
+certifi 2026.10.19 to 2026.10.23, OpenAI 3.29.0 to 3.38.0, and Autobahn
+26.10.1 to 26.10.2; the constrained audit-tool lock follows certifi. PyAV's
+[release](https://github.com/PyAV-Org/PyAV/releases/tag/v19.0.2) includes a
+channel-layout double-free fix and a CPython 3.12 Linux wheel. Autobahn's
+[changelog](https://github.com/crossbario/autobahn-python/blob/master/docs/changelog.rst)
+identifies the peer-certificate fix for newer pyOpenSSL. OpenAI's
+[release notes](https://github.com/openai/openai-python/releases/tag/v3.38.0)
+record its SDK changes; provider streaming and usage must remain compatible for
+OpenAI-compatible services, not just OpenAI. Certifi's [release](https://github.com/certifi/python-certifi/releases/tag/2026.10.23)
+updates the trust bundle. The main lock and CI audit lock are regenerated with
+the pinned lock tools; no other tracked requirements lock contains these pins.
+
+The separate local media test server moves Flask 3.0.0 to 3.1.3 and Flask-CORS
+4.0.0 to 6.0.0. Flask 3.1 drops Python 3.8; the backend contract is 3.12.
+The server intentionally retains its all-origin CORS policy and loopback bind.
+[Flask's release](https://github.com/pallets/flask/releases/tag/3.1.3) and
+[Flask-CORS advisory](https://github.com/advisories/GHSA-8vgw-p6qm-5gr7)
+describe fixes included by these versions.
