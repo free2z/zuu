@@ -1446,7 +1446,12 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
         assert by_id[model]["capabilities"] == {
             "tools": True, "vision": False, "reasoning": True, "structured_output": True,
             "strict_tools": True, "reasoning_effort": True}
-        assert by_id[model]["controls"] == {"effort_levels": ["low", "medium", "high", "xhigh"]}
+        assert by_id[model]["controls"] == {
+            "effort_levels": ["low", "medium", "high", "xhigh"],
+            "tools_require_effort_none": True}
+    assert {m["id"] for m in c["models"]
+            if m.get("controls", {}).get("tools_require_effort_none")} == {
+                "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
     # OpenAI documents no Chat Completions tool calling for these at the
     # gateway's default reasoning effort (migration 0027).
     for model in ("gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
@@ -1481,3 +1486,31 @@ def rate_card_seeds_newest_version():
     from dj.apps.pricing import rate_card_seeds
 
     return rate_card_seeds.newest_seed()[0]
+
+
+@pytest.mark.parametrize("value", [None, 1, 0, "true", [], {}])
+def test_tools_effort_control_refuses_non_boolean_signed_metadata(value):
+    with pytest.raises(catalog.CatalogRefused, match="tools_require_effort_none"):
+        catalog.validate_model(_effort_model({"tools_require_effort_none": value}))
+
+
+def test_tools_effort_restriction_is_signed_and_tamper_evident(
+        sample_dataset, at_sample_now, monkeypatch):
+    from django.utils import timezone as dj_timezone
+
+    before = catalog.build_catalog(SAMPLE_NOW)
+    row = AIModel.objects.get(model="grok-4.5")
+    row.tools_require_effort_none = True
+    monkeypatch.setattr(dj_timezone, "now", lambda: _at(SAMPLE_NOW - 3))
+    row.save(update_fields=["tools_require_effort_none"])
+    after = catalog.build_catalog(SAMPLE_NOW)
+    assert after["version"] > before["version"]
+    model = next(m for m in after["models"] if m["id"] == "grok-4.5")
+    assert model["controls"] == {"tools_require_effort_none": True}
+    signed = catalog.sign_catalog(after, _test_key())
+    signature = bytes.fromhex(signed.signature_hex)
+    public = bytes.fromhex(TEST1_PUBLIC_HEX)
+    assert ed25519_reference.verify(public, catalog.signing_message(after), signature)
+    model["controls"]["tools_require_effort_none"] = False
+    assert not ed25519_reference.verify(public, catalog.signing_message(after), signature)
+    catalog.validate_model(model)  # false is a valid explicit non-restriction

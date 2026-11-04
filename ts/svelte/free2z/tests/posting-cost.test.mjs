@@ -148,6 +148,6 @@ test("every catalog carries the copy, with the balance placeholder", () => {
       assert.equal(typeof section[key], "string", `${code}: ${key}`);
     }
     assert.match(section.postCost, /\{balance\}/, `${code}: postCost`);
-    assert.match(section.postCost, /\b1 2Z\b/, `${code}: postCost price`);
+    assert.match(section.postCost, /\{cost\} 2Z/, `${code}: postCost price`);
   }
 });

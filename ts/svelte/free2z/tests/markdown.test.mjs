@@ -6,6 +6,7 @@ let server;
 let markdown;
 let plainText;
 let createSlashCommands;
+let buildVideoMarkdown;
 
 before(async () => {
   server = await createServer({
@@ -14,6 +15,9 @@ before(async () => {
     server: { middlewareMode: true },
   });
   markdown = await server.ssrLoadModule("/src/lib/utils/markdown.ts");
+  ({ buildVideoMarkdown } = await server.ssrLoadModule(
+    "/src/lib/components/mdEditor/inlineUploads.ts",
+  ));
   plainText = await server.ssrLoadModule("/src/lib/utils/plainText.ts");
   ({ createSlashCommands } = await server.ssrLoadModule(
     "/src/lib/components/mdEditor/slashCommands.ts",
@@ -349,10 +353,32 @@ test("editor slash commands insert the supported f2z syntax", () => {
     "::qrcode[zcash address or content]",
   );
   assert.equal(commands.Iframe.insert, "::iframe[https://example.com]");
-  assert.match(
-    commands["Audio embed"].insert,
-    /^::embed\[\/uploadz\/.*\.mp3\]$/,
+  for (const [name, action] of [
+    ["Video", "open-video-picker"],
+    ["Audio", "open-audio-picker"],
+    ["Document", "open-document-picker"],
+    ["Embed link", "open-embed-link"],
+  ]) {
+    assert.equal(commands[name].action, action);
+    assert.equal(
+      commands[name].insert,
+      undefined,
+      `${name} must wait for a successful choice`,
+    );
+  }
+  const audioDirective = buildVideoMarkdown(
+    "/uploadz/public/creator/audio.mp3",
   );
+  assert.equal(
+    audioDirective,
+    "\n\n::embed[/uploadz/public/creator/audio.mp3]\n\n",
+  );
+  const audioHtml = markdown.processMarkdown(audioDirective);
+  assert.match(
+    audioHtml,
+    /data-audio-url="[^\"]*\/uploadz\/public\/creator\/audio\.mp3"/,
+  );
+  assert.doesNotMatch(audioHtml, /::embed\[/);
   assert.match(commands.Footnote.insert, /\[\^1\]: Footnote content/);
   assert.match(commands["Numbered code block"].insert, /showLineNumbers/);
   assert.equal(

@@ -6,15 +6,7 @@
 import { spawnSync } from "node:child_process";
 
 // Each entry: exact GHSA id, hard expiry (UTC date), tracking issue, reason. Never wildcard.
-export const ALLOWLIST = [
-  {
-    id: "GHSA-68fv-2mgg-jv7q",
-    package: "source-map-js",
-    expires: "2026-11-04", // 30 days from 2026-10-05
-    issue: "https://github.com/free2z/zuu/issues/1176",
-    reason: "build-time only (postcss/vite); patched in range but lockfile bump invalidates store-capture digests until recapture",
-  },
-];
+export const ALLOWLIST = [];
 
 const BLOCKING = new Set(["high", "critical"]);
 

@@ -171,11 +171,17 @@ pub struct ModelControls {
     /// refuse the whole signed catalogue.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort_levels: Option<Vec<String>>,
+    /// Tools require the provider's non-reasoning default. With tools, any
+    /// explicit non-none effort is refused before a hold. Omitted effort is
+    /// left at the provider default; sign only for models defaulting to none.
+    /// Absent/false preserves independent tools and effort admission.
+    #[serde(skip_serializing_if = "core::ops::Not::not")]
+    pub tools_require_effort_none: bool,
 }
 
 impl ModelControls {
     fn is_empty(&self) -> bool {
-        self.effort_levels.is_none()
+        self.effort_levels.is_none() && !self.tools_require_effort_none
     }
 }
 

@@ -66,6 +66,7 @@
   import { copyToClipboard } from "$lib/utils/clipboard";
   import { streamWatchPath } from "$lib/utils/stream-path";
   import { cn } from "$lib/utils.js";
+  import ConverseComposer from "$lib/components/converse/ConverseComposer.svelte";
 
   export let data: PageData;
 
@@ -86,6 +87,7 @@
   }
 
   let streamType: StreamType = "broadcast";
+  let hostRecording = false;
   let ppvPrice: number = 1;
   type AudienceMode = {
     value: StreamType;
@@ -398,6 +400,7 @@
   }
   const isDesktop = createMediaQuery("(min-width: 768px)");
   let settingsOpen = false;
+  let shareComposerOpen = false;
 
   $: if (meetingEl) {
     provideRtkDesignSystem(meetingEl, {
@@ -1591,8 +1594,17 @@
             <!-- Copy only, deliberately no "open in a new tab": opening
                the public page from the broadcaster's own browser is one more
                way to put a second copy of them into the room. -->
-            {#if streamSharePath}
+            {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
               <div class="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  class="border border-white/10 bg-black/50 text-white backdrop-blur-md hover:bg-black/70"
+                  data-testid="share-live-to-converse"
+                  onclick={() => (shareComposerOpen = true)}
+                >
+                  {$t("dashboard.stream.shareToConverse", "Share to Converse")}
+                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -1611,7 +1623,11 @@
             {/if}
 
             {#if streamType !== "private" && meeting.self.permissions.canRecord}
-              <HostRecordingControls {username} {hostSession} />
+              <HostRecordingControls
+                {username}
+                {hostSession}
+                onRecording={(active) => (hostRecording = active)}
+              />
             {/if}
           </div>
 
@@ -1625,7 +1641,7 @@
               t={getRtkTranslator($locale)}
               class="min-h-0 w-full flex-1"
             ></rtk-meeting>
-            <MeetingRecordingNotice {meeting} />
+            <MeetingRecordingNotice {meeting} serverRecording={hostRecording} />
           </div>
           {#if hostMeetingError}
             <div
@@ -1644,3 +1660,34 @@
     </div>
   </div>
 </div>
+<Dialog.Root bind:open={shareComposerOpen}>
+  <Dialog.Content
+    class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+    data-testid="live-converse-composer"
+  >
+    <Dialog.Title
+      >{$t(
+        "dashboard.stream.shareToConverse",
+        "Share to Converse",
+      )}</Dialog.Title
+    >
+    <Dialog.Description
+      >{$t(
+        "dashboard.stream.reviewLiveAnnouncement",
+        "Review and edit your announcement before posting. Your livestream will continue while you write.",
+      )}</Dialog.Description
+    >
+    {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
+      <ConverseComposer
+        initialContent={`I'm live — come watch! ${new URL(streamSharePath, browser ? window.location.origin : "https://free2z.com").toString()}`}
+      />
+    {:else}
+      <p>
+        {$t(
+          "dashboard.stream.notLivePublic",
+          "Only an active public livestream can be shared.",
+        )}
+      </p>
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>

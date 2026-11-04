@@ -542,6 +542,56 @@ async function openLiveHost(page: Page) {
   ).toBeVisible();
 }
 
+test("public host can review and publish a Converse live link without leaving the broadcast", async ({
+  page,
+}) => {
+  await openLiveHost(page);
+  const hostBefore = await meetingState(page);
+  await page.getByTestId("share-live-to-converse").click();
+  const composer = page.getByTestId("live-converse-composer");
+  await expect(composer).toBeVisible();
+  const body = composer.locator("#converse-content");
+  await expect(body).toHaveValue(
+    `I'm live — come watch! ${new URL(`/${USER}/broadcast`, page.url()).toString()}`,
+  );
+  await body.fill(
+    `I'm live — come watch! ${new URL(`/${USER}/broadcast`, page.url())}`,
+  );
+  await expect(composer).toContainText("2Z");
+  await expect(page).toHaveURL(new RegExp(`${USER}/dashboard/stream`));
+  expect(await meetingState(page)).toMatchObject(hostBefore);
+
+  const posts: any[] = [];
+  await page.route("**/api/comments/", async (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posts.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { uuid: "live-announcement", content: posts[0].content },
+    });
+  });
+  await composer.getByRole("button", { name: /post/i }).click();
+  await expect.poll(() => posts.length).toBe(1);
+  expect(posts[0].content).toContain(`/${USER}/broadcast`);
+  expect(await meetingState(page)).toMatchObject(hostBefore);
+
+  const reader = await page.context().newPage();
+  await reader.route(`**/${USER}/broadcast**`, async (route) =>
+    route.fulfill({ status: 200, body: "viewer route reached" }),
+  );
+  await reader.goto(new URL(`/${USER}/broadcast`, page.url()).toString());
+  await expect(reader).toHaveURL(new RegExp(`/${USER}/broadcast`));
+  await reader.close();
+});
+
+test("share action is absent when stream is inactive or configured private", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await expect(page.getByTestId("share-live-to-converse")).toHaveCount(0);
+  await page.locator('label[for="stream-audience-private"]').click();
+  await expect(page.getByTestId("share-live-to-converse")).toHaveCount(0);
+});
+
 async function holdViewerCopy(page: Page, fail = false) {
   await page.evaluate((fail) => {
     Object.defineProperty(navigator, "clipboard", {
@@ -730,8 +780,12 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
     await page.route(
       `**/api/dyte/${routeUser}/private/${secret}/recording**`,
       (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path.endsWith("/recording-visibility")) {
+          return route.fulfill({ json: { recording: false } });
+        }
         const method = route.request().method();
-        const stop = new URL(route.request().url()).pathname.endsWith("/stop");
+        const stop = path.endsWith("/stop");
         requests.push(`${method}:${stop ? "stop" : "recording"}`);
         if (method === "POST") state = stop ? "STOPPING" : "INVOKED";
         return route.fulfill({ json: { recording_state: state } });
@@ -820,6 +874,10 @@ for (const [owner, encrypted, mixedCase, lateJoin = false] of [
       await page.route(
         `**/api/dyte/${routeUser}/private/${otherSecret}/recording**`,
         (route) => {
+          const path = new URL(route.request().url()).pathname;
+          if (path.endsWith("/recording-visibility")) {
+            return route.fulfill({ json: { recording: false } });
+          }
           otherRoomRequests.push(route.request().url());
           return route.fulfill({ json: { recording_state: "IDLE" } });
         },

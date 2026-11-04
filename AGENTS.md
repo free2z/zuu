@@ -528,6 +528,17 @@ constraints, or quickstart as the whole repository's. Register documentation
 ownership in `scripts/project-namespaces.json`; the required namespace check
 allows additional owners and rejects retired ambiguous locations.
 
+## Interactive cursor contract
+
+Every enabled surface activated by pointer input computes to `cursor: pointer`.
+Prefer native elements and shared primitives. Custom interactive surfaces also
+need an appropriate role, keyboard focusability, and keyboard activation.
+Disabled controls never show a pointer. Text selection, drag, resize, and zoom
+surfaces keep their purpose-specific cursors. Use the shared `Label`'s
+`control` prop only for a label actually associated with a checkbox,
+radio, switch, or file input. The primitive derives disabled and missing-target
+state from the DOM. Text-input labels retain the default cursor.
+
 ## Practical notes
 
 - **The Free2Z app suite has three Tauri apps.** `cash.free2z.zuuli` holds the seed and

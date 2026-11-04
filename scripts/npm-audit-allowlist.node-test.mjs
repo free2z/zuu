@@ -5,14 +5,17 @@ import { evaluate, ALLOWLIST } from "./npm-audit-allowlist.mjs";
 const BR = "GHSA-vfj7-8cjw-p6xm";
 const adv = (name, id, severity = "high") => ({ name, severity, title: "t", url: `https://github.com/advisories/${id}` });
 const report = (...vias) => ({ vulnerabilities: { braces: { severity: "high", via: vias }, micromatch: { severity: "high", via: ["braces"] } } });
-// Historical fixture keeps expiry/package matching tests independent of retired waivers.
+const before = new Date("2026-10-05T00:00:00Z");
+
+// Retired production waiver: preserve historical expiry and package-binding
+// coverage without keeping an unused exception in the live allowlist.
 const historicalAllowlist = [{
   id: BR,
   package: "braces",
   expires: "2026-11-03",
   issue: "https://github.com/free2z/zuu/issues/1130",
-}];
-const before = new Date("2026-10-05T00:00:00Z");
+  reason: "historical build-time waiver",
+}, ...ALLOWLIST];
 
 test("braces advisory waived while live", () => {
   const r = evaluate(report(adv("braces", BR)), historicalAllowlist, before);
@@ -45,11 +48,27 @@ test("malformed report is not a pass", () => {
 test("allowlist is exactly the known entries, each with an issue and a 30-day expiry", () => {
   assert.deepEqual(
     ALLOWLIST.map((e) => [e.id, e.package, e.issue.split("/").pop()]),
-    [
-      ["GHSA-68fv-2mgg-jv7q", "source-map-js", "1176"],
-    ],
+    [],
   );
-  for (const e of ALLOWLIST) assert.match(e.expires, /^2026-11-0[34]$/);
+  for (const e of ALLOWLIST) assert.equal(e.expires, "2026-11-04");
+});
+
+
+test("retired braces waiver cannot hide a returning advisory", () => {
+  const r = evaluate(report(adv("braces", BR)), ALLOWLIST, new Date("2026-11-04T00:00:00Z"));
+  assert.deepEqual(r.waived, []);
+  assert.equal(r.problems.length, 1);
+  assert.match(r.problems[0], /braces/);
+});
+test("live allowlist accepts a clean report before remaining waivers expire", () => {
+  const r = evaluate({ vulnerabilities: {} }, ALLOWLIST, new Date("2026-11-04T00:00:00Z"));
+  assert.deepEqual(r.problems, []);
+});
+
+test("retired source-map-js advisory fails without an exception", () => {
+  const r = evaluate(report(adv("source-map-js", "GHSA-68fv-2mgg-jv7q")), ALLOWLIST, before);
+  assert.equal(r.problems.length, 1);
+  assert.deepEqual(r.waived, []);
 });
 
 test("retired braces and tinypool exceptions cannot waive a regression", () => {

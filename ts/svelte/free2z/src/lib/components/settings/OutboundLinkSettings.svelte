@@ -50,7 +50,7 @@
           outboundLinkStore.setGlobalWarningDisabled(checked)}
       />
       <div class="space-y-1">
-        <Label for="outbound-link-global-warning" class="cursor-pointer">
+        <Label for="outbound-link-global-warning" control>
           {$t(
             "privacy.outboundLinkDisableWarnings",
             "Don't warn for any external links",

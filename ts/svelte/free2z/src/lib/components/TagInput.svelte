@@ -189,18 +189,18 @@
     class={cn(
       "flex min-h-9 w-full flex-wrap items-center gap-1.5 rounded-md border border-input bg-transparent px-2 py-1.5 text-sm shadow-xs transition-[color,box-shadow]",
       "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-      disabled && "cursor-not-allowed opacity-50",
+      disabled && "cursor-not-allowed border-dashed bg-muted",
     )}
   >
     <TagIcon class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
     {#each tags as tag (tag)}
       <span
-        class="inline-flex max-w-full items-center gap-1 rounded-full border border-transparent bg-secondary py-0.5 pr-1 pl-2 text-xs font-medium text-secondary-foreground"
+        class="inline-flex max-w-full items-center gap-1 rounded-full border border-transparent bg-secondary py-0.5 pr-1 pl-2 text-xs font-medium text-secondary-foreground dark:text-primary-foreground"
       >
         <span class="truncate">{tag}</span>
         <button
           type="button"
-          class="flex size-4 shrink-0 items-center justify-center rounded-full text-secondary-foreground/70 transition-colors hover:text-secondary-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+          class="flex size-4 shrink-0 items-center justify-center rounded-full text-inherit transition-colors hover:bg-foreground/10 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring disabled:cursor-not-allowed"
           aria-label={$t("editor.removeTag", "Remove tag {tag}", { tag })}
           {disabled}
           onclick={() => drop(tag)}
@@ -235,7 +235,7 @@
     />
   </div>
 
-  {#if open && visibleSuggestions.length > 0}
+  {#if !disabled && open && visibleSuggestions.length > 0}
     <ul
       id="{id}-suggestions"
       role="listbox"
@@ -248,8 +248,9 @@
             role="option"
             aria-selected={index === activeIndex}
             class={cn(
-              "flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
-              index === activeIndex && "bg-accent text-accent-foreground",
+              "group flex w-full items-center justify-between gap-2 rounded-sm px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:text-primary-foreground",
+              index === activeIndex &&
+                "bg-accent text-accent-foreground dark:text-primary-foreground",
             )}
             onmousedown={(event) => {
               // The input's blur fires before a click would; committing on
@@ -261,7 +262,13 @@
             }}
           >
             <span class="truncate">{suggestion.name}</span>
-            <span class="shrink-0 text-xs text-muted-foreground">
+            <span
+              class={cn(
+                "shrink-0 text-xs text-muted-foreground",
+                index === activeIndex && "text-inherit",
+                "group-hover:text-inherit",
+              )}
+            >
               {formatLocalizedNumber(suggestion.count, $locale)}
             </span>
           </button>
