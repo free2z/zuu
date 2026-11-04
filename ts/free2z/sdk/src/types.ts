@@ -78,6 +78,10 @@ export interface SignInOptions {
   prompt?: "login" | "consent" | "none";
   maxAge?: number;
   acrValues?: string;
+  /** Account suggestion only; never proof of the signed-in identity. */
+  loginHint?: string;
+  /** Preferred UI languages, as space-separated BCP 47 tags. */
+  uiLocales?: string;
   /** Optional, additive: see {@link SpendCapHint}. */
   spendCap?: SpendCapHint;
   /**

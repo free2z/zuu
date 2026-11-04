@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Forward optional `SignInOptions.loginHint` and `uiLocales` through both
+  transports, matching the existing native guest/core options. Hints never
+  determine the authenticated account. These additions are not in `sdk-v0.4.0`.
+- Exercise the documented first-app sequence through public package exports
+  and an installed tarball, including strict 402/403 refusals and same-key recovery.
+
 ## 0.4.0 — 2026-10-16
 
 Apps don't sell 2Z. Tagged `sdk-v0.4.0` with the other Free2Z SDK packages.
