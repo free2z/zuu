@@ -110,7 +110,8 @@
         const reconnect = document.querySelector<HTMLButtonElement>(
           '[data-testid="private-call-reconnect"]',
         );
-        if (isOffline && reconnect?.isConnected) reconnect.focus();
+        if (!abort.signal.aborted && isOffline && reconnect?.isConnected)
+          reconnect.focus();
       });
       return;
     }
@@ -131,6 +132,7 @@
     }
     void tick().then(() => {
       if (
+        !abort.signal.aborted &&
         !isOffline &&
         target === focusBeforeOffline &&
         (document.activeElement === document.body ||
