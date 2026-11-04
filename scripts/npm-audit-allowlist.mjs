@@ -8,13 +8,6 @@ import { spawnSync } from "node:child_process";
 // Each entry: exact GHSA id, hard expiry (UTC date), tracking issue, reason. Never wildcard.
 export const ALLOWLIST = [
   {
-    id: "GHSA-vfj7-8cjw-p6xm",
-    package: "braces",
-    expires: "2026-11-03", // 30 days from 2026-10-04
-    issue: "https://github.com/free2z/zuu/issues/1130",
-    reason: "build-time only via tailwind 3; no runtime exposure",
-  },
-  {
     id: "GHSA-5gmw-xhrv-c9v3",
     package: "tinypool",
     expires: "2026-11-04", // 30 days from 2026-10-05
