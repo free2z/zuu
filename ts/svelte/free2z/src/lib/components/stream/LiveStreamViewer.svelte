@@ -4,11 +4,13 @@
   import { fade } from "svelte/transition";
   import {
     StreamService,
+    clearPpvJoinKey,
     PaymentRequiredError,
     liveStatusQueryKey,
     type StreamInfo,
   } from "$lib/services/stream";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
+  import { listenForPpvAdmissionJoin } from "$lib/ppv-admission-join.js";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import { streamRetryDelay } from "$lib/utils/stream-recovery";
   import { liveStreamStore, meetingStore } from "$lib/stores/liveStreamStore";
@@ -404,12 +406,27 @@
     insufficientFunds = null;
 
     try {
+      let meetingSessionId: string | undefined;
+      if (streamType === "ppv") {
+        const status = await StreamService.checkLiveStatus(username);
+        if (signal.aborted) return;
+        meetingSessionId = status.streams.find(
+          (stream) => stream.type === "ppv",
+        )?.session_id;
+        if (!meetingSessionId)
+          throw new LocalizedError({
+            key: "stream.errors.notLive",
+            fallback: "This creator is not currently live.",
+          });
+      }
       // 1. Get Auth Token
-      const { auth_token } = await StreamService.initStream(
-        username,
-        streamType,
-        { role: "viewer", expectedActorId: originalViewerActorId, signal },
-      );
+      const { auth_token, admission_idempotency_key: admissionKey } =
+        await StreamService.initStream(username, streamType, {
+          role: "viewer",
+          expectedActorId: originalViewerActorId,
+          signal,
+          meetingSessionId,
+        });
 
       if (signal.aborted) return;
 
@@ -429,6 +446,25 @@
         return;
       }
       cleanup = result.cleanup;
+      if (streamType === "ppv" && originalViewerActorId) {
+        // RealtimeKit initialization can finish before the room has joined.
+        // Keep the admission key through that ambiguous interval.
+        const clearAfterJoin = () => {
+          if (admissionKey && meetingSessionId)
+            clearPpvJoinKey(
+              username,
+              originalViewerActorId!,
+              admissionKey,
+              meetingSessionId,
+              "ppv",
+            );
+        };
+        if ($liveStreamStore.connectionStatus === "connected") {
+          clearAfterJoin();
+        } else if (result.meeting) {
+          listenForPpvAdmissionJoin(result.meeting, signal, clearAfterJoin);
+        }
+      }
       dismissActionToasts();
       warningSource = result.warning ?? null;
       warningCode = result.warningCode ?? null;
@@ -459,6 +495,15 @@
         err instanceof PaymentRequiredError ? err.funds : null;
       if (err instanceof LocalizedError && err.code === "economy.signInAgain") {
         clearTimeout(retryTimeout);
+        loading = false;
+        return;
+      }
+      if (
+        err instanceof LocalizedError &&
+        err.code === "stream.subscribe.storageUnavailable"
+      ) {
+        clearTimeout(retryTimeout);
+        operationNotice.error(localizedStreamError(err, null, $t));
         loading = false;
         return;
       }

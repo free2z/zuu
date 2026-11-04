@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from dj.apps.economy import funding, products, services as money
 from dj.apps.economy.contracts import CREATOR_CONTRACT_DIGEST, SERVICE_SCHEDULES
-from dj.apps.economy.models import CompensationSchedule, CreatorPayable
+from dj.apps.economy.models import CompensationSchedule, CreatorPayable, ServiceAdmission
 from dj.apps.economy.tests.test_foundation import activate_for_test
 from dj.apps.g12f.models import Creator
 from dj.apps.pricing.models import ZecPriceSnapshot
@@ -29,6 +29,17 @@ def price():
     return ZecPriceSnapshot.objects.create(zec_usd=100, median_usd=100,
         spread=Decimal('.1'), tuzis_per_zec=9000, num_sources=2,
         sources={'coinbase': '100', 'kraken': '100'})
+
+
+def fund_viewer(viewer, amount_m2z, ref_id):
+    """Create valid viewer funds through the ledger, not Creator.tuzis."""
+    from dj.apps.ledger import api as usage
+
+    usage.credit_user(
+        viewer.pk, amount_m2z, 'sys:promo', 'grant',
+        'livestream-test-funding', ref_id, f'livestream-test-funding:{ref_id}',
+    )
+    viewer.refresh_from_db()
 
 
 def supplier_contract(creator, schedules=None):
@@ -233,10 +244,14 @@ def test_card_intent_split_requires_original_ledger_evidence(creator_factory, de
 
 
 def test_installed_ppv_still_refuses_unknown_offer_before_delivery(creator_factory, enabled):
+    import uuid
+
     host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
     with pytest.raises(money.EconomicRefusal, match='livestream_offer_unavailable'):
         products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
-            meeting_id='actual-provider-room', price_per_minute=Decimal('1.23'),viewer_account_epoch=viewer.kt_account_epoch)
+            meeting_id='actual-provider-room', price_per_minute=Decimal('1.23'),
+            idempotency_key=str(uuid.uuid4()),
+            viewer_account_epoch=viewer.kt_account_epoch)
 
 
 def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(creator_factory, enabled, mocker):
@@ -252,7 +267,9 @@ def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(cre
     cursor.fetchone.return_value = ('economy.settle_service_delivery',)
     admission = mocker.patch.object(products, 'admit_product_service')
     products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
-        meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'), viewer_account_epoch=viewer.kt_account_epoch)
+        meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'),
+        idempotency_key=str(uuid.uuid4()),
+        viewer_account_epoch=viewer.kt_account_epoch)
     source = admission.call_args.kwargs['source']
     assert source['creator_meeting_id'] == meeting.pk
     assert source['provider_session_id'] == str(meeting.provider_session_id)
@@ -261,5 +278,159 @@ def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(cre
     CreatorMeeting.objects.filter(pk=meeting.pk).update(price_per_minute=Decimal('2.34'))
     with pytest.raises(money.EconomicRefusal, match='livestream_price_changed'):
         products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
-            meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'), viewer_account_epoch=viewer.kt_account_epoch)
+            meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'),
+            idempotency_key=str(uuid.uuid4()),
+            viewer_account_epoch=viewer.kt_account_epoch)
     admission.assert_not_called()
+
+
+def test_livestream_ppv_retry_after_ambiguous_provider_timeout_stays_unresolved(
+    creator_factory, enabled, mocker,
+):
+    """An ambiguous provider timeout cannot cause a duplicate participant POST."""
+    import uuid
+    from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
+
+    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
+    fund_viewer(viewer, 500_000, 'ambiguous-ppv-viewer')
+    supplier_contract(host)
+    publish('livestream_ppv')
+    meeting = CreatorMeeting.objects.create(
+        creator=host, meeting_id='ambiguous-ppv-retry', meeting_type=PAY_PER_VIEW,
+        live_now=True, lifecycle_state=LIFECYCLE_LIVE,
+        price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(),
+        provider_session_id=uuid.uuid4(),
+    )
+    cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ('economy.settle_service_delivery',)
+    request_key = str(uuid.uuid4())
+    provider_participant_ids = []
+
+    def add_to_provider(admission):
+        provider_participant_ids.append(f'ea_{admission.pk.hex}')
+        if len(provider_participant_ids) == 1:
+            raise TimeoutError('provider response timed out after accepting request')
+
+    admission = products.prepare_livestream_admission(
+        host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
+        price_per_minute=meeting.price_per_minute,
+        idempotency_key=request_key,
+        viewer_account_epoch=viewer.kt_account_epoch,
+    )
+    with pytest.raises(TimeoutError):
+        add_to_provider(admission)
+
+    with pytest.raises(money.EconomicRefusal, match='livestream_provider_outcome_unknown'):
+        products.prepare_livestream_admission(
+            host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
+            price_per_minute=meeting.price_per_minute,
+            idempotency_key=request_key,
+            viewer_account_epoch=viewer.kt_account_epoch,
+        )
+
+    assert len(provider_participant_ids) == 1
+    assert provider_participant_ids[0] == f'ea_{admission.pk.hex}'
+    assert ServiceAdmission.objects.filter(
+        service='livestream_ppv', creator_id=host.pk,
+        source__meeting_id=meeting.meeting_id,
+        source__subject_creator_id=viewer.pk,
+    ).count() == 1
+    host.refresh_from_db()
+    viewer.refresh_from_db()
+    assert (host.tuzis, viewer.tuzis) == (0, 500)
+
+
+def test_ppv_endpoint_does_not_repeat_provider_post_after_ambiguous_timeout(
+    creator_factory, enabled, mocker,
+):
+    """Replay the actual HTTP path: the same key must stop before provider POST #2."""
+    import uuid
+    import requests
+    from rest_framework.test import APIClient
+    from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
+
+    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
+    fund_viewer(viewer, 500_000, 'ppv-endpoint-timeout-viewer')
+    supplier_contract(host)
+    publish('livestream_ppv')
+    meeting = CreatorMeeting.objects.create(
+        creator=host, meeting_id='ppv-endpoint-timeout', meeting_type=PAY_PER_VIEW,
+        is_public=True, live_now=True, lifecycle_state=LIFECYCLE_LIVE,
+        price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(),
+        provider_session_id=uuid.uuid4(),
+    )
+    cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ('economy.settle_service_delivery',)
+    mocker.patch('dj.apps.dyte.views.pin_supported_policy', return_value=1)
+    provider = mocker.MagicMock()
+    provider.add_participant.side_effect = requests.Timeout('response lost after provider accepted POST')
+    mocker.patch('dj.apps.dyte.views.DyteClient', return_value=provider)
+    client = APIClient()
+    client.force_authenticate(user=Creator.objects.get(pk=viewer.pk))
+    url = f'/api/dyte/{host.username}/{PAY_PER_VIEW}'
+    body = {
+        'role': 'viewer',
+        'expected_actor_id': viewer.pk,
+        'admission_idempotency_key': str(uuid.uuid4()),
+    }
+
+    first = client.post(url, body, format='json')
+    second = client.post(url, body, format='json')
+
+    assert first.status_code == 503
+    assert second.status_code == 409
+    assert second.data['code'] == 'livestream_provider_outcome_unknown'
+    provider.add_participant.assert_called_once()
+    assert ServiceAdmission.objects.filter(
+        service='livestream_ppv', creator_id=host.pk,
+        source__meeting_id=meeting.meeting_id,
+        source__subject_creator_id=viewer.pk,
+    ).count() == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ('field', 'replacement'),
+    [('price_per_minute_2z', '9.99'), ('meeting_id', 'different-provider-room')],
+)
+def test_livestream_ppv_replay_rejects_changed_admission_identity(
+    creator_factory, enabled, mocker, field, replacement,
+):
+    import uuid
+    from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
+
+    host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
+    fund_viewer(viewer, 500_000, f'ppv-identity-viewer-{field}')
+    supplier_contract(host)
+    publish('livestream_ppv')
+    meeting = CreatorMeeting.objects.create(
+        creator=host, meeting_id='ppv-replay-identity', meeting_type=PAY_PER_VIEW,
+        live_now=True, lifecycle_state=LIFECYCLE_LIVE,
+        price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(),
+        provider_session_id=uuid.uuid4(),
+    )
+    cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = ('economy.settle_service_delivery',)
+    key = str(uuid.uuid4())
+    products.prepare_livestream_admission(
+        host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
+        price_per_minute=meeting.price_per_minute, idempotency_key=key,
+        viewer_account_epoch=viewer.kt_account_epoch,
+    )
+    changed_meeting_id = meeting.meeting_id
+    changed_price = meeting.price_per_minute
+    if field == 'price_per_minute_2z':
+        changed_price = Decimal(replacement)
+        CreatorMeeting.objects.filter(pk=meeting.pk).update(
+            price_per_minute=changed_price)
+    else:
+        changed_meeting_id = replacement
+        CreatorMeeting.objects.filter(pk=meeting.pk).update(
+            meeting_id=changed_meeting_id)
+
+    with pytest.raises(money.EconomicRefusal, match='livestream_admission_identity_conflict'):
+        products.prepare_livestream_admission(
+            host_id=host.pk, viewer_id=viewer.pk, meeting_id=changed_meeting_id,
+            price_per_minute=changed_price, idempotency_key=key,
+            viewer_account_epoch=viewer.kt_account_epoch,
+        )

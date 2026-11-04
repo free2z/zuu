@@ -125,6 +125,7 @@ async function stubLivePpv(page: Page) {
             type: "ppv",
             participant_count: 3,
             price_per_minute: PRICE,
+            session_id: "00000000-0000-4000-8000-000000000010",
           },
         ],
       }),
@@ -132,9 +133,79 @@ async function stubLivePpv(page: Page) {
   );
 }
 
+test("paid join fails closed when live status has no provider session identity", async ({
+  page,
+}) => {
+  await signInWithBalance(page, "500.000");
+  let statusChecks = 0;
+  await page.route(`**/api/dyte/${OWNER}/live-status`, (route) => {
+    statusChecks += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_live: true,
+        participant_count: 3,
+        streams: [
+          { type: "ppv", participant_count: 3, price_per_minute: PRICE },
+        ],
+      }),
+    });
+  });
+  const joins: unknown[] = [];
+  await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
+    if (route.request().method() === "POST") {
+      joins.push(route.request().postDataJSON());
+    }
+    return route.fulfill({ status: 500, body: "unexpected paid join" });
+  });
+
+  await page.goto(`/${OWNER}/ppv?lang=en`);
+  await expect.poll(() => statusChecks).toBeGreaterThan(0);
+  await expect.poll(() => joins.length).toBe(0);
+});
+
+test("paid join fails closed when retry-key storage throws, including after reload", async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await signInWithBalance(page, "500.000");
+  await stubLivePpv(page);
+  const joins: Array<Record<string, unknown>> = [];
+  await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
+    if (route.request().method() === "POST") {
+      joins.push(route.request().postDataJSON() ?? {});
+    }
+    return route.fulfill({ status: 500, body: "unexpected paid join" });
+  });
+  await page.addInitScript(() => {
+    const originalSetItem = Storage.prototype.setItem;
+    Storage.prototype.setItem = function (key, value) {
+      if (key.startsWith("f2z:ppv-join:")) {
+        throw new DOMException("Storage is blocked", "SecurityError");
+      }
+      return originalSetItem.call(this, key, value);
+    };
+  });
+
+  await page.goto(`/${OWNER}/ppv?lang=en`);
+  const storageError = page
+    .getByText(
+      "Browser storage is unavailable. Restore it and check any previous payment before retrying. This attempt was not sent.",
+      { exact: true },
+    )
+    .first();
+  await expect(storageError).toBeVisible();
+  expect(joins).toEqual([]);
+
+  await page.reload();
+  await expect(storageError).toBeVisible();
+  expect(joins).toEqual([]);
+});
+
 /** Every join POST, refused as the server refuses an under-reserve viewer. */
 async function refuseJoins(page: Page, balance: string) {
-  const joins: unknown[] = [];
+  const joins: Array<Record<string, unknown>> = [];
   await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     joins.push(route.request().postDataJSON() ?? {});
@@ -194,7 +265,10 @@ test("under the reserve the prompt explains it and offers nothing to buy", async
   // it is the join again, never a payment.
   await dialog.getByTestId("ppv-retry-join").click();
   await expect.poll(() => joins.length).toBe(2);
-  expect(joins[1]).toEqual({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1].admission_idempotency_key).toBe(
+    joins[0].admission_idempotency_key,
+  );
   expect(money).toEqual([]);
 });
 
@@ -218,7 +292,10 @@ test("at the reserve Start Watching joins again and pays nothing", async ({
   await dialog.getByRole("button", { name: /^Start Watching/ }).click();
 
   await expect.poll(() => joins.length).toBe(2);
-  expect(joins[1]).toEqual({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[1].admission_idempotency_key).toBe(
+    joins[0].admission_idempotency_key,
+  );
   expect(money).toEqual([]);
 });
 
@@ -229,7 +306,20 @@ test("without a rate on screen the prompt offers no join at all", async ({
   await signInWithBalance(page, "500.000");
   // The quote lookup fails after the refusal, so the price is unknown.
   await page.route(`**/api/dyte/${OWNER}/live-status`, (route) =>
-    route.fulfill({ status: 503, body: "" }),
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        is_live: true,
+        streams: [
+          {
+            type: "ppv",
+            participant_count: 3,
+            session_id: "00000000-0000-4000-8000-000000000011",
+          },
+        ],
+      }),
+    }),
   );
   const joins = await refuseJoins(page, "74.000");
 
@@ -290,7 +380,7 @@ test("a server-side actor switch refusal is visible without automatic paid-join 
 }) => {
   await signInWithBalance(page, "100.000");
   await stubLivePpv(page);
-  const joins: unknown[] = [];
+  const joins: Array<Record<string, unknown>> = [];
   await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
     if (route.request().method() !== "POST") return route.fallback();
     joins.push(route.request().postDataJSON());
@@ -305,7 +395,9 @@ test("a server-side actor switch refusal is visible without automatic paid-join 
       .getByText("Sign in again before continuing.", { exact: false })
       .first(),
   ).toBeVisible();
-  expect(joins).toEqual([{ role: "viewer", expected_actor_id: 4498 }]);
+  expect(joins).toHaveLength(1);
+  expect(joins[0]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[0].admission_idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
   await expect(
     page.getByText("Retrying connection...", { exact: true }),
   ).toHaveCount(0);
@@ -354,7 +446,9 @@ test("temporary paid-viewer verification failure blocks admission and retries th
   expect(joins).toEqual([]);
   releaseRecovery();
   await expect.poll(() => joins.length).toBe(1);
-  expect(joins).toEqual([{ role: "viewer", expected_actor_id: 4498 }]);
+  expect(joins).toHaveLength(1);
+  expect(joins[0]).toMatchObject({ role: "viewer", expected_actor_id: 4498 });
+  expect(joins[0].admission_idempotency_key).toMatch(/^[0-9a-f-]{36}$/);
 });
 
 async function leaveStreamWithoutReload(page: Page) {
