@@ -100,7 +100,8 @@
   // after the offline action is present in the DOM. Reconnecting stays a
   // passive status announcement and does not take or contain focus.
   beforeUpdate(() => {
-    if (!browser || isOffline === wasOffline) return;
+    if (!browser) return;
+    if (isOffline === wasOffline && (isOffline || !focusBeforeOffline)) return;
     wasOffline = isOffline;
     if (isOffline) {
       const active = document.activeElement;
@@ -109,15 +110,21 @@
         const reconnect = document.querySelector<HTMLButtonElement>(
           '[data-testid="private-call-reconnect"]',
         );
-        if (reconnect?.isConnected) reconnect.focus();
+        if (isOffline && reconnect?.isConnected) reconnect.focus();
       });
       return;
     }
 
     const target = focusBeforeOffline;
-    focusBeforeOffline = null;
     void tick().then(() => {
-      if (canRestoreFocus(target)) target?.focus();
+      if (
+        !isOffline &&
+        target === focusBeforeOffline &&
+        canRestoreFocus(target)
+      ) {
+        focusBeforeOffline = null;
+        target?.focus();
+      }
     });
   });
   $: if (connectionStatus === "connected") {

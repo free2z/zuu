@@ -1508,7 +1508,12 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
 
   await page.evaluate(async (loader) => {
     const { liveStreamStore } = await new Function(loader)();
+    liveStreamStore.setConnectionStatus("disconnected");
     liveStreamStore.setOffline(false);
+  }, LIVE_STREAM_STORE_LOADER);
+  await expect(header.locator("..")).toHaveAttribute("inert", "");
+  await page.evaluate(async (loader) => {
+    const { liveStreamStore } = await new Function(loader)();
     liveStreamStore.setConnectionStatus("connected");
   }, LIVE_STREAM_STORE_LOADER);
   await expect(recordButton).toBeFocused();
