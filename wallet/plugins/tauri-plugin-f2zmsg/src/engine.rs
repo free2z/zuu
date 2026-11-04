@@ -78,7 +78,7 @@ use crate::store::{
 /// Domain-separated derivation of a conversation's receive-side queue key.
 ///
 /// Prefix-free against every other `free2z/` label in the tree, which
-/// `scripts/check-hash-domain-labels.mjs` holds for the whole repository.
+/// `scripts/free2z/check-hash-domain-labels.mjs` holds for the whole repository.
 const LABEL_QUEUE_RECV: &[u8] = b"free2z/msg/v1/queue-recv";
 /// The same, for the send-side key this device binds on a peer's queue.
 const LABEL_QUEUE_SEND: &[u8] = b"free2z/msg/v1/queue-send";
@@ -4372,7 +4372,7 @@ impl<B: StorageBackend> Inner<B> {
     /// The first configured one. `ARCHITECTURE.md` §9.4 wants a device to
     /// publish queue addresses on *k* relays and senders to send to all *k*, so
     /// that a single hostile relay cannot silently drop a conversation; *k* is
-    /// [§13-G](../../../docs/e2ee/ARCHITECTURE.md), still open, and this build
+    /// [§13-G](../../../docs/free2z/messaging/ARCHITECTURE.md), still open, and this build
     /// is `k = 1`. The `msg_id` dedup that makes *k* > 1 safe is already in
     /// place — see `framing` — so raising it is a change here and nowhere else.
     fn first_relay_url(&self) -> Result<String> {

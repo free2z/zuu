@@ -11,6 +11,8 @@ import {
   reviewedCompatibilityScope,
 } from "./check-librustzcash-compat.mjs";
 
+import { bootstrapStep } from "./ci-trust-bootstrap.mjs";
+
 const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/;
 const POLICY_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -25,6 +27,8 @@ const GATE_CHECKOUT_REFERENCE =
 const GATE_POLICY_SELF_TEST_COMMAND =
   "node scripts/check-github-actions-pins.mjs --self-test";
 const GATE_POLICY_COMMAND = "node scripts/check-github-actions-pins.mjs";
+const CI_TRUST_SELF_TEST_COMMAND = "node scripts/check-ci-trust.mjs --self-test";
+const CI_TRUST_COMMAND = "node scripts/check-ci-trust.mjs";
 const WORKFLOW_GATES_SELF_TEST_COMMAND =
   "node scripts/check-workflow-gates.mjs --self-test";
 const WORKFLOW_GATES_COMMAND = "node scripts/check-workflow-gates.mjs";
@@ -33,8 +37,8 @@ const LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND =
 const LIBRUSTZCASH_POLICY_COMMAND =
   "node scripts/check-librustzcash-compat.mjs";
 const POW_POLICY_SELF_TEST_COMMAND =
-  "node scripts/check-pow-policy.mjs --self-test";
-const POW_POLICY_COMMAND = "node scripts/check-pow-policy.mjs";
+  "node scripts/free2z/check-pow-policy.mjs --self-test";
+const POW_POLICY_COMMAND = "node scripts/free2z/check-pow-policy.mjs";
 const REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT = 3;
 const REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT = 11;
 const REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST =
@@ -49,6 +53,9 @@ const RUST_REQUIRED_JOB_IDS = new Set([
   "rust_fmt", "rust_deny", "rust_clippy", "rust_native_clippy", "rust_native_tests",
   "rust_plugin", "rust_msg_plugin", "rust_android_32", "rust_app", "rust_crypto_targets",
 ]);
+// This package job intentionally runs on every PR, independently of the wallet
+// selectors. Its success must never be mistaken for an illegitimate selected skip.
+const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript"]);
 const POLICED_RUST_ROOTS = ["wallet", "rs"];
 const RUST_ROOT_CONTRACTS = [
   {
@@ -83,8 +90,8 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/source.rs",
           "wallet/Cargo.toml",
           "wallet/nested/future/Cargo.toml",
-          "docs/e2ee/CLIENT-CONTRACT.md",
-          "docs/e2ee/WIRE.md",
+          "docs/free2z/messaging/CLIENT-CONTRACT.md",
+          "docs/free2z/messaging/WIRE.md",
           // The markdown-only guard must exclude prose and nothing else: source
           // under the same two prefixes still selects the full gate.
           "wallet/free2z/src/App.tsx",
@@ -196,7 +203,7 @@ const RUST_ROOT_CONTRACTS = [
     ],
     excludedProbePaths: [
       "wallet/README.md",
-      "wallet/docs/architecture.md",
+      "wallet/docs/free2z/app-suite/architecture.md",
       "rs/crates/f2z-relay/src/lib.rs",
       // Markdown under wallet/zuuli/ is prose about the app, not an input to
       // any job the gate awaits, and `wallet/zuuli/*` would otherwise select
@@ -240,15 +247,25 @@ const RUST_ROOT_CONTRACTS = [
     selectorOutput: "rs",
     selectorOutputs: [
       {
+        name: "payment_hooks",
+        probeRoot: "rs/zcash-payment-hooks",
+        additionalProbePaths: [
+          "docs/zcash-payment-hooks/CONTRACT.md",
+          "scripts/check-rust-deny.sh",
+          "rs/deny.toml",
+        ],
+      },
+      {
         name: "rs",
         probeRoot: "rs",
         additionalProbePaths: [
-          "docs/e2ee/KT.md",
-          "docs/e2ee/decisions/0013-key-transparency-log.md",
-          "docs/e2ee/evidence/akd-benchmark.json",
-          "docs/e2ee/evidence/akd-audit-scope.json",
-          "scripts/check-akd-doc-evidence.mjs",
-          "scripts/check-kt-sth-repeat-agreement.mjs",
+          "docs/free2z/sdk/spec/chat-api.md",
+          "docs/free2z/messaging/KT.md",
+          "docs/free2z/messaging/decisions/0013-key-transparency-log.md",
+          "docs/free2z/messaging/evidence/akd-benchmark.json",
+          "docs/free2z/messaging/evidence/akd-audit-scope.json",
+          "scripts/free2z/check-akd-doc-evidence.mjs",
+          "scripts/free2z/check-kt-sth-repeat-agreement.mjs",
           "scripts/check-crypto-kat-locks.mjs",
           "scripts/check-crypto-kats.sh",
           "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
@@ -257,6 +274,13 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/zuuli/src-tauri/Cargo.lock",
         ],
       },
+    ],
+    mixedProbePaths: [
+      ["rs/zcash-payment-hooks/src/lib.rs", { rs: "false", payment_hooks: "true" }],
+      ["rs/zcash-payment-hooks/tests/lifecycle.rs", { rs: "false", payment_hooks: "true" }],
+      ["docs/zcash-payment-hooks/CONTRACT.md", { rs: "false", payment_hooks: "true" }],
+      ["rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "false" }],
+      ["rs/zcash-payment-hooks/src/lib.rs\0rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "true" }],
     ],
     jobs: [
       [
@@ -293,6 +317,7 @@ const REQUIRED_NATIVE_CLIPPY_JOB_LINES = [
   "            target_os: windows",
   "    runs-on: ${{ matrix.os }}",
   "    steps:",
+  ...bootstrapStep.trimEnd().split("\n"),
   `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
   "      - name: Fetch librustzcash submodule",
   "        run: git submodule update --init z/zcash/librustzcash",
@@ -342,6 +367,7 @@ const REQUIRED_NATIVE_TESTS_JOB_LINES = [
   "            target_os: windows",
   "    runs-on: ${{ matrix.os }}",
   "    steps:",
+  ...bootstrapStep.trimEnd().split("\n"),
   `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
   "      - name: Fetch librustzcash submodule",
   "        run: git submodule update --init z/zcash/librustzcash",
@@ -388,6 +414,7 @@ const REQUIRED_CRYPTO_TARGET_JOB_LINES = [
   "            targets: x86_64-pc-windows-msvc",
   "    runs-on: ${{ matrix.os }}",
   "    steps:",
+  ...bootstrapStep.trimEnd().split("\n"),
   `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
   "      - name: Resolve the pinned Rust toolchain",
   "        id: rust_toolchain",
@@ -503,7 +530,7 @@ const REQUIRED_CLASSIC_FRONTEND_AUDIT_STEP = [
   "        working-directory: wallet/zuuallet",
   "        run: |",
   "          for attempt in 1 2 3; do",
-  "            npm audit --audit-level=high && exit 0",
+  "            node \"$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs\" && exit 0",
   '            [ "$attempt" -eq 3 ] && exit 1',
   "            sleep $((attempt * 5))",
   "          done",
@@ -512,7 +539,7 @@ const REQUIRED_PROTECTED_ZUUALLET_AUDIT_STEP = [
   "      - name: Audit Zuuallet dependencies (high and critical)",
   "        run: |",
   "          for attempt in 1 2 3; do",
-  "            npm --prefix ../zuuallet audit --audit-level=high && exit 0",
+  '            node "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs" ../zuuallet && exit 0',
   '            [ "$attempt" -eq 3 ] && exit 1',
   "            sleep $((attempt * 5))",
   "          done",
@@ -554,10 +581,11 @@ const REQUIRED_SURFACES_JOB_LINES = [
   "      run:",
   "        working-directory: wallet/${{ matrix.app }}",
   "    steps:",
+  ...bootstrapStep.trimEnd().split("\n"),
   `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
   "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
   "        with:",
-  "          node-version: '24'",
+  "          node-version: '24.22.2'",
   "          cache: npm",
   "          cache-dependency-path: wallet/${{ matrix.app }}/package-lock.json",
   "      - name: Install locked dependencies",
@@ -565,7 +593,7 @@ const REQUIRED_SURFACES_JOB_LINES = [
   "      - name: Audit dependencies (high and critical)",
   "        run: |",
   "          for attempt in 1 2 3; do",
-  "            npm audit --audit-level=high && exit 0",
+  "            node \"$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs\" && exit 0",
   '            [ "$attempt" -eq 3 ] && exit 1',
   "            sleep $((attempt * 5))",
   "          done",
@@ -591,10 +619,11 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "      run:",
   "        working-directory: wallet/zuuli",
   "    steps:",
+  ...bootstrapStep.trimEnd().split("\n"),
   `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
   "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
   "        with:",
-  "          node-version: '24'",
+  "          node-version: '24.22.2'",
   "          cache: npm",
   "          cache-dependency-path: |",
   "            wallet/zuuli/package-lock.json",
@@ -635,10 +664,12 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        run: npm run store:validate",
   "      - name: Test App Store Connect state machine",
   "        run: npm run test:asc-testflight",
+  "      - name: Test audit allowlist wrapper",
+  '        run: node --test "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.node-test.mjs"',
   "      - name: Audit dependencies (high and critical)",
   "        run: |",
   "          for attempt in 1 2 3; do",
-  "            npm audit --audit-level=high && exit 0",
+  "            node \"$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs\" && exit 0",
   '            [ "$attempt" -eq 3 ] && exit 1',
   "            sleep $((attempt * 5))",
   "          done",
@@ -669,6 +700,7 @@ const REQUIRED_FRONTEND_JOB_LINES = [
 // begins. Required jobs therefore accept only these reviewed data inputs; every
 // other workflow/job/step environment entry fails closed.
 const REQUIRED_WORKFLOW_ENVIRONMENT = new Map([
+  ["NODE_OPTIONS", "--use-openssl-ca"],
   ["CARGO_TERM_COLOR", "always"],
   ["RUST_BACKTRACE", "1"],
 ]);
@@ -1336,6 +1368,10 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
     failures,
     `required job ${job.id}`,
   );
+  if (!steps.length || exactStepSource(lines, steps[0]) !== bootstrapStep.trimEnd() ||
+      steps.filter(step => step.properties.get("name")?.value === "Select verified CI trust before clients").length !== 1) {
+    failures.push(`${relativeFile}:${job.start + 1}: required job must begin with exactly one immutable CI trust bootstrap`);
+  }
   for (const step of steps) {
     const shell = step.properties.get("shell");
     if (shell && shell.value !== "bash") {
@@ -1346,7 +1382,9 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
     const stepEnvironmentProperty = step.properties.get("env");
     const stepName = step.properties.get("name")?.value ?? "";
     const stepScope = `${job.id}\0${stepName}`;
-    const expectedStepEnvironment = requiredMainWorkflow
+    const expectedStepEnvironment = stepName === "Select verified CI trust before clients"
+      ? new Map([["CI_TRUST_CONTAINER", "${{ job.container.id != '' && '1' || '0' }}"]])
+      : requiredMainWorkflow
       ? (REQUIRED_STEP_ENVIRONMENTS.get(stepScope) ?? new Map())
       : new Map();
     if (stepEnvironmentProperty) {
@@ -1373,7 +1411,9 @@ function requiredJobExecutionFailures(relativeFile, lines, job) {
       );
     }
     const workingDirectory = step.properties.get("working-directory");
-    const expectedWorkingDirectory = requiredMainWorkflow
+    const expectedWorkingDirectory = stepName === "Select verified CI trust before clients"
+      ? "${{ runner.temp }}"
+      : requiredMainWorkflow
       ? REQUIRED_STEP_WORKING_DIRECTORIES.get(stepScope)
       : undefined;
     if ((workingDirectory?.value ?? undefined) !== expectedWorkingDirectory) {
@@ -1463,14 +1503,14 @@ function hasExactKeys(map, keys) {
 function requiredGateControlFailures(relativeFile, lines, gate) {
   const failures = [];
   const steps = policyJobSteps(relativeFile, lines, gate, failures, "gate");
-  if (steps.length !== 3) {
+  if (steps.length !== 4 || exactStepSource(lines, steps[0]) !== bootstrapStep.trimEnd()) {
     failures.push(
-      `${relativeFile}:${gate.start + 1}: gate must contain exactly checkout, policy recheck, and enforcing verdict steps`,
+      `${relativeFile}:${gate.start + 1}: gate must contain exactly immutable bootstrap, checkout, policy recheck, and enforcing verdict steps`,
     );
     return failures;
   }
 
-  const [checkout, policy, verdict] = steps;
+  const [, checkout, policy, verdict] = steps;
   if (
     !hasExactKeys(checkout.properties, ["uses"]) ||
     checkout.properties.get("uses")?.value !== GATE_CHECKOUT_REFERENCE
@@ -1495,11 +1535,13 @@ function requiredGateControlFailures(relativeFile, lines, gate) {
       "Recheck immutable actions and fail-closed required jobs" ||
     policy.properties.get("id")?.value !== "policy" ||
     policy.properties.get("run")?.value !== "|" ||
-    policyCommands.length !== 4 ||
+    policyCommands.length !== 6 ||
     policyCommands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
     policyCommands[1] !== GATE_POLICY_COMMAND ||
-    policyCommands[2] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
-    policyCommands[3] !== WORKFLOW_GATES_COMMAND
+    policyCommands[2] !== CI_TRUST_SELF_TEST_COMMAND ||
+    policyCommands[3] !== CI_TRUST_COMMAND ||
+    policyCommands[4] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
+    policyCommands[5] !== WORKFLOW_GATES_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: gate policy recheck must be exact, unconditional, and non-soft-failing`,
@@ -1578,15 +1620,17 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
   if (
     !hasExactKeys(policy.properties, ["name", "run"]) ||
     policy.properties.get("run")?.value !== "|" ||
-    commands.length !== 8 ||
+    commands.length !== 10 ||
     commands[0] !== GATE_POLICY_SELF_TEST_COMMAND ||
     commands[1] !== GATE_POLICY_COMMAND ||
-    commands[2] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
-    commands[3] !== WORKFLOW_GATES_COMMAND ||
-    commands[4] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
-    commands[5] !== LIBRUSTZCASH_POLICY_COMMAND ||
-    commands[6] !== POW_POLICY_SELF_TEST_COMMAND ||
-    commands[7] !== POW_POLICY_COMMAND
+    commands[2] !== CI_TRUST_SELF_TEST_COMMAND ||
+    commands[3] !== CI_TRUST_COMMAND ||
+    commands[4] !== WORKFLOW_GATES_SELF_TEST_COMMAND ||
+    commands[5] !== WORKFLOW_GATES_COMMAND ||
+    commands[6] !== LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND ||
+    commands[7] !== LIBRUSTZCASH_POLICY_COMMAND ||
+    commands[8] !== POW_POLICY_SELF_TEST_COMMAND ||
+    commands[9] !== POW_POLICY_COMMAND
   ) {
     failures.push(
       `${relativeFile}:${policy.start + 1}: changes policy step must exactly self-test and enforce the current-source policy`,
@@ -1971,6 +2015,7 @@ function requiredWasmSelectorFailures(repoRoot, relativeFile, lines, changes) {
   }
   const [zuuliPatterns] = zuuliPatternSets;
   for (const pattern of [
+    "rust-toolchain.toml",
     "wallet/rust-toolchain.toml",
     "scripts/check-rust-toolchain.sh",
     "scripts/check-github-actions-pins.mjs",
@@ -2465,6 +2510,21 @@ function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs 
     failures,
     `${contract.root} root owner changes`,
   );
+  const namespaceSteps = changeSteps.filter((step) =>
+    step.properties.get("name")?.value === "Verify project namespace ownership");
+  const namespace = namespaceSteps[0];
+  const namespaceRun = namespace?.properties.get("run");
+  const namespaceCommands = namespaceRun ? blockScalarCommands(lines, namespaceRun, namespace.end) : [];
+  if (namespaceSteps.length !== 1 ||
+      !hasExactKeys(namespace?.properties ?? new Map(), ["name", "run"]) ||
+      namespaceRun?.value !== "|" ||
+      JSON.stringify(namespaceCommands) !== JSON.stringify([
+        "node scripts/check-project-namespaces.mjs --self-test",
+        "node scripts/check-project-namespaces.mjs",
+      ])) {
+    failures.push(`${relativeFile}:${changes.start + 1}: ${contract.root}/ owner must run one unconditional namespace self-test and live verdict`);
+  }
+
   const toolchainSteps = changeSteps.filter(
     (step) =>
       step.properties.get("name")?.value ===
@@ -2724,10 +2784,10 @@ function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs 
       ? policyJobSteps(relativeFile, lines, job, failures, "rs AKD evidence owner")
       : [];
     for (const [stepName, command, needsToken] of [
-      ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
-      ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
-      ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
-      ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
+      ["Mutation-test AKD documentation evidence", "node scripts/free2z/check-akd-doc-evidence.mjs --self-test", true],
+      ["Verify AKD documentation against locked executable evidence", "node scripts/free2z/check-akd-doc-evidence.mjs", true],
+      ["Mutation-test repeated tree-head agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test", false],
+      ["Verify repeated tree-head spec and runtime agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs", false],
     ]) {
       const matching = steps.filter((step) => step.properties.get("name")?.value === stepName);
       const step = matching[0];
@@ -3358,6 +3418,11 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       throw new Error(`selected Rust job ${job} is missing from required jobs context`);
     }
   }
+  for (const job of ALWAYS_REQUIRED_JOB_IDS) {
+    if (!Object.hasOwn(needs, job)) {
+      throw new Error(`always-required job ${job} is missing from required jobs context`);
+    }
+  }
   const verdicts = [];
   for (const [job, state] of entries) {
     if (
@@ -3368,7 +3433,7 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       throw new Error(`required job ${job} has no result`);
     }
     const expected =
-      job === "changes"
+      job === "changes" || ALWAYS_REQUIRED_JOB_IDS.has(job)
         ? "success"
         : job === "zuuallet_schema"
           ? schemaExpected
@@ -3820,6 +3885,17 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       (value) => value.replace("        scripts/check-rust-toolchain.sh\n", ""),
       `${ownerPrefix} must run one unconditional`,
     );
+    for (const [description, from, to] of [
+      ["missing", "      - name: Verify project namespace ownership", "      - name: Removed namespace check"],
+      ["conditional", "      - name: Verify project namespace ownership", "      - name: Verify project namespace ownership\n        if: false"],
+      ["soft-failing", "      - name: Verify project namespace ownership", "      - name: Verify project namespace ownership\n        continue-on-error: true"],
+      ["self-test-only", "          node scripts/check-project-namespaces.mjs\n", "          true\n"],
+    ]) {
+      assertWorkflowFailure(contract, source,
+        `${contract.root}/ rejects a ${description} namespace guard`,
+        (value) => value.replace(from, to),
+        `${ownerPrefix} must run one unconditional namespace self-test and live verdict`);
+    }
     assertWorkflowFailure(
       contract,
       source,
@@ -3982,9 +4058,11 @@ function runRustRootWorkflowMutationTests(repoRoot) {
             mutateJob(
               value,
               "changes",
-              probePath.startsWith("docs/e2ee/")
-                ? "docs/e2ee/*|"
-                : `${probePath}|`,
+              probePath.startsWith("docs/free2z/messaging/")
+                ? "docs/free2z/messaging/*|"
+                : probePath.startsWith("docs/free2z/sdk/spec/")
+                  ? "docs/free2z/sdk/spec/*|"
+                  : `${probePath}|`,
               "",
             ),
           `${ownerPrefix} selector must actively select`,
@@ -3998,8 +4076,8 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           mutateJob(
             value,
             "changes",
-            "docs/e2ee/*|",
-            "docs/e2ee/KT.md|docs/e2ee/evidence/akd-benchmark.json|",
+            "docs/free2z/messaging/*|",
+            "docs/free2z/messaging/KT.md|docs/free2z/messaging/evidence/akd-benchmark.json|",
           ),
         `${ownerPrefix} selector must actively select`,
       );
@@ -4051,15 +4129,15 @@ function runRustRootWorkflowMutationTests(repoRoot) {
         ],
         [
           "messaging client-contract selector",
-          "docs/e2ee/CLIENT-CONTRACT.md|",
+          "docs/free2z/messaging/CLIENT-CONTRACT.md|",
           "",
-          'must actively select "docs/e2ee/CLIENT-CONTRACT.md"',
+          'must actively select "docs/free2z/messaging/CLIENT-CONTRACT.md"',
         ],
         [
           "messaging wire-contract selector",
-          "docs/e2ee/WIRE.md|",
+          "docs/free2z/messaging/WIRE.md|",
           "",
-          'must actively select "docs/e2ee/WIRE.md"',
+          'must actively select "docs/free2z/messaging/WIRE.md"',
         ],
       ];
       assertWorkflowFailure(contract, source,
@@ -4395,10 +4473,10 @@ function runRustRootWorkflowMutationTests(repoRoot) {
     }
     if (contract.root === "rs") {
       for (const [stepName, command, needsToken] of [
-        ["Mutation-test AKD documentation evidence", "node scripts/check-akd-doc-evidence.mjs --self-test", true],
-        ["Verify AKD documentation against locked executable evidence", "node scripts/check-akd-doc-evidence.mjs", true],
-        ["Mutation-test repeated tree-head agreement", "node scripts/check-kt-sth-repeat-agreement.mjs --self-test", false],
-        ["Verify repeated tree-head spec and runtime agreement", "node scripts/check-kt-sth-repeat-agreement.mjs", false],
+        ["Mutation-test AKD documentation evidence", "node scripts/free2z/check-akd-doc-evidence.mjs --self-test", true],
+        ["Verify AKD documentation against locked executable evidence", "node scripts/free2z/check-akd-doc-evidence.mjs", true],
+        ["Mutation-test repeated tree-head agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs --self-test", false],
+        ["Verify repeated tree-head spec and runtime agreement", "node scripts/free2z/check-kt-sth-repeat-agreement.mjs", false],
       ]) {
         const needle = "rs owner job rs_test must run exactly one unconditional";
         const stepWithToken = `      - name: ${stepName}\n        env:\n          GITHUB_TOKEN: \${{ github.token }}\n        run: ${command}`;
@@ -4614,6 +4692,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
+    `          ${CI_TRUST_SELF_TEST_COMMAND}`,
+    `          ${CI_TRUST_COMMAND}`,
     `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
     `          ${WORKFLOW_GATES_COMMAND}`,
     "",
@@ -4926,7 +5006,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     {
       name: "real workflow rejects deleted gate checkout",
       needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+        "must contain exactly immutable bootstrap, checkout, policy recheck, and enforcing verdict steps",
       source: replaceLast(source, checkoutLine, ""),
     },
     {
@@ -4941,7 +5021,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
     {
       name: "real workflow rejects deleted policy recheck",
       needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+        "must contain exactly immutable bootstrap, checkout, policy recheck, and enforcing verdict steps",
       source: source.replace(policyBlock, ""),
     },
     {
@@ -4996,6 +5076,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         source,
         [
           `          ${GATE_POLICY_COMMAND}`,
+          `          ${CI_TRUST_SELF_TEST_COMMAND}`,
+          `          ${CI_TRUST_COMMAND}`,
           `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
         ].join("\n"),
         [
@@ -5080,6 +5162,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
           "        run: |",
           `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
           `          ${GATE_POLICY_COMMAND}`,
+          `          ${CI_TRUST_SELF_TEST_COMMAND}`,
+          `          ${CI_TRUST_COMMAND}`,
           `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
           `          ${WORKFLOW_GATES_COMMAND}`,
           `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
@@ -5477,13 +5561,14 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       name: "real workflow rejects a syntax-only gate default shell",
       needle: "required job gate defaults.run.shell must be exactly bash",
       source: source.replace(
-        "    timeout-minutes: 5\n    steps:\n      # Re-run the workflow policy here",
+        `    timeout-minutes: 5\n    steps:\n${bootstrapStep}      # Re-run the workflow policy here`,
         [
           "    timeout-minutes: 5",
           "    defaults:",
           "      run:",
           "        shell: bash -n {0}",
           "    steps:",
+          ...bootstrapStep.trimEnd().split("\n"),
           "      # Re-run the workflow policy here",
         ].join("\n"),
       ),
@@ -5516,7 +5601,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "required workflow environment differs from its exact reviewed allowlist",
       source: source.replace(
-        "env:\n  CARGO_TERM_COLOR: always\n",
+        "env:\n  NODE_OPTIONS: --use-openssl-ca\n  CARGO_TERM_COLOR: always\n",
         "env:\n  SHELLOPTS: noexec\n  CARGO_TERM_COLOR: always\n",
       ),
     },
@@ -5552,7 +5637,7 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "required workflow environment differs from its exact reviewed allowlist",
       source: source.replace(
-        "env:\n  CARGO_TERM_COLOR: always\n  RUST_BACKTRACE: 1\n\n",
+        "env:\n  NODE_OPTIONS: --use-openssl-ca\n  CARGO_TERM_COLOR: always\n  RUST_BACKTRACE: 1\n\n",
         "",
       ),
     },
@@ -5636,8 +5721,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "required job rust_clippy container cannot inject environment or runtime options",
       source: source.replace(
-        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406\n      credentials:\n",
-        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:e94d8795fd3c3265caec0f5fc2fa814391e22d2d6e574649a75e686e6e967406\n      options: --env SHELLOPTS=noexec\n      credentials:\n",
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:bb07838e6e6c4a138943e1254a7f1613c4860e4bfabc87fd1e0d18073de1015f\n      credentials:\n",
+        "      image: ghcr.io/free2z/zuuli-linux-ci@sha256:bb07838e6e6c4a138943e1254a7f1613c4860e4bfabc87fd1e0d18073de1015f\n      options: --env SHELLOPTS=noexec\n      credentials:\n",
       ),
     },
     {
@@ -5672,8 +5757,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "required job gate defaults.run.working-directory differs from its exact reviewed value",
       source: source.replace(
-        "    timeout-minutes: 5\n    steps:\n      # Re-run the workflow policy here",
-        "    timeout-minutes: 5\n    defaults:\n      run:\n        working-directory: bypass\n    steps:\n      # Re-run the workflow policy here",
+        `    timeout-minutes: 5\n    steps:\n${bootstrapStep}      # Re-run the workflow policy here`,
+        `    timeout-minutes: 5\n    defaults:\n      run:\n        working-directory: bypass\n    steps:\n${bootstrapStep}      # Re-run the workflow policy here`,
       ),
     },
     {
@@ -6017,7 +6102,7 @@ function runClassicFrontendAuditMutationTests(repoRoot) {
       name: "live Zuuallet frontend rejects a critical-only audit threshold",
       needle: "Zuuallet frontend audit step must exactly enforce",
       source: source.replace(
-        "npm audit --audit-level=high",
+        'node "$GITHUB_WORKSPACE/scripts/npm-audit-allowlist.mjs"',
         "npm audit --audit-level=critical",
       ),
     },
@@ -6087,6 +6172,8 @@ function runSelfTest(repoRoot) {
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
+    `          ${CI_TRUST_SELF_TEST_COMMAND}`,
+    `          ${CI_TRUST_COMMAND}`,
     `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
     `          ${WORKFLOW_GATES_COMMAND}`,
   ];
@@ -6103,16 +6190,20 @@ function runSelfTest(repoRoot) {
     "name: required gate fixture",
     "on: pull_request",
     "env:",
+    "  NODE_OPTIONS: --use-openssl-ca",
     "  CARGO_TERM_COLOR: always",
     "  RUST_BACKTRACE: 1",
     "jobs:",
     "  changes:",
     "    runs-on: ubuntu-latest",
     "    steps:",
+    ...bootstrapStep.trimEnd().split("\n"),
     "      - name: Verify immutable actions and fail-closed required jobs",
     "        run: |",
     `          ${GATE_POLICY_SELF_TEST_COMMAND}`,
     `          ${GATE_POLICY_COMMAND}`,
+    `          ${CI_TRUST_SELF_TEST_COMMAND}`,
+    `          ${CI_TRUST_COMMAND}`,
     `          ${WORKFLOW_GATES_SELF_TEST_COMMAND}`,
     `          ${WORKFLOW_GATES_COMMAND}`,
     `          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}`,
@@ -6127,10 +6218,12 @@ function runSelfTest(repoRoot) {
     "    continue-on-error: true",
     "    runs-on: ubuntu-latest",
     "    steps:",
+    ...bootstrapStep.trimEnd().split("\n"),
     "      - run: exit 1",
     "  build:",
     "    runs-on: ubuntu-latest",
     "    steps:",
+    ...bootstrapStep.trimEnd().split("\n"),
     "      - name: a legitimate best-effort step",
     "        continue-on-error: true",
     "        run: echo 'step-level continue-on-error: true is allowed'",
@@ -6139,6 +6232,7 @@ function runSelfTest(repoRoot) {
     "    if: always()",
     "    runs-on: ubuntu-latest",
     "    steps:",
+    ...bootstrapStep.trimEnd().split("\n"),
     ...gateCheckoutLines,
     ...gatePolicyLines,
     ...gateVerdictLines,
@@ -6155,6 +6249,7 @@ function runSelfTest(repoRoot) {
       "  build:",
       "    runs-on: ubuntu-latest",
       "    steps:",
+      ...bootstrapStep.trimEnd().split("\n"),
       "      - name: a legitimate best-effort step",
       "        continue-on-error: true",
       "        run: echo 'step-level continue-on-error: true is allowed'",
@@ -6169,6 +6264,7 @@ function runSelfTest(repoRoot) {
     "  build:",
     "    runs-on: ubuntu-latest",
     "    steps:",
+    ...bootstrapStep.trimEnd().split("\n"),
     "      - run: npm test",
     "",
   ].join("\n");
@@ -6239,7 +6335,7 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: npm test`,
           "    uses: ./.github/workflows/nested-build.yml",
         ),
         ".github/workflows/nested-build.yml": [
@@ -6251,6 +6347,7 @@ function runSelfTest(repoRoot) {
           '      NODE_OPTIONS: "--import=data:text/javascript,process.exit(0)"',
           "    runs-on: ubuntu-latest",
           "    steps:",
+          ...bootstrapStep.trimEnd().split("\n"),
           "      - run: cargo test",
           "",
         ].join("\n"),
@@ -6328,8 +6425,8 @@ function runSelfTest(repoRoot) {
       needle: "required job build defaults must use a canonical block mapping",
       files: gateFixture(
         validGateWorkflow.replace(
-          "    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n",
-          "    runs-on: ubuntu-latest\n    defaults: { run: { working-directory: bypass } }\n    steps:\n      - name: a legitimate best-effort step\n",
+          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
+          `    runs-on: ubuntu-latest\n    defaults: { run: { working-directory: bypass } }\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
         ),
       ),
     },
@@ -6338,8 +6435,8 @@ function runSelfTest(repoRoot) {
       needle: "defaults.run contains an unsupported or duplicate property",
       files: gateFixture(
         validGateWorkflow.replace(
-          "    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n",
-          "    runs-on: ubuntu-latest\n    defaults:\n      run:\n        <<: *redirected-defaults\n    steps:\n      - name: a legitimate best-effort step\n",
+          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
+          `    runs-on: ubuntu-latest\n    defaults:\n      run:\n        <<: *redirected-defaults\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
         ),
       ),
     },
@@ -6394,12 +6491,14 @@ function runSelfTest(repoRoot) {
         validGateWorkflow.replace(
           [
             "    steps:",
+            ...bootstrapStep.trimEnd().split("\n"),
             "      - name: a legitimate best-effort step",
             "        continue-on-error: true",
             "        run: echo 'step-level continue-on-error: true is allowed'",
           ].join("\n"),
           [
             "    steps:",
+            ...bootstrapStep.trimEnd().split("\n").map(line => "  " + line),
             "        - name: a legitimate best-effort step",
             "          shell: bash -n {0}",
             "          run: echo hidden",
@@ -6426,7 +6525,7 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: npm test`,
           "    uses: ./.github/workflows/nested-build.yml",
         ),
         ".github/workflows/nested-build.yml": [
@@ -6437,6 +6536,7 @@ function runSelfTest(repoRoot) {
           "    continue-on-error: true",
           "    runs-on: ubuntu-latest",
           "    steps:",
+          ...bootstrapStep.trimEnd().split("\n"),
           "      - run: cargo test",
           "",
         ].join("\n"),
@@ -6460,7 +6560,7 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          "    runs-on: ubuntu-latest\n    steps:\n      - run: npm test",
+          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: npm test`,
           `    uses: owner/repo/.github/workflows/build.yml@${fullSha} # reviewed`,
         ),
       },
@@ -6497,7 +6597,7 @@ function runSelfTest(repoRoot) {
         "changes policy step must exactly self-test and enforce the current-source policy",
       files: gateFixture(
         validGateWorkflow.replace(
-          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n          ${WORKFLOW_GATES_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n          ${POW_POLICY_SELF_TEST_COMMAND}\n          ${POW_POLICY_COMMAND}\n`,
+          `        run: |\n          ${GATE_POLICY_SELF_TEST_COMMAND}\n          ${GATE_POLICY_COMMAND}\n          ${CI_TRUST_SELF_TEST_COMMAND}\n          ${CI_TRUST_COMMAND}\n          ${WORKFLOW_GATES_SELF_TEST_COMMAND}\n          ${WORKFLOW_GATES_COMMAND}\n          ${LIBRUSTZCASH_POLICY_SELF_TEST_COMMAND}\n          ${LIBRUSTZCASH_POLICY_COMMAND}\n          ${POW_POLICY_SELF_TEST_COMMAND}\n          ${POW_POLICY_COMMAND}\n`,
           "        run: true\n",
         ),
       ),
@@ -6581,7 +6681,7 @@ function runSelfTest(repoRoot) {
       needle: "must use a block mapping",
       files: gateFixture(
         validGateWorkflow.replace(
-          "  build:\n    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n",
+          `  build:\n    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n`,
           "  build: { runs-on: ubuntu-latest, continue-on-error: true }\n",
         ),
       ),
@@ -6591,7 +6691,7 @@ function runSelfTest(repoRoot) {
       needle: "job build must use canonical four-space property indentation",
       files: gateFixture(
         validGateWorkflow.replace(
-          "  build:\n    runs-on: ubuntu-latest\n    steps:\n      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n",
+          `  build:\n    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n`,
           "  build:\n      continue-on-error: true\n      runs-on: ubuntu-latest\n      steps:\n        - run: exit 1\n",
         ),
       ),
@@ -6624,7 +6724,7 @@ function runSelfTest(repoRoot) {
         validGateWorkflow
           .replace(
             "  gate:\n",
-            "  rust_android_32:\n    runs-on: ubuntu-latest\n    steps:\n      - run: cargo check\n  gate:\n",
+            `  rust_android_32:\n    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: cargo check\n  gate:\n`,
           )
           .replace(
             "    needs: [changes, build]\n",
@@ -6657,7 +6757,7 @@ function runSelfTest(repoRoot) {
     {
       name: "deleted gate checkout fails closed",
       needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+        "must contain exactly immutable bootstrap, checkout, policy recheck, and enforcing verdict steps",
       files: gateFixture(
         validGateWorkflow.replace(`${gateCheckoutLines.join("\n")}\n`, ""),
       ),
@@ -6675,7 +6775,7 @@ function runSelfTest(repoRoot) {
     {
       name: "deleted gate policy recheck fails closed",
       needle:
-        "must contain exactly checkout, policy recheck, and enforcing verdict steps",
+        "must contain exactly immutable bootstrap, checkout, policy recheck, and enforcing verdict steps",
       files: gateFixture(
         validGateWorkflow.replace(`${gatePolicyLines.join("\n")}\n`, ""),
       ),
@@ -6983,6 +7083,33 @@ function runSelfTest(repoRoot) {
 
   const gateResultCases = [
     {
+      name: "unconditional Free2Z SDK succeeds when wallet selectors are false",
+      policyOutcome: "success",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "success" } },
+    },
+    {
+      name: "unconditional Free2Z SDK cannot disappear",
+      policyOutcome: "success",
+      omitJob: "free2z_sdk_typescript",
+      needle: "always-required job free2z_sdk_typescript is missing",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } } },
+    },
+    {
+      name: "unconditional Free2Z SDK cannot be skipped",
+      policyOutcome: "success",
+      needle: "required job free2z_sdk_typescript must be success, got skipped",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "skipped" } },
+    },
+    {
+      name: "unconditional Free2Z SDK failure blocks every change",
+      policyOutcome: "success",
+      needle: "required job free2z_sdk_typescript must be success, got failure",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        free2z_sdk_typescript: { result: "failure" } },
+    },
+    {
       name: "frontend source succeeds with native jobs skipped",
       policyOutcome: "success",
       needs: { changes: { result: "success", outputs: { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" } },
@@ -7234,6 +7361,9 @@ function runSelfTest(repoRoot) {
     for (const job of RUST_REQUIRED_JOB_IDS) {
       const native = job === "rust_native_clippy" || job === "rust_native_tests";
       testCase.needs[job] ??= { result: outputs.rust === "true" || (native && outputs.zuuallet_schema === "true") ? "success" : "skipped" };
+    }
+    for (const job of ALWAYS_REQUIRED_JOB_IDS) {
+      testCase.needs[job] ??= { result: "success" };
     }
     if (testCase.omitJob) delete testCase.needs[testCase.omitJob];
     let error = null;

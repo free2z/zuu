@@ -3,36 +3,26 @@ title: Overview
 sidebar_position: 0
 ---
 
-# Privacy and Security
+# Your account and privacy
 
-Free2Z is committed to the privacy and security of our users. We aim to provide a platform that empowers creators and fosters a safe community, with a strong focus on protecting user privacy and security. Here's how we do it:
+We will never sell your personal data. Choose what to make public and keep control of your account and wallet.
 
-## No Tracking
+## Keep your account safe
 
-:::info Your Privacy Matters
-We value your privacy. Free2Z conducts all site measurements anonymously and does not engage in individual user tracking. No personally identifiable information is collected without explicit consent, ensuring your online activities remain private on our platform.
-:::
+Use a strong password and store it securely. An email is optional at signup and gives you an email recovery option. Keep your recovery details private and check the address before entering your password.
 
-## "Don't Know Your Customer" Approach
+## Choose what you publish
 
-:::note Minimal Data, Maximum Privacy
-Free2Z adopts a "Don't Know Your Customer" approach to maximize your privacy. We collect only essential information, striving to provide high security while meeting legal requirements.
-:::
+Your profile, public pages, and public uploads can be seen by others. Preview them before sharing. Do not publish identity documents, wallet keys, or payment evidence as media; follow verification and support instructions for those documents.
 
-## Limiting Metadata Leakage
+## Understand wallet privacy
 
-:::caution Protecting Your Data
-Free2Z does not permit third-party cookies or any unauthorized code without consent.
-We're dedicated to securing your personal information and ensuring a transparent, secure browsing experience.
-Unnecessary metadata is stripped and not collected, ensuring your data is protected.
-:::
+Direct Zcash support uses your wallet's address and privacy controls. Buying 2Zs is a separate payment to the company, and creator earnings use a separate shielded Zcash payment process. [Read the Zcash guide](./02-zcash.md) before sending.
 
-## Transparent and Fair Business Model
+## Know the limits
 
-:::success A Model Built on Trust
-Our business model is centered on user privacy and security. We eschew advertising and data collection in favor of a small service charge, which helps prevent scams and maintain a secure environment for our users.
-:::
+An account is not needed for [public browsing](./01-for-anons.md), but browsers, networks, embeds, and infrastructure can expose metadata. The [privacy policy](/docs/legal/privacy-policy/) explains how the service handles information. Contact [help@free2z.com](mailto:help@free2z.com) for account help.
 
-Free2Z is steadfast in providing a privacy-focused and secure experience. We are constantly working to uphold the highest standards of privacy and security, ensuring trust and transparency are central to our platform.
+## Delete your account
 
-Thank you for choosing Free2Z for your monetization and community engagement needs.
+You can [delete your account](./03-delete-account.md) yourself at [free2z.cash/account/delete](https://free2z.cash/account/delete), with or without an email address.

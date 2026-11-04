@@ -28,7 +28,7 @@
 //!   the labels are held to prefix-freeness anyway, for the reason
 //!   `f2z-codec`'s `hash.rs` states: the set of constructions a label is reused
 //!   in only ever grows, and a check that holds a subset of the namespace is
-//!   how [zuu#602] happened. `scripts/check-hash-domain-labels.mjs` holds the
+//!   how [zuu#602] happened. `scripts/free2z/check-hash-domain-labels.mjs` holds the
 //!   union of these against every other `free2z/` label in the tree, including
 //!   the ones minted in `ARCHITECTURE.md` and `KT.md` that no crate reads.
 //!

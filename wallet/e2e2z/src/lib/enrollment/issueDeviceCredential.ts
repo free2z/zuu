@@ -3,7 +3,7 @@
  *
  * ZUULI holds the Zcash seed and is therefore the wallet authority. e2e2z holds
  * device keys and a `DeviceCredential` and never anything seed-derived
- * (`docs/e2ee/ARCHITECTURE.md` §4.2). The one operation that crosses that line
+ * (`docs/free2z/messaging/ARCHITECTURE.md` §4.2). The one operation that crosses that line
  * is enrollment: claiming a handle means signing with the seed-derived
  * `IdentitySigningKey`, and the signature that binds *this* device to *that*
  * account is a `DeviceCredential`. So this app asks for one, and asks in the

@@ -4,7 +4,7 @@
 // the same arrangement `tauri-plugin-zcash/command_registry.rs` uses, and for
 // the same reason.
 //
-// The order here is `docs/e2ee/CLIENT-CONTRACT.md` §3's order, section by
+// The order here is `docs/free2z/messaging/CLIENT-CONTRACT.md` §3's order, section by
 // section, so a reader can hold the document and this file side by side.
 //
 // NOT here, deliberately: `f2zmsg_enroll`, `f2zmsg_enrollment_status` and

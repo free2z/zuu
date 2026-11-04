@@ -1,0 +1,143 @@
+{
+  "name": "openai_chat_json_object",
+  "feature": "structured_output",
+  "source": "OpenAI Chat Completions response_format json_object (platform.openai.com/docs/api-reference/chat/create). Synthetic, documented shape.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Answer in JSON."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Two letters."
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 50,
+    "response_format": {
+      "type": "json_object"
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "response_format": {
+        "type": "json_object"
+      },
+      "tools": null
+    },
+    "provider_stream": [
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": ""
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "{\"letters\": "
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "[\"a\", \"b\"]}"
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 22,
+          "completion_tokens": 9,
+          "total_tokens": 31
+        }
+      },
+      "[DONE]"
+    ],
+    "events": [
+      {
+        "type": "delta",
+        "text": "{\"letters\": "
+      },
+      {
+        "type": "delta",
+        "text": "[\"a\", \"b\"]}"
+      }
+    ],
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 22,
+      "output_tokens": 9
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

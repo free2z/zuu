@@ -8,7 +8,7 @@
 //! `f2zmsg_enroll`, `f2zmsg_unenroll` — is deliberately absent, and stays
 //! absent. In ZUULI those commands borrow the wallet seed from
 //! `tauri-plugin-zcash`'s managed state in-process
-//! (docs/e2ee/CLIENT-CONTRACT.md §2.2). Here there is no seed to borrow:
+//! (docs/free2z/messaging/CLIENT-CONTRACT.md §2.2). Here there is no seed to borrow:
 //! enrollment is a bridge call into the wallet authority, which issues the
 //! `DeviceCredential` (#905), and #461 still owes that call a transport that
 //! authenticates either end.

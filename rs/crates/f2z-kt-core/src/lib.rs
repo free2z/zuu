@@ -1,5 +1,5 @@
 //! Key transparency for the free2z directory, version 1 — the implementation of
-//! [`docs/e2ee/KT.md`].
+//! [`docs/free2z/messaging/KT.md`].
 //!
 //! **One crate, three consumers** (`KT.md` §11.4). The log server, the witness
 //! and the client all link this crate, native and WASM. That is not tidiness: a
@@ -82,8 +82,8 @@
 //! too, and are left as caller-supplied values rather than answered by
 //! invention.
 //!
-//! [`docs/e2ee/KT.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/KT.md
-//! [ADR 0013]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0013-key-transparency-log.md
+//! [`docs/free2z/messaging/KT.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/KT.md
+//! [ADR 0013]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0013-key-transparency-log.md
 //! [facebook/akd#495]: https://github.com/facebook/akd/pull/495
 
 #![forbid(unsafe_code)]

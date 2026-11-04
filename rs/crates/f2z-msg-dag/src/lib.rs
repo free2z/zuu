@@ -1,4 +1,4 @@
-//! Hash-linked application framing — `docs/e2ee/ARCHITECTURE.md` §7.
+//! Hash-linked application framing — `docs/free2z/messaging/ARCHITECTURE.md` §7.
 //!
 //! Every application payload carries the hashes of its predecessors. That one
 //! choice makes ordering and gap detection **transport-independent**: it works

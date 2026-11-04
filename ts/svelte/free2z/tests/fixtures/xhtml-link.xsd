@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The one XHTML element the sitemap hreflang annotation borrows.
+
+  Google's "localized versions in a sitemap" documentation defines exactly this
+  shape and nothing more, so the schema declares exactly this shape and nothing
+  more: a misspelt attribute or a missing href is a validation error rather
+  than something a lax wildcard waves through.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           targetNamespace="http://www.w3.org/1999/xhtml"
+           elementFormDefault="qualified">
+  <xs:element name="link">
+    <xs:complexType>
+      <xs:attribute name="rel" use="required">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:enumeration value="alternate"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+      <!--
+        A BCP-47 tag or the x-default sentinel. `und` is well-formed and would
+        pass here; that it is never EMITTED is asserted in the test suite,
+        because it is a content rule, not a grammar rule.
+      -->
+      <xs:attribute name="hreflang" use="required">
+        <xs:simpleType>
+          <xs:restriction base="xs:string">
+            <xs:pattern value="x-default|[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*"/>
+          </xs:restriction>
+        </xs:simpleType>
+      </xs:attribute>
+      <xs:attribute name="href" type="xs:anyURI" use="required"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

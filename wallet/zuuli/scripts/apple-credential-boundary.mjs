@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { isAlias, isMap, isScalar, isSeq, parseDocument } from "yaml";
+import { bootstrapStep } from "../../../scripts/ci-trust-bootstrap.mjs";
 
 const BUILD_JOBS = ["android-build", "ios-build", "macos-build"];
 const CREDENTIAL_JOBS = ["android-sign-upload", "ios-sign", "ios-upload", "macos-sign"];
@@ -101,20 +102,20 @@ const ALLOWED_JOB_SECRETS = new Map([
 // semantic checks below explain the major boundaries, while the digest closes
 // all unenumerated execution paths. Update only after reviewing the full job.
 const CREDENTIAL_JOB_SHA256 = new Map([
-  ["android-sign-upload", "e95217ffa6a6893a17451d3bc75e726af27e6e8418c4327b6ed084ad4947fc2c"],
-  ["ios-sign", "429ae4dd15272ee17566e11eb24d9a5da0946dd38c1e7ff2e5e358cebf71efa5"],
-  ["ios-upload", "3ed7cb28646aed24a7df2c347b8ad54838f009841fdd52c64ca1002886aae4b2"],
-  ["macos-sign", "4aabc59a06ab3f589515caab2b2ea9c1dadd9cda08958f0d03ec54e95f46d7e7"],
+  ["android-sign-upload", "2ce62206d126dc8ce20d74ae3b10c1565a92e8e286702a75d4d0c5597072cbe9"],
+  ["ios-sign", "003784b1d43039827904ef7ecbf93da7cc2bb4893ab0cc9ba9caaf8c739fa2f7"],
+  ["ios-upload", "086492c3eef95b222f4046a09d858f328cd3df8f418dcca022ed19880fb87e47"],
+  ["macos-sign", "76125cd143bf9240acdf2e4973c9a8f1e98bfb83d2fd11b70ed814172315b472"],
 ]);
 // The credential-free builder is also exact: its source-identity check and
 // compile happen in separate steps, so an unreviewed command between them
 // could otherwise build stale bytes while attesting the requested source SHA.
 const ANDROID_BUILD_JOB_SHA256 =
-  "0f26565c53eb7d7756757b391dfaee19d3b794392c8f0fec49e15f161aded398";
+  "dffe19a9877968d60becc8a3d3b395876233a3d517d8ce51262be87390f1ea1d";
 const ANDROID_FINALIZER_JOB_SHA256 =
-  "9571bb82e1fa0ba6b0749fbbb9487f72e9c495fb0c6877f64747f0c3eff2f794";
+  "802fbd1ea887602c80e806c63a1f6d3293aaadacd63da241a88cf10e5a6caf12";
 const RELEASE_INDEX_JOB_SHA256 =
-  "3765b21cca6396c81195bf9a29de2d6ad9315dc84596f27436be0c37748550a5";
+  "806a9322ba3a62477389e32f59bf1a6e0b23578b502dd63f36193e9f93c82d76";
 const GITHUB_RELEASE_PUBLISHER_SHA256 =
   "a3ea3748e271af6bd253babdaf12687ea41c7812ded62fe2935de72305ba7a25";
 const GITHUB_RELEASE_PUBLISHER_EXECUTABLE_SHA256 =
@@ -357,7 +358,7 @@ const ROOT_AUTHORITY_SHA256 = new Map([
   ["on", "c58b4535da1019427311bdfdc1bcc62d083a9458e4d9746f1e8ee0e841b23ebe"],
   ["permissions", "248e857abefa9bcd48e29bf205c0ba2260ad4c167937fe37b5506afec6569d6c"],
   ["concurrency", "9e63d742d3a1d8bf26f2f8d8b77427f2bac2d28142d17eecaa75fafc7f95f4f5"],
-  ["env", "d905f9175e5d70ba3b4459bae14bc895f75b97bfb48b91ff764c2d9c382386ca"],
+  ["env", "0bd4df38cf756a941b9e7ef54fe37da8ef7ee1a428ecae9895f27ff34d2ef877"],
 ]);
 
 function requireText(failures, label, source, needle) {
@@ -446,7 +447,11 @@ function exactScalarSequence(sequence, expected) {
     );
 }
 
-function exactReleaseIndexJob(node) {
+function exactCITrustStep(workflow, step) {
+  return isMap(step) && sourceForNode(workflow, step).trimEnd() === bootstrapStep.slice(8).trimEnd();
+}
+
+function exactReleaseIndexJob(node, workflow) {
   const permissions = pairFor(node, "permissions")?.value;
   return (
     exactMapKeys(node, [
@@ -472,7 +477,7 @@ function exactReleaseIndexJob(node) {
     scalarEquals(node, "timeout-minutes", 20) &&
     exactMapKeys(permissions, ["contents"]) &&
     scalarEquals(permissions, "contents", "write") &&
-    exactReleaseIndexSteps(node)
+    exactReleaseIndexSteps(node, workflow)
   );
 }
 
@@ -627,12 +632,12 @@ export function verifyReleaseIndexVerifier(
   });
 }
 
-function exactReleaseIndexSteps(node) {
+function exactReleaseIndexSteps(node, workflow) {
   const steps = pairFor(node, "steps")?.value;
-  if (!isSeq(steps) || steps.items.length !== 5 || steps.items.some((step) => !isMap(step))) {
+  if (!isSeq(steps) || steps.items.length !== 6 || steps.items.some((step) => !isMap(step)) || !exactCITrustStep(workflow, steps.items[0])) {
     return false;
   }
-  const [checkout, download, verifier, publish, upload] = steps.items;
+  const [, checkout, download, verifier, publish, upload] = steps.items;
   const checkoutWith = pairFor(checkout, "with")?.value;
   const downloadWith = pairFor(download, "with")?.value;
   const verifierEnv = pairFor(verifier, "env")?.value;
@@ -895,6 +900,10 @@ export function verifyAppleCredentialBoundary(
     if (name && pair.value) {
       jobNodes.set(name, pair.value);
       jobs.set(name, sourceForNode(workflow, pair.value));
+      const steps = pairFor(pair.value, "steps")?.value;
+      if (!isSeq(steps) || !exactCITrustStep(workflow, steps.items[0])) {
+        failures.push(`${name} must begin with the exact immutable CI trust bootstrap`);
+      }
     }
   }
 
@@ -1040,7 +1049,14 @@ export function verifyAppleCredentialBoundary(
       "uses: ./.github/actions/",
       "actions/cache@",
     ]) {
-      rejectText(failures, name, source, forbidden);
+      if (forbidden === "scripts/") {
+        const steps = pairFor(jobNodes.get(name), "steps")?.value;
+        if (!isSeq(steps) || !exactCITrustStep(workflow, steps.items[0]) || source.split(forbidden).length !== 2) {
+          failures.push(`${name} permits only the immutable bootstrap's single scripts/ URL`);
+        }
+      } else {
+        rejectText(failures, name, source, forbidden);
+      }
     }
     const firstSecret = secretExpressions(source)[0]?.index ?? -1;
     const download = source.indexOf("actions/download-artifact@");
@@ -1202,9 +1218,9 @@ export function verifyAppleCredentialBoundary(
     jobs.get("release-index"),
     "needs: [prepare, android-build, android-sign-upload, android-finalize, ios-finalize, linux, macos-finalize]",
   );
-  if (!exactReleaseIndexJob(releaseIndexNode)) {
+  if (!exactReleaseIndexJob(releaseIndexNode, workflow)) {
     failures.push(
-      "release-index must contain exactly the reviewed checkout, artifact download, verifier, draft publisher, and index upload steps plus the reviewed job authority, with no other execution path",
+      "release-index must contain exactly the immutable bootstrap and reviewed checkout, artifact download, verifier, draft publisher, and index upload steps plus the reviewed job authority, with no other execution path",
     );
   }
 

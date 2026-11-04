@@ -41,7 +41,7 @@ remote at all.
   behalf. Implemented, not yet shipped end to end: it still needs an
   authenticated channel ([#461](https://github.com/free2z/zuu/issues/461)), and
   a custom-scheme deep link is not one. See
-  [`docs/intent-bridge/`](../../docs/intent-bridge/) and
+  [`docs/free2z/intent-bridge/`](../../docs/free2z/intent-bridge/) and
   [#905](https://github.com/free2z/zuu/issues/905).
 
 ## What ZUULI deliberately does not include

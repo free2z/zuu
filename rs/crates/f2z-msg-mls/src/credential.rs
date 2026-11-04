@@ -81,7 +81,7 @@ pub use f2z_kt_core::entry::{DeviceCredential, DeviceCredentialTBS};
 /// The label every `DeviceCredential` carries, re-exported from the one place it
 /// is defined.
 ///
-/// A `free2z/` label, swept by `scripts/check-hash-domain-labels.mjs` along with
+/// A `free2z/` label, swept by `scripts/free2z/check-hash-domain-labels.mjs` along with
 /// every other label in the tree. It is leafless —
 /// `free2z/device-credential/v1` with no `/leaf` — which is the sharpest shape
 /// the prefix-free rule exists for.

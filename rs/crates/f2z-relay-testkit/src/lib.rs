@@ -25,8 +25,8 @@
 //!
 //! # What this crate is for
 //!
-//! [`docs/e2ee/WIRE.md`] specifies a relay that does not exist yet, and
-//! [`docs/e2ee/CLIENT-CONTRACT.md`] describes clients that have to be built
+//! [`docs/free2z/messaging/WIRE.md`] specifies a relay that does not exist yet, and
+//! [`docs/free2z/messaging/CLIENT-CONTRACT.md`] describes clients that have to be built
 //! against it now. This crate is the thing in between: a relay that implements
 //! §2 through §13 faithfully, runs in a test process, and can be *told to
 //! misbehave*.
@@ -99,9 +99,9 @@
 //! Rust core shared by ZUULI and the browser, and a test harness must not be
 //! able to leak into it.
 //!
-//! [`docs/e2ee/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/WIRE.md
-//! [`docs/e2ee/CLIENT-CONTRACT.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/CLIENT-CONTRACT.md
-//! [ADR 0001]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0001-platform-priority.md
+//! [`docs/free2z/messaging/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/WIRE.md
+//! [`docs/free2z/messaging/CLIENT-CONTRACT.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/CLIENT-CONTRACT.md
+//! [ADR 0001]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0001-platform-priority.md
 //! [#586]: https://github.com/free2z/zuu/issues/586
 
 #![forbid(unsafe_code)]

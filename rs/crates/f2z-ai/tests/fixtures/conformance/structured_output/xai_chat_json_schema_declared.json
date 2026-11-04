@@ -1,0 +1,175 @@
+{
+  "name": "xai_chat_json_schema_declared",
+  "feature": "structured_output",
+  "source": "xAI structured outputs (docs.x.ai, 'Structured Outputs'): OpenAI-compatible response_format; a compatible provider must be DECLARED structured_output in the signed catalogue. Synthetic, documented shape.",
+  "api_style": "openai_chat",
+  "provider": "xai",
+  "catalog_model": {
+    "capabilities": {
+      "structured_output": true
+    }
+  },
+  "request": {
+    "model": "m-xai",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Half of 3 metres?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 64,
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "answer",
+        "strict": false,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "value": {
+              "type": "number"
+            },
+            "unit": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "value",
+            "unit"
+          ]
+        }
+      }
+    }
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "response_format": {
+        "type": "json_schema",
+        "json_schema": {
+          "name": "answer",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "number"
+              },
+              "unit": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "value",
+              "unit"
+            ]
+          },
+          "strict": false
+        }
+      },
+      "service_tier": null
+    },
+    "provider_stream": [
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": ""
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "{\"value\": 1.5, "
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "\"unit\": \"m\"}"
+            },
+            "finish_reason": null
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ],
+        "usage": null
+      },
+      {
+        "id": "chatcmpl-fx2",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "grok-4",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 18,
+          "completion_tokens": 10,
+          "total_tokens": 28,
+          "completion_tokens_details": {
+            "reasoning_tokens": 0
+          }
+        }
+      },
+      "[DONE]"
+    ],
+    "events": [
+      {
+        "type": "delta",
+        "text": "{\"value\": 1.5, "
+      },
+      {
+        "type": "delta",
+        "text": "\"unit\": \"m\"}"
+      }
+    ],
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 18,
+      "output_tokens": 10
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

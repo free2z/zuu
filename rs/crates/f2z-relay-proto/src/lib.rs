@@ -1,6 +1,6 @@
 //! The free2z relay protocol, above the wire format and below the socket.
 //!
-//! This crate implements the parts of [`docs/e2ee/WIRE.md`] that a relay and a
+//! This crate implements the parts of [`docs/free2z/messaging/WIRE.md`] that a relay and a
 //! client must agree on *exactly* and that neither can own: the signing
 //! transcript's signature (§5), anti-replay (§5.5), the queue lifecycle and
 //! acknowledgement arithmetic (§7, §8), the capability document (§11), and the
@@ -117,8 +117,8 @@
 //! # }
 //! ```
 //!
-//! [`docs/e2ee/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/e2ee/WIRE.md
-//! [ADR 0001]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0001-platform-priority.md
+//! [`docs/free2z/messaging/WIRE.md`]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/WIRE.md
+//! [ADR 0001]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0001-platform-priority.md
 
 #![no_std]
 #![forbid(unsafe_code)]

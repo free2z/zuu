@@ -342,7 +342,7 @@ expect(
 // The App Link half (#461). `android:autoVerify="true"` is what asks Android to
 // fetch `https://free2z.com/.well-known/assetlinks.json` and bind this package to
 // the host; without it the filter is an ordinary link filter any app can also
-// claim, which is exactly what `docs/intent-bridge/CALLER-AUTHENTICATION.md` §4
+// claim, which is exactly what `docs/free2z/intent-bridge/CALLER-AUTHENTICATION.md` §4
 // refuses to carry authority over. `android:pathPrefix` is the real per-app
 // boundary on every Android version -- the assetlinks relation itself is
 // host-wide -- so a missing or widened prefix is a bridge response that can open

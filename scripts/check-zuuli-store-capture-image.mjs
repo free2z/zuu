@@ -20,7 +20,7 @@ const imageRepository = "ghcr.io/free2z/zuuli-store-capture";
 const allowedActions = new Set([
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
   "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e",
-  "docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a",
+  "docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc",
   "docker/login-action@dbcb813823bdd20940b903addbd779551569679f",
   "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
 ]);
@@ -95,6 +95,17 @@ export function validateStoreCaptureImage(documents) {
     1,
     "Dockerfile must install the exact WASM target",
   );
+  for (const policy of [
+    "COPY ca-certificates.pem /run/capture-ca.pem",
+    "RUN echo '796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe  /run/capture-ca.pem' | sha256sum -c - \\",
+    "    && rm -rf /etc/ssl/certs /etc/ssl/verified-empty \\",
+    "    && mkdir -p /etc/ssl/certs /etc/ssl/verified-empty \\",
+    "    && install -m 0644 /run/capture-ca.pem /etc/ssl/certs/ca-certificates.crt",
+    "ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt",
+    "ENV SSL_CERT_DIR=/etc/ssl/verified-empty",
+  ]) requireExactBlock(failures, dockerfile, policy, 2, `both image stages require reviewed CA trust: ${policy}`);
+  requireExactBlock(failures, dockerfile, "ENV NODE_OPTIONS=--use-openssl-ca", 1, "Node must use the verified OpenSSL trust store");
+  if (dockerfile.indexOf("ENV SSL_CERT_DIR=") > dockerfile.indexOf("RUN rustup target add")) failures.push("CA isolation must precede the Rust target download");
   for (const copy of [
     "COPY --from=rust-toolchain /usr/local/cargo /usr/local/cargo",
     "COPY --from=rust-toolchain /usr/local/rustup /usr/local/rustup",
@@ -137,7 +148,7 @@ fi`,
     ".github/containers/zuuli-store-capture/**",
     ".github/workflows/zuuli-store-capture-image.yml",
     ".github/workflows/zuuli.yml",
-    "docs/ZUULI-STORE-CAPTURE-IMAGE.md",
+    "docs/zuuli/build/ZUULI-STORE-CAPTURE-IMAGE.md",
     "scripts/check-zuuli-store-capture-image.mjs",
   ]) {
     requireExactly(failures, workflow, `      - ${path}`, 2, `image workflow must trigger on ${path}`);
@@ -264,7 +275,7 @@ fi`,
     "|scripts/check-zuuli-store-capture-image.mjs|",
     "|.github/containers/zuuli-store-capture/*|",
     "|.github/workflows/zuuli-store-capture-image.yml|",
-    "|docs/ZUULI-STORE-CAPTURE-IMAGE.md)",
+    "|docs/zuuli/build/ZUULI-STORE-CAPTURE-IMAGE.md)",
   ]) {
     const actual = gate
       .split("\n")
@@ -291,7 +302,8 @@ function assertValid(documents) {
 function selfTest(documents) {
   assertValid(documents);
   const mutants = [
-    ["unpinned Rust base", "dockerfile", rustImage, "rust:1.97.1-slim-bookworm"],
+        ["Node reverts to bundled roots", "dockerfile", "ENV NODE_OPTIONS=--use-openssl-ca", "ENV NODE_OPTIONS="],
+        ["unpinned Rust base", "dockerfile", rustImage, "rust:1.97.1-slim-bookworm"],
     ["wrong Rust target toolchain", "dockerfile", "--toolchain 1.97.1", "--toolchain 1.97.0"],
     ["missing WASM target", "dockerfile", "wasm32-unknown-unknown", "wasm32-wasi"],
     ["unpinned Playwright base", "dockerfile", playwrightImage, "mcr.microsoft.com/playwright:latest"],

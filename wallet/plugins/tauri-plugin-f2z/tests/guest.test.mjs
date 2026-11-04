@@ -1,0 +1,76 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+const sent = [];
+let rejectWith;
+globalThis.window = { __TAURI_INTERNALS__: { invoke: async (...args) => {
+  sent.push(args);
+  if (rejectWith) { const e = rejectWith; rejectWith = undefined; throw e; }
+  return null;
+} } };
+const { nativeBridge } = await import('../dist/index.js');
+test('caller keys and exact quantities reach native unchanged', async () => {
+  await nativeBridge.createPurchase({ rail: 'zcash', quantity2z: '18446744073709551615', idempotencyKey: 'known-before-invoke' });
+  assert.deepEqual(sent.pop(), ['plugin:f2z|create_purchase', { request: { rail: 'zcash', quantity2z: '18446744073709551615', idempotencyKey: 'known-before-invoke' } }, undefined]);
+  await nativeBridge.startChat({ model: 'x', messages: [], max_output_tokens: '9007199254740993' }, { operationId: 'op', idempotencyKey: 'key' });
+  assert.equal(sent.at(-1)[1].request.max_output_tokens, '9007199254740993');
+  assert.deepEqual(sent.at(-1)[1].operation, { operationId: 'op', idempotencyKey: 'key' });
+});
+test('pull and cancel address only their caller-owned operation', async () => {
+  await nativeBridge.nextChat('op');
+  assert.equal(sent.at(-1)[0], 'plugin:f2z|next_chat');
+  await nativeBridge.cancelChat('op');
+  assert.deepEqual(sent.at(-1)[1], { operationId: 'op' });
+});
+test('guest exports no token, raw request or URL callback method', () => {
+  assert.deepEqual(Object.keys(nativeBridge).sort(), ['balance','billingUrl','call','cancelChat','createPurchase','deleteAccountUrl','estimate','grant','manageAccountUrl','models','nextChat','openBilling','openCheckout','openDeleteAccount','openManageAccount','purchase','reportCall','session','signIn','signOut','startChat','waitForCall','waitForPurchase'].sort());
+});
+
+test('account exits take no URL from the webview', async () => {
+  for (const [method, name] of [['manageAccountUrl', 'manage_account_url'], ['openManageAccount', 'open_manage_account'],
+    ['deleteAccountUrl', 'delete_account_url'], ['openDeleteAccount', 'open_delete_account'],
+    ['billingUrl', 'billing_url'], ['openBilling', 'open_billing']]) {
+    await nativeBridge[method]('https://evil.example/');
+    assert.deepEqual(sent.pop(), [`plugin:f2z|${name}`, {}, undefined]);
+  }
+});
+
+test('switch-account options reach native unchanged', async () => {
+  await nativeBridge.signIn({ prompt: 'login', ephemeral: true });
+  assert.deepEqual(sent.pop(), ['plugin:f2z|sign_in', { options: { prompt: 'login', ephemeral: true } }, undefined]);
+});
+
+test('reportCall sends the call, reason and only a present detail', async () => {
+  await nativeBridge.reportCall('019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c', 'unsafe');
+  assert.deepEqual(sent.pop(), ['plugin:f2z|report_call', { callId: '019a2f1c-9c7b-7e21-8a3d-4b5e6f7a8b9c', reason: 'unsafe' }, undefined]);
+  await nativeBridge.reportCall('c', 'incorrect', 'wrong_grade');
+  assert.deepEqual(sent.pop()[1], { callId: 'c', reason: 'incorrect', detail: 'wrong_grade' });
+});
+
+test('grant proof invokes only the bearer-bound native command', async () => {
+  await nativeBridge.grant();
+  assert.deepEqual(sent.pop(), ['plugin:f2z|grant', {}, undefined]);
+});
+
+test('sign-in rejection codes reach the app unchanged', async () => {
+  for (const code of ['user_cancelled', 'browser_unavailable', 'timeout', 'browser_error']) {
+    rejectWith = { code, retryable: false };
+    await assert.rejects(nativeBridge.signIn(), (e) => e.code === code && e.retryable === false);
+    assert.equal(sent.at(-1)[0], 'plugin:f2z|sign_in');
+  }
+});
+
+test('models returns the native catalogue unchanged: booleans stay booleans, amounts stay decimals', async () => {
+  const catalogue = { catalog_version: '7', includes_markup_bps: '0', models: [{
+    id: 'gpt-4o', provider: 'openai', display_name: null, context_window: '128000', max_output_tokens: '16384',
+    capabilities: { vision: false, tools: false, reasoning: false, structured_output: true },
+    prices: { input_milli_2z_per_mtok: '300000' }, min_charge_2z: '1', ttfb_timeout_ms: '60000',
+  }] };
+  const internals = globalThis.window.__TAURI_INTERNALS__, original = internals.invoke;
+  internals.invoke = async (...args) => { sent.push(args); return catalogue; };
+  try {
+    const result = await nativeBridge.models();
+    assert.deepEqual(sent.pop(), ['plugin:f2z|models', {}, undefined]);
+    assert.equal(result.models[0].capabilities.structured_output, true);
+    assert.equal(result.models[0].prices.input_milli_2z_per_mtok, '300000');
+  } finally { internals.invoke = original; }
+});

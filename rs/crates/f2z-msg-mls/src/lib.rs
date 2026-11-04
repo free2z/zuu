@@ -1,7 +1,7 @@
 //! The MLS engine for free2z messaging — RFC 9420, hybrid post-quantum, one
 //! crypto core, and every state change atomic.
 //!
-//! `docs/e2ee/ARCHITECTURE.md` §5 is the specification; this is the
+//! `docs/free2z/messaging/ARCHITECTURE.md` §5 is the specification; this is the
 //! implementation of it. One MLS group per conversation or room, 1:1 included.
 //!
 //! # What is settled, and why it is not re-litigated here

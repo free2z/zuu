@@ -32,7 +32,7 @@ physical Android device evidence. No account, credential or conversation is
 invented. `capture.json` names the reviewed plan/source; `capture-record.json`
 pins the six PNGs, source and tooling digests, and two identical capture passes.
 
-See [capture evidence and reproduction](../../../docs/release/SURFACE-STORE-CAPTURE.md).
+See [capture evidence and reproduction](../../../docs/free2z/app-suite/release/SURFACE-STORE-CAPTURE.md).
 The validator decodes the saved screenshot bytes and checks dimensions, RGB,
 size, hash, embedded text and the complete record/manifest matrix. Undeclared
 PNGs and publication approval are rejected.

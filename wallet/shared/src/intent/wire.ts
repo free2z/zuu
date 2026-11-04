@@ -2,7 +2,7 @@
  * The version-1 intent wire format, client side.
  *
  * Byte-for-byte the format `rs/crates/f2z-intent/src/wire.rs` implements and
- * `docs/intent-bridge/PROTOCOL.md` §3 specifies. The two are held together by
+ * `docs/free2z/intent-bridge/PROTOCOL.md` §3 specifies. The two are held together by
  * a hex constant written down in both suites rather than by either one
  * trusting the other — `#564`'s rule: an encoder and a decoder that move
  * together stay green through a format break.

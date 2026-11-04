@@ -366,7 +366,7 @@ function later(fn: () => void, ms: number): void {
  * caller knows and this function cannot derive from a string. `username ===
  * ""` is a string like any other and runs the full pipeline below: `handle.rs`
  * `eligibility()` states the empty case explicitly as `"punctuation"`
- * (`docs/e2ee/WIRE.md` §14.1), because `{1,30}` has a length ceiling but no
+ * (`docs/free2z/messaging/WIRE.md` §14.1), because `{1,30}` has a length ceiling but no
  * floor of its own, and every restatement of the rule — this one included —
  * MUST agree (#838). The charset check below uses `+`, not `*`, so the empty
  * candidate reaches that branch on its own rather than needing a special case

@@ -34,7 +34,7 @@
 //! plainer: this binary's dependency graph is its attack surface, and a leveled
 //! writer to stderr is forty lines.
 //!
-//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0004-metadata-ambition.md
+//! [ADR 0004]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0004-metadata-ambition.md
 
 use std::fmt;
 use std::io::Write as _;

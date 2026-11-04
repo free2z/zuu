@@ -665,7 +665,7 @@ mod tests {
         let genesis = directory.genesis();
         let accepted = accept(&directory, &genesis, None, 0).expect("a valid registration");
         // Composed from the prefix rather than written out as one literal.
-        // `scripts/check-hash-domain-labels.mjs` reads every tracked file, and
+        // `scripts/free2z/check-hash-domain-labels.mjs` reads every tracked file, and
         // a fixture that spells the whole composed label mints a token that is
         // not prefix-free against the prefix constant itself — a finding about
         // a test string rather than about the protocol. The assertion is

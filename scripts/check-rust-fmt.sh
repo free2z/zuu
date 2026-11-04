@@ -12,7 +12,7 @@
 #
 # The tree defaults to wallet/. A second top-level Rust namespace is gated by
 # pointing --root at it; its rust-toolchain.toml is a restatement of
-# wallet/rust-toolchain.toml, not a second decision, and
+# rust-toolchain.toml, not a second decision, and
 # scripts/check-rust-toolchain.sh is what holds it to that.
 #
 # Crates are discovered rather than listed. A new crate under the tree is gated

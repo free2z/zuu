@@ -122,7 +122,7 @@ fn every_usage_path_publishes_the_library_epoch_ceiling() {
         assert_eq!(output.status.success(), !args.is_empty());
         let stdout = String::from_utf8(output.stdout).unwrap();
         assert_eq!(stdout, EXPECTED_HELP);
-        assert_eq!(fnv1a64(stdout.as_bytes()), 0xd869_f92d_9457_63b0);
+        assert_eq!(fnv1a64(stdout.as_bytes()), 0xe324_25f5_58b2_7300);
         assert!(stdout.contains(&ACCOUNT_EPOCH_CEILING.to_string()));
         assert_eq!(
             ascii_numbers(&stdout),

@@ -39,9 +39,9 @@
 //! feature exposing a loudly-named constructor — and it should be made when
 //! there is a real second backend, not in advance of one.
 //!
-//! [s63]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#63-what-delivered-means
-//! [s64]: https://github.com/free2z/zuu/blob/main/docs/e2ee/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
-//! [s84]: https://github.com/free2z/zuu/blob/main/docs/e2ee/WIRE.md#84-where-this-sits-in-the-four-delivery-states
+//! [s63]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#63-what-delivered-means
+//! [s64]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/ARCHITECTURE.md#64-delete-on-ack-and-lost-acknowledgements
+//! [s84]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/WIRE.md#84-where-this-sits-in-the-four-delivery-states
 //! [`RelayStore`]: crate::RelayStore
 
 use core::fmt;

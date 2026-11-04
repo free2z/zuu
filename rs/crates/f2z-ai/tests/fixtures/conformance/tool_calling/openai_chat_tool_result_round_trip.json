@@ -1,0 +1,237 @@
+{
+  "name": "openai_chat_tool_result_round_trip",
+  "feature": "tool_calling",
+  "source": "OpenAI Chat Completions history shape: assistant message with content null and tool_calls[{id,type:function,function{name,arguments}}], then role \"tool\" with tool_call_id. The same shape xAI documents. Synthetic. Migrated from tests/fixtures/tool_calling/tool_result_round_trip.json (#1142) with the same assertions.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "tools": true
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "You are a patient algebra tutor. Grade answers with check_answer."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [],
+        "tool_calls": [
+          {
+            "id": "call_q1",
+            "name": "check_answer",
+            "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_q1",
+        "content": [
+          {
+            "type": "text",
+            "text": "{\"correct\":true}"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "check_answer",
+        "description": "Grade a student's answer to one question.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "question_id": {
+              "type": "string"
+            },
+            "answer": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "question_id",
+            "answer"
+          ],
+          "additionalProperties": false
+        }
+      }
+    ],
+    "tool_choice": "none"
+  },
+  "expect": {
+    "refusal": null,
+    "provider_request": {
+      "tools": [
+        {
+          "type": "function",
+          "function": {
+            "name": "check_answer",
+            "description": "Grade a student's answer to one question.",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "question_id": {
+                  "type": "string"
+                },
+                "answer": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "question_id",
+                "answer"
+              ],
+              "additionalProperties": false
+            }
+          }
+        }
+      ],
+      "tool_choice": "none",
+      "messages": [
+        {
+          "role": "system",
+          "content": "You are a patient algebra tutor. Grade answers with check_answer."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Q1: solve 2x + 3 = 11. My answer: x = 4"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": null,
+          "tool_calls": [
+            {
+              "id": "call_q1",
+              "type": "function",
+              "function": {
+                "name": "check_answer",
+                "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+              }
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "tool_call_id": "call_q1",
+          "content": "{\"correct\":true}"
+        }
+      ],
+      "parallel_tool_calls": null
+    },
+    "provider_stream": [
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant",
+              "content": ""
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "Correct! "
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "content": "x = 4."
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "stop"
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-fixture",
+        "object": "chat.completion.chunk",
+        "created": 1759600000,
+        "model": "gpt-4o-2024-08-06",
+        "choices": [],
+        "usage": {
+          "prompt_tokens": 140,
+          "completion_tokens": 6,
+          "total_tokens": 146
+        }
+      },
+      "[DONE]"
+    ],
+    "events": [
+      {
+        "type": "delta",
+        "text": "Correct! "
+      },
+      {
+        "type": "delta",
+        "text": "x = 4."
+      }
+    ],
+    "finish_reason": "stop",
+    "usage": {
+      "input_tokens": 140,
+      "output_tokens": 6,
+      "tool_calls": 0
+    },
+    "encodings": {},
+    "hold_extends": 0
+  }
+}

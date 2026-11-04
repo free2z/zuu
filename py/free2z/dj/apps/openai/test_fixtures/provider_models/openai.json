@@ -1,0 +1,20 @@
+{
+  "object": "list",
+  "data": [
+    {"id": "gpt-4o", "object": "model", "created": 1715367049, "owned_by": "system"},
+    {"id": "gpt-4o-2024-08-06", "object": "model", "created": 1722814719, "owned_by": "system"},
+    {"id": "gpt-4o-mini", "object": "model", "created": 1721172741, "owned_by": "system"},
+    {"id": "gpt-4.1", "object": "model", "created": 1744316542, "owned_by": "system"},
+    {"id": "gpt-5", "object": "model", "created": 1754425432, "owned_by": "system"},
+    {"id": "gpt-5.5", "object": "model", "created": 1776902400, "owned_by": "system"},
+    {"id": "gpt-5.6-sol", "object": "model", "created": 1771372800, "owned_by": "system"},
+    {"id": "gpt-5.6-terra", "object": "model", "created": 1771372800, "owned_by": "system"},
+    {"id": "gpt-5.6-luna", "object": "model", "created": 1771372800, "owned_by": "system"},
+    {"id": "gpt-6-astra", "object": "model", "created": 1778457600, "owned_by": "system"},
+    {"id": "o3", "object": "model", "created": 1744225308, "owned_by": "system"},
+    {"id": "text-embedding-3-small", "object": "model", "created": 1705948997, "owned_by": "system"},
+    {"id": "gpt-image-1", "object": "model", "created": 1745517030, "owned_by": "system"},
+    {"id": "whisper-1", "object": "model", "created": 1677532384, "owned_by": "openai-internal"},
+    {"id": "tts-1", "object": "model", "created": 1681940951, "owned_by": "openai-internal"}
+  ]
+}

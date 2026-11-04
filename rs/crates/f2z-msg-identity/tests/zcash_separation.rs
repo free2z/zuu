@@ -40,7 +40,7 @@
 //! that stops being true silently.
 //!
 //! [#311]: https://github.com/free2z/zuu/issues/311
-//! [ADR 0006]: https://github.com/free2z/zuu/blob/main/docs/e2ee/decisions/0006-zcash-coupling.md
+//! [ADR 0006]: https://github.com/free2z/zuu/blob/main/docs/free2z/messaging/decisions/0006-zcash-coupling.md
 
 #![allow(
     clippy::unwrap_used,
@@ -203,7 +203,7 @@ fn no_zcash_key_is_reachable_from_any_messaging_key_path() {
     let messaging = messaging_key_material();
 
     // Both sides must be non-trivial, or the disjointness below is vacuous.
-    // This is the shape of check `scripts/check-hash-domain-labels.mjs` calls a
+    // This is the shape of check `scripts/free2z/check-hash-domain-labels.mjs` calls a
     // coverage anchor, and it is here for the same reason: a scan that reaches
     // almost nothing passes forever.
     assert!(
