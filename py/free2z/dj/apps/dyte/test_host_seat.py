@@ -656,7 +656,7 @@ def test_kick_participants_is_best_effort(mocker, settings, status_code,
     from dj.apps.dyte.client import DyteClient
 
     settings.RTK_API_BASE_URL = 'https://rtk.test'
-    post = mocker.patch('dj.apps.dyte.client.requests.post')
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post')
     post.return_value.status_code = status_code
 
     assert DyteClient('org').kick_participants('room', ['p1']) is confirmed
@@ -669,7 +669,7 @@ def test_kick_participants_swallows_a_network_error(mocker):
     import requests as requests_lib
     from dj.apps.dyte.client import DyteClient
 
-    mocker.patch('dj.apps.dyte.client.requests.post',
+    mocker.patch('dj.apps.dyte.client._SESSION.post',
                  side_effect=requests_lib.ConnectionError('down'))
     assert DyteClient('org').kick_participants('room', ['p1']) is False
 
@@ -679,10 +679,10 @@ def test_retire_participant_kicks_then_deletes(mocker, settings):
 
     settings.RTK_API_BASE_URL = 'https://rtk.test'
     calls = []
-    delete = mocker.patch('dj.apps.dyte.client.requests.delete')
+    delete = mocker.patch('dj.apps.dyte.client._SESSION.delete')
     delete.return_value.status_code = 200
     delete.side_effect = lambda *a, **k: calls.append('delete') or delete.return_value
-    post = mocker.patch('dj.apps.dyte.client.requests.post')
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post')
     post.return_value.status_code = 200
     post.side_effect = lambda *a, **k: calls.append('kick') or post.return_value
 

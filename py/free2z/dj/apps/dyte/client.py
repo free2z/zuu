@@ -9,8 +9,13 @@ dc.get_participants_count(c.livestream.meeting_id)
 """
 import re
 import uuid
+import threading
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from requests.auth import HTTPBasicAuth
+from django.core.cache import cache
+from django.core.cache import caches
 
 from django.conf import settings
 
@@ -21,6 +26,152 @@ from .models import CreatorMeeting
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+# Reuse TCP/TLS connections across provider calls in each worker. Only GETs
+# are retried: POSTs create meetings/participants and must remain single-shot.
+_SESSION_LOCAL = threading.local()
+
+
+def _session():
+    """Return a connection-pooled session owned by the current worker thread."""
+    session = getattr(_SESSION_LOCAL, "session", None)
+    if session is None:
+        session = requests.Session()
+        session.mount("https://", HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=50,
+            max_retries=Retry(
+                total=2, connect=2, read=2, status=2, backoff_factor=0.2,
+                status_forcelist=(502, 503, 504),
+                allowed_methods=frozenset({"GET"}),
+                respect_retry_after_header=True,
+            ),
+        ))
+        _SESSION_LOCAL.session = session
+    return session
+
+
+class _ThreadLocalSessionProxy:
+    def get(self, *args, **kwargs):
+        return _session().get(*args, **kwargs)
+
+    def post(self, *args, **kwargs):
+        return _session().post(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        return _session().delete(*args, **kwargs)
+
+
+# Keep the established patch seam while routing real requests to thread-local
+# Sessions (requests.Session itself is not documented as thread-safe).
+_SESSION = _ThreadLocalSessionProxy()
+PARTICIPANT_COUNT_TTL = 12
+PARTICIPANT_COUNT_STALE_TTL = 300
+_COUNT_LOCKS_GUARD = threading.Lock()
+_COUNT_LOCKS = {}
+
+
+def _count_lock(key):
+    with _COUNT_LOCKS_GUARD:
+        return _COUNT_LOCKS.setdefault(key, threading.Lock())
+
+
+def _count_cache_keys(meeting_id):
+    return (
+        f"dyte:participants:v2:recent:{meeting_id}",
+        f"dyte:participants:v2:last-known:{meeting_id}",
+    )
+
+
+def _count_generation_key(meeting_id):
+    return f"dyte:participants:v2:generation:{meeting_id}:current"
+
+
+def _count_sequence_key():
+    return "dyte:participants:v2:generation:sequence"
+
+
+_COUNT_BEGIN_LUA = """
+local generation = redis.call('INCR', KEYS[1])
+redis.call('SET', KEYS[2], tostring(generation) .. ':' .. ARGV[1], 'EX', ARGV[2])
+return generation
+"""
+_COUNT_WRITE_LUA = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[4])
+redis.call('SET', KEYS[3], ARGV[2], 'EX', ARGV[5])
+return 1
+"""
+
+
+def _raw_redis():
+    backend = cache
+    if backend.__class__.__module__ == 'django.utils.connection':
+        backend = caches['default']
+    client = getattr(backend, 'client', None)
+    get_client = getattr(client, 'get_client', None)
+    return get_client(write=True) if get_client is not None else None
+
+
+def _cache_key(key):
+    return cache.make_key(key) if hasattr(cache, 'make_key') else key
+
+
+def _count_generation(meeting_id):
+    """Allocate a never-reused Redis generation and its unique probe token."""
+    token = uuid.uuid4().hex
+    current_key = _count_generation_key(meeting_id)
+    redis = _raw_redis()
+    if redis is not None:
+        generation = redis.eval(
+            _COUNT_BEGIN_LUA, 2, _cache_key(_count_sequence_key()),
+            _cache_key(current_key), token, PARTICIPANT_COUNT_STALE_TTL,
+        )
+        return f"{generation}:{token}"
+    # The declared non-production backend is LocMemCache: one process and
+    # _count_lock serializes its entire miss/probe/write path. Never expire or
+    # recycle its counter while that process is alive.
+    key = _count_sequence_key()
+    with _COUNT_LOCKS_GUARD:
+        generation = getattr(_count_generation, '_local', {})
+        value = generation.get(key, 0) + 1
+        generation[key] = value
+        _count_generation._local = generation
+    try:
+        cache.set(
+            current_key, f"{value}:{token}",
+            PARTICIPANT_COUNT_STALE_TTL,
+        )
+    except Exception:
+        logger.warning("participant count generation unavailable", exc_info=True)
+        return None
+    return f"{value}:{token}"
+
+
+def _write_count_if_current(meeting_id, generation, count):
+    """Atomically fence and write both count snapshots."""
+    if generation is None:
+        return
+    recent_key, stale_key = _count_cache_keys(meeting_id)
+    redis = _raw_redis()
+    if redis is not None:
+        redis.eval(
+            _COUNT_WRITE_LUA, 3,
+            _cache_key(_count_generation_key(meeting_id)),
+            _cache_key(recent_key), _cache_key(stale_key), generation,
+            count, PARTICIPANT_COUNT_TTL, PARTICIPANT_COUNT_STALE_TTL,
+        )
+        return
+    # LocMemCache is explicitly process-local. The caller still owns its
+    # per-meeting process lock here, so this two-key fallback cannot race or
+    # outlive an expiring distributed lease. Unknown backends fail closed.
+    backend = caches['default'] if cache.__class__.__module__ == 'django.utils.connection' else cache
+    if backend.__class__.__module__.endswith('.locmem'):
+        if cache.get(_count_generation_key(meeting_id)) != generation:
+            return
+        cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
+        cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
 
 
 def _safe_json(response) -> dict:
@@ -218,7 +369,7 @@ class DyteClient(object):
         headers = {
             "Content-Type": "application/json",
         }
-        response = requests.get(
+        response = _SESSION.get(
             url, headers=headers, auth=auth, timeout=_timeout()
         )
         if response.status_code == 404:
@@ -230,8 +381,54 @@ class DyteClient(object):
         # Any other non-2xx (401/403 auth, 5xx provider,...) is a genuine
         # failure and must not be mistaken for an empty room.
         response.raise_for_status()
-        logger.debug(f"get_participants_count response = {response.json()}")
-        return response.json().get('data', {}).get('live_participants', 0)
+        body = response.json()
+        data = body.get('data') if isinstance(body, dict) else None
+        count = data.get('live_participants') if isinstance(data, dict) else None
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError("Provider response has no valid live participant count")
+        logger.debug("get_participants_count response = %s", body)
+        return count
+
+    def get_cached_participants_count(self, meeting_id) -> int:
+        """Return a short-cached count, retaining the last result on failure."""
+        recent_key, stale_key = _count_cache_keys(meeting_id)
+        try:
+            cached = cache.get(recent_key)
+        except Exception:
+            logger.warning("participant count cache read failed", exc_info=True)
+            cached = None
+        if cached is not None:
+            return cached
+        # Coalesce misses in this process. Separate workers may still probe
+        # concurrently; the shared generation fences their cache writes below.
+        with _count_lock(meeting_id):
+            try:
+                cached = cache.get(recent_key)
+            except Exception:
+                cached = None
+            if cached is not None:
+                return cached
+            try:
+                generation = _count_generation(meeting_id)
+            except Exception:
+                logger.warning("participant count generation unavailable", exc_info=True)
+                generation = None
+            try:
+                count = self.get_participants_count(meeting_id)
+            except Exception:
+                try:
+                    stale = cache.get(stale_key)
+                except Exception:
+                    logger.warning("stale participant count cache read failed", exc_info=True)
+                    stale = None
+                if stale is not None:
+                    return stale
+                raise
+            try:
+                _write_count_if_current(meeting_id, generation, count)
+            except Exception:
+                logger.warning("participant count cache write failed", exc_info=True)
+            return count
 
     # Dyte carnage on backwards compatibility
     # Actually a regression
@@ -336,7 +533,7 @@ class DyteClient(object):
             "Content-Type": "application/json",
         }
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
-        response = requests.post(
+        response = _SESSION.post(
             url, json=payload, headers=headers, auth=auth, timeout=_timeout()
         )
         #.data.id
@@ -361,7 +558,7 @@ class DyteClient(object):
         )
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
         try:
-            response = requests.post(
+            response = _SESSION.post(
                 url, json={"participant_ids": ids},
                 headers={"Content-Type": "application/json"},
                 auth=auth, timeout=_timeout(),
@@ -423,7 +620,7 @@ class DyteClient(object):
         )
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
         try:
-            response = requests.delete(
+            response = _SESSION.delete(
                 url, headers={"Content-Type": "application/json"},
                 auth=auth, timeout=_timeout(),
             )
@@ -496,7 +693,8 @@ class DyteClient(object):
         return False
 
     def add_participant(
-        self, creator: Creator, meeting_id: str, *, role: str = None, custom_participant_id: str = None,
+        self, creator: Creator, meeting_id: str, *, role: str = None,
+        custom_participant_id: str = None, cm: CreatorMeeting = None,
     ) -> requests.Response:
         """
         import requests
@@ -518,9 +716,10 @@ class DyteClient(object):
         """
         # url = /v2/meetings/{meetingId}/participants
         url = f"{settings.RTK_API_BASE_URL}/v2/meetings/{meeting_id}/participants"
-        cm = CreatorMeeting.objects.get(meeting_id=meeting_id)
+        if cm is None:
+            cm = CreatorMeeting.objects.select_related('creator').get(meeting_id=meeting_id)
 
-        logger.info(f"meeting owner = {cm.creator.username}, participant = {creator.username}")
+        logger.info("meeting owner id=%s, participant=%s", cm.creator_id, creator.username)
 
         # RealtimeKit fetches participant pictures in the browser. Legacy
         # free2z.com URLs redirect across origins and fail CSP/CORS on the
@@ -551,13 +750,6 @@ class DyteClient(object):
             logger.info("participant is joining someone else's meeting")
             preset = "webinar-participant"
 
-        if custom_participant_id is None and cm.meeting_type=='ppv' and creator.is_authenticated and creator.pk==cm.creator_id:
-            from dj.apps.economy.models import EconomicPolicy
-            if EconomicPolicy.objects.filter(pk=True,version=1).exists():
-                # Usernames cannot impersonate a compensated admission. Both
-                # host starts and the host's own viewer seat use this identity.
-                custom_participant_id=f'ph_{creator.public_id.hex}'
-
         payload = {
             "name": username,
             "picture": picture_url,
@@ -568,7 +760,7 @@ class DyteClient(object):
             "Content-Type": "application/json",
         }
         auth = HTTPBasicAuth(self.org, settings.DYTE_KEY)
-        response = requests.post(
+        response = _SESSION.post(
             url, json=payload, headers=headers, auth=auth, timeout=_timeout()
         )
         # NEVER log the response body, on ANY path. On success it contains

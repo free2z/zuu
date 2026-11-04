@@ -133,10 +133,9 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
       if (signal?.aborted || get(liveStreamStore).meeting !== meeting) return;
       if (state === "disconnected") {
         liveStreamStore.setConnectionStatus("disconnected");
-        liveStreamStore.setError(
-          translateMessage(RTK_MESSAGES.disconnected),
-          RTK_MESSAGES.disconnected.key,
-        );
+        // RealtimeKit reconnects transient socket drops itself. Keep the
+        // meeting mounted while the viewer waits for roomJoined.
+        liveStreamStore.setError(null, null);
       } else if (state === "failed") {
         liveStreamStore.setConnectionStatus("failed");
         liveStreamStore.setError(
@@ -152,6 +151,7 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
     meeting.self.on("roomJoined", () => {
       if (signal?.aborted || get(liveStreamStore).meeting !== meeting) return;
       liveStreamStore.setConnectionStatus("connected");
+      liveStreamStore.setError(null, null);
     });
 
     // Listen for media permission errors during the call
@@ -159,8 +159,27 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
       console.warn(`Permission denied for ${kind}`);
     });
 
-    // Set status to idle/ready (waiting for user to join via UI)
-    liveStreamStore.setConnectionStatus("idle");
+    // Host and private meetings expose the provider's pre-join screen so the
+    // user can review and change camera/microphone settings before joining.
+    // Calling join() here would skip that deliberate user action. Public
+    // viewers join immediately; keep that explicit join in this manager so
+    // provider join failures reach the viewer's normal retry/error path.
+    if (!isHost && streamType !== "private") {
+      try {
+        await meeting.join();
+        signal?.throwIfAborted();
+        liveStreamStore.setConnectionStatus("connected");
+      } catch (joinError) {
+        unbindEvents();
+        if (get(liveStreamStore).meeting === meeting) liveStreamStore.reset();
+        try {
+          await meeting.leave();
+        } catch {
+          /* A rejected join may already have torn the room down. */
+        }
+        throw joinError;
+      }
+    }
 
     // Return cleanup function and meeting instance
     return {

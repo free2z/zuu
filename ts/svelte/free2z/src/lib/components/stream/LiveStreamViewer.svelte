@@ -4,12 +4,15 @@
   import { fade } from "svelte/transition";
   import {
     StreamService,
+    clearPpvJoinKey,
     PaymentRequiredError,
     liveStatusQueryKey,
     type StreamInfo,
   } from "$lib/services/stream";
   import { createQuery, useQueryClient } from "@tanstack/svelte-query";
+  import { listenForPpvAdmissionJoin } from "$lib/ppv-admission-join.js";
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
+  import { streamRetryDelay } from "$lib/utils/stream-recovery";
   import { liveStreamStore, meetingStore } from "$lib/stores/liveStreamStore";
   import type { PublicStreamType } from "$lib/services/stream";
   import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
@@ -94,8 +97,10 @@
 
   // Retry logic
   let retryCount = 0;
-  const MAX_RETRIES = 5;
-  let retryTimeout: NodeJS.Timeout;
+  const MAX_RETRY_DELAY = 30_000;
+  const DISCONNECT_GRACE = 20_000;
+  let retryTimeout: ReturnType<typeof setTimeout> | undefined;
+  let disconnectTimeout: ReturnType<typeof setTimeout> | undefined;
 
   $: if (expectedActorId !== originalViewerActorId) {
     joinController?.abort();
@@ -103,6 +108,7 @@
     cleanup = null;
     if (previousCleanup) void previousCleanup();
     clearTimeout(retryTimeout);
+    retryTimeout = undefined;
     loading = false;
     errorSource = new LocalizedError({
       key: "economy.signInAgain",
@@ -244,14 +250,29 @@
     errorSource = storeError;
     errorCode = storeErrorCode;
     loading = false;
-    // If we are disconnected unexpectedly, we might want to try auto-reconnecting
-    if (
-      connectionStatus === "disconnected" &&
-      !isOffline &&
-      retryCount < MAX_RETRIES
-    ) {
-      handleRetry();
-    }
+  }
+
+  // Connection state, rather than the optional provider error, owns recovery.
+  // RealtimeKit clears its error as soon as a transient disconnect begins.
+  $: if (connectionStatus === "connected") {
+    clearTimeout(disconnectTimeout);
+    clearTimeout(retryTimeout);
+    disconnectTimeout = undefined;
+    retryTimeout = undefined;
+    retryCount = 0;
+    errorSource = null;
+    errorCode = null;
+    loading = false;
+  } else if (connectionStatus === "disconnected" && !isOffline) {
+    clearTimeout(disconnectTimeout);
+    disconnectTimeout = setTimeout(() => {
+      disconnectTimeout = undefined;
+      if (connectionStatus === "disconnected" && !isOffline) scheduleRetry();
+    }, DISCONNECT_GRACE);
+  } else {
+    clearTimeout(disconnectTimeout);
+    disconnectTimeout = undefined;
+    if (connectionStatus === "failed" && !isOffline) scheduleRetry();
   }
 
   // React to stream end
@@ -292,9 +313,7 @@
   function handleOnline() {
     liveStreamStore.setOffline(false);
     toast.success($t("stream.backOnline", "You are back online!"));
-    if (error && !isPaymentRequired) {
-      handleRetry();
-    }
+    if (!meeting && !isPaymentRequired) scheduleRetry();
   }
 
   function handleOffline() {
@@ -307,19 +326,31 @@
     );
   }
 
+  function handleVisibilityChange() {
+    if (
+      document.visibilityState === "visible" &&
+      !isOffline &&
+      !meeting &&
+      error
+    ) {
+      scheduleRetry();
+    }
+  }
+
   onMount(async () => {
     // Register RealtimeKit web components
     defineCustomElements();
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     // Initial check
     if (!navigator.onLine) {
       handleOffline();
     }
 
-    await joinStream();
+    if (navigator.onLine) await joinStream();
   });
 
   // `onDestroy` is the ONE lifecycle hook Svelte also runs on the SERVER, at
@@ -341,8 +372,11 @@
     if (browser) {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     }
     clearTimeout(retryTimeout);
+    retryTimeout = undefined;
+    clearTimeout(disconnectTimeout);
   });
 
   async function joinStream(retry = false) {
@@ -352,6 +386,8 @@
     joinController = controller;
     const { signal } = controller;
     clearTimeout(retryTimeout);
+    retryTimeout = undefined;
+    clearTimeout(disconnectTimeout);
     const operationNotice = captureAccountToast();
     if (cleanup) {
       const previousCleanup = cleanup;
@@ -360,10 +396,7 @@
       if (signal.aborted) return;
     }
 
-    loading = true;
-    if (!retry) {
-      retryCount = 0;
-    }
+    loading = !meeting;
 
     errorSource = null;
     errorCode = null;
@@ -373,12 +406,27 @@
     insufficientFunds = null;
 
     try {
+      let meetingSessionId: string | undefined;
+      if (streamType === "ppv") {
+        const status = await StreamService.checkLiveStatus(username);
+        if (signal.aborted) return;
+        meetingSessionId = status.streams.find(
+          (stream) => stream.type === "ppv",
+        )?.session_id;
+        if (!meetingSessionId)
+          throw new LocalizedError({
+            key: "stream.errors.notLive",
+            fallback: "This creator is not currently live.",
+          });
+      }
       // 1. Get Auth Token
-      const { auth_token } = await StreamService.initStream(
-        username,
-        streamType,
-        { role: "viewer", expectedActorId: originalViewerActorId, signal },
-      );
+      const { auth_token, admission_idempotency_key: admissionKey } =
+        await StreamService.initStream(username, streamType, {
+          role: "viewer",
+          expectedActorId: originalViewerActorId,
+          signal,
+          meetingSessionId,
+        });
 
       if (signal.aborted) return;
 
@@ -398,6 +446,25 @@
         return;
       }
       cleanup = result.cleanup;
+      if (streamType === "ppv" && originalViewerActorId) {
+        // RealtimeKit initialization can finish before the room has joined.
+        // Keep the admission key through that ambiguous interval.
+        const clearAfterJoin = () => {
+          if (admissionKey && meetingSessionId)
+            clearPpvJoinKey(
+              username,
+              originalViewerActorId!,
+              admissionKey,
+              meetingSessionId,
+              "ppv",
+            );
+        };
+        if ($liveStreamStore.connectionStatus === "connected") {
+          clearAfterJoin();
+        } else if (result.meeting) {
+          listenForPpvAdmissionJoin(result.meeting, signal, clearAfterJoin);
+        }
+      }
       dismissActionToasts();
       warningSource = result.warning ?? null;
       warningCode = result.warningCode ?? null;
@@ -428,6 +495,15 @@
         err instanceof PaymentRequiredError ? err.funds : null;
       if (err instanceof LocalizedError && err.code === "economy.signInAgain") {
         clearTimeout(retryTimeout);
+        loading = false;
+        return;
+      }
+      if (
+        err instanceof LocalizedError &&
+        err.code === "stream.subscribe.storageUnavailable"
+      ) {
+        clearTimeout(retryTimeout);
+        operationNotice.error(localizedStreamError(err, null, $t));
         loading = false;
         return;
       }
@@ -473,14 +549,8 @@
         }
 
         if (signal.aborted) return;
-        if (retryCount < MAX_RETRIES) {
-          // Auto-retry for non-payment errors (likely network or transient)
-          const delay = Math.pow(2, retryCount) * 1000; // Exponential backoff
-          console.log(
-            `Retrying in ${delay}ms... (Attempt ${retryCount + 1}/${MAX_RETRIES})`,
-          );
-          retryCount++;
-          retryTimeout = setTimeout(() => joinStream(true), delay);
+        if (!isOffline && document.visibilityState !== "hidden") {
+          scheduleRetry();
           if (
             err instanceof LocalizedError &&
             err.code === "stream.errors.verificationUnavailable"
@@ -498,7 +568,24 @@
 
   function handleRetry() {
     clearTimeout(retryTimeout);
-    joinStream();
+    retryTimeout = undefined;
+    if (!isOffline) void joinStream(true);
+  }
+
+  function scheduleRetry() {
+    if (
+      destroyed ||
+      isOffline ||
+      document.visibilityState === "hidden" ||
+      retryTimeout
+    )
+      return;
+    const delay = streamRetryDelay(retryCount, Math.random, MAX_RETRY_DELAY);
+    retryCount++;
+    retryTimeout = setTimeout(() => {
+      retryTimeout = undefined;
+      void joinStream(true);
+    }, delay);
   }
 
   function openSubscribe() {
@@ -513,7 +600,18 @@
 <div
   class="relative flex h-full min-h-0 w-full flex-col items-center justify-center overflow-hidden rounded-lg bg-black"
 >
-  {#if loading}
+  {#if meeting && connectionStatus !== "ended"}
+    <div class="absolute inset-0">
+      <InlineRtkMeeting {meeting} translator={rtkTranslator} />
+      <MeetingRecordingNotice {meeting} {serverRecording} />
+      <RtkAudioHealth
+        {meeting}
+        mode={isHost ? "host" : "viewer"}
+        onReconnect={handleRetry}
+      />
+    </div>
+  {/if}
+  {#if loading && !meeting && !isOffline}
     <div
       class="flex max-h-full flex-col items-center gap-4 overflow-y-auto text-white"
       transition:fade
@@ -527,9 +625,8 @@
         </p>
         {#if retryCount > 0}
           <p class="text-sm text-gray-400">
-            {$t("stream.retryAttempt", "Attempt {current}/{total}", {
+            {$t("stream.retryAttemptUnbounded", "Retry attempt {current}", {
               current: retryCount,
-              total: MAX_RETRIES,
             })}
           </p>
           <Button
@@ -544,7 +641,7 @@
     </div>
   {:else if isOffline}
     <div
-      class="flex max-h-full max-w-md flex-col items-center gap-4 overflow-y-auto p-8 text-center text-white"
+      class="absolute inset-0 z-40 flex max-h-full max-w-md flex-col items-center justify-center gap-4 overflow-y-auto bg-black/80 p-8 text-center text-white"
       transition:fade
     >
       <div
@@ -568,6 +665,26 @@
         <RefreshCw class="mr-2 h-4 w-4" />
         {$t("stream.reconnect", "Reconnect")}
       </Button>
+    </div>
+  {:else if connectionStatus === "disconnected"}
+    <div
+      class="absolute inset-0 z-30 flex items-center justify-center bg-black/70 text-white"
+      role="status"
+    >
+      <div class="flex flex-col items-center gap-3">
+        <Loader2 class="h-8 w-8 animate-spin text-primary" />
+        <p>{$t("stream.reconnecting", "Reconnecting...")}</p>
+      </div>
+    </div>
+  {:else if connectionStatus === "failed"}
+    <div
+      class="absolute inset-0 z-30 flex items-center justify-center bg-black/70 text-white"
+      role="status"
+    >
+      <div class="flex flex-col items-center gap-3">
+        <Loader2 class="h-8 w-8 animate-spin text-primary" />
+        <p>{$t("stream.retryingConnection", "Retrying connection...")}</p>
+      </div>
     </div>
   {:else if connectionStatus === "ended"}
     <div
@@ -683,14 +800,6 @@
       {/if}
     </div>
   {:else if meeting}
-    <InlineRtkMeeting {meeting} translator={rtkTranslator} />
-    <MeetingRecordingNotice {meeting} {serverRecording} />
-    <RtkAudioHealth
-      {meeting}
-      mode={isHost ? "host" : "viewer"}
-      onReconnect={handleRetry}
-    />
-
     <!-- Persistent Warning for Host (e.g. Permission Denied) -->
     {#if warning && isHost}
       <div

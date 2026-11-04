@@ -298,6 +298,19 @@ test("the PPV prompt moves no money and gates on the join reserve", () => {
   assert.match(source, /\{#if canJoin\}/);
 });
 
+test("a PPV admission key survives until RealtimeKit confirms roomJoined", () => {
+  const service = read("src/lib/services/stream.ts");
+  const viewer = read("src/lib/components/stream/LiveStreamViewer.svelte");
+  const keys = read("src/lib/ppv-admission-key.js");
+  assert.match(service, /admission_idempotency_key:\s*admissionIdempotencyKey/);
+  assert.match(keys, /meeting session/);
+  assert.match(keys, /current !== expectedKey/);
+  assert.doesNotMatch(service, /clearPpvJoinKey\(username, originalViewerId\)/);
+  assert.match(viewer, /listenForPpvAdmissionJoin\(result\.meeting, signal/);
+  assert.match(viewer, /meetingSessionId/);
+  assert.match(viewer, /checkLiveStatus\(username\)/);
+});
+
 test("payment dialogs clear refusals on close and keep an affordable retry reachable", () => {
   const dialogs = [
     "src/lib/components/profile/ProfileDonate.svelte",
