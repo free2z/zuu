@@ -32,6 +32,7 @@ pub async fn sign_in<R: Runtime>(
     options: wire::SignInOptions,
 ) -> Result<Value> {
     authorized(&webview, &state)?;
+    let ephemeral = options.ephemeral.unwrap_or(false);
     let options = options.into_core()?;
     let state = Arc::clone(state.inner());
     // Keep the transition guard alive even if the invoking webview disappears.
@@ -44,7 +45,7 @@ pub async fn sign_in<R: Runtime>(
         let (owner, generation, cancel) = state.engine.begin_auth(webview.window().label())?;
         let result = tokio::select! { biased;
             () = cancel.cancelled() => Err(NativeError::new("cancelled")),
-            value = state.platform.sign_in(&state.engine.client, options) => value
+            value = state.platform.sign_in(&state.engine.client, options, ephemeral) => value
         };
         if cancel.is_cancelled() {
             // Core installation may already be detached. Queue clearing behind
@@ -167,6 +168,9 @@ pub async fn estimate<R: Runtime>(
         })
         .await
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn create_purchase<R: Runtime>(
     webview: Webview<R>,
@@ -209,6 +213,9 @@ pub async fn create_purchase<R: Runtime>(
         .await
         .map_err(|e| e.key(&request.idempotency_key))
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn purchase<R: Runtime>(
     webview: Webview<R>,
@@ -230,6 +237,9 @@ pub async fn purchase<R: Runtime>(
         })
         .await
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn wait_for_purchase<R: Runtime>(
     webview: Webview<R>,
@@ -253,6 +263,9 @@ pub async fn wait_for_purchase<R: Runtime>(
         })
         .await
 }
+// Deprecated in the core since 0.4.0 (apps don't sell 2Z), kept working for
+// apps built on 0.3.0.
+#[allow(deprecated)]
 #[tauri::command]
 pub async fn open_checkout<R: Runtime>(
     webview: Webview<R>,
@@ -275,6 +288,70 @@ pub async fn open_checkout<R: Runtime>(
             state.platform.open(url.into()).await
         })
         .await
+}
+/// `{web origin}/account/apps?client_id=…`, built from native configuration.
+#[tauri::command]
+pub async fn manage_account_url<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<String> {
+    authorized(&webview, &state)?;
+    Ok(state.engine.client.manage_account_url().to_owned())
+}
+/// `{web origin}/account/delete`.
+#[tauri::command]
+pub async fn delete_account_url<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<String> {
+    authorized(&webview, &state)?;
+    Ok(state.engine.client.delete_account_url().to_owned())
+}
+/// Open the manage-account page in the system browser, never a webview. The
+/// URL comes from native configuration: JavaScript cannot choose what opens.
+#[tauri::command]
+pub async fn open_manage_account<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<()> {
+    authorized(&webview, &state)?;
+    let url = state.engine.client.manage_account_url().to_owned();
+    state.platform.open_external(url).await
+}
+/// Open the delete-account page in the system browser, never a webview.
+#[tauri::command]
+pub async fn open_delete_account<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<()> {
+    authorized(&webview, &state)?;
+    let url = state.engine.client.delete_account_url().to_owned();
+    state.platform.open_external(url).await
+}
+/// `{web origin}/buy-2z?client_id=…`: the user's Free2Z billing page, built
+/// from native configuration. Opt-in: only reachable through the explicit
+/// `f2z:allow-billing-url` permission, which no default grants.
+#[tauri::command]
+pub async fn billing_url<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<String> {
+    authorized(&webview, &state)?;
+    Ok(state.engine.client.billing_url().to_owned())
+}
+/// Open the Free2Z billing page in the system browser, never a webview. The
+/// URL comes from native configuration: JavaScript cannot choose what opens.
+/// Opt-in: only reachable through the explicit `f2z:allow-open-billing`
+/// permission, which no default grants. A store build that must not link to
+/// payment (Google Play; iOS outside the US storefront) never grants it.
+#[tauri::command]
+pub async fn open_billing<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+) -> Result<()> {
+    authorized(&webview, &state)?;
+    let url = state.engine.client.billing_url().to_owned();
+    state.platform.open_external(url).await
 }
 #[tauri::command]
 pub async fn start_chat<R: Runtime>(
@@ -353,6 +430,38 @@ pub async fn wait_for_call<R: Runtime>(
                     .client
                     .ai()
                     .wait_for_call(&call_id, duration)
+                    .await
+                    .map_err(NativeError::from)?,
+            )
+        })
+        .await
+}
+/// Report a call's AI output (`spec/chat-api.md` §7.1). The reason and detail are
+/// checked here first, so a refused value never reaches the network.
+#[tauri::command]
+pub async fn report_call<R: Runtime>(
+    webview: Webview<R>,
+    state: State<'_, Arc<PluginState<R>>>,
+    call_id: String,
+    reason: String,
+    detail: Option<String>,
+) -> Result<Value> {
+    authorized(&webview, &state)?;
+    let reason = wire::report_request(
+        &call_id,
+        &reason,
+        detail.as_deref(),
+        state.engine.client.child_directed(),
+    )?;
+    state
+        .engine
+        .read(async {
+            wire::value(
+                &state
+                    .engine
+                    .client
+                    .ai()
+                    .report_call(&call_id, reason, detail.as_deref())
                     .await
                     .map_err(NativeError::from)?,
             )

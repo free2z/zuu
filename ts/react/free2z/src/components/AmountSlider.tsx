@@ -2,7 +2,8 @@ import * as React from 'react';
 import Grid from '@mui/material/Grid';
 import Slider from '@mui/material/Slider';
 import { InputAdornment, Stack, TextField } from '@mui/material';
-import { DEFAULT_TUZI_AMOUNT, TUZI_PER_ZEC } from './TuzisDialog';
+import { DEFAULT_TUZI_AMOUNT } from './TuzisDialog';
+import { BOOTSTRAP_TUZIS_PER_ZEC } from '../hooks/useTuziPricing';
 import TuziIcon from './TuziIcon';
 import ZcashIcon from './ZcashIcon';
 
@@ -12,9 +13,13 @@ export interface SliderProps {
     // max: number
     value: number
     setValue: React.Dispatch<React.SetStateAction<number>>
+    // Live, spread-adjusted 2Z-per-ZEC rate (issue ). Falls back to the
+    // historical constant when live pricing is unavailable.
+    tuziPerZec?: number
 }
 
 export default function AmountSlider(props: SliderProps) {
+    const tuziPerZec = props.tuziPerZec || BOOTSTRAP_TUZIS_PER_ZEC;
 
     const handleSliderChange = (event: Event, newValue: number | number[]) => {
         props.setValue(newValue as number);
@@ -25,7 +30,7 @@ export default function AmountSlider(props: SliderProps) {
     };
 
     const handleZECInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        props.setValue(Number(event.target.value) * TUZI_PER_ZEC);
+        props.setValue(Number(event.target.value) * tuziPerZec);
     };
 
     const handleBlur = () => {
@@ -49,7 +54,7 @@ export default function AmountSlider(props: SliderProps) {
             spacing={2}
         >
             <TextField
-                value={props.value / TUZI_PER_ZEC}
+                value={props.value / tuziPerZec}
                 size="small"
                 // variant=
                 fullWidth

@@ -485,14 +485,37 @@ Reclaiming build output **without** removing the worktree is the conservative
 middle option for a branch somebody still wants: it costs a cold rebuild and
 loses nothing.
 
-### For agent-created worktrees
+### Teardown is part of the task
 
-An agent that creates a worktree owns it and removes it in the same session —
-including the ones the harness creates under `.claude/worktrees/agent-*`, which
-stay **locked** while their agent is running and become removable once it
-reports. Prune yours as soon as its review finishes rather than at the end of a
-batch; a long session otherwise accumulates several full `target/` trees at
-once.
+A worktree is never a deliverable. One sweep pruned 37 zuu worktrees, 2
+librustzcash worktrees and ~45 local branches, every one left by an agent whose
+PR had already merged. So:
+
+- **The worker owns teardown.** Its last step, once its PR is merged or closed,
+  is to remove its worktree and delete its local branch (step 6 of the iron
+  rule). If the worker ends before the merge, the orchestrator does it right
+  after merging. That includes the harness's `.claude/worktrees/agent-*`, which
+  stay **locked** while their agent runs and become removable once it reports.
+- **Review, land and merge scratch checkouts** (detached HEADs, `review/*`,
+  `land/*`, `merge/*`, `rev*`) are removed as soon as the review is posted or
+  the PR is landed, not at the end of a batch.
+- **The Agent tool's `isolation: "worktree"` removes the directory but leaves a
+  `worktree-agent-<id>` branch.** Delete it too.
+- **Never remove anything holding work that exists nowhere else.** Both must be
+  empty / `0`: `git -C <wt> status --porcelain` and
+  `git -C <wt> rev-list --count HEAD --not --remotes`. Otherwise push the
+  commits, or `git bundle create <file> <branch> --not --remotes` them, first.
+  "Merged" means the PR's `headRefOid` equals the local tip (or the tip is in
+  the PR's commit list), never `git branch --merged`.
+- **Submodule worktrees count.** A worktree of a `z/` submodule (e.g.
+  `z/zcash/librustzcash`) gets its branch pushed to the free2z fork before
+  removal. Opening a PR upstream is still governed by that project's
+  contribution gate.
+- **The orchestrator sweeps after merging:** `git worktree list` in zuu and in
+  every `z/` submodule with worktrees (`git -C z/<org>/<repo> worktree list`),
+  then `git branch --list 'worktree-agent-*'`, and prunes whatever has a
+  terminal PR: `MERGED` on sight, `CLOSED` once its commits are on a remote or
+  in a bundle.
 
 ## Project scope and namespaces
 
@@ -504,6 +527,17 @@ Do not describe one application's architecture, roadmap, status, dependency
 constraints, or quickstart as the whole repository's. Register documentation
 ownership in `scripts/project-namespaces.json`; the required namespace check
 allows additional owners and rejects retired ambiguous locations.
+
+## Interactive cursor contract
+
+Every enabled surface activated by pointer input computes to `cursor: pointer`.
+Prefer native elements and shared primitives. Custom interactive surfaces also
+need an appropriate role, keyboard focusability, and keyboard activation.
+Disabled controls never show a pointer. Text selection, drag, resize, and zoom
+surfaces keep their purpose-specific cursors. Use the shared `Label`'s
+`control` prop only for a label actually associated with a checkbox,
+radio, switch, or file input. The primitive derives disabled and missing-target
+state from the DOM. Text-input labels retain the default cursor.
 
 ## Practical notes
 

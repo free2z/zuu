@@ -2,6 +2,7 @@ import { failure } from "./error.js";
 import { object, string, uint } from "./json.js";
 import type {
   Balance,
+  CallReport,
   EnforcementReason,
   Grant,
   CallRecord,
@@ -279,6 +280,23 @@ export function grant(value: unknown): Grant {
     as_of: asOf,
   };
 }
+export function callReport(value: unknown, callId: string): CallReport {
+  const d = validated(value);
+  const report = string(d.report_id),
+    call = string(d.call_id),
+    created = string(d.created_at),
+    reason = string(d.reason);
+  if (!report || call !== callId || !utcTimestamp(created))
+    failure("invalid_response");
+  return {
+    report_id: report,
+    call_id: call,
+    reason: ["incorrect", "inappropriate", "unsafe", "other"].includes(reason)
+      ? (reason as CallReport["reason"])
+      : "unknown",
+    created_at: created,
+  };
+}
 export function balance(value: unknown): Balance {
   const d = validated(value);
   return {
@@ -297,13 +315,18 @@ export function session(value: unknown): Session {
     (d.persistence !== "persistent" && d.persistence !== "memory_only")
   )
     failure("invalid_response");
-  return {
+  const result: Session = {
     signedIn: d.signedIn,
     subject: d.subject === null ? null : string(d.subject),
     grantedScopes: d.grantedScopes.map(string),
     persistence: d.persistence,
     generation: string(d.generation),
   };
+  // Additive: absent from older plugins and without `profile`.
+  if (d.preferredUsername !== undefined)
+    result.preferredUsername = string(d.preferredUsername);
+  if (d.name !== undefined) result.name = string(d.name);
+  return result;
 }
 export function purchase(value: unknown): Purchase {
   const d = validated(value),

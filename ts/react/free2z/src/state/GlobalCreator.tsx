@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useQuery } from 'react-query';
 import axios from 'axios';
 import { useGlobalState } from './global';
+import { retireResolvedSubscribeIdempotencyKeys } from '../subscribeIdempotency';
 
 function fetchUserData() {
     // console.log('[GET auth/user] fetchUserData');
@@ -23,6 +24,24 @@ export default function GlobalCreator() {
             // console.log("GLOBAL authstatus true")
             setAuthStatus(true);
             setCreator(data);
+            // An ACTIVE membership resolves an outstanding subscribe
+            // idempotency key, and this is the only place in the classic app
+            // that always sees the authoritative list -- the subscribe dialog
+            // is not mounted while the fan is subscribed. A purchase whose
+            // response was lost otherwise strands its key, and the receipt
+            // binds that key to the price paid: after the membership expires
+            // and the creator moves their price, every new attempt is a
+            // permanent 409 idempotency_mismatch (codex adversarial review of
+            // ). Retirement is on resolution, never on a clock.
+            // The payer is passed because localStorage is per BROWSER:
+            // another account's membership must not retire this one's
+            // outstanding purchase. See the helper.
+            retireResolvedSubscribeIdempotencyKeys(
+                data.stars,
+                data.id,
+                data.star_ids,
+                data.username,
+            );
         }
         if (error) {
             // console.log("GLOBAL authstatus false", error)
