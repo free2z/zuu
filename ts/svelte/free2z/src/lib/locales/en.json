@@ -1123,7 +1123,14 @@
     "aiTextDiscard": "Discard",
     "aiTextDestination": "Your prompt will be sent to {destination}.",
     "aiTextMaxCharge": "Maximum charge: {price} 2Z. The actual charge is metered from usage and may be lower.",
-    "aiTextAvailability": "Availability: {availability} Queue: {queue}"
+    "aiTextAvailability": "Availability: {availability} Queue: {queue}",
+    "aiTextQuoteError": "Could not price this prompt. Check the prompt and try again.",
+    "aiTextRetryError": "The result is uncertain. Retry this exact request to safely recover it, or keep it pending before changing provider.",
+    "aiTextRetry": "Retry exact request",
+    "aiTextPending": "A prior request may have completed. Retry the exact same request to recover its result; its provider and price are locked.",
+    "aiTextEffectiveCap": "Reply cap for this prompt: {tokens} tokens (requested: {requested}).",
+    "aiTextEmpty": "No text models are currently available.",
+    "aiTextCatalogueRetry": "Retry model list"
   },
   "dashboard": {
     "pages": {

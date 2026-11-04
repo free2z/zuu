@@ -44,32 +44,36 @@
   } | null>(null);
   let ownership = authStore.captureRequestOwnership();
   let editorIdentity = crypto.randomUUID();
+  let priorActor = "";
   const pendingKey = (id: string) =>
     `f2z:editor-ai-text-intent:v1:${encodeURIComponent(id)}`;
 
   async function load() {
     const loadActor = actor,
-      seq = ++quoteSequence;
+      seq = ++quoteSequence,
+      own = authStore.captureRequestOwnership();
     loading = true;
     try {
       const response = await apiFetch("/api/ai/creator-options/");
       if (!response.ok) throw new Error("load");
       const data = (await response.json()) as CreatorAIOptionsResponse;
-      if (seq !== quoteSequence || actor !== loadActor) return;
+      if (seq !== quoteSequence || actor !== loadActor || !own()) return;
       choices = data.completion ?? [];
       if (!choices.some((choice) => choice.id === model))
         model = choices[0]?.id ?? "";
     } catch {
-      if (seq === quoteSequence && actor === loadActor)
+      if (seq === quoteSequence && actor === loadActor && own())
         error = $t(
           "editor.aiTextLoadError",
           "AI text models are unavailable. Try again later.",
         );
     } finally {
-      if (seq === quoteSequence && actor === loadActor) loading = false;
+      if (seq === quoteSequence && actor === loadActor && own())
+        loading = false;
       if (
         seq === quoteSequence &&
         actor === loadActor &&
+        own() &&
         choices.length === 0 &&
         !error
       )
@@ -113,7 +117,14 @@
       )
         quote = result;
     } catch {
-      if (seq === quoteSequence && actor === capturedActor)
+      if (
+        seq === quoteSequence &&
+        actor === capturedActor &&
+        prompt === capturedPrompt &&
+        model === capturedModel &&
+        draft === capturedDraft &&
+        own()
+      )
         error = $t(
           "editor.aiTextQuoteError",
           "Could not price this prompt. Check the prompt and try again.",
@@ -219,12 +230,32 @@
     preview = null;
   });
   $effect(() => {
-    actor;
+    const currentActor = actor;
+    if (priorActor && currentActor !== priorActor) prompt = "";
+    priorActor = currentActor;
     ownership = authStore.captureRequestOwnership();
     generation++;
     preview = null;
     quote = null;
     busy = false;
+    pending = null;
+    try {
+      const saved = localStorage.getItem(pendingKey(actor));
+      if (saved) {
+        const candidate = JSON.parse(saved);
+        if (
+          candidate?.actor === actor &&
+          typeof candidate.key === "string" &&
+          candidate.body?.model &&
+          candidate.body?.prompt &&
+          candidate.body?.quote_token &&
+          Number.isInteger(candidate.body?.max_output_tokens)
+        )
+          pending = candidate;
+      }
+    } catch {
+      /* keep malformed or inaccessible recovery data out of the UI */
+    }
     void load();
   });
   import { onMount } from "svelte";

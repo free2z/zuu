@@ -1128,7 +1128,9 @@
     "aiTextRetryError": "El resultado es incierto. Repite la misma solicitud para recuperarlo de forma segura.",
     "aiTextRetry": "Repetir la misma solicitud",
     "aiTextPending": "Una solicitud anterior pudo completarse. Repite exactamente la misma solicitud para recuperar el resultado; el proveedor y el precio están bloqueados.",
-    "aiTextEffectiveCap": "Límite de respuesta: {tokens} tokens (solicitados: {requested})."
+    "aiTextEffectiveCap": "Límite de respuesta: {tokens} tokens (solicitados: {requested}).",
+    "aiTextEmpty": "No hay modelos de texto disponibles en este momento.",
+    "aiTextCatalogueRetry": "Volver a cargar la lista de modelos"
   },
   "dashboard": {
     "pages": {

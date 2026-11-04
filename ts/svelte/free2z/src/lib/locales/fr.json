@@ -1128,7 +1128,9 @@
     "aiTextRetryError": "Le résultat est incertain. Réessayez exactement la même demande pour le récupérer sans risque.",
     "aiTextRetry": "Réessayer la demande exacte",
     "aiTextPending": "Une demande précédente a peut-être abouti. Réessayez exactement la même demande pour récupérer son résultat ; fournisseur et prix sont verrouillés.",
-    "aiTextEffectiveCap": "Limite de réponse : {tokens} jetons (demandés : {requested})."
+    "aiTextEffectiveCap": "Limite de réponse : {tokens} jetons (demandés : {requested}).",
+    "aiTextEmpty": "Aucun modèle de texte n’est disponible pour le moment.",
+    "aiTextCatalogueRetry": "Recharger la liste des modèles"
   },
   "dashboard": {
     "pages": {
