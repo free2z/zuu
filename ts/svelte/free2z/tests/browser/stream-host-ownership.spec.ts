@@ -1476,6 +1476,7 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
   await expect(recordButton).toBeVisible();
   await expect(meeting).toBeVisible();
   await expect(meeting).toHaveCount(1);
+  await expect(header.locator("..")).not.toHaveAttribute("inert", "");
   await page.evaluate(async (loader) => {
     const { liveStreamStore } = await new Function(loader)();
     (window as any).__privateMeetingBeforeRecovery =
@@ -1488,7 +1489,7 @@ test("a private meeting stays mounted through offline and reconnecting overlays"
     page.getByRole("heading", { name: "You are Offline" }),
   ).toBeVisible();
   await expect(header).toBeVisible();
-  await expect(recordButton).toBeVisible();
+  await expect(header.locator("..")).toHaveAttribute("inert", "");
   await expect(meeting).toBeVisible();
   await expect(meeting).toHaveCount(1);
   expect(

@@ -498,7 +498,12 @@
       </Button>
     </div>
   {:else if meeting}
-    <div class="relative flex min-h-0 flex-1 flex-col">
+    <div
+      class="relative flex min-h-0 flex-1 flex-col"
+      inert={isOffline ||
+        connectionStatus === "disconnected" ||
+        connectionStatus === "failed"}
+    >
       <div
         data-testid="private-call-header"
         class="flex shrink-0 flex-wrap items-center gap-2 border-b border-white/10 px-3 py-2"
