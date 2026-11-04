@@ -94,21 +94,12 @@ export default function KYCPage() {
         }
         setLoading(false)
         setLoginModal(false)
-        if (Number(creator.tuzis) < 150) {
-            setSnackbar({
-                open: true,
-                severity: 'warning',
-                message: 'You need at least 150 to apply for revenue share.',
-                duration: null,
-            });
-            navigate('/profile')
-        }
     }, [creator.username, setLoading, setLoginModal, authStatus])
 
     return (
         <>
             <Helmet>
-                <title>Apply for Revenue Share</title>
+                <title>Creator verification</title>
             </Helmet>
             <Stepper
                 activeStep={state.activeStep}
@@ -122,14 +113,13 @@ export default function KYCPage() {
             >
                 {/* Explanation */}
                 <Step>
-                    <StepLabel>Applying for Revenue Share</StepLabel>
+                    <StepLabel>Creator verification</StepLabel>
                     <StepContent>
                         <Container sx={{ mt: 1, textAlign: 'left' }}>
                             <Typography variant="body1" gutterBottom>
-                                Welcome to our secure and streamlined revenue-sharing program.
-                                Before we can process payments,
-                                we are legally required to verify your identity and
-                                ensure compliance with Anti-Money Laundering (AML) regulations.
+                                Complete the creator verification application. Usage credits are not required to apply.
+                                Payment review may require tax information. Verification and tax signatures
+                                are separate from acceptance of a compensation agreement in Credits & Earnings.
                             </Typography>
                             <Typography variant="body1" gutterBottom>
                                 Our process is simple and straightforward:

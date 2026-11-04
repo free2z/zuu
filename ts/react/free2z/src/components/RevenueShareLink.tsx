@@ -5,9 +5,8 @@ import { useTransitionNavigate } from "../hooks/useTransitionNavigate";
 import { useQuery } from "react-query";
 
 export function RevenueShareLink() {
-    const [creator, setCreator] = useGlobalState("creator");
     const navigate = useTransitionNavigate()
-    const [snackbar, setSnackBar] = useGlobalState("snackbar")
+    const [, setSnackBar] = useGlobalState("snackbar")
 
     const { data: userData, isLoading, isError } = useQuery(
         'userInfo', () => axios.get('/api/kyc/user-profile'), {
@@ -23,20 +22,19 @@ export function RevenueShareLink() {
         return <Typography>Error loading data</Typography>;
     }
 
-    const tuzisCount = parseInt(creator.tuzis);
     const applicationStatus = userData?.data?.application_status;
 
     if (applicationStatus === "REJECTED") {
         // Hide the entire component for "REJECTED" status
         return <Typography>
-            Sorry, you are not eligible for revenue share at this time.
+            Your verification application was not approved. Contact support for next steps.
         </Typography>;
     }
 
     if (applicationStatus === "PENDING") {
         return (
             <Typography variant="caption">
-                Your application for revenue share is under review.
+                Your verification application is under review.
             </Typography>
         );
     }
@@ -45,7 +43,7 @@ export function RevenueShareLink() {
         return (
             <Stack direction="column" spacing={1}>
                 <Typography variant="caption">
-                    You are approved for the revenue sharing program!
+                    Your verification application is approved. Compensation agreement acceptance and future eligibility are separate.
                 </Typography>
                 <Link href=""
                     onClick={() => {
@@ -70,15 +68,9 @@ export function RevenueShareLink() {
         );
     }
 
-    // Default case: Link to /profile/kyc if the creator has enough tuzis and status is "NEW"
-    return tuzisCount < 1000 ? (
-        <Typography variant="caption">
-            You need at least 1000 tuzis to apply for revenue share.
-            You currently have {tuzisCount} tuzis.
-        </Typography>
-    ) : (
+    return (
         <Link href="/profile/kyc" underline="hover">
-            Apply for Revenue Share
+            Creator verification application
         </Link>
-    )
+    );
 }

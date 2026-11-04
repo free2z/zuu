@@ -1,26 +1,42 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { tStore as t } from "$lib/i18n";
+  import { autoGrowTextarea } from "./autoGrow";
 
   interface Props {
     value: string;
     error?: string;
+    /**
+     * The direction the TITLE is written in — the article's, never the
+     * creator's UI locale. `"auto"` while the language is unknown,
+     * which on a `<textarea>` the browser re-resolves on every keystroke.
+     */
+    direction?: "ltr" | "rtl" | "auto";
+    /** The title's content language, or undefined for an unlabelled draft. */
+    language?: string;
     onChange?: () => void;
     onSubmit?: () => void;
   }
 
-  let { value = $bindable(), error, onChange, onSubmit }: Props = $props();
+  let {
+    value = $bindable(),
+    error,
+    direction = "auto",
+    language,
+    onChange,
+    onSubmit,
+  }: Props = $props();
 
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
   let resizeFrame: number | null = null;
 
+  // Same auto-grow, same hazard as the body: the title lives on the
+  // same scroll-the-document `/edit` page, so its collapse clamps the page
+  // scroll too. The symptom is milder only because a title is one or two lines
+  // the mechanism is identical. No height floor here: the title hugs its
+  // content.
   function resize() {
-    if (!textareaRef) {
-      return;
-    }
-
-    textareaRef.style.height = "auto";
-    textareaRef.style.height = `${textareaRef.scrollHeight}px`;
+    autoGrowTextarea(textareaRef);
   }
 
   function scheduleResize() {
@@ -89,6 +105,8 @@
   <textarea
     bind:this={textareaRef}
     bind:value
+    dir={direction}
+    lang={language}
     placeholder={$t("editor.titlePlaceholder", "Article title...")}
     class="font-inherit w-full resize-none overflow-hidden border-none bg-transparent text-4xl leading-tight font-bold outline-none md:text-5xl {error
       ? 'text-[#c00]'
@@ -100,8 +118,7 @@
         event.preventDefault();
         onSubmit?.();
       }
-    }}
-  ></textarea>
+    }}></textarea>
 
   {#if error}
     <p class="mt-1 mb-2 text-sm text-red-500">{error}</p>

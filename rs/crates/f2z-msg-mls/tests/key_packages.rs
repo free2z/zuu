@@ -147,13 +147,13 @@ const KEY_PACKAGE_EXHAUSTION_TEXT: &str = "12.6.6 Exhaustion, and the package of
 // contract; the exact §12.6 structure and prose are checked separately below.
 //
 // Because it covers the whole document, a paragraph edit anywhere trips it, and
-// that is the point: the pin moves only with a stated reason. It last moved in
-// #827 retires the reserved synchronized queue-exporter schedule in §7.5 and
-// keeps the shipping scope explicit: authenticated adverts install replacement
-// endpoints, while replacement creation/publication and overlap/drain remain
-// unautomated. §12.6, and every normative claim in it, is untouched, which the
-// structural and mutation assertions below independently confirm.
-const WIRE_RENDERED_PROSE_DIGEST: u64 = 1_422_405_720_327_637_711;
+// that is the point: the pin moves only with a stated reason. #827 retires the
+// reserved synchronized queue-exporter schedule in §7.5 and keeps replacement
+// creation, publication, and overlap/drain unautomated. #1231 updates the
+// handle documentation in §14 and its §16 summary. Both edits change rendered
+// prose outside the key-package authentication table. §12.6's exact structure
+// and mutation-sensitive normative assertions are checked independently below.
+const WIRE_RENDERED_PROSE_DIGEST: u64 = 11_114_910_413_065_253_335;
 
 fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
     markdown::stable_digest(rendered.paragraphs())

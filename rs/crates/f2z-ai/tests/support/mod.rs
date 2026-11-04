@@ -216,6 +216,7 @@ impl Gatekeeper for OpenGate {
                 agen: 1,
                 exp: u64::MAX,
                 jti: "test".into(),
+                child_directed: false,
             },
             lease: None,
         })

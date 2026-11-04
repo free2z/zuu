@@ -40,7 +40,7 @@
     "@tauri-apps/plugin-opener": "^2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
-    "dompurify": "3.4.14",
+    "dompurify": "3.4.17",
     "i18next": "^26.4.0",
     "i18next-icu": "^2.4.4",
     "intl-messageformat": "^11.2.14",

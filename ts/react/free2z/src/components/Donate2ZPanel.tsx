@@ -82,7 +82,7 @@ export default function Donate2ZPanel(props: Donate2ZPanelProps) {
                 direction="column" spacing={3}
                 alignItems="center"
             >
-                {/* <Typography>Donate 2Zs</Typography> */}
+                <Typography variant="body2">Share usage credits. This does not create USD earnings.</Typography>
                 {current.username &&
                     <TuzisButton {...current} />
                 }
@@ -95,7 +95,7 @@ export default function Donate2ZPanel(props: Donate2ZPanelProps) {
                                 maxWidth: "200px",
                             }}
                             size="small"
-                            helperText={error ? "Invalid amount" : "Number of 2Zs to donate"}
+                            helperText={error ? "Invalid amount" : "Number of usage credits to share"}
                             // fullWidth
                             error={error}
                             onChange={handleInputChange}
@@ -118,7 +118,7 @@ export default function Donate2ZPanel(props: Donate2ZPanelProps) {
                             }}
                             disabled={error}
                         >
-                            Donate
+                            Share 2Zs
                         </Button>
                         <Button
                             size="small"
@@ -129,7 +129,7 @@ export default function Donate2ZPanel(props: Donate2ZPanelProps) {
                             }}
                             disabled={error}
                         >
-                            Donate Anon
+                            Share with username hidden
                         </Button>
                     </Stack>
                 }
@@ -137,9 +137,9 @@ export default function Donate2ZPanel(props: Donate2ZPanelProps) {
                     <>
 
                         <Typography>
-                            Login to donate 2Zs.
+                            Log in to share 2Zs.
                         </Typography>
-                        <Tooltip title="Login to donate 2Zs">
+                        <Tooltip title="Log in to share 2Zs">
                             <IconButton
                                 onClick={() => {
                                     setLoginModal(true)

@@ -12,6 +12,7 @@ import moment from 'moment';
 import { useTransitionNavigate } from '../hooks/useTransitionNavigate';
 import { EventData } from '../hooks/useWebSocket';
 import { useMarkAsRead } from '../hooks/useMarkAsRead';
+import { openEventContentUrl } from '../eventContentUrl';
 
 
 export interface EventAPIResponse {
@@ -164,7 +165,7 @@ export default function EventFeed() {
                                                         onClick={(e) => {
                                                             e.preventDefault();
                                                             markRead.mutate(event.id);
-                                                            navigate(event.content_url)
+                                                            openEventContentUrl(event.content_url, navigate)
                                                         }}
                                                     >
                                                         {event.message}
