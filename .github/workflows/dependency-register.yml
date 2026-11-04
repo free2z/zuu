@@ -71,7 +71,7 @@ jobs:
   offline:
     name: dependency-register / offline
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Select verified CI trust before clients
@@ -127,7 +127,7 @@ jobs:
   upstream:
     name: dependency-register / upstream
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read

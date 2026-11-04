@@ -187,7 +187,7 @@ function check(
     "    name: Rust / Android 32-bit",
     "    needs: changes",
     "    if: needs.changes.outputs.rust == 'true'",
-    "    runs-on: ubuntu-latest",
+    "    runs-on: ubuntu-24.04",
     "    timeout-minutes: 35",
     "    steps:",
   ].join("\n");
@@ -263,7 +263,7 @@ function check(
   const expectedGateControls = [
     "  gate:",
     "    if: always()",
-    "    runs-on: ubuntu-latest",
+    "    runs-on: ubuntu-24.04",
     "    timeout-minutes: 5",
     "    steps:",
   ];
