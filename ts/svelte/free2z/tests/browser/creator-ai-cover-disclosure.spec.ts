@@ -140,7 +140,9 @@ test("text completion quotes a chosen model and requires preview acceptance", as
     .getByRole("button", { name: "Show price and destination" })
     .click();
   await expect(page.getByText(/Maximum charge: 4 2Z/)).toBeVisible();
-  await expect(page.getByText(/prompt goes to Anthropic/)).toBeVisible();
+  await expect(
+    page.getByText(/Your prompt will be sent to Anthropic/),
+  ).toBeVisible();
   await expect(
     page.getByRole("link", { name: "Provider privacy and retention policy" }),
   ).toHaveAttribute("href", textChoices[1].privacy_policy_url);

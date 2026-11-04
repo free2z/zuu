@@ -158,7 +158,13 @@
         body: JSON.stringify(intent.body),
       });
       if (!response.ok) {
-        if (response.status < 500 && response.status !== 408) {
+        let refusal: { key_resolved?: boolean } = {};
+        try {
+          refusal = await response.clone().json();
+        } catch {
+          /* unresolved */
+        }
+        if (refusal.key_resolved === true) {
           pending = null;
           localStorage.removeItem(pendingKey(submittedActor));
         }
@@ -208,16 +214,28 @@
     preview = null;
     quote = null;
     busy = false;
+    void load();
   });
   import { onMount } from "svelte";
   onMount(() => {
     try {
       const saved = localStorage.getItem(pendingKey(actor));
-      if (saved) pending = JSON.parse(saved);
+      if (saved) {
+        const candidate = JSON.parse(saved);
+        if (
+          candidate?.actor === actor &&
+          typeof candidate.key === "string" &&
+          candidate.body?.model &&
+          candidate.body?.prompt &&
+          candidate.body?.quote_token &&
+          Number.isInteger(candidate.body?.max_output_tokens)
+        )
+          pending = candidate;
+        else localStorage.removeItem(pendingKey(actor));
+      }
     } catch {
       /* ignore corrupt recovery */
     }
-    void load();
   });
 </script>
 
@@ -272,14 +290,26 @@
     {#if quote && !pending}
       <section aria-live="polite" class="grid gap-1 text-sm">
         <p>
-          {quote.choice.display_name} · {quote.choice.provider}; prompt goes to {quote
-            .choice.destination}.
+          {quote.choice.display_name} · {quote.choice.provider}; {$t(
+            "editor.aiTextDestination",
+            "Your prompt will be sent to {destination}.",
+            { destination: quote.choice.destination },
+          )}
         </p>
         <p>
-          Maximum charge: {quote.max_charge_2z} 2Z; actual charge is metered and may
-          be lower.
+          {$t(
+            "editor.aiTextMaxCharge",
+            "Maximum charge: {price} 2Z. The actual charge is metered from usage and may be lower.",
+            { price: quote.max_charge_2z },
+          )}
         </p>
-        <p>{quote.availability} {quote.queue}</p>
+        <p>
+          {$t(
+            "editor.aiTextAvailability",
+            "Availability: {availability} Queue: {queue}",
+            { availability: quote.availability, queue: quote.queue },
+          )}
+        </p>
         <a
           class="underline"
           href={quote.choice.privacy_policy_url}

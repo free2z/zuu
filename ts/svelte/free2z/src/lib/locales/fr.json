@@ -1120,7 +1120,10 @@
     "aiTextPreview": "Preview — nothing has been inserted yet",
     "aiTextCharged": "Charged {price} 2Z",
     "aiTextAccept": "Insert text",
-    "aiTextDiscard": "Discard"
+    "aiTextDiscard": "Discard",
+    "aiTextDestination": "Votre demande sera envoyée à {destination}.",
+    "aiTextMaxCharge": "Frais maximum : {price} 2Z. Les frais réels sont calculés selon l’utilisation et peuvent être inférieurs.",
+    "aiTextAvailability": "Disponibilité : {availability} File d’attente : {queue}"
   },
   "dashboard": {
     "pages": {

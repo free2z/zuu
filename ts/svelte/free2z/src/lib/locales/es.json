@@ -1120,7 +1120,10 @@
     "aiTextPreview": "Preview — nothing has been inserted yet",
     "aiTextCharged": "Charged {price} 2Z",
     "aiTextAccept": "Insert text",
-    "aiTextDiscard": "Discard"
+    "aiTextDiscard": "Discard",
+    "aiTextDestination": "Tu solicitud se enviará a {destination}.",
+    "aiTextMaxCharge": "Cargo máximo: {price} 2Z. El cargo real se calcula según el uso y puede ser menor.",
+    "aiTextAvailability": "Disponibilidad: {availability} Cola: {queue}"
   },
   "dashboard": {
     "pages": {

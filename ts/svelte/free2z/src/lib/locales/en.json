@@ -1120,7 +1120,10 @@
     "aiTextPreview": "Preview — nothing has been inserted yet",
     "aiTextCharged": "Charged {price} 2Z",
     "aiTextAccept": "Insert text",
-    "aiTextDiscard": "Discard"
+    "aiTextDiscard": "Discard",
+    "aiTextDestination": "Your prompt will be sent to {destination}.",
+    "aiTextMaxCharge": "Maximum charge: {price} 2Z. The actual charge is metered from usage and may be lower.",
+    "aiTextAvailability": "Availability: {availability} Queue: {queue}"
   },
   "dashboard": {
     "pages": {
