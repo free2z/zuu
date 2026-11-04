@@ -10595,6 +10595,10 @@ components:
       description: 'Crate ``ModelControls``: signed narrowing of what a capability
         admits.'
       properties:
+        tools_require_effort_none:
+          type: boolean
+          description: With tools, explicit non-none reasoning effort is refused before
+            reservation. Omitted effort uses the provider default.
         effort_levels:
           type: array
           items:

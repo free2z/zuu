@@ -17,6 +17,16 @@ const historicalAllowlist = [
 ];
 const before = new Date("2026-10-05T00:00:00Z");
 
+// Retired production waiver: preserve historical expiry and package-binding
+// coverage without keeping an unused exception in the live allowlist.
+const historicalAllowlist = [{
+  id: BR,
+  package: "braces",
+  expires: "2026-11-03",
+  issue: "https://github.com/free2z/zuu/issues/1130",
+  reason: "historical build-time waiver",
+}, ...ALLOWLIST];
+
 test("braces advisory waived while live", () => {
   const r = evaluate(report(adv("braces", BR)), historicalAllowlist, before);
   assert.deepEqual(r.problems, []);
@@ -53,7 +63,19 @@ test("allowlist is exactly the known entries, each with an issue and a 30-day ex
       ["GHSA-85c8-ppgw-ccpr", "tinypool", "1174"],
     ],
   );
-  for (const e of ALLOWLIST) assert.match(e.expires, /^2026-11-0[34]$/);
+  for (const e of ALLOWLIST) assert.equal(e.expires, "2026-11-04");
+});
+
+
+test("retired braces waiver cannot hide a returning advisory", () => {
+  const r = evaluate(report(adv("braces", BR)), ALLOWLIST, new Date("2026-11-04T00:00:00Z"));
+  assert.deepEqual(r.waived, []);
+  assert.equal(r.problems.length, 1);
+  assert.match(r.problems[0], /braces/);
+});
+test("live allowlist accepts a clean report before remaining waivers expire", () => {
+  const r = evaluate({ vulnerabilities: {} }, ALLOWLIST, new Date("2026-11-04T00:00:00Z"));
+  assert.deepEqual(r.problems, []);
 });
 
 test("retired source-map-js advisory fails without an exception", () => {

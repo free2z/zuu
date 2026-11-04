@@ -35,7 +35,7 @@ pytestmark = pytest.mark.django_db
 NEW_COLUMNS = {"provider_model_id", "api_style", "ttfb_timeout_ms", "idle_timeout_ms", "safety_factor_bps",
                "supports_tools", "supports_vision", "supports_reasoning",
                "supports_structured_output", "supports_strict_tools",
-               "supports_reasoning_effort", "reasoning_effort_levels"}
+               "supports_reasoning_effort", "reasoning_effort_levels", "tools_require_effort_none"}
 
 # The serializer's keys before  (fields='__all__' over the old columns).
 PRE_2222_SERIALIZED_KEYS = {
@@ -382,3 +382,33 @@ def test_full_clean_refuses_empty_non_list_levels_the_field_validator_skips(valu
     # Negative control: the empty LIST is the legitimate "no list".
     row.reasoning_effort_levels = []
     row.full_clean()
+
+
+def test_tools_effort_declaration_is_exact_and_seed_is_create_only():
+    import importlib
+    from django.apps import apps
+    from dj.apps.openai.management.commands.seed_ai_models import TOOLS_REQUIRE_EFFORT_NONE
+
+    migration = importlib.import_module(
+        "dj.apps.openai.migrations.0032_tools_require_effort_none")
+    assert migration.TOOLS_REQUIRE_EFFORT_NONE == TOOLS_REQUIRE_EFFORT_NONE
+    assert TOOLS_REQUIRE_EFFORT_NONE == {
+        ("openai", "gpt-5.4"), ("openai", "gpt-5.4-mini"), ("openai", "gpt-5.4-nano")}
+    AIModel.objects.filter(model__in=["gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"]).delete()
+    alias = _model(model="gpt-5.4")
+    explicit = _model(model="gpt-5.4-mini", provider_model_id="gpt-5.4-mini")
+    pinned = _model(model="gpt-5.4-nano", provider_model_id="gpt-5.4-nano-snapshot")
+    wrong_style = _model(model="gpt-5.4", api_style="openai_responses")
+    wrong_provider = _model(provider=XAI, model="gpt-5.4")
+    migration.declare(apps, None)
+    for row in (alias, explicit, pinned, wrong_style, wrong_provider):
+        row.refresh_from_db()
+        assert row.tools_require_effort_none == (row in (alias, explicit))
+    AIModel.objects.all().delete()
+    call_command("seed_ai_models")
+    for name in ("gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"):
+        assert AIModel.objects.get(provider=OPENAI, model=name).tools_require_effort_none
+    AIModel.objects.filter(provider=OPENAI, model="gpt-5.4").update(
+        tools_require_effort_none=False)
+    call_command("seed_ai_models")
+    assert not AIModel.objects.get(provider=OPENAI, model="gpt-5.4").tools_require_effort_none
