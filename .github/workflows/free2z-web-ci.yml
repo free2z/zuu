@@ -56,6 +56,8 @@ jobs:
       - run: npm run lint
       - run: npm run check
       - run: NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" npm run build
+      - name: Built-adapter runtime smoke
+        run: node tests/built-adapter-smoke.mjs
       - name: Built-adapter root parameter containment
         run: node tests/built-adapter-root-containment.mjs
       - name: Built-adapter legacy zPage redirect
