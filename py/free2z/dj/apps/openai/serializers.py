@@ -25,6 +25,8 @@ class AIModelSerializer(serializers.ModelSerializer):
             'supports_structured_output',
             'supports_strict_tools',
             'supports_reasoning_effort',
+            'supports_top_k', 'supports_seed', 'supports_logprobs', 'supports_penalties',
+            'sampling_temperature', 'sampling_top_p', 'temperature_top_p_exclusive',
             'reasoning_effort_levels',
             'tools_require_effort_none',
         ]

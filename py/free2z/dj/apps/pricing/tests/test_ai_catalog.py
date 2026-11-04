@@ -1207,7 +1207,7 @@ def test_catalogue_response_schema_preserves_optional_capability_policy():
     field = CatalogModelSerializer().fields["capabilities"]
     assert not field.required and not field.allow_null
     members = dict(field.fields)
-    for name in ("structured_output", "strict_tools"):
+    for name in ("structured_output", "strict_tools", "top_k", "seed", "logprobs", "penalties"):
         undeclared = members.pop(name)
         # Tri-state at the gateway: absent must stay absent, never become false.
         assert not undeclared.required and undeclared.default is empty, name
@@ -1514,3 +1514,44 @@ def test_tools_effort_restriction_is_signed_and_tamper_evident(
     model["controls"]["tools_require_effort_none"] = False
     assert not ed25519_reference.verify(public, catalog.signing_message(after), signature)
     catalog.validate_model(model)  # false is a valid explicit non-restriction
+
+
+@pytest.mark.parametrize("field", ["top_k", "seed", "logprobs", "penalties"])
+@pytest.mark.parametrize("value", [None, 1, 0, "true", [], {}])
+def test_sampling_capabilities_refuse_non_boolean(field, value):
+    model = _effort_model({})
+    model["capabilities"][field] = value
+    with pytest.raises(catalog.CatalogRefused, match="capabilities"):
+        catalog.validate_model(model)
+
+
+@pytest.mark.parametrize("field", ["temperature", "top_p", "temperature_top_p_exclusive"])
+@pytest.mark.parametrize("value", [None, 1, "true", [], {}])
+def test_sampling_controls_refuse_non_boolean(field, value):
+    with pytest.raises(catalog.CatalogRefused, match="controls"):
+        catalog.validate_model(_effort_model({field: value}))
+
+
+def test_sampling_default_body_identity_and_signed_grants(sample_dataset, at_sample_now, monkeypatch):
+    from django.utils import timezone as dj_timezone
+    before = catalog.build_catalog(SAMPLE_NOW)
+    for model in before["models"]:
+        assert not set(model["capabilities"]) & {"top_k", "seed", "logprobs", "penalties"}
+    row = AIModel.objects.get(model="grok-4.5")
+    for name in ("top_k", "seed", "logprobs", "penalties"):
+        setattr(row, "supports_" + name, True)
+    row.sampling_temperature = False
+    row.temperature_top_p_exclusive = True
+    monkeypatch.setattr(dj_timezone, "now", lambda: _at(SAMPLE_NOW - 3))
+    row.save(update_fields=["supports_top_k", "supports_seed", "supports_logprobs", "supports_penalties", "sampling_temperature", "temperature_top_p_exclusive"])
+    after = catalog.build_catalog(SAMPLE_NOW)
+    assert after["version"] > before["version"]
+    model = next(m for m in after["models"] if m["id"] == "grok-4.5")
+    assert all(model["capabilities"][n] is True for n in ("top_k", "seed", "logprobs", "penalties"))
+    assert model["controls"]["temperature"] is False
+    signed = catalog.sign_catalog(after, _test_key())
+    signature = bytes.fromhex(signed.signature_hex)
+    public = bytes.fromhex(TEST1_PUBLIC_HEX)
+    assert ed25519_reference.verify(public, catalog.signing_message(after), signature)
+    model["capabilities"]["seed"] = False
+    assert not ed25519_reference.verify(public, catalog.signing_message(after), signature)

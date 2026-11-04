@@ -113,8 +113,18 @@ class CatalogModelCapabilitiesSerializer(serializers.Serializer):
     )
 
 
+    top_k = serializers.BooleanField(required=False)
+    seed = serializers.BooleanField(required=False)
+    logprobs = serializers.BooleanField(required=False)
+    penalties = serializers.BooleanField(required=False)
+
+
 class CatalogModelControlsSerializer(serializers.Serializer):
     """Crate ``ModelControls``: signed narrowing of what a capability admits."""
+
+    temperature = serializers.BooleanField(required=False)
+    top_p = serializers.BooleanField(required=False)
+    temperature_top_p_exclusive = serializers.BooleanField(required=False)
 
     tools_require_effort_none = serializers.BooleanField(
         required=False, help_text="With tools, explicit non-none reasoning effort is "

@@ -129,11 +129,11 @@ CATALOG_SCHEMA = 1
 #which ignore them (``ModelCapabilities`` does not deny unknown members).
 CAPABILITY_MEMBERS = frozenset(
     {"vision", "tools", "reasoning", "structured_output", "strict_tools",
-     "reasoning_effort"})
+     "reasoning_effort", "top_k", "seed", "logprobs", "penalties"})
 #Every member a model's optional ``controls`` object may carry (crate
 #``ModelControls``, zuu#1170). Additive: an older gateway's ``CatalogModel``
 #does not deny unknown members, so it ignores the whole object.
-CONTROLS_MEMBERS = frozenset({"effort_levels", "tools_require_effort_none"})
+CONTROLS_MEMBERS = frozenset({"effort_levels", "tools_require_effort_none", "temperature_top_p_exclusive", "temperature", "top_p"})
 #``controls.effort_levels`` vocabulary: every level a provider documents.
 #A level the gateway's wire cannot express (``xhigh``, ``none``, ``max``)
 #is kept and inert there (crate ``ModelControls::effort_levels``), so one
@@ -364,6 +364,9 @@ def validate_model(model: dict, disabled_providers=()) -> None:
         controls = model["controls"]
         if not isinstance(controls, dict) or set(controls) - CONTROLS_MEMBERS:
             raise CatalogRefused("invalid_model", f"{model_id}: invalid controls")
+        for name in ("temperature_top_p_exclusive", "temperature", "top_p"):
+            if name in controls and type(controls[name]) is not bool:
+                raise CatalogRefused("invalid_model", f"{model_id}: invalid controls.{name}")
         if "tools_require_effort_none" in controls:
             if type(controls["tools_require_effort_none"]) is not bool:
                 raise CatalogRefused(
@@ -676,6 +679,17 @@ def _build_catalog_in_snapshot(now_unix: int) -> dict:
             # explicitly like every member.
             "reasoning_effort": ai_model.supports_reasoning_effort,
         }
+        # Additive sampling grants: omit default false to preserve stored body identity.
+        for name in ("top_k", "seed", "logprobs", "penalties"):
+            value = getattr(ai_model, "supports_" + name)
+            if value is not False:
+                candidates[-1]["capabilities"][name] = value
+        for name in ("temperature", "top_p"):
+            value = getattr(ai_model, "sampling_" + name)
+            if value is not None:
+                candidates[-1].setdefault("controls", {})[name] = value
+        if ai_model.temperature_top_p_exclusive is not False:
+            candidates[-1].setdefault("controls", {})["temperature_top_p_exclusive"] = ai_model.temperature_top_p_exclusive
         # Signed narrowing, only where the capability is on and a list is
         # recorded: a list left on a row whose capability an operator turned
         # off is simply not signed (never a reason to exclude the model).
@@ -688,9 +702,7 @@ def _build_catalog_in_snapshot(now_unix: int) -> dict:
         # never be silently reshaped into a list (codex round 1).
         levels = ai_model.reasoning_effort_levels
         if ai_model.supports_reasoning_effort and levels != []:
-            candidates[-1]["controls"] = {
-                "effort_levels": list(levels) if isinstance(levels, list) else levels,
-            }
+            candidates[-1].setdefault("controls", {})["effort_levels"] = list(levels) if isinstance(levels, list) else levels
         if ai_model.tools_require_effort_none:
             candidates[-1].setdefault("controls", {})["tools_require_effort_none"] = (
                 ai_model.tools_require_effort_none)

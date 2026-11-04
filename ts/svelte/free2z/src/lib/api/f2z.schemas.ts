@@ -809,12 +809,19 @@ export interface CatalogModelCapabilities {
   strict_tools?: boolean;
   /** `reasoning_effort` is supported (zuu#1170); not implied by `reasoning`. Always emitted by this signer; absent reads as false. */
   reasoning_effort?: boolean;
+  top_k?: boolean;
+  seed?: boolean;
+  logprobs?: boolean;
+  penalties?: boolean;
 }
 
 /**
  * Crate ``ModelControls``: signed narrowing of what a capability admits.
  */
 export interface CatalogModelControls {
+  temperature?: boolean;
+  top_p?: boolean;
+  temperature_top_p_exclusive?: boolean;
   /** With tools, explicit non-none reasoning effort is refused before reservation. Omitted effort uses the provider default. */
   tools_require_effort_none?: boolean;
   /** The reasoning_effort levels the model takes (non-empty, distinct). Present only when capabilities.reasoning_effort is true; absent = not narrowed. A level a gateway cannot express is ignored there. */

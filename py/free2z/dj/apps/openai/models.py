@@ -828,6 +828,13 @@ class AIModel(models.Model):
         ),
     )
 
+    supports_top_k = models.BooleanField(default=False, db_default=False)
+    supports_seed = models.BooleanField(default=False, db_default=False)
+    supports_logprobs = models.BooleanField(default=False, db_default=False)
+    supports_penalties = models.BooleanField(default=False, db_default=False)
+    temperature_top_p_exclusive = models.BooleanField(default=False, db_default=False)
+    sampling_temperature = models.BooleanField(null=True, default=None)
+    sampling_top_p = models.BooleanField(null=True, default=None)
     supports_reasoning_effort = models.BooleanField(
         default=False,
         db_default=False,
