@@ -51,6 +51,9 @@ use serde_json::{Value, json};
 pub const CLIENT_ID: &str = "app_test";
 pub const SUBJECT: &str = "3f0c9b7e-6a2d-4b1f-8e5c-2d9a7c4e1b60";
 pub const KID: &str = "test-rs-1";
+/// The profile claims the fake IdP issues under `profile`.
+pub const PREFERRED_USERNAME: &str = "tutor_user";
+pub const DISPLAY_NAME: &str = "Tutor User";
 
 /// A 2048-bit RSA key (PKCS#1 DER, base64) generated for this test suite
 /// only. It signs the fake issuer's ID tokens and nothing else; it has never
@@ -145,6 +148,18 @@ pub struct Fake {
     pub declined_scopes: Mutex<Vec<String>>,
     /// Sign ID tokens with this nonce instead of the request's.
     pub id_token_nonce_override: Mutex<Option<String>>,
+    /// Sign ID tokens with this `auth_time` (`Some(None)`: none at all).
+    pub id_token_auth_time: Mutex<Option<Option<u64>>>,
+    /// Sign the next ID tokens for this `(sub, preferred_username)` instead
+    /// of `SUBJECT` / `PREFERRED_USERNAME`: another account.
+    pub account_override: Mutex<Option<(String, String)>>,
+    /// Delay before `/v1/models` answers, and the `If-None-Match` each
+    /// request carried.
+    pub models_delay: Mutex<Duration>,
+    pub models_if_none_match: Mutex<Vec<Option<String>>>,
+    /// The scope a refresh reports, as after the user narrowed the grant at
+    /// `/account/apps`. `None`: the family's own scope.
+    pub refresh_scope: Mutex<Option<String>>,
     /// The balance endpoint demands step-up.
     pub require_step_up: AtomicBool,
     /// The first purchase create sleeps this long before answering.
@@ -157,6 +172,10 @@ pub struct Fake {
     pub grant_delay: Mutex<Duration>,
     pub grant_body: Mutex<Value>,
     pub grant_calls: AtomicU32,
+    /// `POST /api/sdk/v1/calls/{id}/report`: every body received, and the
+    /// reports on record (call id -> report id). Call `…-000000000404` is a 404.
+    pub report_bodies: Mutex<Vec<Value>>,
+    pub reports: Mutex<HashMap<String, String>>,
     /// A purchase is credited after this many polls.
     pub credit_after_polls: AtomicU32,
     /// `error-before-meta` fails this many calls before succeeding.
@@ -250,6 +269,11 @@ impl Fake {
             broken_chat_replay: AtomicBool::new(false),
             declined_scopes: Mutex::default(),
             id_token_nonce_override: Mutex::default(),
+            refresh_scope: Mutex::default(),
+            account_override: Mutex::default(),
+            id_token_auth_time: Mutex::default(),
+            models_delay: Mutex::new(Duration::ZERO),
+            models_if_none_match: Mutex::default(),
             require_step_up: AtomicBool::new(false),
             create_delay_first: Mutex::new(Duration::ZERO),
             revoke_delay: Mutex::new(Duration::ZERO),
@@ -257,6 +281,8 @@ impl Fake {
             balance_delay: Mutex::new(Duration::ZERO),
             grant_delay: Mutex::new(Duration::ZERO),
             grant_calls: AtomicU32::new(0),
+            report_bodies: Mutex::default(),
+            reports: Mutex::default(),
             grant_body: Mutex::new(json!({"sub": SUBJECT, "client_id": CLIENT_ID,
                 "account_epoch": 4, "grant_generation": 2, "scopes":["ai:invoke"],
                 "spend_cap_2z": 500, "cap_period":"total", "enforced":true,
@@ -293,6 +319,7 @@ impl Fake {
             .route("/api/oauth/revoke", post(revoke))
             .route("/api/sdk/v1/balance", get(balance))
             .route("/api/sdk/v1/grant", get(grant))
+            .route("/api/sdk/v1/calls/{id}/report", post(report_call))
             .route("/api/sdk/v1/purchases", post(create_purchase))
             .route("/api/sdk/v1/purchases/{id}", get(get_purchase))
             .with_state(Arc::clone(&fake));
@@ -583,12 +610,28 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     .clone()
                     .or(grant.nonce.clone());
                 let now = now_unix();
-                let claims = json!({
+                let mut claims = json!({
                     "iss": f.issuer, "sub": SUBJECT, "aud": CLIENT_ID,
                     "exp": now + 3600, "iat": now, "auth_time": now - 10,
-                    "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"],
-                    "preferred_username": "tutor_user"
+                    "nonce": nonce, "acr": "urn:f2z:acr:1fa", "amr": ["pwd"]
                 });
+                if let Some(auth_time) = *f.id_token_auth_time.lock().unwrap() {
+                    claims["auth_time"] = json!(auth_time);
+                }
+                let other = f.account_override.lock().unwrap().clone();
+                if let Some((sub, _)) = &other {
+                    claims["sub"] = json!(sub);
+                }
+                // As the IdP does: profile claims only under `profile`.
+                if grant.scope.split(' ').any(|x| x == "profile") {
+                    match &other {
+                        Some((_, username)) => claims["preferred_username"] = json!(username),
+                        None => {
+                            claims["preferred_username"] = json!(PREFERRED_USERNAME);
+                            claims["name"] = json!(DISPLAY_NAME);
+                        }
+                    }
+                }
                 body["id_token"] =
                     json!(f.sign_jwt(&json!({"alg": "RS256", "kid": KID, "typ": "JWT"}), &claims));
             }
@@ -626,9 +669,15 @@ async fn token(State(f): State<Arc<Fake>>, body: Bytes) -> Response<Body> {
                     if f.break_refresh_response_once.swap(false, Ordering::SeqCst) {
                         return broken_json(StatusCode::OK);
                     }
+                    let scope = f
+                        .refresh_scope
+                        .lock()
+                        .unwrap()
+                        .clone()
+                        .unwrap_or_else(|| entry.scope.clone());
                     delayed_json(
                         json!({"token_type": "Bearer", "access_token": access, "expires_in": 300,
-                               "refresh_token": refresh, "scope": entry.scope}),
+                               "refresh_token": refresh, "scope": scope}),
                         *f.refresh_body_delay.lock().unwrap(),
                     )
                 }
@@ -721,6 +770,51 @@ async fn grant(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body>
     let delay = *f.grant_delay.lock().unwrap();
     tokio::time::sleep(delay).await;
     json_response(StatusCode::OK, body)
+}
+
+async fn report_call(
+    State(f): State<Arc<Fake>>,
+    headers: HeaderMap,
+    uri: Uri,
+    body: String,
+) -> Response<Body> {
+    let id = uri
+        .path()
+        .strip_prefix("/api/sdk/v1/calls/")
+        .and_then(|rest| rest.strip_suffix("/report"))
+        .unwrap_or("")
+        .to_owned();
+    let scope = match f.check_bearer(&headers) {
+        Ok(s) => s,
+        Err(r) => return r,
+    };
+    if !has_scope(&scope, "ai:invoke") {
+        return envelope(
+            StatusCode::FORBIDDEN,
+            "insufficient_scope",
+            Some(json!({"scope":"ai:invoke"})),
+        );
+    }
+    let Ok(request) = serde_json::from_str::<Value>(&body) else {
+        return envelope(StatusCode::BAD_REQUEST, "invalid_request", None);
+    };
+    f.report_bodies.lock().unwrap().push(request.clone());
+    if id == "019a2f1c-0000-7000-8000-000000000404" {
+        return envelope(StatusCode::NOT_FOUND, "not_found", None);
+    }
+    let mut reports = f.reports.lock().unwrap();
+    let status = if reports.contains_key(&id) {
+        StatusCode::OK
+    } else {
+        StatusCode::CREATED
+    };
+    let next = format!("0199c0de-0000-7000-8000-{:012}", reports.len() + 1);
+    let report_id = reports.entry(id.clone()).or_insert(next).clone();
+    json_response(
+        status,
+        json!({"report_id": report_id, "call_id": id, "reason": request["reason"],
+            "created_at": "2026-10-14T12:00:00Z", "unknown_member": true}),
+    )
 }
 
 async fn balance(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {
@@ -1239,6 +1333,16 @@ async fn call_record(State(f): State<Arc<Fake>>, headers: HeaderMap, uri: Uri) -
 async fn models(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body> {
     if let Err(r) = f.check_bearer(&headers) {
         return r;
+    }
+    f.models_if_none_match.lock().unwrap().push(
+        headers
+            .get(header::IF_NONE_MATCH)
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_owned),
+    );
+    let delay = *f.models_delay.lock().unwrap();
+    if !delay.is_zero() {
+        tokio::time::sleep(delay).await;
     }
     if headers
         .get(header::IF_NONE_MATCH)

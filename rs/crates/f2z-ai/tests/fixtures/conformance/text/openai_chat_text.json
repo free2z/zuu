@@ -36,6 +36,7 @@
     "provider_request": {
       "model": "m-openai-chat-upstream",
       "service_tier": "default",
+      "store": false,
       "messages": [
         {
           "role": "system",

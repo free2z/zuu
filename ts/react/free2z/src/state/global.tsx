@@ -6,6 +6,7 @@ import { Creator } from "../Begin";
 import { FeaturedImage } from "../components/PageRenderer";
 
 export const defaultCreator = {
+    id: 0,
     username: "",
     full_name: "",
     p2paddr: "",
@@ -18,6 +19,7 @@ export const defaultCreator = {
     tuzis: "0",
     updateAll: false,
     stars: [],
+    star_ids: [],
     fans: [],
     is_verified: false,
     can_stream: false,

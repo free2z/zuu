@@ -1,0 +1,31 @@
+{
+  "captured_at": "2026-10-11T16:39:40.759Z",
+  "frontend_commit": "e8e565310a2c5c2a7460601df71a54d9d6557e73",
+  "capture_mode": "Anonymous production public pages; GET/HEAD only; third-party requests blocked; native browser screenshots, no image modification.",
+  "images": [
+    {
+      "name": "discover",
+      "url": "https://free2z.cash/",
+      "status": 200,
+      "width": 1280,
+      "height": 820,
+      "sha256": "9f68fd136d4be6ae9e7b5293250ecb8cc22cd806c88e0f0fbb711bbebf7ac119"
+    },
+    {
+      "name": "creator-profile",
+      "url": "https://free2z.cash/free2z",
+      "status": 200,
+      "width": 1280,
+      "height": 820,
+      "sha256": "63c1baef35578f3d65a4167734f659e88cb906adec3fd3d02de413598aad8ae2"
+    },
+    {
+      "name": "converse",
+      "url": "https://free2z.cash/converse",
+      "status": 200,
+      "width": 1280,
+      "height": 820,
+      "sha256": "ca4e149992a139fce39c6289899f6d9f3de95e369d28ee9e1a52d6f5ae73ccff"
+    }
+  ]
+}

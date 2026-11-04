@@ -1,0 +1,49 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <!-- Essential META Tags -->
+    {# `zpage` was never in this view's context, so the title rendered EMPTY
+       on every crawler fetch of `/` and `/find`. #}
+    <title>Free2Z: Support Creators. Raise Money. Build Community.</title>
+    <link rel="canonical" href="https://{{ request.META.HTTP_HOST }}/">
+    <meta property="og:url" content="https://{{ request.META.HTTP_HOST }}/" />
+    <meta property="og:title" content="Free2Z: Support Creators. Raise Money. Build Community." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://{{ request.META.HTTP_HOST }}{{ site_image }}" />
+    <meta property="og:description"
+        content="Free2Z is committed to helping creators raise money while prioritizing privacy. Join our community today and try it out!" />
+    <meta property="og:site_name" content="Free2Z" />
+
+    <meta name="twitter:title" content="Free2Z" />
+    <meta name="twitter:image" content="https://{{ request.META.HTTP_HOST }}{{ site_image }}" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:description"
+        content="Free2Z is committed to helping creators raise money while prioritizing privacy. Join our community today and try it out!" />
+    <meta name="description"
+        content="Free2Z is committed to helping creators raise money while prioritizing privacy. Join our community today and try it out!" />
+    <meta name="twitter:image:alt" content="Free2Z: Support Creators. Raise Money. Build Community.">
+
+    <!-- Non-Essential, But Required for Analytics -->
+    <!-- <meta property="fb:app_id" content="your_app_id" /> -->
+    <meta name="twitter:site" content="@free2zcash">
+    <meta name="twitter:creator" content="@free2zcash">
+    <meta name="fb:app_id" content="278755727751440">
+
+    <meta itemprop="name" content="Free2Z: Support Creators. Raise Money. Build Community.">
+    <meta itemprop="description"
+        content="Free2Z is committed to helping creators raise money while prioritizing privacy. Join our community today and try it out!">
+    <meta itemprop="image" content="https://{{ request.META.HTTP_HOST }}{{ site_image }}">
+</head>
+
+
+<body>
+    {% for zp in zpages %}
+    <p>
+        <a href="/{{ zp.creator.username }}">{{ zp.creator.username }}</a>
+        <a href="{{ zp.get_public_url }}">{{zp.title}}</a>
+    </p>
+    {% endfor %}
+</body>
+
+</html>

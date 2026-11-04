@@ -569,7 +569,7 @@ pub const REASONING_EFFORT_STYLES: [ApiStyle; 2] =
 /// Refuse a `reasoning_effort` the model cannot honour — before any hold,
 /// charge or provider request (the metering layer calls it beside
 /// [`check_response_format`]; each adapter's `body` calls it again), and
-/// never by dropping it. Three conditions, all required:
+/// never by dropping it. All conditions are required:
 ///
 /// * the adapter can express it ([`REASONING_EFFORT_STYLES`]);
 /// * the signed catalogue declares `capabilities.reasoning_effort` (absent
@@ -578,11 +578,15 @@ pub const REASONING_EFFORT_STYLES: [ApiStyle; 2] =
 ///   them. Absent, every level is forwarded (see
 ///   [`f2z_ai_proto::catalog::ModelControls::effort_levels`]).
 ///
+/// * with tools, signed `controls.tools_require_effort_none` refuses an
+///   explicit non-none effort; omitted effort keeps the provider default.
+///
 /// # Errors
 ///
 /// `400 invalid_request`, `details.field = "reasoning_effort"`,
 /// `details.reason = "reasoning_effort_unsupported"`; for a level outside
 /// the list, `details.effort_levels` names the ones the model takes.
+/// A signed tools conflict has `details.conflict = "tools"`.
 pub fn check_reasoning_effort(
     request: &ChatRequest,
     model: &CatalogModel,
@@ -594,6 +598,15 @@ pub fn check_reasoning_effort(
         return Err(reasoning_effort_unsupported(
             "this model does not support reasoning_effort",
         ));
+    }
+    if model.controls.tools_require_effort_none
+        && !request.tools.is_empty()
+        && effort.as_str() != "none"
+    {
+        return Err(reasoning_effort_unsupported(
+            "this model requires reasoning_effort none when tools are present",
+        )
+        .detail("conflict", "tools"));
     }
     match &model.controls.effort_levels {
         Some(levels) if !levels.iter().any(|level| level == effort.as_str()) => Err(

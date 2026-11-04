@@ -1,96 +1,14 @@
-# zPages
+# Publish your first zPage
 
-A zPage is more than just a digital canvas—it's a versatile platform for you to create, connect, and capitalize. Whether you are into journalism, blogging, education, advertising your business, hosting a podcast, or creating an online course, zPages provide you with the tools and freedom to bring your ideas to life in your own unique way.
+A zPage is your article or post on Free2Z. Tell a story, share an idea, or bring text and media together in one place. Readers can use the page language and translation options to explore your work in another language.
 
-:::info Note
-You can group multiple zPages into a "series" for serialized content, online courses, or podcasts.
-:::
+1. Sign in and choose **Write**, or open the editor from your dashboard or My Pages.
+2. Add a title and your content. Use the toolbar or `/` menu for headings, lists, media, and other blocks.
+3. Add an optional cover and subtitle.
+4. Open page settings to check the public link name, categories, and access settings.
+5. Preview your work, then choose **Publish**.
+6. Return through **My Pages** to edit and update it later.
 
-## How to Create a zPage (The Basics)
+Check the save status before leaving the editor, especially if your connection drops. Keep a separate copy of important writing.
 
-![New zPage Button](https://free2z.com/uploadz/public/free2z/new-page.png)
-
-1. **Hit the 'New Page' Button**: Log in to your Free2Z account and click on the 'New Page' button.
-
-2. **Add a Title and Content**: Fill in the title and add your content in the editor.
-
-3. **Preview and Publish**: Preview how your zPage will look, check the 'Published' box, and hit 'Save'.
-
-:::tip Tip
-Add a featured image to make your zPage more appealing for social sharing and to catch the eye of potential readers or subscribers.
-:::
-
-## Free2Z-Flavored Markdown Features
-
-![Free2Z-Flavored Markdown](https://free2z.com/uploadz/public/free2z/markdown.png)
-
-### Rich Text
-
-![Rich Text](https://free2z.com/uploadz/public/free2z/text.png)
-
-Free2Z's rich text editor allows you to add headings, bold, italics and more to your content.
-
-### Media Embeds
-
-You can embed media from a variety of sources (2100 sites and counting)
-by simply pasting the URL into the editor with an `::embed[URL]` directive:
-
-![Media Embeds](https://free2z.com/uploadz/public/free2z/embeds.png)
-
-```md
-::embed[https://www.youtube.com/watch?v=dQw4w9WgXcQ]
-```
-
-Basically any video or image or social media post can be embedded.
-Try it and let us know!
-
-### AI-Powered Prompts
-
-Stuck on what to write next? Utilize our AI-powered prompts to generate text or images.
-
-![AI-Powered Prompts](https://free2z.com/uploadz/public/free2z/ai-prompts.png)
-
-![Image Prompt](https://free2z.com/uploadz/public/free2z/image-prompt.png)
-
-![Glitch Zebras](https://free2z.com/uploadz/public/free2z/glitch-zebras.png)
-
-![Text Prompt](https://free2z.com/uploadz/public/free2z/text-prompt.png)
-
-![Text Output](https://free2z.com/uploadz/public/free2z/text-output.png)
-
-### Code Highlighting
-
-For those who wish to share code snippets,
-Free2Z offers code highlighting for better readability and engagement.
-
-![Code Highlighting](https://free2z.com/uploadz/public/free2z/code.png)
-
-![Code Sample](https://free2z.com/uploadz/public/free2z/code-sample.png)
-
-![Code Rendered](https://free2z.com/uploadz/public/free2z/code-rendered.png)
-
-### LaTeX Math Support
-
-Technical and scientific content creators can utilize LaTeX math support for
-clean presentation of symbols and complex equations.
-
-![LaTeX Math](https://free2z.com/uploadz/public/free2z/latex-zeta.png)
-
-![LaTeX Rendered](https://free2z.com/uploadz/public/free2z/latex-rendered.png)
-
-## Advanced Features
-
-You can add a custom description, categories (tags), you can create a
-series or add your page to an existing series, you can customize the URL,
-you can add an override peer-to-peer address
-(if you want a different from your profile address),
-you can mark the page for "subscribers only",
-you can select a date to publish in the future.
-
-:::info Evolution
-More features will be added soon:
-RSS feed enclosures, time and place for events.
-Check back and see what's new!
-:::
-
-![Advanced Features](https://free2z.com/uploadz/public/free2z/advanced-options.png)
+Subscriber-only pages provide access through a creator's membership, paid in credits. [Upload media](../for-creators/uploads.md), [try AI](../for-creators/AI-content-generation.md), or [set up your profile](../for-creators/01-creating-a-profile.md) next.

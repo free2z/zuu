@@ -148,6 +148,14 @@
       "transport": "Le service de diffusion est inaccessible. Changez de réseau ou réessayez.",
       "unknown": "La connexion à la diffusion a échoué. Réessayez."
     },
+    "recording": {
+      "active": "Cette réunion est en cours d'enregistrement.",
+      "paused": "L'enregistrement est en pause.",
+      "stagePaused": "Vous êtes sur scène. L'enregistrement est en pause.",
+      "stageRecording": "Vous êtes sur scène et cette réunion est en cours d'enregistrement.",
+      "stageStarting": "Vous êtes sur scène. L'enregistrement démarre.",
+      "starting": "L'enregistrement démarre."
+    },
     "stage": {
       "connecting": "Connexion à la diffusion…",
       "ended": "La diffusion est terminée.",

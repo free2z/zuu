@@ -1,0 +1,34 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <!--  Essential META Tags -->
+    <title>{{ conversation.display_name }}</title>
+    <meta name="description" content="{{ conversation.display_name }}" />
+
+    <meta property="og:title" content="Chat2Z by {{ conversation.user.username }}">
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="{{ conversation.user.get_thumbnail }}">
+    <meta property="og:url" content="https://{{ request.META.HTTP_HOST }}{{ conversation.get_url }}">
+    <meta property="og:description" content="{{ conversation.display_name }}">
+    <meta property="og:site_name" content="Free2Z">
+
+    <meta name="twitter:title" content="Chat2Z by {{ conversation.user.username }}">
+    <meta name="twitter:description" content="{{ conversation.display_name }}">
+    <meta name="twitter:image" content="{{ conversation.user.get_thumbnail }}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@free2zcash">
+    <meta name="twitter:creator" content="@free2zcash">
+    <meta name="twitter:image:alt" content="{{ conversation.display_name }}">
+
+    <meta property="fb:app_id" content="278755727751440" />
+    <meta itemprop="name" content="{{ conversation.display_name }}">
+    <meta itemprop="description" content="{{ conversation.display_name }}">
+    <meta itemprop="image" content="{{ conversation.user.get_thumbnail }}">
+</head>
+
+<body>
+    <h1>{{ conversation.display_name }}</h1>
+</body>
+
+</html>
