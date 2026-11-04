@@ -1,8 +1,13 @@
 import "highlight.js/styles/github-dark.css";
-import { env } from "$env/dynamic/public";
+import * as env from "$app/env/public";
+import type { TranslationFunction } from "$lib/i18n";
 import type { ZPage } from "$lib/types/zpage";
 import type { HydratedEditorState } from "./types";
-import { processMarkdown } from "$lib/utils/markdown";
+import { parseApiDate } from "$lib/utils/date";
+import {
+  processMarkdown,
+  type MarkdownRenderOptions,
+} from "$lib/utils/markdown";
 
 const apiBase = env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
@@ -20,11 +25,18 @@ export function resolveMediaUrl(path?: string | null) {
   return `${apiBase}${path.startsWith("/") ? "" : "/"}${path}`;
 }
 
-export function renderMarkdown(content: string) {
+export function renderMarkdown(
+  content: string,
+  t: TranslationFunction,
+  options?: MarkdownRenderOptions,
+) {
   try {
-    return processMarkdown(content);
+    return processMarkdown(content, options);
   } catch {
-    return '<p class="text-red-500">Error rendering markdown</p>';
+    return `<p class="text-red-500">${t(
+      "editor.markdownRenderError",
+      "Unable to render the preview.",
+    )}</p>`;
   }
 }
 
@@ -52,9 +64,11 @@ export function toDatetimeLocal(iso?: string | null) {
     return "";
   }
 
-  const date = new Date(iso);
+  // parseApiDate, not `new Date(iso)`: an offset-less publish_at is UTC, and
+  // this function's whole job is converting it to the creator's local zone.
+  const date = parseApiDate(iso);
 
-  if (Number.isNaN(date.getTime())) {
+  if (!date) {
     return "";
   }
 
@@ -63,10 +77,45 @@ export function toDatetimeLocal(iso?: string | null) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+export function toDatetimeLocalNow() {
+  return toDatetimeLocal(new Date().toISOString());
+}
+
+export function getLocalTimeZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "local time";
+  } catch {
+    return "local time";
+  }
+}
+
+/**
+ * The value the editor's Zcash address field holds: the page's OWN address,
+ * or "" when it inherits the creator's profile address.
+ *
+ * NEVER `zpage.p2paddr`. That is the EFFECTIVE address -- the page's own, else
+ * the creator's -- and the editor saves this field back as the page's
+ * `p2paddr`. Hydrating from it pinned the creator's current profile address
+ * onto every inheriting article opened and saved, so a later profile address
+ * change (a retired or compromised wallet) silently stopped reaching them.
+ *
+ * A backend that predates `p2paddr_override` (a rolling deploy) omits it;
+ * then the classic editor's rule applies: an effective address equal to the
+ * creator's is treated as inherited.
+ */
+export function editableSupportAddress(zpage: ZPage | null): string {
+  if (!zpage) return "";
+  if (zpage.p2paddr_override !== undefined) {
+    return zpage.p2paddr_override ?? "";
+  }
+  const effective = zpage.p2paddr ?? "";
+  return effective && effective === zpage.creator?.p2paddr ? "" : effective;
+}
+
 export function hydrateEditorState(zpage: ZPage | null): HydratedEditorState {
   const isUntitledDraftPlaceholder =
     zpage &&
-    !zpage.is_published &&
+    !(zpage.variant_is_published ?? zpage.is_published) &&
     zpage.title === UNTITLED_DRAFT_TITLE &&
     !zpage.vanity;
 
@@ -74,15 +123,16 @@ export function hydrateEditorState(zpage: ZPage | null): HydratedEditorState {
     currentZPage: zpage,
     title: isUntitledDraftPlaceholder ? "" : (zpage?.title ?? ""),
     description: zpage?.description ?? "",
+    canonicalUrl: zpage?.canonical_url ?? "",
     coverImage: resolveMediaUrl(
       zpage?.featured_image?.url ?? zpage?.featured_image?.thumbnail ?? "",
     ),
     coverImageId: zpage?.featured_image?.id ?? null,
-    selectedCategories: zpage?.tags ?? [],
-    zcashAddress: zpage?.p2paddr ?? "",
+    tags: zpage?.tags ?? [],
+    zcashAddress: editableSupportAddress(zpage),
     content: zpage?.content ?? "",
     vanity: zpage?.vanity ?? "",
-    isPublished: zpage?.is_published ?? false,
+    isPublished: zpage?.variant_is_published ?? zpage?.is_published ?? false,
     isSubscriberOnly: zpage?.is_subscriber_only ?? false,
     publishAt: toDatetimeLocal(zpage?.publish_at),
     showCover: Boolean(zpage?.featured_image?.id),
@@ -260,9 +310,11 @@ export function insertMarkdownLink(
   content: string,
   selectionStart: number,
   selectionEnd: number,
+  t: TranslationFunction,
 ): EditorSelectionResult {
   const selectedText = content.slice(selectionStart, selectionEnd);
-  const linkText = selectedText || "link text";
+  const linkText =
+    selectedText || t("editor.insertTemplates.linkText", "link text");
   const replacement = `[${linkText}](url)`;
 
   if (selectedText.length > 0) {
@@ -615,42 +667,16 @@ export function handleMarkdownListEnter(
   };
 }
 
-let uploadTokenSequence = 0;
-
-export function createUploadToken() {
-  uploadTokenSequence += 1;
-  return `upload-${Date.now().toString(36)}-${uploadTokenSequence}`;
-}
-
-export function buildUploadPlaceholder(token: string, label: string) {
-  return `![${label}](${token})`;
-}
-
-export function findUploadPlaceholder(content: string, token: string) {
-  // Match any alt text so the placeholder survives the user editing it; the
-  // token charset is [a-z0-9-], so no regex escaping is needed.
-  const match = content.match(new RegExp(`!\\[[^\\]\\n]*\\]\\(${token}\\)`));
-
-  if (match?.index === undefined) {
-    return null;
-  }
-
-  return { start: match.index, end: match.index + match[0].length };
-}
-
-export function buildImageMarkdown(fileName: string, url: string) {
-  const alt =
-    fileName
-      .replace(/\.[^.]+$/, "")
-      .replace(/[[\]()\n]/g, " ")
-      .trim() || "image";
-
-  return `![${alt}](${url})`;
-}
-
-export function stripUploadPlaceholders(content: string) {
-  return content.replace(/!\[[^\]\n]*\]\(upload-[a-z0-9-]+\)/g, "");
-}
+// The placeholder helpers live with the upload pipeline that owns them, in a
+// module node can import without SvelteKit's aliases. Re-exported so existing
+// callers (`/edit`'s `stripUploadPlaceholders`) keep their import path.
+export {
+  buildImageMarkdown,
+  buildUploadPlaceholder,
+  createUploadToken,
+  findUploadPlaceholder,
+  stripUploadPlaceholders,
+} from "./inlineUploads";
 
 export function getDropTextOffset(
   textarea: HTMLTextAreaElement,

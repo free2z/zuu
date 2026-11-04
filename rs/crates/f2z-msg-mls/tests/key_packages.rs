@@ -147,15 +147,14 @@ const KEY_PACKAGE_EXHAUSTION_TEXT: &str = "12.6.6 Exhaustion, and the package of
 // contract; the exact §12.6 structure and prose are checked separately below.
 //
 // Because it covers the whole document, a paragraph edit anywhere trips it, and
-// that is the point: the pin moves only with a stated reason. It last moved in
-// #904 phase 3, which moved the messaging surface from `wallet/zuuli` to
-// `wallet/e2e2z` and therefore had to repoint §14.1's two named files —
-// `mock.ts` and `handle-eligibility.fixtures.json` — and the one sentence
-// explaining why the fixture table sits beside `mock.ts` rather than under
-// `docs/`. That reasoning is unchanged; only the project it names moved.
-// §12.6, and every normative claim in it, is untouched, which the structural
-// and mutation assertions below independently confirm.
-const WIRE_RENDERED_PROSE_DIGEST: u64 = 14_142_568_238_593_411_929;
+// that is the point: the pin moves only with a stated reason. PR #1231 updates
+// the handle documentation: the conditional username index and legacy exceptions,
+// public-source billing-validator provenance, and the internal-phase one-time
+// handle claim policy. Those edits affect §14 and its §16 open-question summary;
+// they do not change key-package authentication or exhaustion requirements.
+// §12.6 is byte-identical to the pre-#1231 document. Its exact structure and
+// mutation-sensitive normative assertions are checked independently below.
+const WIRE_RENDERED_PROSE_DIGEST: u64 = 4_813_280_153_067_301_057;
 
 fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
     markdown::stable_digest(rendered.paragraphs())

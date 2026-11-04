@@ -190,6 +190,11 @@ impl Provider for OpenAiChat {
         // the OpenAI project's mutable default (including premium tiers).
         if model.provider == "openai" {
             body.insert("service_tier".into(), json!("default"));
+            // The gateway keeps no completions (chat-api.md §7); neither
+            // should OpenAI on its behalf. Chat Completions' default is
+            // already `false`, but a default is a provider's to change. Only
+            // for OpenAI: other compatible providers do not document it.
+            body.insert("store".into(), json!(false));
         }
         body.insert("messages".into(), Value::Array(messages));
         body.insert("max_completion_tokens".into(), json!(max_output_tokens));

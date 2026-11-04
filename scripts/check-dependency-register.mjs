@@ -155,17 +155,25 @@ const TRACKED = [
     id: "z/zcash/librustzcash",
     kind: "submodule",
     forkUrl: "https://github.com/free2z/librustzcash",
-    forkBranch: "f2z/drop-stale-rustcrypto-rc-pins",
-    /// #3010's head is a DIFFERENT branch on the same fork. Both must stay at
-    /// the same commit or we are building something upstream is not reviewing.
+    forkBranch: "fix/parameter-download-tls-trust",
+    // Security overlay on the exact reviewed shipping base; upstream #3010
+    // reviews only the RustCrypto deletion, not the parameter-download port.
+    forkRev: "473543ce227332b8afd82a9edbf655c4bc4d7c50",
     prHeadBranch: "f2z/upstream-drop-stale-rustcrypto-rc-pins",
+    reviewedOverlay: {
+      base: "a2b8c95210046eb59ee71dd10fd2ad1e9329b238",
+      head: "473543ce227332b8afd82a9edbf655c4bc4d7c50",
+    },
+    exitInstructions: "Verify upstream carries both #3010's compatible RustCrypto pin removal and the maintained minreq 3 parameter-download path before dropping this fork. Re-run all incident-chain and native wallet checks; #3010 alone does not retire the TLS overlay.",
     upstreamRepo: "zcash/librustzcash",
     upstreamBranch: "main",
     exitPr: 3010,
     driftLimit: DEFAULT_DRIFT_LIMIT,
     registerTokens: [
       "https://github.com/free2z/librustzcash",
-      "f2z/drop-stale-rustcrypto-rc-pins",
+      "fix/parameter-download-tls-trust",
+      "473543ce227332b8afd82a9edbf655c4bc4d7c50",
+      "free2z/zuu#1235",
       "f2z/upstream-drop-stale-rustcrypto-rc-pins",
       "zcash/librustzcash#3010",
     ],
@@ -1236,9 +1244,9 @@ export async function upstreamFindings(snapshot, deps = {}) {
       } else if (issue.pull_request.merged_at) {
         note(
           "exit",
-          `${tracked.id}: ${reference} MERGED (${issue.pull_request.merged_at}) — drop the fork`,
-          `Move the submodule back to https://github.com/${tracked.upstreamRepo} + \`${tracked.upstreamBranch}\`, ` +
-            `drop the pin, and retire section for \`${tracked.id}\` in ${REGISTER_PATH}.`,
+          `${tracked.id}: ${reference} MERGED (${issue.pull_request.merged_at}) — ${tracked.exitInstructions ? "review fork exit conditions" : "drop the fork"}`,
+          tracked.exitInstructions ?? (`Move the submodule back to https://github.com/${tracked.upstreamRepo} + \`${tracked.upstreamBranch}\`, ` +
+            `drop the pin, and retire section for \`${tracked.id}\` in ${REGISTER_PATH}.`),
         );
       } else if (issue.state === "closed") {
         note(
@@ -1321,7 +1329,12 @@ export async function upstreamFindings(snapshot, deps = {}) {
       const reviewed = await api(
         `repos/${forkRepo}/branches/${encodeURIComponent(tracked.prHeadBranch)}`,
       );
-      if (built.commit.sha !== reviewed.commit.sha) {
+      // A security overlay is allowed only for this independently reviewed pair.
+      // Any movement of either branch requires another explicit review.
+      const approvedOverlay = tracked.reviewedOverlay
+        && built.commit.sha === tracked.reviewedOverlay.head
+        && reviewed.commit.sha === tracked.reviewedOverlay.base;
+      if (built.commit.sha !== reviewed.commit.sha && !approvedOverlay) {
         note(
           "drift",
           `${tracked.id}: the branch we build and the branch upstream reviews have diverged`,
@@ -1431,11 +1444,11 @@ function runSelfTest() {
       "the fork submodule quietly moves to another branch",
       withGitmodules(
         baseline.gitmodules.replace(
-          "branch = f2z/drop-stale-rustcrypto-rc-pins",
+          "branch = fix/parameter-download-tls-trust",
           "branch = f2z/some-other-branch",
         ),
       ),
-      "registered fork branch f2z/drop-stale-rustcrypto-rc-pins",
+      "registered fork branch fix/parameter-download-tls-trust",
     ],
     [
       "a second, unregistered fork appears in z/",
@@ -1966,6 +1979,26 @@ async function runUpstreamSelfTest() {
       "last verified",
     ],
   ];
+
+  const overlayReplies = (head, base) => ({
+    ...quiet(),
+    githubJson: async (route) => {
+      if (route.startsWith("repos/free2z/librustzcash/branches/")) {
+        return { commit: { sha: route.includes("upstream-drop") ? base : head } };
+      }
+      return quiet().githubJson(route);
+    },
+  });
+  const approvedHead = "473543ce227332b8afd82a9edbf655c4bc4d7c50";
+  const approvedBase = "a2b8c95210046eb59ee71dd10fd2ad1e9329b238";
+  const approvedFindings = await upstreamFindings(baseline, overlayReplies(approvedHead, approvedBase));
+  if (approvedFindings.some((finding) => finding.headline.includes("have diverged"))) {
+    throw new Error("reviewed security overlay must pass its exact base/head pair");
+  }
+  cases.push(
+    ["the reviewed TLS overlay branch moves", overlayReplies("d".repeat(40), approvedBase), baseline, "have diverged"],
+    ["the reviewed upstream base branch moves", overlayReplies(approvedHead, "d".repeat(40)), baseline, "have diverged"],
+  );
 
   for (const [name, deps, snapshot, expected] of cases) {
     const findings = await upstreamFindings(snapshot, deps);

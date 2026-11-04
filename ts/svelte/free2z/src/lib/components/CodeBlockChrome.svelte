@@ -1,4 +1,13 @@
+<script lang="ts" module>
+  import { writable } from "svelte/store";
+
+  // Shared, page-global wrap state so every code block's chrome stays in sync
+  // when any one of them is toggled — without re-mounting (which jumped scroll).
+  export const codeWrapStore = writable(false);
+</script>
+
 <script lang="ts">
+  import { tStore as t } from "$lib/i18n";
   import { onDestroy } from "svelte";
   import Check from "@lucide/svelte/icons/check";
   import Copy from "@lucide/svelte/icons/copy";
@@ -6,9 +15,10 @@
   import * as Tooltip from "$lib/components/ui/tooltip";
 
   export let languageLabel: string;
-  export let wrapEnabled = false;
   export let onToggleWrap: () => void = () => {};
   export let onCopyCode: () => Promise<boolean> = async () => false;
+
+  $: isWrapped = $codeWrapStore;
 
   let copied = false;
   let copyTimer: ReturnType<typeof setTimeout> | null = null;
@@ -47,14 +57,16 @@
     <span class="truncate">{languageLabel}</span>
   </div>
 
-  <div class="pointer-events-auto flex items-center gap-1">
+  <div class="pointer-events-auto flex items-center gap-2">
     <Tooltip.Provider delayDuration={120}>
       <Tooltip.Root>
         <Tooltip.Trigger
           type="button"
-          aria-label={copied ? "Code copied" : "Copy code"}
+          aria-label={copied
+            ? $t("markdown.codeCopied", "Code copied")
+            : $t("markdown.copyCode", "Copy code")}
           onclick={handleCopy}
-          class="inline-flex size-7 items-center justify-center rounded-md border border-border/40 bg-background/45 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-background/70 hover:text-foreground"
+          class="relative inline-flex size-9 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-background/45 text-muted-foreground backdrop-blur-sm transition-colors after:absolute after:-inset-1 after:content-[''] hover:bg-background/70 hover:text-foreground"
         >
           {#if copied}
             <Check class="size-3.25" />
@@ -62,8 +74,10 @@
             <Copy class="size-3.25" />
           {/if}
         </Tooltip.Trigger>
-        <Tooltip.Content side="left" sideOffset={8}>
-          {copied ? "Copied" : "Copy code"}
+        <Tooltip.Content side="top" sideOffset={8}>
+          {copied
+            ? $t("markdown.copied", "Copied")
+            : $t("markdown.copyCode", "Copy code")}
         </Tooltip.Content>
       </Tooltip.Root>
     </Tooltip.Provider>
@@ -72,14 +86,21 @@
       <Tooltip.Root>
         <Tooltip.Trigger
           type="button"
-          aria-label={wrapEnabled ? "Disable code wrapping" : "Wrap long lines"}
+          aria-label={isWrapped
+            ? $t("markdown.disableCodeWrapping", "Disable code wrapping")
+            : $t("markdown.wrapLongLines", "Wrap long lines")}
+          aria-pressed={isWrapped}
           onclick={onToggleWrap}
-          class="inline-flex size-7 items-center justify-center rounded-md border border-border/40 bg-background/45 text-muted-foreground backdrop-blur-sm transition-colors hover:bg-background/70 hover:text-foreground"
+          class="relative inline-flex size-9 cursor-pointer items-center justify-center rounded-md border border-border/40 bg-background/45 backdrop-blur-sm transition-colors after:absolute after:-inset-1 after:content-[''] hover:bg-background/70 hover:text-foreground {isWrapped
+            ? 'text-primary'
+            : 'text-muted-foreground'}"
         >
           <TextWrap class="size-3.25" />
         </Tooltip.Trigger>
-        <Tooltip.Content side="left" sideOffset={8}>
-          {wrapEnabled ? "Disable wrapping" : "Wrap long lines"}
+        <Tooltip.Content side="top" sideOffset={8}>
+          {isWrapped
+            ? $t("markdown.disableWrapping", "Disable wrapping")
+            : $t("markdown.wrapLongLines", "Wrap long lines")}
         </Tooltip.Content>
       </Tooltip.Root>
     </Tooltip.Provider>

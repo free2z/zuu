@@ -67,14 +67,14 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 403 | `insufficient_scope` | no | The token lacks the scope this endpoint requires (RFC 6750) | Re-authorize requesting the scope in `details.scope` | `scope` |
 | 403 | `app_disabled` | no | The app's registration is suspended | Nothing the client can do; surface to the developer | — |
 | 403 | `account_frozen` | no | The user's account cannot spend (for example a payment dispute is open) | Tell the user to visit their account | — |
-| 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1) | Show the debt from `GET /balance` and the buy surface | `debt_milli_2z` |
+| 403 | `account_in_debt` | no (until repaid) | A refund or chargeback took back 2Z already spent; the account owes the difference and cannot spend until future credits repay it ([purchase.md](./purchase.md) §3.1) | Show the debt from `GET /balance`. Web, direct-download desktop and Apple-US-storefront builds may send the user to Free2Z billing (`openBilling()`, [the billing URL contract](../INTEGRATION.md#get-2z--the-billing-url-contract)); a store build (Google Play, iOS outside the US storefront) shows no purchase call to action, only the neutral **Manage Free2Z account** exit ([store compliance](../STORE-COMPLIANCE.md#2-the-line)). Apps never sell 2Z themselves | `debt_milli_2z` |
 | 503 | `unavailable` | yes | The server cannot serve the request right now and fails closed: it could not confirm the token's `aep`/`agen`, it has no signing keys to verify the token with (the issuer's JWKS has not loaded, or verification is not configured), shared admission cannot be confirmed, it is draining, or (gateway) the provider's circuit breaker is open or nonstreaming response memory cannot be reserved before a call | Retry with backoff; do **not** sign the user out | `reason` ∈ `revocation_check`, `token_keys`, `shared_admission`, `draining`, `provider_circuit_open`, `response_budget` |
 
 ## 3. Requests, limits and balances
 
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
-| 400 | `invalid_request` | no | A field is missing, malformed or out of range; an unknown field was sent; an image part on a model without vision; a `response_format` the model cannot honour (`reason: "response_format_unsupported"`) or of an unknown `type` (`field: "response_format.type"`, `reason: "unsupported"`); a tool feature the model or its adapter cannot honour — `tools` without `capabilities.tools`, `tools[i].strict: true` without `capabilities.strict_tools`, or `tool_choice` / `parallel_tool_calls` where the adapter cannot express them (`reason: "tools_unsupported"`, `field` naming which); a `reasoning_effort` the model or its adapter cannot honour (`field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"`, `effort_levels` when the level is outside the signed list); with `max_output_tokens_strict`, a `max_output_tokens` above the model's | `field`, `reason`, `max_output_tokens`, `model_max_output_tokens` (strict only), `effort_levels` (reasoning effort only) |
+| 400 | `invalid_request` | no | A field is missing, malformed or out of range; an unknown field was sent; an image part on a model without vision; a `response_format` the model cannot honour (`reason: "response_format_unsupported"`) or of an unknown `type` (`field: "response_format.type"`, `reason: "unsupported"`); a tool feature the model or its adapter cannot honour — `tools` without `capabilities.tools`, `tools[i].strict: true` without `capabilities.strict_tools`, or `tool_choice` / `parallel_tool_calls` where the adapter cannot express them (`reason: "tools_unsupported"`, `field` naming which); a `reasoning_effort` the model or its adapter cannot honour (including a signed tools conflict: `details.conflict: "tools"`) (`field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"`, `effort_levels` when the level is outside the signed list); with `max_output_tokens_strict`, a `max_output_tokens` above the model's | `field`, `reason`, `max_output_tokens`, `model_max_output_tokens` (strict only), `effort_levels`, `conflict` (reasoning effort only) |
 | 400 | `context_length_exceeded` | no | The input does not fit the model's context window with at least one output token — or, with `max_output_tokens_strict`, with `max_output_tokens` of them | `input_tokens_estimate`, `context_window`, `reason`, `max_output_tokens` (strict only) |
 | 402 | `insufficient_balance` | no (until topped up) | The user's available 2Z cannot cover the model's minimum charge for this request — or, with `max_output_tokens_strict`, the worst case of the full `max_output_tokens` | `available_milli_2z`, `required_2z` (the minimum hold for one output token; with strict, the hold for `max_output_tokens`), `min_charge_2z`, `reason`, `max_output_tokens` (strict only) |
 | 403 | `cap_exceeded` | no (until the period resets or the user raises the cap) | The grant's spend cap for the current period cannot cover the minimum charge — or, with `max_output_tokens_strict`, the worst case of the full `max_output_tokens` | Optional, producer- and path-specific: `cap_2z`, `cap_period`, `cap_remaining_milli_2z`, `resets_at` (`null` for `total`), `reason`, `input_tokens_estimate`, `available_milli_2z`, `required_2z`, `min_charge_2z`, `max_output_tokens` (strict only) |
@@ -197,12 +197,15 @@ The Rust SDK's equivalents are `Error::UserCancelled`,
 
 ## 6. Purchases
 
-Codes specific to [purchase.md](./purchase.md); the envelope is §1.
+Codes specific to [purchase.md](./purchase.md); the envelope is §1. Apps
+don't sell 2Z: since SDK 0.4.0 the purchase API is legacy for apps (see
+purchase.md's notice), and these codes matter only to clients that still call
+it.
 
 | Status | `code` | Retry | Meaning | `details` |
 |---|---|---|---|---|
 | 400 | `invalid_quantity` | no | Below the rail's minimum, above its maximum, not a whole 2Z, or not one of the rail's fixed packs | `min_2z`, `max_2z`, `packs` |
-| 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (`apple_iap` / `google_iap` from any third-party app in v1, or from the wrong platform) | `rail` |
+| 400 | `rail_unavailable` | no | The rail is not offered to this app or on this platform (`apple_iap` / `google_iap` from any third-party app in v1, or from the wrong platform; `zcash` from an app, because Zcash is paid on Free2Z's billing page) | `rail` |
 | 409 | `intent_not_pending` | no | The intent is `failed`; the operation does not apply. (A receipt resubmitted for an intent that is already `credited`, `expired` or in a reversal state is **not** an error: it answers `200` with the intent — [purchase.md](./purchase.md) §4.4) | `status` |
 | 409 | `receipt_already_used` | no | This store transaction already credited a **different** purchase intent | `purchase_id` |
 | 422 | `receipt_invalid` | no | The store receipt did not verify, names a different product or app, is not a production transaction, was revoked, or its account token does not match this intent | `reason` ∈ `signature`, `product`, `app`, `environment`, `revoked`, `account_token` |
@@ -219,7 +222,9 @@ Codes specific to [purchase.md](./purchase.md); the envelope is §1.
   ([chat-api.md](./chat-api.md) §4).
 - **Balance errors are never retryable by the client alone.** `402`,
   `403 cap_exceeded` and `403 account_in_debt` say what would have to change
-  (`details`); an SDK shows the buy or cap surface rather than retrying.
+  (`details`); an app shows the "get 2Z" exit (Free2Z billing via
+  `openBilling()`, or **Manage Free2Z account** in a store build) or the
+  cap on Manage, rather than retrying. It never sells 2Z itself.
 - **Nothing is charged for a refused request.** Every `4xx` before `meta`
   means no hold was taken or the hold was released.
 - **Re-sending with the same `Idempotency-Key` never does new work**: it

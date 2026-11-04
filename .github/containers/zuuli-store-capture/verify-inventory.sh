@@ -6,6 +6,12 @@ set -euo pipefail
 [[ "$(cargo +1.97.1 --version)" == cargo\ 1.97.1\ * ]]
 rustup target list --installed --toolchain 1.97.1 \
   | grep -Fqx -- "wasm32-unknown-unknown"
+[[ "$NODE_OPTIONS" == --use-openssl-ca ]]
+[[ "$SSL_CERT_FILE" == /etc/ssl/certs/ca-certificates.crt ]]
+[[ "$SSL_CERT_DIR" == /etc/ssl/verified-empty ]]
+echo '796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe  /etc/ssl/certs/ca-certificates.crt' | sha256sum -c -
+[[ -z "$(find "$SSL_CERT_DIR" -mindepth 1 -print -quit)" ]]
+[[ "$(find /etc/ssl/certs -mindepth 1 -maxdepth 1 -printf '%f\n')" == ca-certificates.crt ]]
 node --version
 npm --version
 

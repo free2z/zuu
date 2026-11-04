@@ -1,0 +1,94 @@
+{
+  "policy": "Version 0 preserved. Additive integration installs guarded policy1 ABIs; activation requires actual drain, projection and reviewed external deployment evidence.",
+  "financial_writers": [
+    {
+      "scope": "ledger/api.py and ledger/holds.py",
+      "disposition": "prepared",
+      "boundary": "Each mutative Python ABI call pins supported policy 0..1 in its transaction before its finance locks; missing/unknown/fenced policy fails closed. Read-only scalar lookups remain available.",
+      "verification": "Economy foundation; tuzis dual-write, hold and balance-writer tests. Explicit low-level stale SQL writer remains rejected."
+    },
+    {
+      "scope": "tuzis/ledger.py ordinary spend, gift/share, grants and reservations",
+      "disposition": "prepared",
+      "boundary": "Same integer m2Z API. Gifts/sharing never create payable debt. Incoming value reaches central funding limit. A refused v0 debit retains its prior SQL healing semantics.",
+      "verification": "Real-PG dual-write and source balance-writer suite. Caller lock_in_order pins before Creator locks."
+    },
+    {
+      "scope": "economy/products.py compensation admissions",
+      "disposition": "prepared",
+      "boundary": "Published exact schedule and actual immutable acceptance tuple, verified bound payee, active supplier, source/offer scope, subject actor and same-account/known legal-person checks precede admission. Captured original admission governs settlement.",
+      "verification": "Actual current canonical PPV/SDK schedules, missing consent and self-service tests. Archived membership schedule cannot qualify for new admission. Unknown purchaser aliases are not represented as universally verified people."
+    },
+    {
+      "scope": "g12f/models/creator.py Subscription.extend; g12f/tasks.py renew_subscription",
+      "disposition": "prepared utility sharing",
+      "boundary": "Both versions retain the existing restricted-usage transfer. Membership/donation utility sharing never creates USD debt. Policy pin precedes subscription/creator locks; renewal refusal defers this row and preserves existing periods.",
+      "verification": "Real-PG policy1 utility-only/no-payable regression plus existing membership and renewal concurrency/retry suites."
+    },
+    {
+      "scope": "dyte/views.py public host/viewer admission; dyte/client.py",
+      "disposition": "prepared original admission and delivery",
+      "boundary": "v0 utility billing preserved including ea_ usernames. v1 captures original host/room/price/payee/agreement/schedule before token IO. Authenticated provider evidence produces nonoverlapping delivery children, company usage collection and exact USD debt; no supplier utility credit.",
+      "verification": "Real signed HTTP and PostgreSQL delivery/replay controls. Independent cross-admission exclusion and original identities persist across mutable room/profile changes."
+    },
+    {
+      "scope": "purchases/views.py; purchases/tasks.py expiry cleanup; ztripe/views.py checkout creation",
+      "disposition": "version branch",
+      "boundary": "Authenticated first-party ZEC intent reserves buyer/recipient allowance, original actual quote and stored original intent matching memo before wallet send. v1 card reserves and requests manual capture before provider IO; original card compatibility remains. Actual firstparty actor assertion and loaded auth epoch are checked under actor lock. Timely observed ZEC remains reserved; scheduled billing cleanup or the next authorization releases unused expired capacity. The expiry job commits with its original intent; minute catch-up over at most 50 original overdue unobserved instructions repairs missing, killed or exhausted jobs with bounded per-row DB waits and a private least-recently-attempted marker committed before all finance locks; blocked batches cannot monopolize later ticks. GET only projects elapsed status and never releases capacity. Actual provider canceled/expired card authorization is required for release; unknown capture remains held for resolution.",
+      "verification": "Existing checkout/intent suites and prepared ZEC quote tests. Public typed DTO and canonical funding terms owned by API producer; no production processor capture by agents."
+    },
+    {
+      "scope": "ztripe/fulfillment.py verified captured card receipts",
+      "disposition": "prepared",
+      "boundary": "Policy pin attempted before checkout locks. Actual capture issued once under reservation or retained as durable pending-resolution 2xx; no fulfilled intent or BOUGHT event for refusal. Existing receipt cursor retained for historical purchases.",
+      "verification": "Existing exact-money/signature/idempotency suites plus prepared capture lifecycle. Original clearing-source purchase and purchase-origin debt repayment must equal the cursor; nominal backfill alone is unavailable. BOUGHT event only actual positive user usage issuance."
+    },
+    {
+      "scope": "ztripe/economic_events.py actual provider capture/refund/dispute handlers",
+      "disposition": "prepared capture; manual financial observations",
+      "boundary": "Existing subscribed checkout.session.completed retrieves the exact stored Session and attached PI, matching account/metadata/price before committed allowance validation and idempotent manual capture outside DB locks. Canonical paid state governs fulfillment; ambiguous retry does not resend succeeded capture. Optional financial events preserve actual provider observations for manual review; automatic clawback/recovery deferred the application contract.",
+      "verification": "Real-PG exact Session/PI capture, copied metadata refusal, ambiguous capture retry, canceled authorization/expired Session proof and release tests. No live processor action or settings mutation by agents."
+    },
+    {
+      "scope": "tuzis/zec.py; g12f/management/commands/credit_creators.py; economy/funding.py",
+      "disposition": "version branch",
+      "boundary": "v0 preserved. v1 actual canonical note observed before confirmation; original stored matching intent resolves immutable actor before usernames. Timely first-seen quote/reservation retained through confirmation; duplicate/different notes never masquerade as credited. Unknown payer not fabricated.",
+      "verification": "Real raw actor-null/zero/three-pool capture, native SQLite reader handoff, exact legacy receipt+journal adoption without new issuance, Unicode/opaque/unavailable memo and confirmation/expiry controls. No shielded sender identity is fabricated."
+    },
+    {
+      "scope": "ledger/rollup.py legacy SDK split queue and developer projection",
+      "disposition": "hard block for version1 legacy rows",
+      "boundary": "Producer/consumer queue mutations pinned. Legacy aggregate rows never become prospective USD debt or resolve current app ownership at settlement. New compensated SDK requires approved actual contribution/license evidence before hold/provider IO.",
+      "verification": "Real restricted LOGIN and compiled public Rust adapter all8 operations under versions0/1. Policy1 settles company/provider utility immediately, child journals capture original developer/payee, and expired late expenses never enter the old queue."
+    },
+    {
+      "scope": "economy/products.py usage-purchase quote and setoff",
+      "disposition": "deferred inactive preparation the application contract",
+      "boundary": "Owner deferred earnings-funded usage purchase. Public producer always unavailable; existing exact quote/preparation code never mutates finances without a dedicated ABI, which is absent and not a cutover prerequisite.",
+      "verification": "Precision/preparation tests only; no supported release capability claimed."
+    },
+    {
+      "scope": "management/admin grants, reconciliation, provider refunds, translation/AI jobs",
+      "disposition": "central fence; source-led caller review",
+      "boundary": "Mutative ledger API now pins and central DB guards reject missed/stale writers safely. Ordinary grants/incoming usage remain capped; validated debt-only restore distinct from positive usage loading. Direct SQL jobs must declare epoch in the exclusive writer audit.",
+      "verification": "Existing balance-writer AST inventory and foundation bypass tests. Runtime model enumeration is bounded source triage, not proof of all admin/operator behavior."
+    }
+  ],
+  "external_writer": {
+    "scope": "zcash/pipeline/credit-code-manifest.json and credit-code deploy tooling",
+    "disposition": "desired runtime import closure expanded",
+    "boundary": "Includes economy epoch/funding/products/services/canonical Python resources and full migration graph. Recorded old host observations are preserved; this change is not an actual host deploy/measurement.",
+    "verification": "Credit-code manifest/deployer regression suite and actual AST closure. Separate wallet-host runtime attestation required before activation; K8s rollout alone does not cover it."
+  },
+  "legacy_rights": {
+    "disposition": "preserved separate review",
+    "boundary": "Prospective payable starts zero. Immutable historical claims/decisions/source evidence and lawful manual rights remain separate. Full dedicated legacy obligation/payment/shared transaction registry is followup the application contract, not automatic usage conversion or forfeiture."
+  },
+  "remaining_activation_blockers": [
+    "Actual reviewed Django/worker/gateway/external ZEC writer loaded revisions and source capture",
+    "Drained actual holds, nonterminal gateway calls, legacy reservations and old split liabilities",
+    "Correct usage/payable projections and attributed preserved over-limit allowance",
+    "Reviewed supplier identity/offer licensing and actual creator contract/schedule consent before compensated service",
+    "Staged caps, original receipt adoption and actual loaded restricted ABI rehearsal"
+  ]
+}

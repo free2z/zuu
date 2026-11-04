@@ -46,3 +46,65 @@ module.exports = function override(config, env) {
 
   return config;
 };
+
+
+// Jest 27 does not understand nested package exports. Resolve the supported
+// router DOM subpath with Node, which observes the package export map.
+module.exports.jest = (config) => ({
+  ...config,
+  setupFiles: [...config.setupFiles, path.resolve(__dirname, "scripts/jest-platform.cjs")],
+  moduleNameMapper: {
+    ...config.moduleNameMapper,
+    "^react-router/dom$": path.resolve(
+      path.dirname(require.resolve("react-router/package.json")),
+      require("react-router/package.json").exports["./dom"].default.default
+    ),
+  },
+});
+
+
+// Preserve CRA's middleware ordering with webpack-dev-server's supported API.
+module.exports.devServer = (createConfig) => (proxy, allowedHost) => {
+  const config = createConfig(proxy, allowedHost);
+  // Keep validation enabled even when CRA defaults to accepting every host.
+  // An explicitly configured LAN hostname remains supported.
+  if (config.allowedHosts === "all" || config.allowedHosts == null) {
+    config.allowedHosts = "auto";
+  }
+  if (Array.isArray(config.allowedHosts)) {
+    config.allowedHosts = config.allowedHosts.filter(Boolean);
+    if (!config.allowedHosts.length) config.allowedHosts = "auto";
+  }
+  const { onBeforeSetupMiddleware, onAfterSetupMiddleware, https } = config;
+  delete config.onBeforeSetupMiddleware;
+  delete config.onAfterSetupMiddleware;
+  delete config.https;
+  if (https) config.server = { type: "https", options: https === true ? {} : https };
+  config.setupMiddlewares = (middlewares, devServer) => {
+    // CRA's signal handler calls close(); version5 exposes stopCallback().
+    devServer.close = (callback) => devServer.stopCallback(callback || (() => {}));
+    const guards = ["host-header-check", "cross-origin-header-check"].map(
+      (name) => middlewares.findIndex((middleware) => middleware.name === name)
+    );
+    if (guards.some((index) => index < 0)) {
+      throw new Error("webpack-dev-server request security guards are required");
+    }
+    const before = require("express").Router();
+    const beforeServer = Object.assign(Object.create(devServer), { app: before });
+    // CRA's source-map endpoint reads the old stats property dynamically.
+    Object.defineProperty(beforeServer, "_stats", {
+      get: () => devServer.stats ?? devServer._stats,
+    });
+    onBeforeSetupMiddleware?.(beforeServer);
+    const tail = require("express").Router();
+    onAfterSetupMiddleware?.(Object.assign(Object.create(devServer), { app: tail }));
+    const boundary = Math.max(...guards) + 1;
+    return [
+      ...middlewares.slice(0, boundary),
+      { name: "classic-source-and-proxy", middleware: before },
+      ...middlewares.slice(boundary),
+      { name: "classic-history-and-service-worker", middleware: tail },
+    ];
+  };
+  return config;
+};
