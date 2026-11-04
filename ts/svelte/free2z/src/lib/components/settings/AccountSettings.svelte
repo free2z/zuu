@@ -573,7 +573,7 @@
                       onCheckedChange={handleEmailPublicToggle}
                       id="public-email"
                     />
-                    <Label for="public-email" class="cursor-pointer font-normal"
+                    <Label for="public-email" control class="font-normal"
                       >{$t(
                         "settings.account.publicVisibility",
                         "Public visibility",
@@ -586,7 +586,7 @@
                       onCheckedChange={handleEmailNotificationsToggle}
                       id="notify-email"
                     />
-                    <Label for="notify-email" class="cursor-pointer font-normal"
+                    <Label for="notify-email" control class="font-normal"
                       >{$t(
                         "settings.account.receiveNotifications",
                         "Receive notifications",
@@ -664,7 +664,7 @@
         id="mention-notifications"
       />
       <div>
-        <Label for="mention-notifications" class="cursor-pointer font-normal">
+        <Label for="mention-notifications" control class="font-normal">
           {$t(
             "settings.account.receiveMentionNotifications",
             "Receive in-app notifications when creators mention you",

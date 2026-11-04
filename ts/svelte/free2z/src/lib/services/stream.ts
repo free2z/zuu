@@ -26,6 +26,11 @@ import {
   type MessageDescriptor,
 } from "$lib/i18n-message";
 import { PUBLIC_STREAM_TYPES, STREAM_TYPES } from "$lib/streamTypes.js";
+import {
+  PpvAdmissionStorageError,
+  ppvJoinKey,
+} from "$lib/ppv-admission-key.js";
+export { clearPpvJoinKey } from "$lib/ppv-admission-key.js";
 import { z } from "zod";
 
 /**
@@ -43,6 +48,10 @@ const STREAM_MESSAGES = {
   verificationUnavailable: defineMessage(
     "stream.errors.verificationUnavailable",
     "We couldn't verify your account just now. Please retry.",
+  ),
+  storageUnavailable: defineMessage(
+    "stream.subscribe.storageUnavailable",
+    "Browser storage is unavailable. Restore it and check any previous payment before retrying. This attempt was not sent.",
   ),
   invalidResponse: defineMessage(
     "stream.errors.invalidResponse",
@@ -91,10 +100,12 @@ export const streamInitResponseSchema = z.object({
   auth_token: z.string(),
   room_name: z.string().optional(),
   meeting_id: z.string().optional(),
+  session_id: z.string().uuid().optional(),
   // Host starts only: the broadcaster seat this tab now holds.
   host_session: z.string().optional(),
   meeting_type: z.enum(PUBLIC_STREAM_TYPES).optional(),
   resumed: z.boolean().optional(),
+  admission_idempotency_key: z.string().uuid().optional(),
 });
 
 export type StreamInitResponse = z.infer<typeof streamInitResponseSchema>;
@@ -116,11 +127,15 @@ export const streamInfoSchema = z.object({
   // Public discovery (the bounded live rail) omits the viewer count, so this
   // stays optional rather than becoming a false zero in the UI.
   participant_count: z.number().optional(),
+  // True while the host's recording control has an active capture. Omitted
+  // by older payloads and by discovery lists that do not know.
+  recording: z.boolean().optional(),
   // Django DecimalField values arrive as strings. Keep numbers accepted for
   // the legacy stream payload, but never coerce the authoritative price with
   // Number() at the payment boundary.
   price_per_minute: z.union([z.string(), z.number()]).optional(),
   meeting_id: z.string().optional(),
+  session_id: z.string().uuid().optional(),
 });
 
 export type StreamInfo = z.infer<typeof streamInfoSchema>;
@@ -138,6 +153,8 @@ const legacyStreamInfoSchema = z.object({
   participants: z.number(),
   price_per_minute: z.union([z.string(), z.number()]).nullable().optional(),
   meeting_id: z.string().optional(),
+  session_id: z.string().uuid().optional(),
+  recording: z.boolean().optional(),
 });
 
 const legacyLiveStatusResponseSchema = z.partialRecord(
@@ -155,6 +172,8 @@ export const liveStatusResponseSchema = z.union([
         ? {}
         : { price_per_minute: stream.price_per_minute }),
       ...(stream.meeting_id == null ? {} : { meeting_id: stream.meeting_id }),
+      ...(stream.session_id == null ? {} : { session_id: stream.session_id }),
+      ...(stream.recording == null ? {} : { recording: stream.recording }),
     }));
 
     return {
@@ -222,6 +241,8 @@ export interface InitStreamOptions {
   expectedActorId?: number;
   /** Cancel admission when the original viewer leaves this page. */
   signal?: AbortSignal;
+  /** Server-issued provider session identity; required for paid PPV retries. */
+  meetingSessionId?: string;
   /**
    * `host` from the broadcaster dashboard, `viewer` from every public stream
    * page -- including the creator's own, which must never publish.
@@ -258,11 +279,14 @@ export class StreamService {
       takeover,
       expectedActorId,
       signal,
+      meetingSessionId,
     } = options;
     const originalViewerId =
       type === "ppv" && role !== "host"
         ? (expectedActorId ?? get(currentUser)?.id)
         : undefined;
+    if (originalViewerId && type === "ppv" && !meetingSessionId)
+      throw new Error("PPV admission requires a meeting session");
     try {
       signal?.throwIfAborted();
       if (type === "ppv" && role !== "host") {
@@ -286,12 +310,21 @@ export class StreamService {
         if (actual?.id !== originalViewerId)
           throw localizedError(STREAM_MESSAGES.actorChanged);
       }
+      const admissionIdempotencyKey =
+        originalViewerId && type === "ppv"
+          ? ppvJoinKey(username, originalViewerId, meetingSessionId!, type)
+          : undefined;
       const instruction = {
         ...(role ? { role } : {}),
         ...(hostSession ? { host_session: hostSession } : {}),
         ...(takeover ? { takeover: true } : {}),
         ...(pricePerMinute ? { price_per_minute: String(pricePerMinute) } : {}),
         ...(originalViewerId ? { expected_actor_id: originalViewerId } : {}),
+        ...(originalViewerId
+          ? {
+              admission_idempotency_key: admissionIdempotencyKey,
+            }
+          : {}),
       };
       const body: MeetingJoinRequestSchema = instruction;
       // `/api/dyte/{username}/{type}` is a CLOSED enum in the contract — its
@@ -308,9 +341,21 @@ export class StreamService {
       )) as unknown;
       signal?.throwIfAborted();
 
-      return streamInitResponseSchema.parse(response);
+      const parsed = streamInitResponseSchema.parse(response);
+      return {
+        ...parsed,
+        ...(admissionIdempotencyKey
+          ? { admission_idempotency_key: admissionIdempotencyKey }
+          : {}),
+      };
     } catch (error) {
       if (signal?.aborted) throw error;
+      if (error instanceof PpvAdmissionStorageError)
+        throw localizedError(
+          STREAM_MESSAGES.storageUnavailable,
+          undefined,
+          error,
+        );
       if (error instanceof z.ZodError) {
         console.error(
           "Stream initialization response validation failed:",

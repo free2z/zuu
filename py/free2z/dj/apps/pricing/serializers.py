@@ -116,6 +116,11 @@ class CatalogModelCapabilitiesSerializer(serializers.Serializer):
 class CatalogModelControlsSerializer(serializers.Serializer):
     """Crate ``ModelControls``: signed narrowing of what a capability admits."""
 
+    tools_require_effort_none = serializers.BooleanField(
+        required=False, help_text="With tools, explicit non-none reasoning effort is "
+        "refused before reservation. Omitted effort uses the provider default.",
+    )
+
     effort_levels = serializers.ListField(
         child=serializers.CharField(), required=False,
         help_text="The reasoning_effort levels the model takes (non-empty, "

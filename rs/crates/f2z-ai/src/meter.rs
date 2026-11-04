@@ -1159,6 +1159,9 @@ fn models_controls(m: &CatalogModel) -> Value {
     {
         controls.insert("effort_levels".into(), json!(levels));
     }
+    if crate::provider::reasoning_effort_supported(m) && m.controls.tools_require_effort_none {
+        controls.insert("tools_require_effort_none".into(), json!(true));
+    }
     Value::Object(controls)
 }
 

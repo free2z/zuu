@@ -789,3 +789,12 @@ test("a legacy-alias video/audio embed plays from our own origin (codex review)"
   assert.match(html, /data-audio-url="\/uploadz\/public\/u\/p\.mp3"/);
   assert.doesNotMatch(html, /www\.free2z\.cash/);
 });
+
+test("credit help stays within the existing buy-2z namespace", () => {
+  assert.equal(classify("https://free2z.cash/buy-2z/about")?.kind, "page");
+  // Credits remains available as a creator name; the explanation claims no root.
+  assert.equal(
+    classify("https://free2z.cash/credits/introduction")?.kind,
+    "zpage",
+  );
+});

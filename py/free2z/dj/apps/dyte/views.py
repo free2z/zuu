@@ -84,6 +84,35 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+VIEWER_PROVIDER_RETRY_AFTER = "5"
+
+
+def _provider_retry_response():
+    return Response(
+        {"error": "The live-stream provider did not respond; try again."},
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        headers={"Retry-After": VIEWER_PROVIDER_RETRY_AFTER},
+    )
+
+
+def _viewer_token(response):
+    """Return a usable provider token, or None for any provider failure."""
+    if response is None:
+        return None
+    status_code = getattr(response, "status_code", None)
+    if isinstance(status_code, int) and status_code >= 400:
+        return None
+    try:
+        body = response.json()
+    except (ValueError, requests.RequestException):
+        return None
+    if not isinstance(body, dict) or body.get("error"):
+        return None
+    data = body.get("data")
+    token = data.get("token") if isinstance(data, dict) else None
+    return token if isinstance(token, str) and token else None
+
 PUBLIC_DISCOVERY_LIMIT = 12
 
 STREAM_PAYMENT_REQUIRED_RESPONSE = OpenApiResponse(
@@ -948,6 +977,13 @@ def _acknowledge_unresolved_meeting(
 @transaction.atomic
 def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
     """Apply one validated delivery atomically with its unique claim."""
+    if event_data.event in ('meeting.started', 'meeting.ended'):
+        # The caller resolved this row before our transaction. Serialize both
+        # lifecycle events and compare against the current, locked session.
+        cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
+        if str(cm.meeting_id) != str(event_data.meeting.id):
+            logger.info("ignoring lifecycle event for replaced meeting_id=%s", event_data.meeting.id)
+            return
     if event_data.event == 'meeting.participantLeft' and cm.meeting_type in (BROADCAST, PAY_PER_VIEW):
         version=pin_supported_policy()
         if version==1 and cm.meeting_type==PAY_PER_VIEW and event_data.participant.customParticipantId==f'ph_{cm.creator.public_id.hex}':
@@ -992,7 +1028,28 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.event,
             event_data.meeting.id,
         )
+        started_at = event_data.meeting.startedAt
+        # Provider retries and concurrent deliveries can arrive out of order.
+        # A session may only replace the current one when its provider start
+        # time is strictly later; ties are ambiguous, so preserve current state.
+        if (
+            cm.provider_session_started_at is not None
+            and started_at <= cm.provider_session_started_at
+        ):
+            logger.info(
+                "ignoring stale meeting started meeting_id=%s session_id=%s "
+                "started_at=%s current_session_id=%s current_started_at=%s",
+                event_data.meeting.id,
+                event_data.meeting.sessionId,
+                started_at,
+                cm.provider_session_id,
+                cm.provider_session_started_at,
+            )
+            return
         cm.live_now = True
+        cm.provider_session_id = event_data.meeting.sessionId
+        cm.provider_session_started_at = started_at
+        cm.zero_probe_since = None
         # Stamp presence so the just-went-live room is inside the public
         # list's last_seen_at window and safe from the sweep's grace before
         # the first dyte.sweep_live_meetings probe runs.
@@ -1001,7 +1058,10 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         # event was processed, would write back a stale broadcaster seat
         # (host_session_id) over a start or take-over that committed in
         # between.
-        cm.save(update_fields=['live_now', 'last_seen_at'])
+        cm.save(update_fields=[
+            'live_now', 'last_seen_at', 'provider_session_id',
+            'provider_session_started_at', 'zero_probe_since',
+        ])
 
     elif event_data.event == "meeting.ended":
         logger.info(
@@ -1009,8 +1069,27 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.event,
             event_data.meeting.id,
         )
+        # Dyte can deliver the previous session's end after a host has
+        # restarted in the same room. Only the end for the session currently
+        # recorded by meeting.started may take that room offline.
+        if (
+            (cm.provider_session_started_at is not None
+             and event_data.meeting.startedAt < cm.provider_session_started_at)
+            or (cm.provider_session_id is not None
+                and cm.provider_session_id != event_data.meeting.sessionId)
+            or (cm.provider_session_id is None
+                and _seat_is_fresh(cm, timezone.now()))
+        ):
+            logger.info(
+                "ignoring stale meeting ended meeting_id=%s session_id=%s current_session_id=%s",
+                event_data.meeting.id,
+                event_data.meeting.sessionId,
+                cm.provider_session_id,
+            )
+            return
         cm.live_now = False
-        cm.save(update_fields=['live_now'])
+        cm.zero_probe_since = None
+        cm.save(update_fields=['live_now', 'zero_probe_since'])
 
     elif event_data.event == "meeting.participantJoined":
         logger.info(
@@ -1460,26 +1539,31 @@ def live_meeting_status(request, username):
         # enum, so one legacy off-enum row would invalidate the
         # whole payload and hide that creator's real streams.
         meeting_type__in=PUBLIC_MEETING_TYPES,
-    ).values('meeting_type', 'meeting_id', 'price_per_minute')
+    ).values('meeting_type', 'meeting_id', 'price_per_minute', 'provider_session_id')
     # this fundamentally ties the whole experience to polling dyte for
     # the participant count. I guess it could be fine though.
     resp = {}
     for meeting in live_meetings:
         try:
-            count = dc.get_participants_count(meeting['meeting_id'])
+            count = dc.get_cached_participants_count(meeting['meeting_id'])
         except Exception as exc:
             # A provider hiccup must never 500 a public, bot-crawled page.
-            # Unknown presence reads as "not live" for this response only;
-            # dyte.sweep_live_meetings owns reconciling live_now.
+            # A prior count is served by the short last-known cache.
             logger.warning(
                 "live_meeting_status: probe failed for %s (%s): %s",
                 meeting['meeting_id'], username, exc,
             )
             continue
         meeting['participants'] = count
+        session_id = meeting.pop('provider_session_id')
+        if session_id is not None:
+            meeting['session_id'] = str(session_id)
         # bring back count when dyte fixes regression
         # https://discord.com/channels/872824138048352277/1253228307227349004
         if count:
+            from .recording_control import public_recording
+
+            meeting['recording'] = public_recording(meeting['meeting_id'])
             resp[meeting['meeting_type']] = meeting
     return Response(resp)
 
@@ -1503,7 +1587,11 @@ def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting
     # session's late `meeting.ended` would take the new session offline (the
     # sweep only re-checks live rooms).  adds that session state; until
     # then an orphaned event is acknowledged and counted at the webhook.
-    cm.save(update_fields=['meeting_id'])
+    cm.provider_session_id = None
+    cm.provider_session_started_at = None
+    cm.save(update_fields=[
+        'meeting_id', 'provider_session_id', 'provider_session_started_at',
+    ])
     return cm
 
 
@@ -1842,8 +1930,14 @@ class PrivateMeeting(APIView):
         # if not cm.meeting_id:
         #     cm = _create_meeting(cm, dc)
 
-        resp = dc.add_participant(request.user, cm.meeting_id)
-        auth_token = resp.json()['data']['token']
+        try:
+            resp = dc.add_participant(request.user, cm.meeting_id, cm=cm)
+            auth_token = _viewer_token(resp)
+        except requests.RequestException as exc:
+            logger.warning("private viewer join provider request failed (%s)", type(exc).__name__)
+            return _provider_retry_response()
+        if auth_token is None:
+            return _provider_retry_response()
         return Response({
             # "meeting_id": cm.meeting_id,
             "e2ee": cm.e2ee,
@@ -1968,7 +2062,7 @@ class DyteMeeting(APIView):
             live_now=True,
         )
         try:
-            participants = dc.get_participants_count(cm.meeting_id)
+            participants = dc.get_cached_participants_count(cm.meeting_id)
         except Exception as exc:
             # Don't 500 on a provider error — report "Not Live" instead.
             logger.warning(
@@ -2097,10 +2191,8 @@ class DyteMeeting(APIView):
         )
 
         if meeting_type == PAY_PER_VIEW and not is_own_stream:
-            from dj.apps.economy.models import EconomicPolicy
             expected_actor = body.validated_data.get('expected_actor_id')
-            if (expected_actor is not None and expected_actor != request.user.pk) or (
-                    EconomicPolicy.objects.get(pk=True).version == 1 and expected_actor != request.user.pk):
+            if expected_actor is not None and expected_actor != request.user.pk:
                 return Response({'code': 'actor_changed', 'error': 'The signed-in viewer changed. Review the original paid join.'}, status=409)
 
         # User must be subscribed for subscribers-only
@@ -2121,6 +2213,11 @@ class DyteMeeting(APIView):
                 )
 
         compensation_admission = None
+        participant_custom_id = None
+        if meeting_type == PAY_PER_VIEW and is_own_stream:
+            from dj.apps.economy.models import EconomicPolicy
+            if EconomicPolicy.objects.filter(pk=True, version=1).exists():
+                participant_custom_id = f'ph_{request.user.public_id.hex}'
         if meeting_type == PAY_PER_VIEW and not is_own_stream:
             # User must have enough tuzis
             price_per_minute = cm.price_per_minute
@@ -2148,6 +2245,17 @@ class DyteMeeting(APIView):
                 expected_actor = body.validated_data.get('expected_actor_id')
                 if (expected_actor is not None and expected_actor != request.user.pk) or (version == 1 and expected_actor != request.user.pk):
                     return Response({'code': 'actor_changed', 'error': 'The signed-in viewer changed. Review the original paid join.'}, status=409)
+                admission_key = body.validated_data.get('admission_idempotency_key')
+                if version == 1 and admission_key is None:
+                    # Pre-v1 cached clients cannot safely identify a retry
+                    # after an ambiguous provider response. Refuse before
+                    # reserving or delivering anything; compatibility must
+                    # come from updating the client, never inventing a key
+                    # per HTTP attempt and risking a duplicate admission.
+                    return Response({
+                        'code': 'admission_idempotency_key_required',
+                        'error': 'Update the app to retry this paid join safely.',
+                    }, status=400)
                 if version == 1:
                     actors = {actor.pk: actor for actor in Creator.objects.select_for_update().filter(
                         pk__in=sorted({cm.creator_id, request.user.pk})).order_by('pk')}
@@ -2158,17 +2266,29 @@ class DyteMeeting(APIView):
                     try:
                         compensation_admission = prepare_livestream_admission(host_id=cm.creator_id,
                             viewer_id=request.user.pk, meeting_id=cm.meeting_id,
-                            price_per_minute=cm.price_per_minute, viewer_account_epoch=request.user.kt_account_epoch)
+                            price_per_minute=cm.price_per_minute,
+                            idempotency_key=str(admission_key),
+                            viewer_account_epoch=request.user.kt_account_epoch)
                     except EconomicRefusal as exc:
                         return Response({'code': str(exc), 'error': 'Paid livestream compensation is unavailable.'}, status=409)
         logger.info(f"Adding Participant! {request.user.username}")
         # role=viewer, always: this branch must never hand out the host
         # preset, whoever the caller is.
-        if compensation_admission is not None:
-            resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE,
-                custom_participant_id=f'ea_{compensation_admission.pk.hex}')
-        else:
-            resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE)
+        try:
+            if compensation_admission is not None:
+                resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE,
+                    custom_participant_id=f'ea_{compensation_admission.pk.hex}', cm=cm)
+            else:
+                resp = dc.add_participant(
+                    request.user, cm.meeting_id, role=VIEWER_ROLE,
+                    custom_participant_id=participant_custom_id, cm=cm,
+                )
+            auth_token = _viewer_token(resp)
+        except requests.RequestException as exc:
+            logger.warning("public viewer join provider request failed (%s)", type(exc).__name__)
+            return _provider_retry_response()
+        if auth_token is None:
+            return _provider_retry_response()
         # Neither resp.text nor resp.json() may be logged: the success
         # body carries data.token, a bearer credential for joining this
         # meeting, and root logging is INFO in prod. DyteClient.
@@ -2178,8 +2298,6 @@ class DyteMeeting(APIView):
         # broken call in its own right -- a positional arg with no %s in
         # the message makes logging raise "not all arguments converted"
         # internally, so it emitted a formatting error, not a log line.
-        auth_token = resp.json()['data']['token']
-
         return Response({
             "meeting_id": cm.meeting_id,
             "auth_token": auth_token,
@@ -2277,7 +2395,15 @@ class DyteMeeting(APIView):
                 cm = _create_meeting(cm, dc)
 
             logger.info(f"Adding Host! {creator.username}")
-            resp = dc.add_participant(creator, cm.meeting_id, role=HOST_ROLE)
+            host_participant_id = (
+                f'ph_{creator.public_id.hex}'
+                if meeting_type == PAY_PER_VIEW and policy_version == 1
+                else None
+            )
+            resp = dc.add_participant(
+                creator, cm.meeting_id, role=HOST_ROLE, cm=cm,
+                custom_participant_id=host_participant_id,
+            )
             d = resp.json()
 
             # This could probably be removed but we can try one more
@@ -2293,7 +2419,10 @@ class DyteMeeting(APIView):
                 # viewers. Those fall through to the 502 below.
                 cm = _create_meeting(cm, dc)
                 # try once more
-                resp = dc.add_participant(creator, cm.meeting_id, role=HOST_ROLE)
+                resp = dc.add_participant(
+                    creator, cm.meeting_id, role=HOST_ROLE, cm=cm,
+                    custom_participant_id=host_participant_id,
+                )
 
             data = (resp.json() or {}).get('data') or {}
             auth_token = data.get('token')
@@ -2369,12 +2498,14 @@ class DyteMeeting(APIView):
             cm.host_session_seen_at = now
             cm.host_participant_id = new_participant_id
             cm.live_now = True
+            cm.zero_probe_since = None
             # Stamp presence at go-live so the room shows on the public list
             # immediately and is protected by the sweep's grace window until
             # its participants register with the provider.
             cm.last_seen_at = timezone.now()
             cm.save(update_fields=[
                 'price_per_minute', 'live_now', 'last_seen_at',
+                'zero_probe_since',
                 'host_session_id', 'host_session_seen_at',
                 'host_participant_id', 'host_evictions',
             ])

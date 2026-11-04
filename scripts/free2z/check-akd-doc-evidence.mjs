@@ -36,8 +36,19 @@ const reportAnchor = Object.freeze({
   figure: "Figure 2: recursive_batch_insert_nodes() in akd/src/append_only_zks.rs",
 });
 
+// GitHub's legacy facebook/akd path and /repositories/381489928 both
+// resolve to meta/akd (verified 2026-11-04). Pin the stable repository
+// identity as well as its exact current canonical name; no redirect aliases
+// are admitted by identity validation. The NCC PDF retains its original URL.
+const repositoryAnchor = Object.freeze({
+  id: 381489928,
+  nodeId: "MDEwOlJlcG9zaXRvcnkzODE0ODk5Mjg=",
+  fullName: "meta/akd",
+  url: "https://github.com/meta/akd",
+});
+
 const releaseAnchors = Object.freeze({
-  repository: "https://github.com/facebook/akd",
+  repository: repositoryAnchor.url,
   path: "akd/src/append_only_zks.rs",
   audited: Object.freeze({
     release: "v0.9.0",
@@ -58,9 +69,9 @@ const releaseAnchors = Object.freeze({
 
 const fixAnchors = Object.freeze({
   q3u_publish_only: Object.freeze({
-    apiUrl: "https://api.github.com/repos/facebook/akd/pulls/400",
-    url: "https://github.com/facebook/akd/pull/400",
-    patchUrl: "https://github.com/facebook/akd/pull/400.patch",
+    apiUrl: "https://api.github.com/repos/meta/akd/pulls/400",
+    url: "https://github.com/meta/akd/pull/400",
+    patchUrl: "https://github.com/meta/akd/pull/400.patch",
     patchSha256: "c507b382007954a243fc467a92a457df69ebacdcef5cfe27f1dcd9e3b8e1a891",
     id: 1499550422,
     nodeId: "PR_kwDOFr0TCM5ZYVLW",
@@ -81,9 +92,9 @@ const fixAnchors = Object.freeze({
     forbiddenPatchText: "InsertMode::Auditor",
   }),
   auditor_residual: Object.freeze({
-    apiUrl: "https://api.github.com/repos/facebook/akd/pulls/495",
-    url: "https://github.com/facebook/akd/pull/495",
-    patchUrl: "https://github.com/facebook/akd/pull/495.patch",
+    apiUrl: "https://api.github.com/repos/meta/akd/pulls/495",
+    url: "https://github.com/meta/akd/pull/495",
+    patchUrl: "https://github.com/meta/akd/pull/495.patch",
     patchSha256: "ff1387d4a349e840ffe2cd8d1ee39d59b11009097f2d7526e0b30a2d86a4f3a6",
     id: 4258069338,
     nodeId: "PR_kwDOFr0TCM79zPta",
@@ -1415,6 +1426,10 @@ function validateFixRecords(audit) {
 }
 
 function validatePullRequestIdentity(pull, anchor) {
+  assert.equal(pull.base?.repo?.id, repositoryAnchor.id, "AKD repository database id changed");
+  assert.equal(pull.base?.repo?.node_id, repositoryAnchor.nodeId, "AKD repository node id changed");
+  assert.equal(pull.base?.repo?.full_name, repositoryAnchor.fullName, "AKD repository canonical name changed");
+  assert.equal(pull.base?.repo?.html_url, repositoryAnchor.url, "AKD repository canonical URL changed");
   assert.equal(pull.id, anchor.id, `PR #${anchor.number} database id changed`);
   assert.equal(pull.node_id, anchor.nodeId, `PR #${anchor.number} node id changed`);
   assert.equal(pull.number, anchor.number, `PR #${anchor.number} number changed`);
@@ -1541,7 +1556,7 @@ async function validateAuditEvidence(audit) {
   const bodies = [];
   const sources = [];
   for (const entry of [audit.upstream.audited, audit.upstream.selected]) {
-    const url = `https://raw.githubusercontent.com/facebook/akd/${entry.commit}/${audit.upstream.path}`;
+    const url = `https://raw.githubusercontent.com/meta/akd/${entry.commit}/${audit.upstream.path}`;
     const source = await fetchPinnedBytes(url);
     sources.push(source);
     bodies.push(validatePinnedSource(source, entry, audit.upstream.partition_signature, audit.upstream.partition_body_sha256));
@@ -1749,7 +1764,7 @@ async function selfTest() {
   for (const url of [
     reportAnchor.url,
     fixAnchors.q3u_publish_only.patchUrl,
-    `https://raw.githubusercontent.com/facebook/akd/${releaseAnchors.selected.commit}/${releaseAnchors.path}`,
+    `https://raw.githubusercontent.com/meta/akd/${releaseAnchors.selected.commit}/${releaseAnchors.path}`,
     "https://api.github.com.evil/evidence",
     "http://api.github.com/evidence",
     "https://api.github.com:444/evidence",
@@ -2467,7 +2482,7 @@ async function selfTest() {
     ["auditor_residual", 494],
   ]) {
     const fixMutant = structuredClone(audit);
-    fixMutant.fixes[name].url = `https://github.com/facebook/akd/pull/${replacementNumber}`;
+    fixMutant.fixes[name].url = `https://github.com/meta/akd/pull/${replacementNumber}`;
     const coordinatedFixFiles = files.map(([path, source]) => [
       path,
       path === claimInventory.get("audit_scope")
@@ -2489,6 +2504,26 @@ async function selfTest() {
       () => validatePullRequestIdentity(pullMutant, anchor),
       `${name} PR identity mutant survived`,
     );
+    for (const [label, mutate] of [
+      ["repository id", (value) => { value.base.repo.id += 1; }],
+      ["repository node id", (value) => { value.base.repo.node_id = "MUTANT"; }],
+      ["repository name", (value) => { value.base.repo.full_name = "other/akd"; }],
+      ["repository URL", (value) => { value.base.repo.html_url = "https://github.com/other/akd"; }],
+      ["PR host", (value) => { value.html_url = anchor.url.replace("github.com", "example.invalid"); }],
+      ["legacy PR URL", (value) => { value.html_url = anchor.url.replace("meta/akd", "facebook/akd"); }],
+      ["PR id", (value) => { value.id += 1; }],
+      ["PR node id", (value) => { value.node_id = "MUTANT"; }],
+      ["head commit", (value) => { value.head.sha = "0".repeat(40); }],
+      ["merge commit", (value) => { value.merge_commit_sha = "0".repeat(40); }],
+    ]) {
+      const identityMutant = structuredClone(pull);
+      mutate(identityMutant);
+      assert.throws(
+        () => validatePullRequestIdentity(identityMutant, anchor),
+        `${name} ${label} mutant survived`,
+      );
+      killed.coordinatedEvidence += 1;
+    }
     const semanticMutant = Buffer.from(
       patch.toString("utf8").replace(anchor.requiredPatchText[1], "MUTATED SEMANTIC"),
     );

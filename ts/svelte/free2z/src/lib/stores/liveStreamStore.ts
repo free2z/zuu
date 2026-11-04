@@ -91,7 +91,7 @@ function createLiveStreamStore() {
       update((state) => ({ ...state, activeSpeakerId: participantId }));
     },
 
-    setError: (error: string, errorCode: string | null = null) => {
+    setError: (error: string | null, errorCode: string | null = null) => {
       update((state) => ({ ...state, error, errorCode }));
     },
 
@@ -106,6 +106,21 @@ function createLiveStreamStore() {
 }
 
 export const liveStreamStore = createLiveStreamStore();
+
+/**
+ * Meeting identity changes only when a room is replaced. Keep consumers such
+ * as meeting actions and audio watchers quiet for participant/status updates.
+ */
+export const meetingStore = {
+  subscribe(run: (meeting: RtkClient | null) => void) {
+    let current: RtkClient | null | undefined;
+    return liveStreamStore.subscribe(({ meeting }) => {
+      if (meeting === current) return;
+      current = meeting;
+      run(meeting);
+    });
+  },
+};
 
 export const canJoinStream = derived(liveStreamStore, ($state) => {
   return (
@@ -155,7 +170,6 @@ export function bindRtkEvents(client: RtkClient) {
 
   const onActiveSpeaker = (payload: { peerId: string; volume: number }) => {
     liveStreamStore.setActiveSpeaker(payload.peerId);
-    liveStreamStore.updateAudioLevel(payload.peerId, payload.volume);
   };
 
   client.participants.joined.on("participantJoined", updateParticipantsList);

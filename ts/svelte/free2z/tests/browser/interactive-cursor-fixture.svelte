@@ -2,6 +2,7 @@
   import Button from "$lib/components/ui/button/button.svelte";
   import { Checkbox } from "$lib/components/ui/checkbox/index.js";
   import { Switch } from "$lib/components/ui/switch/index.js";
+  import { Label } from "$lib/components/ui/label";
   import * as Command from "$lib/components/ui/command/index.js";
   import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
   import * as Select from "$lib/components/ui/select/index.js";
@@ -10,9 +11,53 @@
   let radioValue = $state("first");
   let selectOpen = $state(false);
   let selectValue = $state("item-1");
+  let associatedChecked = $state(false);
+  let associatedChanges = $state(0);
+  let associatedDisabled = $state(false);
 </script>
 
 <main>
+  <Checkbox
+    id="associated-enabled"
+    bind:checked={associatedChecked}
+    disabled={associatedDisabled}
+    onCheckedChange={() => associatedChanges++}
+  />
+  <output data-testid="associated-changes">{associatedChanges}</output>
+  <button onclick={() => (associatedDisabled = !associatedDisabled)}
+    >Toggle associated disabled</button
+  >
+  <Label for="associated-enabled" control data-testid="label-associated-second"
+    >Second label</Label
+  >
+  <Label for="associated-missing" control data-testid="label-associated-missing"
+    >Missing choice</Label
+  >
+  <input id="associated-native" type="checkbox" />
+  <Label for="associated-native" control data-testid="label-associated-native"
+    >Native choice</Label
+  >
+  <input id="associated-radio" type="radio" />
+  <Label for="associated-radio" control data-testid="label-associated-radio"
+    >Radio choice</Label
+  >
+  <input id="associated-file" type="file" />
+  <Label for="associated-file" control data-testid="label-associated-file"
+    >File choice</Label
+  >
+  <Label for="associated-enabled" control data-testid="label-associated-enabled"
+    >Associated choice</Label
+  >
+  <Checkbox id="associated-disabled" disabled />
+  <Label
+    for="associated-disabled"
+    control
+    data-testid="label-associated-disabled">Disabled choice</Label
+  >
+  <input id="associated-text" />
+  <Label for="associated-text" data-testid="label-associated-text"
+    >Text field</Label
+  >
   <Button data-testid="button-enabled">Enabled button</Button>
   <Button data-testid="button-disabled" disabled>Disabled button</Button>
   <!-- A label that wraps the shared Checkbox/Switch (a role=checkbox|switch
