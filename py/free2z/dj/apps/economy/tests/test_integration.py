@@ -823,10 +823,11 @@ def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(cre
     mocker.patch('dj.apps.jobs.outbox.PubSubClient')
     host,viewer,meeting,admission=ppv_fixture(creator_factory)
     host.username='ea_'+admission.pk.hex;host.save(update_fields=['username'])
-    post=mocker.patch('dj.apps.dyte.client.requests.post')
+    post=mocker.patch('dj.apps.dyte.client._SESSION.post')
     post.return_value.status_code=200
     post.return_value.json.return_value={'data':{'token':'synthetic-fixture-token','id':str(uuid.uuid4())}}
-    DyteClient('fixture-org').add_participant(host,meeting.meeting_id,role=role)
+    DyteClient('fixture-org').add_participant(host,meeting.meeting_id,role=role,
+        custom_participant_id=f'ph_{host.public_id.hex}')
     token=post.call_args.kwargs['json']['custom_participant_id']
     assert token==f'ph_{host.public_id.hex}'
     room=_meeting(meeting.meeting_id);room['sessionId']=str(meeting.provider_session_id)
