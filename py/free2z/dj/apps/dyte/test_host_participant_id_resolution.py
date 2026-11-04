@@ -14,9 +14,9 @@ def test_custom_host_id_is_resolved_before_provider_delete(mocker):
     kick = Mock(status_code=200)
     deletion = Mock(status_code=204)
     get = mocker.patch('dj.apps.dyte.client.requests.get', return_value=listing)
-    post = mocker.patch('dj.apps.dyte.client.requests.post', return_value=kick)
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post', return_value=kick)
     delete = mocker.patch(
-        'dj.apps.dyte.client.requests.delete', return_value=deletion,
+        'dj.apps.dyte.client._SESSION.delete', return_value=deletion,
     )
 
     assert DyteClient('org').retire_participant(
@@ -52,9 +52,9 @@ def test_all_matching_custom_ids_across_pages_are_retired(mocker):
     ]}
     get = mocker.patch('dj.apps.dyte.client.requests.get',
                        side_effect=[first_page, second_page])
-    post = mocker.patch('dj.apps.dyte.client.requests.post',
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post',
                         return_value=Mock(status_code=200))
-    delete = mocker.patch('dj.apps.dyte.client.requests.delete',
+    delete = mocker.patch('dj.apps.dyte.client._SESSION.delete',
                           return_value=Mock(status_code=204))
 
     assert DyteClient('org').retire_participant('meeting', custom_id) is True
@@ -83,10 +83,10 @@ def test_partial_duplicate_retirement_failure_is_not_success(mocker):
     final_page.json.return_value = {'data': []}
     get = mocker.patch('dj.apps.dyte.client.requests.get',
                        side_effect=[listing, final_page])
-    mocker.patch('dj.apps.dyte.client.requests.post',
+    mocker.patch('dj.apps.dyte.client._SESSION.post',
                  return_value=Mock(status_code=200))
     delete = mocker.patch(
-        'dj.apps.dyte.client.requests.delete',
+        'dj.apps.dyte.client._SESSION.delete',
         side_effect=[Mock(status_code=204), Mock(status_code=503)],
     )
 
@@ -109,11 +109,11 @@ def test_empty_lookup_remains_pending_until_a_late_mint_can_be_retired(
     get = mocker.patch('dj.apps.dyte.client.requests.get',
                        side_effect=[listing, late_listing])
     post = mocker.patch(
-        'dj.apps.dyte.client.requests.post',
+        'dj.apps.dyte.client._SESSION.post',
         return_value=Mock(status_code=200),
     )
     delete = mocker.patch(
-        'dj.apps.dyte.client.requests.delete',
+        'dj.apps.dyte.client._SESSION.delete',
         return_value=Mock(status_code=204),
     )
 
@@ -139,8 +139,8 @@ def test_participant_list_http_errors_are_retryable(mocker, status_code):
         'dj.apps.dyte.client.requests.get',
         return_value=Mock(status_code=status_code),
     )
-    post = mocker.patch('dj.apps.dyte.client.requests.post')
-    delete = mocker.patch('dj.apps.dyte.client.requests.delete')
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post')
+    delete = mocker.patch('dj.apps.dyte.client._SESSION.delete')
 
     assert DyteClient('org').retire_participant(
         'meeting-uuid', 'host_0123456789abcdef',
@@ -165,8 +165,8 @@ def test_invalid_participant_list_payload_is_retryable(mocker, payload):
     else:
         listing.json.return_value = payload
     mocker.patch('dj.apps.dyte.client.requests.get', return_value=listing)
-    post = mocker.patch('dj.apps.dyte.client.requests.post')
-    delete = mocker.patch('dj.apps.dyte.client.requests.delete')
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post')
+    delete = mocker.patch('dj.apps.dyte.client._SESSION.delete')
 
     assert DyteClient('org').retire_participant(
         'meeting-uuid', 'host_0123456789abcdef',
@@ -186,8 +186,8 @@ def test_participant_list_page_cap_is_retryable(mocker):
     ]}
     get = mocker.patch('dj.apps.dyte.client.requests.get',
                        return_value=listing)
-    post = mocker.patch('dj.apps.dyte.client.requests.post')
-    delete = mocker.patch('dj.apps.dyte.client.requests.delete')
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post')
+    delete = mocker.patch('dj.apps.dyte.client._SESSION.delete')
 
     assert DyteClient('org').retire_participant(
         'meeting-uuid', 'host_0123456789abcdef',
@@ -211,8 +211,8 @@ def test_page_error_after_a_match_is_retryable_without_partial_retirement(
     failed_page = Mock(status_code=503)
     get = mocker.patch('dj.apps.dyte.client.requests.get',
                        side_effect=[first_page, failed_page])
-    post = mocker.patch('dj.apps.dyte.client.requests.post')
-    delete = mocker.patch('dj.apps.dyte.client.requests.delete')
+    post = mocker.patch('dj.apps.dyte.client._SESSION.post')
+    delete = mocker.patch('dj.apps.dyte.client._SESSION.delete')
 
     assert DyteClient('org').retire_participant('meeting', custom_id) is False
 
