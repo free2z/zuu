@@ -51,12 +51,57 @@ catalogue price, rounded **up** to a whole nano-USD:
 ```
 cost_nusd = ceil( ( input_tokens        × input_nusd_per_mtok
                   + cached_input_tokens × cached_input_nusd_per_mtok
-                  + cache_write_tokens  × cache_write_nusd_per_mtok
+                  + (cache_write_tokens - cache_write_1h_tokens) × cache_write_nusd_per_mtok
+                  + cache_write_1h_tokens × cache_write_1h_nusd_per_mtok
                   + output_tokens       × output_nusd_per_mtok        (output includes reasoning)
                   ) / 10⁶
                 + images     × image_nusd
                 + tool_calls × tool_call_nusd )
 ```
+
+The hourly count is a subset of total writes, not an additional input bucket.
+Subtraction, input sums, products and final conversion are checked. An hourly
+count above total writes, or positive hourly usage without a declared hourly
+price, refuses metering; absence never supplies a free rate. There is one ceil
+after summing all dimensions. Schema 1 carries only the 5m rate and admits no
+hourly price member (even null); its historical usage and signatures retain
+their original semantics. Zero hourly usage requires no hourly price.
+
+Schema 2 requires `cache_write_1h_nusd_per_mtok` in every base/tier table.
+The signature envelope stays `free2z/ai-catalog/v1`; it covers the raw signed
+document, including schema. No signature is upgraded or re-signed by a reader.
+The Django publisher refuses context-tier members until immutable tier storage
+is implemented; the proto opt-in reader supports them.
+Django publishes schema 2 only at `/api/ai/catalog/v2`; `/api/ai/catalog/v1`
+retains its exact versioned shape for deployed readers. The active gateway
+continues to require schema 1 and does not flatten schema-2 prices or tiers
+into its model list. This is a publication/readiness boundary, not activation:
+before switching any gateway to v2, #1292 must deliver immutable tier/hold
+semantics and versioned SDK model-list prices, with reviewed rates and provider
+capability policy. One-hour cache requests remain refused (#1154); this change
+grants no model, provider, or cache capability and makes no live readiness claim.
+An unexpected hourly report on the schema-1 paid path retains completion and
+usage durably, then refuses metering because the hourly rate is missing. That
+unpriced branch sends neither an explicit `Release` nor a zero-priced `Settle`.
+This does not guarantee eventual collection: the settler retries only until its
+deadline, and ordinary hold expiry can release the hold as a platform write-off
+(§5.6/§5.11). The hold-expiry policy is unchanged.
+Use the endpoint-specific ETag; equal publication sequences across endpoints
+are different representations, not permission to replace a v1 cache in place.
+
+Anthropic reports total `cache_creation_input_tokens` and TTL subsets in
+`cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`.
+Its [official prompt-caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)
+explains the TTL distinction and pricing multipliers; no rates are inferred
+from those multipliers here. Documented-shape tests use synthetic prices.
+The adapter rejects contradictory splits and overflow, preserves cumulative
+counts and partial input usage, and distinguishes missing output usage from
+an explicitly reported zero. OpenAI usage has no Anthropic hourly TTL bucket.
+
+No database migration is needed: published `RateCardModel` rows already carry
+both immutable TTL prices. #1409 and #1411 independently extend AIModel policy;
+this change does not depend on either migration leaf. If those land first,
+rebase and repeat signer/schema tests; never add a conditional migration edge.
 
 Token prices are per million tokens because that is how providers publish
 them and because a per-token price in nano-USD cannot represent
@@ -553,3 +598,12 @@ collected_milli_2z: 2400, shortfall_milli_2z: 600`, so a receipt can say
   authoritative.
 - **Never** "N tokens cost N 2Z" as a fixed rate: the per-call round-up and
   the minimum charge mean the effective rate depends on the call.
+
+
+Fixture history for #1059: `f2z-ai-proto/fixtures/catalog/legacy-v1/` preserves
+all original schema-1 JSON and signature bytes, including the old synthetic
+OpenAI per-image charge. The current independently signed fixture corrects
+`example-mini.image_nusd` to zero: its images already consume input tokens.
+`fixtures/catalog/v2/` is independently signed with explicitly synthetic hourly
+prices. Django's vendored schema-1 fixture and recorded blob IDs remain frozen
+historical evidence, not a publishable current provider price list.
