@@ -15,6 +15,7 @@
     ExternalLink,
     Eye,
   } from "@lucide/svelte";
+  import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
   import { getCurrentLocale, tStore as t } from "$lib/i18n";
   import MediaPreviewDialog from "./MediaPreviewDialog.svelte";
@@ -831,12 +832,13 @@
           <span class="hidden sm:inline"
             >{$t("media.dropFilesOr", "Drop files or")}&nbsp;</span
           >
-          <label
-            class="cursor-pointer text-primary underline-offset-4 hover:underline"
+          <Label
+            control
+            class="text-base font-normal text-primary underline-offset-4 hover:underline"
             for="file-input"
           >
             {$t("media.browse", "browse")}
-          </label>
+          </Label>
         </p>
         <p class="text-sm text-muted-foreground" data-upload-hint>
           {$t("media.supportedTypesHint", "Images, video, audio & PDF")}

@@ -24,8 +24,17 @@ def marker(tmp_path, monkeypatch):
         permissions = value.st_mode
         if value.st_ino not in owned_inodes and os.path.isdir(f'/dev/fd/{fd}'):
             permissions &= ~0o022
-        return SimpleNamespace(st_uid=0, st_gid=0, st_mode=permissions,
-                               st_nlink=value.st_nlink, st_dev=value.st_dev, st_ino=value.st_ino)
+        # Keep every real stat field. Pytest 9.2 reads st_size from os.fstat
+        # while tearing a fixture down, and this patch replaces os.fstat.
+        copied = {
+            name: getattr(value, name)
+            for name in dir(value)
+            if name.startswith("st_")
+        }
+        copied["st_uid"] = 0
+        copied["st_gid"] = 0
+        copied["st_mode"] = permissions
+        return SimpleNamespace(**copied)
 
     monkeypatch.setattr(mode.os, 'fstat', root_fixture)
     monkeypatch.setattr(mode, 'ACTIVE_PATH', leaf)

@@ -12,6 +12,8 @@ for real against Postgres.
 pytest.ini sets ``python_files = test_*.py`` so this file is collected.
 """
 import os
+import runpy
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -1571,3 +1573,37 @@ def test_web_reauthentication_requires_explicit_callback_readiness(api_client, g
     by_key = {entry["provider"]: entry["web_reauthentication"] for entry in response.data["providers"]}
     assert by_key["google"] is True
     assert by_key["github"] is False
+
+
+@pytest.mark.parametrize("configured", [False, True])
+@pytest.mark.parametrize("raw, expected", [
+    (None, frozenset()),
+    ("", frozenset()),
+    ("x", frozenset({"x"})),
+    ("twitter", frozenset({"x"})),
+    (" x, twitter, google, github, unknown ", frozenset({"x", "google", "github"})),
+    ("legacy-x, X, unknown", frozenset()),
+])
+def test_modern_x_web_readiness_uses_canonical_settings(
+    api_client, settings, monkeypatch, raw, expected, configured,
+):
+    # Execute the actual settings module in a fresh namespace: Django's imported
+    # settings module is cached, so merely changing os.environ would test nothing.
+    if raw is None:
+        monkeypatch.delenv("SOCIAL_WEB_REAUTH_PROVIDERS", raising=False)
+    else:
+        monkeypatch.setenv("SOCIAL_WEB_REAUTH_PROVIDERS", raw)
+    module_path = Path(__file__).resolve().parents[2] / "free2z" / "settings.py"
+    parsed = runpy.run_path(
+        str(module_path), run_name="dj.free2z._readiness_settings",
+    )["SOCIAL_WEB_REAUTH_PROVIDERS"]
+    assert parsed == expected
+    settings.SOCIAL_WEB_REAUTH_PROVIDERS = parsed
+    settings.TWITTER_CLIENT_ID = "test-x-client" if configured else ""
+    settings.TWITTER_CLIENT_SECRET = "test-x-secret" if configured else ""
+    response = api_client.get("/api/auth/social/providers/")
+    assert response.status_code == 200
+    by_key = {entry["provider"]: entry for entry in response.data["providers"]}
+    assert "twitter" not in by_key
+    assert by_key["x"]["configured"] is configured
+    assert by_key["x"]["web_reauthentication"] is (configured and "x" in expected)

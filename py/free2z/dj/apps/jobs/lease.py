@@ -24,7 +24,15 @@ job the worker runs with a **lease row** in our own table
 
 * on entry, ``INSERT`` the lease (``job_id``, a fresh ``token``, who is
   running it, when it started, and ``deadline_at = started +
-  reclaim_policy.max_runtime_seconds`` -- ``NULL`` for a ``NEVER`` task);
+  reclaim_policy.max_runtime_seconds`` -- ``NULL`` for a ``NEVER`` task),
+  with durable ``phase = 'before_body'`` in that same commit. Before
+  ``call_next`` can enter user code, middleware must commit the exact
+  ``(job_id, token, attempt)`` transition to ``body_started`` and verify its
+  response. A lost response fails closed; a persisted ``body_started`` phase
+  is intentionally treated as possibly executed, even if this process died
+  before calling the body. Until ``jobs/0006``/``0007`` apply, the
+  phase columns do not exist and leases use the 0005 statements with no
+  handshake (``lease_schema``), so worker rollout order cannot stop jobs;
 * while the task runs, ONE daemon thread per worker process beats every
   lease this process holds, every ``JOB_LEASE_BEAT_SECONDS``, with
   ``UPDATE... SET last_beat_at = now() WHERE (job_id, token) IN (...)
@@ -371,6 +379,7 @@ from asgiref.sync import sync_to_async
 from django.conf import settings
 from procrastinate import exceptions
 
+from dj.apps.jobs import lease_schema
 from dj.apps.jobs.logs import emit_json_line
 
 logger = logging.getLogger(__name__)
@@ -406,7 +415,10 @@ CREATE TABLE IF NOT EXISTS {LEASE_TABLE} (
     started_at timestamp with time zone NOT NULL,
     last_beat_at timestamp with time zone NOT NULL,
     deadline_at timestamp with time zone NULL,
-    attempt integer NOT NULL DEFAULT 0
+    attempt integer NOT NULL DEFAULT 0,
+    phase varchar(24) NOT NULL DEFAULT 'unknown',
+    phase_token uuid NULL,
+    phase_attempt integer NULL
 );
 CREATE INDEX IF NOT EXISTS {LEASE_TABLE}_last_beat_at_idx
     ON {LEASE_TABLE} (last_beat_at);
@@ -433,6 +445,53 @@ CREATE INDEX IF NOT EXISTS {LEASE_TABLE}_last_beat_at_idx
 _INSERT_SQL = f"""
 INSERT INTO {LEASE_TABLE}
     (job_id, token, worker_name, pod, task_name, queue,
+     started_at, last_beat_at, deadline_at, attempt, phase,
+     phase_token, phase_attempt)
+SELECT %(job_id)s::bigint, %(token)s::uuid, %(worker_name)s::varchar,
+       %(pod)s::varchar, %(task_name)s::varchar, %(queue)s::varchar,
+       %(started_at)s::timestamptz, now(), %(deadline_at)s::timestamptz,
+       %(attempt)s::integer, 'before_body', %(phase_token)s::uuid,
+       %(phase_attempt)s::integer
+FROM procrastinate_jobs
+WHERE id = %(job_id)s AND status = 'doing' AND attempts = %(attempt)s
+FOR SHARE
+ON CONFLICT (job_id) DO UPDATE SET
+    token = EXCLUDED.token,
+    worker_name = EXCLUDED.worker_name,
+    pod = EXCLUDED.pod,
+    task_name = EXCLUDED.task_name,
+    queue = EXCLUDED.queue,
+    started_at = EXCLUDED.started_at,
+    last_beat_at = now(),
+    deadline_at = EXCLUDED.deadline_at,
+    attempt = EXCLUDED.attempt,
+    phase = CASE WHEN EXCLUDED.attempt > {LEASE_TABLE}.attempt
+                 THEN EXCLUDED.phase ELSE {LEASE_TABLE}.phase END,
+    phase_token = CASE
+        WHEN EXCLUDED.attempt > {LEASE_TABLE}.attempt
+          OR ({LEASE_TABLE}.phase = 'before_body'
+              AND {LEASE_TABLE}.phase_token = {LEASE_TABLE}.token
+              AND {LEASE_TABLE}.phase_attempt = {LEASE_TABLE}.attempt
+              AND EXCLUDED.attempt = {LEASE_TABLE}.attempt)
+        THEN EXCLUDED.phase_token ELSE {LEASE_TABLE}.phase_token END,
+    phase_attempt = CASE
+        WHEN EXCLUDED.attempt > {LEASE_TABLE}.attempt
+          OR ({LEASE_TABLE}.phase = 'before_body'
+              AND {LEASE_TABLE}.phase_token = {LEASE_TABLE}.token
+              AND {LEASE_TABLE}.phase_attempt = {LEASE_TABLE}.attempt
+              AND EXCLUDED.attempt = {LEASE_TABLE}.attempt)
+        THEN EXCLUDED.phase_attempt ELSE {LEASE_TABLE}.phase_attempt END
+WHERE EXCLUDED.attempt >= {LEASE_TABLE}.attempt
+"""
+
+#The same acquisition against the 0005 schema, before ``jobs/0006`` and
+#``jobs/0007`` add the phase columns (see ``lease_schema``). It is the
+#statement this module ran before those columns existed, so an image that
+#runs ahead of its migrations still leases every job instead of failing
+#every acquisition on a missing column.
+_INSERT_SQL_LEGACY = f"""
+INSERT INTO {LEASE_TABLE}
+    (job_id, token, worker_name, pod, task_name, queue,
      started_at, last_beat_at, deadline_at, attempt)
 SELECT %(job_id)s::bigint, %(token)s::uuid, %(worker_name)s::varchar,
        %(pod)s::varchar, %(task_name)s::varchar, %(queue)s::varchar,
@@ -452,6 +511,29 @@ ON CONFLICT (job_id) DO UPDATE SET
     deadline_at = EXCLUDED.deadline_at,
     attempt = EXCLUDED.attempt
 WHERE EXCLUDED.attempt >= {LEASE_TABLE}.attempt
+"""
+
+#Acquisition is not permission to execute the task. The durable phase
+#transition is a second attempt/token-fenced handshake, and middleware only
+#calls user code after receiving its committed result. A lost response leaves
+#the row conservative (`body_started`) while the process still fails closed.
+_BODY_STARTED_SQL = f"""
+WITH current_job AS (
+    SELECT id FROM procrastinate_jobs
+    WHERE id=%(job_id)s AND status='doing'
+      AND attempts=%(attempt)s::integer
+    FOR SHARE
+)
+UPDATE {LEASE_TABLE} AS lease SET phase='body_started'
+FROM current_job
+WHERE lease.job_id=%(job_id)s AND lease.token=%(token)s::uuid
+  AND lease.attempt=%(attempt)s::integer AND lease.phase='before_body'
+  AND lease.phase_token=lease.token
+  AND lease.phase_token=%(token)s::uuid
+  AND lease.phase_attempt=lease.attempt
+  AND lease.phase_attempt=%(attempt)s::integer
+  AND current_job.id=lease.job_id
+RETURNING lease.job_id
 """
 
 #The beat is a compare-and-swap on ``(job_id, token)``: a row the
@@ -477,6 +559,24 @@ DELETE FROM {LEASE_TABLE} WHERE job_id = %(job_id)s AND token = %(token)s
 #the row it creates: that is the point (see "the exit DELETE is
 #different").
 _REINSERT_IF_ABSENT_SQL = f"""
+INSERT INTO {LEASE_TABLE}
+    (job_id, token, worker_name, pod, task_name, queue,
+     started_at, last_beat_at, deadline_at, attempt, phase,
+     phase_token, phase_attempt)
+SELECT %(job_id)s::bigint, %(token)s::uuid, %(worker_name)s::varchar,
+       %(pod)s::varchar, %(task_name)s::varchar, %(queue)s::varchar,
+       %(started_at)s::timestamptz, now(), %(deadline_at)s::timestamptz,
+       %(attempt)s::integer, %(phase)s::varchar, %(token)s::uuid,
+       %(attempt)s::integer
+FROM procrastinate_jobs
+WHERE id = %(job_id)s AND status = 'doing' AND attempts = %(attempt)s
+ON CONFLICT (job_id) DO NOTHING
+"""
+
+#The 0005-schema re-INSERT, for a lease acquired without phase columns.
+#On a table that has them it leaves ``phase = 'unknown'`` and no proof
+#identity, which never authorises a NEVER replay.
+_REINSERT_IF_ABSENT_SQL_LEGACY = f"""
 INSERT INTO {LEASE_TABLE}
     (job_id, token, worker_name, pod, task_name, queue,
      started_at, last_beat_at, deadline_at, attempt)
@@ -1378,6 +1478,7 @@ def reset_for_tests() -> None:
     global _acquire_stall_restart_sent
     _beater.stop()
     _table.reset()
+    lease_schema.reset()
     _gate_warned.clear()
     with _acquire_stall_lock:
         _acquire_stall_restart_sent = False
@@ -1451,6 +1552,9 @@ def acquire(
         'started_at': started_at,
         'deadline_at': _deadline(lease.task_name, started_at),
         'attempt': int(getattr(job, 'attempts', 0) or 0),
+        'phase': 'before_body',
+        'phase_token': lease.token,
+        'phase_attempt': int(getattr(job, 'attempts', 0) or 0),
     }
 
     def insert(conn) -> int | None:
@@ -1458,7 +1562,13 @@ def acquire(
         is no longer this attempt's, or a newer attempt holds the row."""
         if not _table.check(conn):
             return None
-        return conn.execute(_INSERT_SQL, lease.values).rowcount
+        if lease_schema.available_on_connection(conn):
+            return conn.execute(_INSERT_SQL, lease.values).rowcount
+        # Pre-0006 schema: lease exactly as before the phase columns.
+        # ``phase = None`` marks this lease as legacy for its whole life,
+        # so no body-start handshake or phase re-INSERT is attempted.
+        lease.values['phase'] = None
+        return conn.execute(_INSERT_SQL_LEGACY, lease.values).rowcount
 
     try:
         op = _beater.submit(insert, params)
@@ -1512,6 +1622,61 @@ def acquire(
         return lease
     _beater.register(lease)
     return lease
+
+
+def _begin_body(lease: Lease) -> bool:
+    """Durably fence replay before entering task code.
+
+    The acquisition INSERT itself committed ``before_body``. This compare and
+    swap advances only the same still-current lease and queue attempt. A
+    response loss may leave ``body_started`` committed even though this worker
+    never reaches user code; that false positive is deliberate because it can
+    never authorize replay of a body that might have started.
+    """
+    if lease.values is None:
+        return False
+    if lease.values.get('phase') is None:
+        # Acquired against the pre-0006 schema: there is no phase to
+        # advance, and the body runs on the acquisition alone, exactly as
+        # it did before the phase columns existed.
+        return True
+    params = _beater._params or _connection_params()
+    if params is None:
+        return False
+
+    def mark(conn) -> int:
+        if not _table.check(conn):
+            return 0
+        return conn.execute(_BODY_STARTED_SQL, lease.values).rowcount
+
+    try:
+        op = _beater.submit(mark, params)
+        marked = _beater.wait(op, handoff_timeout_seconds())
+    except Exception as exc:  # noqa: BLE001 -- fail closed before task body
+        _record_acquire_outcome(exc)
+        emit_json_line(
+            logger,
+            {
+                'event': 'procrastinate_lease_body_start_unverified',
+                'job_id': lease.job_id,
+                'task': lease.task_name,
+                'error': repr(exc),
+            },
+            'ERROR',
+            f'procrastinate lease body-start evidence was not verified for '
+            f'job={lease.job_id} task={lease.task_name}: {exc!r} -- '
+            'task body is fenced',
+        )
+        _fence(lease, detected='acquire', reason='body_start_unverified')
+        _beater.unregister(lease)
+        return False
+    _record_acquire_outcome(None)
+    if marked != 1:
+        _fence(lease, detected='acquire', reason='body_start_stale')
+        _beater.unregister(lease)
+        return False
+    lease.values['phase'] = 'body_started'
+    return True
 
 
 def _attach(context: Any, lease: Lease) -> None:
@@ -1782,9 +1947,13 @@ def _leave_a_lease_to_go_silent(
         # marker. Acquisition failure is known to be pre-body; exit/status
         # persistence failures happen after the body returned and remain
         # subject to the task's normal retry policy.
+        reinsert_sql = (
+            _REINSERT_IF_ABSENT_SQL
+            if values.get('phase') is not None
+            and lease_schema.available_on_connection(conn)
+            else _REINSERT_IF_ABSENT_SQL_LEGACY)
         with conn.transaction():
-            inserted = conn.execute(
-                _REINSERT_IF_ABSENT_SQL, values).rowcount
+            inserted = conn.execute(reinsert_sql, values).rowcount
             phase = (
                 'before_body' if reason == 'acquire_unverified'
                 else 'after_body')
@@ -1963,6 +2132,8 @@ def lease_middleware(call_next, context, worker):
         return call_next()
     if lease.lost.is_set():
         raise _lease_lost(lease)            # a newer attempt owns the job
+    if not _begin_body(lease):
+        raise _lease_lost(lease)
     try:
         result = call_next()
     except BaseException as exc:
@@ -2003,6 +2174,13 @@ async def lease_middleware_async(call_next, context, worker):
         return await call_next()
     if lease.lost.is_set():
         raise _lease_lost(lease)            # a newer attempt owns the job
+    began, cancelled = await _await_uncancellable(
+        asyncio.to_thread(_begin_body, lease))
+    if cancelled:
+        await _release_uncancellable(lease)
+        raise asyncio.CancelledError()
+    if not began:
+        raise _lease_lost(lease)
     try:
         result = await call_next()
     except BaseException as exc:

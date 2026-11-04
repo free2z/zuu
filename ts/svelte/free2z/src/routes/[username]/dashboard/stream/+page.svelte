@@ -22,10 +22,12 @@
   import { initRtkMeeting } from "$lib/utils/rtk-manager";
   import {
     liveStreamStore,
+    meetingStore,
     participantCount,
     isConnected,
   } from "$lib/stores/liveStreamStore";
   import type { StreamType } from "$lib/stores/liveStreamStore";
+  import { getHostStreamMediaOptions } from "$lib/utils/stream-media-config";
   import { defineCustomElements } from "@cloudflare/realtimekit-ui/loader";
   import {
     provideRtkDesignSystem,
@@ -55,6 +57,7 @@
   import * as Select from "$lib/components/ui/select/index.js";
   import AudioRecorder from "$lib/components/stream/AudioRecorder.svelte";
   import HostRecordingControls from "$lib/components/stream/HostRecordingControls.svelte";
+  import MeetingRecordingNotice from "$lib/components/stream/MeetingRecordingNotice.svelte";
   import { withoutNativeRecording } from "$lib/utils/recording-controls";
   import RtkAudioHealth from "$lib/components/stream/RtkAudioHealth.svelte";
   import { captureAccountToast, toast } from "$lib/toast.js";
@@ -65,6 +68,7 @@
   import { copyToClipboard } from "$lib/utils/clipboard";
   import { streamWatchPath } from "$lib/utils/stream-path";
   import { cn } from "$lib/utils.js";
+  import ConverseComposer from "$lib/components/converse/ConverseComposer.svelte";
 
   export let data: PageData;
 
@@ -72,7 +76,7 @@
   // We can use the currentUser store directly as it was in the component
   $: user = $currentUser;
   let authGuardReady = false;
-  $: meeting = $liveStreamStore.meeting;
+  $: meeting = $meetingStore;
   $: connected = $isConnected;
   $: count = $participantCount;
   $: isOffline = $liveStreamStore.isOffline;
@@ -85,6 +89,7 @@
   }
 
   let streamType: StreamType = "broadcast";
+  let hostRecording = false;
   let ppvPrice: number = 1;
   type AudienceMode = {
     value: StreamType;
@@ -374,7 +379,7 @@
     streamType === "private" ? null : streamWatchPath(username, streamType);
 
   // Stream Settings
-  let videoQuality = "720p";
+  let videoQuality = "480p";
   let qualityOptions: { value: string; label: string }[] = [];
   $: videoQualityLabel =
     qualityOptions.find((o) => o.value === videoQuality)?.label ??
@@ -397,6 +402,7 @@
   }
   const isDesktop = createMediaQuery("(min-width: 768px)");
   let settingsOpen = false;
+  let shareComposerOpen = false;
 
   $: if (meetingEl) {
     provideRtkDesignSystem(meetingEl, {
@@ -806,22 +812,6 @@
       }
       beginSeat(startType, takeover, owner, session);
 
-      // Helper to get constraints
-      const getVideoConstraints = (quality: string) => {
-        switch (quality) {
-          case "1080p":
-            return { height: { ideal: 1080 }, width: { ideal: 1920 } };
-          case "720p":
-            return { height: { ideal: 720 }, width: { ideal: 1280 } };
-          case "480p":
-            return { height: { ideal: 480 }, width: { ideal: 854 } };
-          case "360p":
-            return { height: { ideal: 360 }, width: { ideal: 640 } };
-          default:
-            return { height: { ideal: 720 }, width: { ideal: 1280 } };
-        }
-      };
-
       // 2. Initialize RealtimeKit Meeting
       const { cleanup: cleanupFn, meeting: meetingInstance } =
         await initRtkMeeting({
@@ -829,13 +819,7 @@
           streamType: startType,
           isHost: true,
           signal: controller.signal,
-          defaults: {
-            audio: true,
-            video: true,
-            mediaConfiguration: {
-              video: getVideoConstraints(quality),
-            },
-          },
+          ...getHostStreamMediaOptions(quality),
         });
       // The seat may have moved while RealtimeKit was initializing (a camera
       // permission prompt can take as long as the user likes), or the page
@@ -1590,8 +1574,17 @@
             <!-- Copy only, deliberately no "open in a new tab": opening
                the public page from the broadcaster's own browser is one more
                way to put a second copy of them into the room. -->
-            {#if streamSharePath}
+            {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
               <div class="flex shrink-0 items-center gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  class="border border-white/10 bg-black/50 text-white backdrop-blur-md hover:bg-black/70"
+                  data-testid="share-live-to-converse"
+                  onclick={() => (shareComposerOpen = true)}
+                >
+                  {$t("dashboard.stream.shareToConverse", "Share to Converse")}
+                </Button>
                 <Button
                   variant="secondary"
                   size="sm"
@@ -1610,19 +1603,26 @@
             {/if}
 
             {#if streamType !== "private" && meeting.self.permissions.canRecord}
-              <HostRecordingControls {username} {hostSession} />
+              <HostRecordingControls
+                {username}
+                {hostSession}
+                onRecording={(active) => (hostRecording = active)}
+              />
             {/if}
           </div>
 
-          <!-- @ts-ignore -->
-          <rtk-meeting
-            bind:this={meetingEl}
-            mode="fill"
-            use:hostMeeting={meeting}
-            show-setup-screen={true}
-            t={getRtkTranslator($locale)}
-            class="min-h-0 w-full flex-1"
-          ></rtk-meeting>
+          <div class="relative flex min-h-0 w-full flex-1 flex-col">
+            <!-- @ts-ignore -->
+            <rtk-meeting
+              bind:this={meetingEl}
+              mode="fill"
+              use:hostMeeting={meeting}
+              show-setup-screen={true}
+              t={getRtkTranslator($locale)}
+              class="min-h-0 w-full flex-1"
+            ></rtk-meeting>
+            <MeetingRecordingNotice {meeting} serverRecording={hostRecording} />
+          </div>
           {#if hostMeetingError}
             <div
               role="alert"
@@ -1640,3 +1640,34 @@
     </div>
   </div>
 </div>
+<Dialog.Root bind:open={shareComposerOpen}>
+  <Dialog.Content
+    class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+    data-testid="live-converse-composer"
+  >
+    <Dialog.Title
+      >{$t(
+        "dashboard.stream.shareToConverse",
+        "Share to Converse",
+      )}</Dialog.Title
+    >
+    <Dialog.Description
+      >{$t(
+        "dashboard.stream.reviewLiveAnnouncement",
+        "Review and edit your announcement before posting. Your livestream will continue while you write.",
+      )}</Dialog.Description
+    >
+    {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
+      <ConverseComposer
+        initialContent={`I'm live — come watch! ${new URL(streamSharePath, browser ? window.location.origin : "https://free2z.com").toString()}`}
+      />
+    {:else}
+      <p>
+        {$t(
+          "dashboard.stream.notLivePublic",
+          "Only an active public livestream can be shared.",
+        )}
+      </p>
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>

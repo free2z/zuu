@@ -1,4 +1,4 @@
-# tuzi#2654: a partial index for the AI-output-report surge count.
+# A partial index for the AI-output-report surge count.
 #
 # Both readers of unsafe reports filter exactly `reason = 'unsafe'` and a
 # trailing-hour `unsafe_at` window: `ai_reports._paid_unsafe_reporters`

@@ -21,6 +21,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from django.core.cache import caches
 from django.db import connection
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -441,7 +442,7 @@ def test_an_app_with_reports_but_no_grants_is_a_409_not_a_500(
 
 
 @pytest.mark.skipif(not hasattr(F2ZApplication, "child_directed"),
-                    reason="F2ZApplication.child_directed lands with tuzi#2633")
+                    reason="F2ZApplication.child_directed lands with the platform change")
 def test_child_directed_reads_the_registration(web_app):
     assert ai_reports._child_directed(web_app) is False
     type(web_app).objects.filter(pk=web_app.pk).update(child_directed=True)
@@ -458,12 +459,15 @@ def test_a_dedupe_store_that_swallows_errors_still_pages(
     for _ in range(3):
         payer = creator_factory(tuzis=100)
         unsafe_report(payer, web_app, ledger_call(payer, web_app, outcome="settled"))
-    monkeypatch.setattr(ai_reports.cache, "get", lambda *a, **k: None)
-    monkeypatch.setattr(ai_reports.cache, "set", lambda *a, **k: None)
+    # Patch the concrete backend. Pytest 9.2 undoes a patch on Django's
+    # cache proxy with delattr, and that proxy cannot delete a method.
+    backend = caches["default"]
+    monkeypatch.setattr(backend, "get", lambda *a, **k: None)
+    monkeypatch.setattr(backend, "set", lambda *a, **k: None)
     ai_reports._maybe_page(web_app)
     ai_reports._maybe_page(web_app)
     assert len(surge_lines(caplog)) == 2
-    monkeypatch.setattr(ai_reports.cache, "get", lambda *a, **k: 1)
+    monkeypatch.setattr(backend, "get", lambda *a, **k: 1)
     ai_reports._maybe_page(web_app)
     assert len(surge_lines(caplog)) == 2
 
@@ -609,7 +613,7 @@ def test_the_sweep_survives_one_failing_app(
 def test_the_partial_unsafe_index_matches_the_readers_predicate():
     """The index holds exactly the rows the surge count reads: unsafe reports,
     keyed by app then unsafe_at. If either side's predicate drifts, the
-    planner can no longer use it (tuzi#2654; EXPLAIN in the PR)."""
+    planner can no longer use it (EXPLAIN in the PR)."""
     with connection.cursor() as cursor:
         cursor.execute("SELECT indexdef FROM pg_indexes WHERE indexname = 'oidc_aireport_app_unsafe'")
         [(indexdef,)] = cursor.fetchall()

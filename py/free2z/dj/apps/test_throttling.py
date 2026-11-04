@@ -67,10 +67,27 @@ from dj.free2z.throttling import (
     THIRD_PARTY_OAUTH_THROTTLES,
     THROTTLE_FAIL_OPEN_EVENT,
     ZCASH_CHALLENGE_THROTTLES, ZCASH_LOGIN_THROTTLES,
+    DEFAULT_ANON_EXEMPT_VIEWS,
+    STORYTIME_GENERATION_THROTTLES,
     AuthenticatedUserRateThrottle,
+    BroadcastJoinAnonRateThrottle,
+    DefaultAnonRateThrottle,
     NativeCheckoutReturnRateThrottle,
     PublicAnonRateThrottle,
+    StorytimeGenerationRateThrottle,
+    anonymous_client_ident,
+    is_internal_source,
 )
+
+#How a browser's own API call reaches Django: nginx's realip resolves the
+#visitor's public address and overwrites X-Forwarded-For with it; the TCP
+#peer is the nginx sidecar on loopback. (TEST-NET-3, RFC 5737.)
+PUBLIC_CLIENT = {"REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "203.0.113.7"}
+#How an SSR fetch reaches Django: SvelteKit -> its nginx sidecar ->
+#free2z-service -> the API pod's nginx, whose peer is the SSR pod's
+#in-cluster address. That address is not a trusted realip source, so it is
+#what nginx forwards.
+SSR_POD = {"REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "10.52.3.17"}
 
 #Every anon opt-in list. Anything added to dj/free2z/throttling.py must be
 #listed here or the pairing and distinctness guards silently skip it.
@@ -147,7 +164,7 @@ def _anon_reachable_view_classes():
     return out
 
 
-def _anon_scopes(cls):
+def _anon_scopes(cls, origin=PUBLIC_CLIENT):
     """Scopes that actually bucket an *anonymous* caller by IP on this view.
 
     Asked behaviourally rather than by class name, because "is this an anon
@@ -155,12 +172,15 @@ def _anon_scopes(cls):
     falls back to the client IP when the request is anonymous, which is what
     makes ``BruteRateThrottle`` a credential-stuffing control at all. A
     name-based check would report OTP login as unthrottled.
+
+    ``origin`` is where the request comes from: a browser by default, or
+    ``SSR_POD`` for the question "does the SSR pod share a bucket here".
     """
     from django.contrib.auth.models import AnonymousUser
     from rest_framework.request import Request
     from rest_framework.test import APIRequestFactory
 
-    request = Request(APIRequestFactory().get("/"))
+    request = Request(APIRequestFactory().get("/", **origin))
     request.user = AnonymousUser()
 
     scopes = set()
@@ -173,7 +193,14 @@ def _anon_scopes(cls):
             continue
         if not issubclass(throttle_cls, SimpleRateThrottle):
             continue
-        if throttle_cls().get_cache_key(request, view=None) is not None:
+        # The global default decides exemptions by the view's class, so it
+        # gets an (uninitialised) instance of it; the scoped throttles keep
+        # view=None, which is what their request-shape checks expect.
+        view = (
+            cls.__new__(cls)
+            if issubclass(throttle_cls, DefaultAnonRateThrottle) else None
+        )
+        if throttle_cls().get_cache_key(request, view=view) is not None:
             scopes.add(throttle_cls.scope)
     return frozenset(scopes)
 
@@ -189,25 +216,50 @@ def test_drf_uses_the_one_normalized_proxy_hop():
     assert api_settings.NUM_PROXIES == 1
 
 
-def test_no_global_throttle_keys_anonymous_requests_on_ip():
-    """The site-down guard.
+#Every shape in which a cluster-internal caller can arrive. The first is local
+#development and the CI client; the rest are what nginx forwards for an
+#in-cluster peer (pod, RFC 6598 pod range, a direct pod-to-gunicorn call,
+#IPv6 unique-local, an IPv4-mapped pod address).
+CLUSTER_INTERNAL_ORIGINS = [
+    {"REMOTE_ADDR": "127.0.0.1"},
+    SSR_POD,
+    {"REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "100.64.12.9"},
+    {"REMOTE_ADDR": "10.52.3.17"},
+    {"REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "fd00:10::7"},
+    {"REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "::ffff:10.52.3.17"},
+]
 
-    Every anonymous page view of free2z.cash reaches Django from the SvelteKit
-    SSR pod's IP, so *any* globally-applied throttle that keys anonymous
-    requests by IP puts the whole signed-out site in one bucket. That rules out
-    AnonRateThrottle and, less obviously, DRF's stock UserRateThrottle — which
-    silently falls back to ``get_ident()`` when the request is anonymous.
 
-    Asserted behaviourally, against a synthesised anonymous request, so it
-    holds for any throttle class someone adds later rather than just the two we
-    know about today.
-    """
+def _anonymous_request(path, origin):
     from django.contrib.auth.models import AnonymousUser
     from rest_framework.request import Request
     from rest_framework.test import APIRequestFactory
 
-    request = Request(APIRequestFactory().get("/api/zpage/"))
+    request = Request(APIRequestFactory().get(path, **origin))
     request.user = AnonymousUser()
+    return request
+
+
+@pytest.mark.parametrize(
+    "origin", CLUSTER_INTERNAL_ORIGINS,
+    ids=["loopback", "ssr-pod", "rfc6598", "direct-pod", "ula", "v4-mapped"],
+)
+def test_no_global_throttle_keys_cluster_internal_requests(origin):
+    """The site-down guard.
+
+    Every anonymous page view of free2z.cash reaches Django from the SvelteKit
+    SSR pod's in-cluster address, so a globally-applied throttle that keyed
+    THAT identity would put the whole signed-out site in one bucket. This
+    rules out the stock AnonRateThrottle and, less obviously, DRF's stock
+    UserRateThrottle -- which silently falls back to ``get_ident()`` when the
+    request is anonymous. ``DefaultAnonRateThrottle`` is global precisely
+    because it passes this test.
+
+    Asserted behaviourally, against a synthesised anonymous request, so it
+    holds for any throttle class someone adds later rather than just the ones
+    we know about today.
+    """
+    request = _anonymous_request("/api/zpage/", origin)
 
     offenders = []
     for throttle_cls in api_settings.DEFAULT_THROTTLE_CLASSES:
@@ -218,13 +270,110 @@ def test_no_global_throttle_keys_anonymous_requests_on_ip():
                 f"{throttle_cls.__module__}.{throttle_cls.__qualname__}"
             )
     assert not offenders, (
-        "These global throttles bucket anonymous requests by IP, which means "
-        "all SSR-originated traffic shares one key and the site 429s under "
-        "load. Make them opt-in per view via "
-        "one of the scoped opt-in lists in dj/free2z/throttling.py "
-        "instead:\n  "
+        "These global throttles bucket a cluster-internal anonymous request, "
+        "which means all SSR-originated traffic shares one key and the site "
+        "429s under load:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_the_global_anonymous_default_keys_each_public_client():
+    """The other half: a browser's own anonymous call IS keyed, per client."""
+    assert DefaultAnonRateThrottle in api_settings.DEFAULT_THROTTLE_CLASSES
+    throttle = DefaultAnonRateThrottle()
+    first = throttle.get_cache_key(
+        _anonymous_request("/api/zpage/", PUBLIC_CLIENT), view=None)
+    other = throttle.get_cache_key(
+        _anonymous_request(
+            "/api/zpage/",
+            {"REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "198.51.100.4"},
+        ),
+        view=None,
+    )
+    assert first and other and first != other
+    assert "anon-default" in first
+
+
+@pytest.mark.parametrize(
+    "ident, internal",
+    [
+        ("10.0.0.1", True),
+        ("172.31.255.255", True),
+        ("192.168.1.1", True),
+        ("100.127.0.1", True),
+        ("127.0.0.1", True),
+        ("::1", True),
+        ("fd12::1", True),
+        ("::ffff:192.168.0.9", True),
+        ("203.0.113.7", False),
+        ("34.102.196.190", False),   # a load balancer's public address
+        ("35.191.10.20", False),     # a GFE
+        ("2001:db8::1", False),
+        ("172.32.0.1", False),       # just outside 172.16/12
+        ("100.128.0.1", False),      # just outside 100.64/10
+        ("not-an-address", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_internal_source_ranges(ident, internal):
+    assert is_internal_source(ident) is internal
+
+
+def test_ipv6_clients_are_grouped_per_slash_64_by_the_default():
+    a = _anonymous_request("/api/zpage/", {
+        "REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "2001:db8:1:2::a"})
+    b = _anonymous_request("/api/zpage/", {
+        "REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "2001:db8:1:2:ffff::b"})
+    c = _anonymous_request("/api/zpage/", {
+        "REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "2001:db8:1:3::a"})
+    assert anonymous_client_ident(a) == anonymous_client_ident(b)
+    assert anonymous_client_ident(a) != anonymous_client_ident(c)
+
+
+def test_the_default_does_not_key_a_gfe_chain_it_cannot_parse():
+    """A malformed direct-GCLB chain is not a client identity; the backstop
+    leaves it to the route's own scoped throttle rather than 503ing."""
+    request = _anonymous_request("/api/zpage/", {
+        "REMOTE_ADDR": "35.191.10.20", "HTTP_X_FORWARDED_FOR": "garbage"})
+    assert anonymous_client_ident(request) is None
+    assert DefaultAnonRateThrottle().get_cache_key(request, view=None) is None
+
+
+def test_default_anon_exemptions_name_live_views():
+    """Every exemption is a live, anonymous-reachable view on the default
+    list, and is really unkeyed. An exemption nothing matches reads as live
+    to whoever adds the next one beside it."""
+    reachable = {_view_label(cls): cls for cls in _anon_reachable_view_classes()}
+    stale = sorted(DEFAULT_ANON_EXEMPT_VIEWS - set(reachable))
+    assert not stale, stale
+    for label in DEFAULT_ANON_EXEMPT_VIEWS:
+        cls = reachable[label]
+        assert DefaultAnonRateThrottle in cls.throttle_classes, label
+        assert "anon-default" not in _anon_scopes(cls), label
+
+
+def test_broadcast_join_groups_ipv6_per_slash_64():
+    throttle = BroadcastJoinAnonRateThrottle()
+    a = _anonymous_request("/", {
+        "REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "2001:db8:1:2::a"})
+    b = _anonymous_request("/", {
+        "REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "2001:db8:1:2:9::b"})
+    c = _anonymous_request("/", {
+        "REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "2001:db8:1:3::a"})
+    assert throttle.get_ident(a) == throttle.get_ident(b) == "2001:db8:1:2::/64"
+    assert throttle.get_ident(c) != throttle.get_ident(a)
+    v4 = _anonymous_request("/", PUBLIC_CLIENT)
+    assert throttle.get_ident(v4) == "203.0.113.7"
+
+
+def test_storytime_generation_throttle_is_per_account_only():
+    assert STORYTIME_GENERATION_THROTTLES == [
+        StorytimeGenerationRateThrottle, AuthenticatedUserRateThrottle,
+    ]
+    assert "storytime-generate" in api_settings.DEFAULT_THROTTLE_RATES
+    request = _anonymous_request("/", PUBLIC_CLIENT)
+    assert StorytimeGenerationRateThrottle().get_cache_key(request, None) is None
 
 
 @pytest.mark.parametrize(
@@ -838,11 +987,12 @@ def test_ssr_reads_carry_no_anon_throttle(path):
     cls = getattr(match.func, "cls", None) or getattr(
         match.func, "view_class", None
     )
-    offenders = sorted(_anon_scopes(cls))
+    offenders = sorted(_anon_scopes(cls, origin=SSR_POD))
     assert not offenders, (
         f"{path} is fetched by the SSR pod for every signed-out visitor, from "
-        f"one IP. An IP-keyed throttle here ({offenders}) throttles the whole "
-        f"anonymous site. Put the limit on a browser-reached endpoint instead."
+        f"one IP. A throttle that keys that IP here ({offenders}) throttles "
+        f"the whole anonymous site. Key only public clients, or put the limit "
+        f"on a browser-reached endpoint instead."
     )
 
 
@@ -928,56 +1078,60 @@ ANON_SCOPE_INVENTORY = {
     # UserRateThrottle subclass, so it IS IP-keyed for anonymous callers.
     "dj.apps.otp.views.LoginWithOTPView": {"brute"},
 
-    # -- No IP-keyed throttle, because the SSR pod fetches them ------------
+    # -- anon-default: the SSR pod fetches them, so ONLY the global default --
     # Every signed-out page view of free2z.cash reaches these from one pod IP,
-    # so an anon throttle here 429s the whole anonymous site, not an abuser.
-    # This list is exactly SSR_ANONYMOUS_READS above, verified by grepping
-    # every *.server.ts in zuu ts/svelte/free2z — do not add to it by
-    # assumption.
-    "dj.apps.g12f.views.zpage.zPageView": set(),
-    "dj.apps.g12f.views.creator.CreatorView": set(),
-    "dj.apps.tagging.views.autocomplete": set(),
-    "dj.apps.tagging.views.tag_hub": set(),
-    "dj.apps.comments.views.CommentViewSet": set(),
-    "dj.apps.comments.views.CommentListCreateAPIView": set(),
-    "dj.apps.comments.views.ParentCommentListCreateAPIView": set(),
-    "dj.apps.pricing.views.PricingView": set(),
+    # so a scoped anon throttle here would 429 the whole anonymous site. The
+    # global 'anon-default' backstop is the one IP-keyed throttle they carry,
+    # and it keys browser-direct calls only: the SSR pod's in-cluster address
+    # is never keyed (test_ssr_reads_carry_no_anon_throttle probes exactly
+    # that). This list is exactly SSR_ANONYMOUS_READS above, verified by
+    # grepping every *.server.ts in zuu ts/svelte/free2z — do not add to it
+    # by assumption. GetTypeAPI pins its own [AuthenticatedUserRateThrottle]
+    # list, so it has no default anon bucket at all.
+    "dj.apps.g12f.views.zpage.zPageView": {"anon-default"},
+    "dj.apps.g12f.views.creator.CreatorView": {"anon-default"},
+    "dj.apps.tagging.views.autocomplete": {"anon-default"},
+    "dj.apps.tagging.views.tag_hub": {"anon-default"},
+    "dj.apps.comments.views.CommentViewSet": {"anon-default"},
+    "dj.apps.comments.views.CommentListCreateAPIView": {"anon-default"},
+    "dj.apps.comments.views.ParentCommentListCreateAPIView": {"anon-default"},
+    "dj.apps.pricing.views.PricingView": {"anon-default"},
     # The /api/sdk/v1/ unknown-path 404: no DB, no auth, no work --
     # it only turns Django's HTML 404 into the SDK error envelope.
-    "dj.free2z.sdk_api.SdkNotFoundView": set(),
+    "dj.free2z.sdk_api.SdkNotFoundView": {"anon-default"},
     "dj.apps.g12f.views.creator.GetTypeAPI": set(),
 
-    # -- No IP-keyed throttle: public reads the BROWSER fetches ------------
+    # -- anon-default: public reads the BROWSER fetches ---------------------
     # NOT SSR-fetched — an earlier revision of this inventory labelled them
     # that way and it was wrong; nothing under routes/**/+page.server.ts calls
     # any of them, they go out from the browser through the orval client.
-    # The real reason there is no bucket here is that these are low-value
-    # public reads: cheap, cacheable, nothing to abuse, not worth the config
-    # surface of a scope. Unlike the group above, any of them COULD be
-    # throttled without risking the  site-wide outage, so this is the
-    # group to revisit if one ever starts costing something.
-    "dj.apps.g12f.views.series.ZPageSeriesViewSet": set(),
-    "dj.apps.storytime.views.StoryDetail": set(),
-    "dj.apps.openai.views.PublicConversationViewSet": set(),
-    "dj.apps.openai.views.PublicPromptResponseViewSet": set(),
-    "dj.apps.openai.views.AIModelViewSet": set(),
-    "dj.apps.openai.views.AIPersonalityViewSet": set(),
-    "dj.apps.pricing.views.PricingQuoteView": set(),
-    "dj.apps.g12f.views.language_catalog.LanguageCatalogView": set(),
-    "dj.apps.zuuli.views.ZuuliCapabilitiesView": set(),
+    # Low-value public reads with no scope of their own: the global
+    # per-client backstop is the right size for them. Give one a scoped
+    # list if it ever starts costing something.
+    "dj.apps.g12f.views.series.ZPageSeriesViewSet": {"anon-default"},
+    "dj.apps.storytime.views.StoryDetail": {"anon-default"},
+    "dj.apps.openai.views.PublicConversationViewSet": {"anon-default"},
+    "dj.apps.openai.views.PublicPromptResponseViewSet": {"anon-default"},
+    "dj.apps.openai.views.AIModelViewSet": {"anon-default"},
+    "dj.apps.openai.views.AIPersonalityViewSet": {"anon-default"},
+    "dj.apps.pricing.views.PricingQuoteView": {"anon-default"},
+    "dj.apps.g12f.views.language_catalog.LanguageCatalogView": {"anon-default"},
+    "dj.apps.zuuli.views.ZuuliCapabilitiesView": {"anon-default"},
     # Exact canonical legal resources are fixed in-memory, with no DB/provider
     # work. Capability polling must not consume access to consent documents.
     "dj.apps.economy.views.AgreementView": set(),
     # The handle authority's public key: an in-memory read, no database, no
     # provider call. A failing key load is remembered for a minute, so an
     # anonymous caller cannot drive Secret Manager traffic either.
-    "dj.apps.handles.views.AuthorityInfoView": set(),
+    "dj.apps.handles.views.AuthorityInfoView": {"anon-default"},
 
     # -- No IP-keyed throttle, because crawlers must not be rate-limited ---
+    # Exempt from the global default too (DEFAULT_ANON_EXEMPT_VIEWS).
     "dj.apps.g12f.views.sitemap.SitemapIndexView": set(),
     "dj.apps.g12f.views.sitemap.SitemapChunkView": set(),
 
     # -- No IP-keyed throttle: authenticated by a provider signature -------
+    # Exempt from the global default (DEFAULT_ANON_EXEMPT_VIEWS).
     # Dyte's own servers post these, from Dyte's IPs, and a 429 is a 4xx the
     # provider does not retry — throttling them loses recordings. Their auth
     # is the RSA signature check inside the handler.
@@ -1003,10 +1157,10 @@ ANON_SCOPE_INVENTORY = {
     # own.
     "dj.apps.g12f.views.account_deletion.AccountDeletionKeepView": {"anon-login"},
 
-    # -- No IP-keyed throttle: remaining auth-adjacent endpoints ----------
+    # -- anon-default: remaining auth-adjacent endpoints -------------------
     # (The social relay and login POST that used to be recorded here as a
     # gap are on 'anon-oauth-complete' above since.)
-    "dj.apps.social.views.SocialProvidersView": set(),  # static provider list
+    "dj.apps.social.views.SocialProvidersView": {"anon-default"},  # static provider list
     # Same shape as SocialProvidersView: a constant-size boolean list built
     # from settings, no database, no provider call, no state. It also sets
     # `authentication_classes = []` so a native client holding a stale knox
@@ -1015,8 +1169,8 @@ ANON_SCOPE_INVENTORY = {
     # AuthenticatedUserRateThrottle can never key on a user. That is the
     # status quo for the anonymous callers who are this endpoint's entire
     # audience, not a new hole: there is no cheaper anonymous request to make.
-    "dj.apps.social.views.ZuuliMobileSocialProvidersView": set(),
-    "dj_rest_auth.views.LogoutView": set(),           # revokes own token only
+    "dj.apps.social.views.ZuuliMobileSocialProvidersView": {"anon-default"},
+    "dj_rest_auth.views.LogoutView": {"anon-default"},           # revokes own token only
 
     # dj_rest_auth's PasswordResetView, PasswordResetConfirmView and stock
     # LoginView used to be listed here as "in the URLconf but shadowed".
@@ -1043,14 +1197,15 @@ ANON_SCOPE_INVENTORY = {
     # resource server falls back to when the Redis publication is missing
     # -- exactly the moment a per-IP bucket on the gateway's few egress
     # addresses would turn a Redis blip into a gateway outage. Unthrottled
-    # on purpose; the secret is the admission control.
+    # on purpose, including by the global default (DEFAULT_ANON_EXEMPT_VIEWS);
+    # the secret is the admission control.
     "dj.apps.oidc.views.InternalEpochView": set(),
 
-    # -- No IP-keyed throttle: developer/browsable surface -----------------
-    "dj.free2z.routers.PublicAPIRootView": set(),
-    "dj.free2z.schema_view.SchemaView": set(),
-    "drf_spectacular.views.SpectacularRedocView": set(),
-    "drf_spectacular.views.SpectacularSwaggerView": set(),
+    # -- anon-default: developer/browsable surface -------------------------
+    "dj.free2z.routers.PublicAPIRootView": {"anon-default"},
+    "dj.free2z.schema_view.SchemaView": {"anon-default"},
+    "drf_spectacular.views.SpectacularRedocView": {"anon-default"},
+    "drf_spectacular.views.SpectacularSwaggerView": {"anon-default"},
 }
 
 
@@ -1556,9 +1711,54 @@ def test_public_endpoints_without_anon_throttle_are_not_rate_limited(
     )
     hub_page.tags.add("zcash")
 
-    for path in SSR_ANONYMOUS_READS_CHEAP:
-        for _ in range(20):
-            assert api_client.get(path).status_code == 200, path
+    for origin in (SSR_POD, {"REMOTE_ADDR": "127.0.0.1"}):
+        for path in SSR_ANONYMOUS_READS_CHEAP:
+            for _ in range(20):
+                assert api_client.get(path, **origin).status_code == 200, path
+
+
+@pytest.mark.django_db
+def test_the_ssr_pod_is_never_throttled_by_the_anonymous_default(api_client):
+    """With the default squeezed to 3/minute, SSR-shaped traffic still sails
+    through: its one address stands for every signed-out visitor."""
+    with mock.patch.object(
+        SimpleRateThrottle, "THROTTLE_RATES", _rates(**{"anon-default": "3/minute"})
+    ):
+        for _ in range(12):
+            assert api_client.get("/api/zpage/", **SSR_POD).status_code == 200
+
+
+@pytest.mark.django_db
+def test_anonymous_browser_reads_are_throttled_per_client(api_client):
+    """Behavioural proof of the global anonymous default.
+
+    A public client past the 'anon-default' budget gets 429 on an ordinary
+    public read that names no scoped list; a second client is unaffected.
+    Negative control, run while writing this: with DefaultAnonRateThrottle
+    removed from DEFAULT_THROTTLE_CLASSES, no request here is ever 429.
+    """
+    other = {"REMOTE_ADDR": "127.0.0.1", "HTTP_X_FORWARDED_FOR": "198.51.100.4"}
+    with mock.patch.object(
+        SimpleRateThrottle, "THROTTLE_RATES", _rates(**{"anon-default": "3/minute"})
+    ):
+        statuses = [
+            api_client.get("/api/zpage/", **PUBLIC_CLIENT).status_code
+            for _ in range(4)
+        ]
+        assert statuses == [200, 200, 200, 429], statuses
+        assert api_client.get("/api/zpage/", **other).status_code == 200
+
+
+@pytest.mark.django_db
+def test_the_anonymous_default_does_not_charge_logged_in_callers(
+    api_client, creator_factory,
+):
+    api_client.force_authenticate(user=creator_factory())
+    with mock.patch.object(
+        SimpleRateThrottle, "THROTTLE_RATES", _rates(**{"anon-default": "1/minute"})
+    ):
+        for _ in range(5):
+            assert api_client.get("/api/zpage/", **PUBLIC_CLIENT).status_code == 200
 
 
 # ------------------------------------------- social OAuth completion

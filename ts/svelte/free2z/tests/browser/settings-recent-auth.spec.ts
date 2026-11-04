@@ -91,6 +91,11 @@ test("recovery email step-up keeps the draft and returns to an explicit save", a
 for (const method of [
   "wallet",
   "google",
+  "x",
+  "x-not-ready",
+  "x-unconfigured",
+  "x-reconnect",
+  "x-invalid-provider",
   "legacy-x",
   "bad-state",
   "bad-otp",
@@ -100,6 +105,10 @@ for (const method of [
     page,
     context,
   }) => {
+    const provider = method.startsWith("x") ? "x" : "google";
+    const hiddenX = ["x-not-ready", "x-unconfigured", "x-reconnect"].includes(
+      method,
+    );
     let recent = false;
     let proofs = 0;
     const writes: string[] = [];
@@ -128,17 +137,31 @@ for (const method of [
       }),
     );
     await context.route("**/api/auth/social/", (route) =>
-      route.fulfill({ json: [{ provider: "google", needs_reconnect: false }] }),
+      route.fulfill({
+        json: [
+          { provider, needs_reconnect: method === "x-reconnect" },
+          ...(hiddenX ? [{ provider: "google", needs_reconnect: false }] : []),
+        ],
+      }),
     );
     await context.route("**/api/auth/social/providers/", (route) =>
       route.fulfill({
         json: {
           providers: [
             {
-              provider: "google",
-              configured: true,
-              web_reauthentication: true,
+              provider,
+              configured: method !== "x-unconfigured",
+              web_reauthentication: method !== "x-not-ready",
             },
+            ...(hiddenX
+              ? [
+                  {
+                    provider: "google",
+                    configured: true,
+                    web_reauthentication: true,
+                  },
+                ]
+              : []),
           ],
         },
       }),
@@ -170,7 +193,9 @@ for (const method of [
       recent = true;
       return route.fulfill({ json: { token: "discarded-native-token" } });
     });
-    await context.route("**/api/auth/social/google/start?*", (route) => {
+    let starts = 0;
+    await context.route(`**/api/auth/social/${provider}/start?*`, (route) => {
+      starts++;
       const redirect = new URL(route.request().url()).searchParams.get(
         "redirect_uri",
       )!;
@@ -196,7 +221,7 @@ for (const method of [
         headers: { location: `${origin}/${USER}/dashboard/profile` },
       });
     });
-    await context.route("**/api/auth/social/google/", (route) => {
+    await context.route(`**/api/auth/social/${provider}/`, (route) => {
       proofs++;
       expect(route.request().postDataJSON()).toMatchObject({
         state: "provider-state",
@@ -211,6 +236,14 @@ for (const method of [
       recent = true;
       return route.fulfill({ json: { token: "discarded-native-token" } });
     });
+    if (method === "x-invalid-provider") {
+      await context.addInitScript(() => {
+        if (location.pathname !== "/oauth/reauth-callback") return;
+        const attempt = JSON.parse(sessionStorage.getItem("free2z-reauth")!);
+        attempt.provider = "twitter";
+        sessionStorage.setItem("free2z-reauth", JSON.stringify(attempt));
+      });
+    }
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(SETTINGS);
     await page.waitForLoadState("networkidle");
@@ -223,6 +256,26 @@ for (const method of [
       .getByRole("button", { name: "Sign in again" })
       .click();
     const dialog = page.getByRole("dialog");
+    if (hiddenX) {
+      // Wait for both discovery responses to render before asserting absence.
+      await expect(
+        dialog.getByRole("button", { name: "Continue with Google" }),
+      ).toBeVisible();
+      await expect(
+        dialog.getByRole("button", { name: "Continue with X", exact: true }),
+      ).toHaveCount(0);
+      // The independently configured legacy-X path stays available.
+      await expect(
+        dialog.getByRole("button", { name: "Continue with linked X account" }),
+      ).toBeVisible();
+      expect(starts).toBe(0);
+      expect(proofs).toBe(0);
+      expect(recent).toBe(false);
+      await page.keyboard.press("Escape");
+      await expect(email).toHaveValue("pending@example.com");
+      expect(writes).toEqual(["pending@example.com"]);
+      return;
+    }
     if (method === "wallet") {
       await dialog
         .getByText("Sign in with an existing Zcash wallet", { exact: true })
@@ -247,10 +300,13 @@ for (const method of [
     } else {
       const opened = context.waitForEvent("page");
       await dialog
-        .getByRole("button", { name: "Continue with Google" })
+        .getByRole("button", {
+          name: provider === "x" ? "Continue with X" : "Continue with Google",
+          exact: true,
+        })
         .click();
       const popup = await opened;
-      if (method === "bad-state") {
+      if (method === "bad-state" || method === "x-invalid-provider") {
         await expect(popup.getByTestId("reauth-callback-status")).toContainText(
           "invalid or expired",
         );

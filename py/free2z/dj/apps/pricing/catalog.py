@@ -133,7 +133,7 @@ CAPABILITY_MEMBERS = frozenset(
 #Every member a model's optional ``controls`` object may carry (crate
 #``ModelControls``, zuu#1170). Additive: an older gateway's ``CatalogModel``
 #does not deny unknown members, so it ignores the whole object.
-CONTROLS_MEMBERS = frozenset({"effort_levels"})
+CONTROLS_MEMBERS = frozenset({"effort_levels", "tools_require_effort_none"})
 #``controls.effort_levels`` vocabulary: every level a provider documents.
 #A level the gateway's wire cannot express (``xhigh``, ``none``, ``max``)
 #is kept and inert there (crate ``ModelControls::effort_levels``), so one
@@ -364,6 +364,10 @@ def validate_model(model: dict, disabled_providers=()) -> None:
         controls = model["controls"]
         if not isinstance(controls, dict) or set(controls) - CONTROLS_MEMBERS:
             raise CatalogRefused("invalid_model", f"{model_id}: invalid controls")
+        if "tools_require_effort_none" in controls:
+            if type(controls["tools_require_effort_none"]) is not bool:
+                raise CatalogRefused(
+                    "invalid_model", f"{model_id}: invalid controls.tools_require_effort_none")
         if "effort_levels" in controls:
             levels = controls["effort_levels"]
             if (not isinstance(levels, list) or not levels
@@ -687,6 +691,9 @@ def _build_catalog_in_snapshot(now_unix: int) -> dict:
             candidates[-1]["controls"] = {
                 "effort_levels": list(levels) if isinstance(levels, list) else levels,
             }
+        if ai_model.tools_require_effort_none:
+            candidates[-1].setdefault("controls", {})["tools_require_effort_none"] = (
+                ai_model.tools_require_effort_none)
     # Per-model problems EXCLUDE the model (callable=false by omission) and
     # raise an alerted line; they never refuse the document (review of
     #one unpriced model blocked an emergency kill switch for 72 h).

@@ -4,7 +4,7 @@ Product documentation for Free2Z. Brand colors, surfaces, and interaction patter
 
 ## Develop
 
-Use Node 24.22.1 and the committed dependency lockfile.
+Use Node 24.22.2 and the committed dependency lockfile.
 
 ```bash
 cd docs/free2z/website

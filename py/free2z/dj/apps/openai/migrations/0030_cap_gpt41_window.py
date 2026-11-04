@@ -12,7 +12,7 @@ signed catalogue (``context_window`` = ``max_tokens``, ``max_output_tokens``
 = ``max_response_tokens``).
 
 gpt-4.1-mini / -nano keep their 1M windows: their full-window refund is
-~$0.36 / ~$0.09, already accepted by tuzi#2492.
+~$0.36 / ~$0.09, already accepted earlier.
 
 Forward only LOWERS (``min`` with the existing value), so an operator who
 narrowed the row further keeps it. Reverse restores the documented figures

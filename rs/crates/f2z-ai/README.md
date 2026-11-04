@@ -169,7 +169,7 @@ with `503` (`reason: "child_directed_unconfigured"`) and nothing is claimed;
 other calls are unaffected. Other apps keep the unkeyed SHA-256 fingerprint and
 the key as sent, byte for byte, so no stored row changes format.
 
-**Retries across a flip or a rotation (`src/idempotency.rs`, tuzi#2639).**
+**Retries across a flip or a rotation (`src/idempotency.rs`).**
 Which form a call was claimed in depends on the token's `child_directed` claim
 and on the key, so a same-key retry that straddles a flag flip or a rotation
 derives the other form. After every keyed claim that inserts a call, the
@@ -181,7 +181,7 @@ ledger key's 24 h (`ledger::IDEMPOTENCY_KEY_LIFETIME`, which restates
 `py/dj/apps/ledger/migrations/_call_recovery.py`) plus a 10-minute margin for
 skew between Postgres's and Redis's clocks. A record must outlive its key row:
 a straddling retry that finds the key row but no record is charged twice and
-counted only as `miss` (tuzi#2670). Outliving it is harmless — a straddling
+counted only as `miss`. Outliving it is harmless — a straddling
 retry in the margin names the recorded call, which the ledger keeps 90 days,
 and is replayed rather than charged; a same-form retry after 24 h is a new call
 as the contract says.
@@ -238,7 +238,7 @@ with this support is the rollback target too.
 
 ## Authentication and limits (`src/auth`)
 
-chat-api.md §2.2 steps 1–2, against the IdP of tuzi #2238
+chat-api.md §2.2 steps 1–2, against the IdP of the platform
 (`dj.apps.oidc`), in this order:
 
 | Check | Refusal |

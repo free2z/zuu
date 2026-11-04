@@ -49,13 +49,15 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run check
       - run: NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" npm run build
+      - name: Built-adapter runtime smoke
+        run: node tests/built-adapter-smoke.mjs
       - name: Built-adapter root parameter containment
         run: node tests/built-adapter-root-containment.mjs
       - name: Built-adapter legacy zPage redirect
@@ -97,7 +99,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -145,7 +147,7 @@ jobs:
       - name: Use the static image Node version
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: |
             docs/about-free2z/package-lock.json
@@ -228,7 +230,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: |
             ts/svelte/free2z/package-lock.json
@@ -303,7 +305,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -362,7 +364,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
@@ -433,7 +435,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
       - name: Audit every bundled and build dependency
         env:
           NPM_AUDIT_PROJECT: ${{ matrix.project }}
@@ -476,7 +478,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: ts/react/free2z/package-lock.json
       - run: npm ci --legacy-peer-deps
@@ -497,7 +499,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
-      RUFF_VERSION: 0.16.3
+      RUFF_VERSION: 0.17.3
     steps:
       - name: Select verified CI trust before clients
         shell: bash
@@ -627,7 +629,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         if: matrix.group == 1
         with:
-          node-version: 24.22.1
+          node-version: 24.22.2
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - name: Install renderer dependencies for the translation oracle
@@ -895,7 +897,7 @@ jobs:
           driver: docker-container
           driver-opts: image=moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c
       - name: Build application image without publishing credentials
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # reviewed immutable repository pin
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # reviewed immutable repository pin
         with:
           context: ${{ matrix.kind == 'web' && 'ts/svelte/free2z' || '.' }}
           file: build/free2z/${{ matrix.kind }}.Dockerfile

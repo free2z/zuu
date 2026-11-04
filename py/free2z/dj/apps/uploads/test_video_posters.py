@@ -255,7 +255,7 @@ def test_a_storage_failure_retries_instead_of_recording_no_poster(
 def test_a_deleted_source_object_is_terminal_not_retried(
         creator_factory, mocker, caplog):
     """
-    A source object gone from storage will NEVER come back (tuzi#2096).
+    A source object gone from storage will NEVER come back.
 
     Before this fix, `_copy_source_to_temp`'s `FileNotFoundError` propagated
     out of `extract_poster_bytes` uncaught -- the same path the storage-
@@ -453,7 +453,7 @@ def test_extraction_is_idempotent(creator_factory):
 
 
 # ---------------------------------------------------------------------------
-# URL derivation — the media access model (tuzi#1463)
+# URL derivation — the media access model
 # ---------------------------------------------------------------------------
 
 @pytest.mark.django_db

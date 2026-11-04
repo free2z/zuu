@@ -209,9 +209,9 @@ they produce `free2z-tauri-plugin-f2z-api-0.2.0.tgz` and `free2z-sdk-0.2.0.tgz`.
 | Gateway (`f2z-ai`, zuu source) | SDK 0.2.0 |
 |---|---|
 | older than `d26c9397` | Not supported. A request that sets a field newer than that gateway (`tool_choice`, `parallel_tool_calls`, `Tool.strict`, …) is refused with `400 invalid_request`, and no `tool_call_delta` is ever streamed |
-| **`d26c9397` (#1142) — minimum.** The image tuzi pins on `main` today: `ghcr.io/free2z/f2z-ai@sha256:5b1cb4c6dd84998f23d74c5c346a6dc8dc053284c5632d573d528c758a98dcbf` (tuzi `k8s/f2z-ai/deployment.yaml`, tuzi#2499) | Everything except `reasoning_effort`. A request that sets it is refused by that gateway's `deny_unknown_fields` with `400 invalid_request`, before any hold or charge. `capabilities.reasoning_effort` is absent from its `/v1/models`, which the SDKs read as `false` |
-| `b8e0c814` (#1170) and later | Adds `reasoning_effort`, on models whose **signed** catalogue entry declares `capabilities.reasoning_effort` (tuzi#2502) |
-| `6c397db3` (#1171) — recommended; the commit this release is cut from | Adds the tokenizer input estimate and estimate-based settlement of interrupted calls. Gateway-side only: no SDK API change. proposed in tuzi#2507 (open) |
+| **`d26c9397` (#1142) — minimum.** The image tuzi pins on `main` today: `ghcr.io/free2z/f2z-ai@sha256:5b1cb4c6dd84998f23d74c5c346a6dc8dc053284c5632d573d528c758a98dcbf` (tuzi `k8s/f2z-ai/deployment.yaml`) | Everything except `reasoning_effort`. A request that sets it is refused by that gateway's `deny_unknown_fields` with `400 invalid_request`, before any hold or charge. `capabilities.reasoning_effort` is absent from its `/v1/models`, which the SDKs read as `false` |
+| `b8e0c814` (#1170) and later | Adds `reasoning_effort`, on models whose **signed** catalogue entry declares `capabilities.reasoning_effort` |
+| `6c397db3` (#1171) — recommended; the commit this release is cut from | Adds the tokenizer input estimate and estimate-based settlement of interrupted calls. Gateway-side only: no SDK API change. proposed, not yet released |
 
 Unknown response members, events and catalogue capabilities pass through or are
 ignored, so a newer gateway never breaks this SDK.

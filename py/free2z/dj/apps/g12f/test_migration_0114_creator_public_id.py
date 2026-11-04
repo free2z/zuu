@@ -261,21 +261,32 @@ def test_a_row_an_old_pod_has_locked_makes_one_batch_retry(old_code, monkeypatch
     other.set_autocommit(False)
     with other.cursor() as cursor:
         cursor.execute("SELECT id FROM g12f_creator WHERE id = %s FOR UPDATE", [pks[2]])
-    raw = other.connection  # psycopg connection: safe to release from a timer
-    release = threading.Timer(0.4, raw.rollback)
-    release.start()
+    # A timer can release before the UPDATE is even dispatched on a busy CI
+    # host. Hold the real row lock until the migration has observed its first
+    # bounded PostgreSQL lock timeout and logged the retry, then release it.
+    log = migration._log
+    retries = []
+
+    def release_after_observed_retry(message):
+        log(message)
+        if message.startswith("backfill: lock not available"):
+            retries.append(message)
+            assert len(retries) == 1
+            assert "attempt 1/20" in message
+            # The failed batch rolled back, even the rows before the lock.
+            assert all(_public_ids()[pk] is None for pk in pks)
+            other.rollback()
+
+    monkeypatch.setattr(migration, "_log", release_after_observed_retry)
     try:
-        started = time.monotonic()
         migration.backfill(connection)
-        waited = time.monotonic() - started
     finally:
-        release.cancel()
-        raw.rollback()
+        other.rollback()
         other.close()
 
     out = capsys.readouterr().out
-    assert "backfill: lock not available" in out
-    assert waited >= 0.3
+    assert out.count("backfill: lock not available") == 1
+    assert len(retries) == 1
     ids = _public_ids()
     assert all(isinstance(ids[pk], uuid.UUID) for pk in pks)
 

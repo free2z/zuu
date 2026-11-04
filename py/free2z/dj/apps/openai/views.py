@@ -1690,7 +1690,7 @@ class PromptResponseViewSet(viewsets.ModelViewSet):
         # the budget refusal below and the output cap, so prompt + cap can
         # never exceed the model's window on the tokenizer the provider
         # actually uses. `input_tokens` is the legacy count the charge and
-        # admission price use (tuzi#2494 moves billing to provider usage).
+        # admission price use (billing is moving to provider usage).
         window_tokens = count_prompt_tokens(messages, ai_model.model)
         if window_tokens > ai_model.get_input_token_budget():
             idempotency.release(claim)

@@ -163,7 +163,9 @@ def test_semantic_search_prefers_fresh_equal_matches(
         disabled_response = api_client.get("/api/zpage/?search=privacy")
 
     assert _vanities(disabled_response)[:2] == [stale.vanity, fresh.vanity]
-    assert embeddings.call_count == 2
+    # The second request repeats the query, so it reuses the cached
+    # embedding rather than calling the provider again.
+    assert embeddings.call_count == 1
 
 
 @pytest.mark.django_db

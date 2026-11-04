@@ -1,4 +1,6 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type Locator } from "@playwright/test";
+
+import { devSourceModuleLoader } from "./dev-source-module";
 
 /**
  * Free-form tags in the editor.
@@ -113,7 +115,9 @@ async function stubApi(page: Page) {
 
 async function openPublishSheet(page: Page) {
   await page.goto(`/edit?id=${ARTICLE_ID}`);
-  await expect(page.locator("textarea.writing-area-textarea")).toBeVisible();
+  await expect(page.locator("textarea.writing-area-textarea")).toBeVisible({
+    timeout: 30_000,
+  });
   // The sheet is behind the topbar's publish action, which reads "Update"
   // once the article is published.
   await page
@@ -135,6 +139,223 @@ function lastSavedTags(sent: Sent[]): string[] | undefined {
 }
 
 test.describe.configure({ timeout: 90_000 });
+
+// Resolve colors through the browser (including CSS variables and modern color
+// syntax), then composite every ancestor background from the canvas inward.
+async function measureContrast(label: Locator) {
+  return label.evaluate((element) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d")!;
+    const rgba = (color: string) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = color;
+      context.fillRect(0, 0, 1, 1);
+      return Array.from(context.getImageData(0, 0, 1, 1).data);
+    };
+    const over = (front: number[], back: number[]) =>
+      front
+        .slice(0, 3)
+        .map(
+          (value, i) =>
+            value * (front[3] / 255) + back[i] * (1 - front[3] / 255),
+        );
+    const chain: Element[] = [];
+    for (let node: Element | null = element; node; node = node.parentElement)
+      chain.push(node);
+    let background = [255, 255, 255]; // Browser canvas below the root.
+    for (const node of chain.reverse())
+      background = over(
+        rgba(getComputedStyle(node).backgroundColor),
+        background,
+      );
+    const color = getComputedStyle(element).color;
+    const foreground = over(rgba(color), background);
+    const luminance = (rgb: number[]) =>
+      rgb
+        .map((value) => {
+          const channel = value / 255;
+          return channel <= 0.04045
+            ? channel / 12.92
+            : ((channel + 0.055) / 1.055) ** 2.4;
+        })
+        .reduce(
+          (sum, value, i) => sum + value * [0.2126, 0.7152, 0.0722][i],
+          0,
+        );
+    const [light, dark] = [luminance(foreground), luminance(background)].sort(
+      (a, b) => b - a,
+    );
+    return {
+      color,
+      background: background.map(Math.round),
+      ratio: (light + 0.05) / (dark + 0.05),
+    };
+  });
+}
+
+async function assertReadable(label: Locator, state: string) {
+  const colors = await measureContrast(label);
+  console.info(`[contrast] ${state}: ${JSON.stringify(colors)}`);
+  expect(colors.ratio, state).toBeGreaterThanOrEqual(4.5);
+  return colors;
+}
+
+// Wait for the actual computed colors to stop changing after hover/selection.
+async function settleColors(page: Page) {
+  await page.waitForTimeout(350); // Tailwind transition-colors is 150ms.
+}
+
+async function decoration(element: Locator) {
+  return element.evaluate((el) => {
+    const style = getComputedStyle(el);
+    return {
+      shadow: style.boxShadow,
+      outline: style.outlineStyle,
+      width: style.outlineWidth,
+    };
+  });
+}
+
+for (const theme of ["light", "dark"] as const) {
+  for (const width of [390, 1280]) {
+    test(`disabled tag contrast ${theme} ${width}px`, async ({ page }) => {
+      await page.addInitScript(
+        (mode) => localStorage.setItem("mode-watcher-mode", mode),
+        theme,
+      );
+      await page.emulateMedia({ colorScheme: theme });
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/search");
+      await page.evaluate(
+        async ({ loader, dark }) => {
+          const runtime = "/tests/browser/svelte-runtime.ts";
+          const [{ default: TagInput }, { mount }] = await Promise.all([
+            new Function(loader)(),
+            import(/* @vite-ignore */ runtime),
+          ]);
+          document.documentElement.classList.toggle("dark", dark);
+          const target = document.createElement("div");
+          target.id = "disabled-tags";
+          document.body.append(target);
+          mount(TagInput, {
+            target,
+            props: { tags: ["zcash"], disabled: true },
+          });
+        },
+        {
+          loader: devSourceModuleLoader("/src/lib/components/TagInput.svelte"),
+          dark: theme === "dark",
+        },
+      );
+      const harness = page.locator("#disabled-tags");
+      const input = harness.getByRole("combobox");
+      const button = harness.getByRole("button", { name: "Remove tag zcash" });
+      await expect(input).toBeDisabled();
+      await expect(button).toBeDisabled();
+      const container = input.locator("..");
+      expect(
+        await container.evaluate((el) => getComputedStyle(el).borderTopStyle),
+      ).toBe("dashed");
+      expect(
+        await container.evaluate((el) => getComputedStyle(el).cursor),
+      ).toBe("not-allowed");
+      await input.evaluate((el: HTMLInputElement) => el.focus());
+      await expect(input).not.toBeFocused();
+      await expect(harness.getByRole("listbox")).toHaveCount(0);
+      const label = button.locator("..").locator("span").first();
+      await assertReadable(label, `${theme}/${width} disabled tag`);
+      await button.hover({ force: true });
+      await settleColors(page);
+      await assertReadable(label, `${theme}/${width} disabled tag hover`);
+      expect(
+        await page.evaluate(() =>
+          document.documentElement.classList.contains("dark"),
+        ),
+      ).toBe(theme === "dark");
+    });
+    test(`tag suggestion contrast ${theme} ${width}px`, async ({ page }) => {
+      const pageErrors: string[] = [];
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await stubApi(page);
+      await page.addInitScript(
+        (mode) => localStorage.setItem("mode-watcher-mode", mode),
+        theme,
+      );
+      await page.emulateMedia({ colorScheme: theme });
+      await page.setViewportSize({ width, height: 900 });
+      const input = await openPublishSheet(page);
+      await page.evaluate(
+        (dark) => document.documentElement.classList.toggle("dark", dark),
+        theme === "dark",
+      );
+      expect(
+        await page.evaluate(() =>
+          document.documentElement.classList.contains("dark"),
+        ),
+      ).toBe(theme === "dark");
+      const container = input.locator("..");
+      const chipButton = page.getByRole("button", {
+        name: "Remove tag ART",
+        exact: true,
+      });
+      const chip = chipButton.locator("..").locator("span").first();
+      await input.evaluate((el: HTMLInputElement) => el.blur());
+      await settleColors(page);
+      const unfocused = await decoration(container);
+      // Use keyboard navigation from a known preceding control, before typing.
+      await chipButton.focus();
+      await page.keyboard.press("Tab");
+      await expect(input).toBeFocused();
+      await settleColors(page);
+      const focused = await decoration(container);
+      expect(focused).not.toEqual(unfocused);
+      expect(
+        focused.shadow !== "none" ||
+          (focused.outline !== "none" && parseFloat(focused.width) > 0),
+      ).toBe(true);
+      const state = `${theme}/${width}`;
+      await assertReadable(chip, `${state} tag`);
+      await chipButton.hover();
+      await settleColors(page);
+      await assertReadable(chip, `${state} tag hover`);
+      // The last remove button receives real keyboard focus too.
+      await page.keyboard.press("Shift+Tab");
+      await expect(chipButton).toBeFocused();
+      const chipFocus = await decoration(chipButton);
+      expect(chipFocus.outline).not.toBe("none");
+      expect(parseFloat(chipFocus.width)).toBeGreaterThan(0);
+      await assertReadable(chip, `${state} tag focus`);
+      await page.keyboard.press("Tab");
+      await input.fill("zc");
+      const option = page.getByRole("option", { name: /zcash/ });
+      await expect(option).toBeVisible();
+      await expect(option).toHaveAttribute("aria-selected", "false");
+      const name = option.locator("span").nth(0);
+      const count = option.locator("span").nth(1);
+      const normal = await assertReadable(name, `${state} default label`);
+      await assertReadable(count, `${state} default count`);
+      await input.press("ArrowDown");
+      await expect(option).toHaveAttribute("aria-selected", "true");
+      await settleColors(page);
+      const selected = await assertReadable(name, `${state} selected label`);
+      expect(selected.background).not.toEqual(normal.background);
+      await assertReadable(count, `${state} selected count`);
+      // Hover an unselected row: selection must not mask hover defects.
+      await input.press("ArrowDown");
+      await expect(option).toHaveAttribute("aria-selected", "false");
+      await option.hover();
+      await settleColors(page);
+      await assertReadable(name, `${state} hover label`);
+      await assertReadable(count, `${state} hover count`);
+      const bounds = await option.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
+      expect(pageErrors).toEqual([]);
+    });
+  }
+}
 
 test("tags the UI never had a picker for are visible and survive a save", async ({
   page,

@@ -54,7 +54,7 @@ const ACCEPTED = [
     },
   ],
   [
-    // The legacy / members-tier alias (tuzi#1463): no `public/` segment.
+    // The legacy / members-tier alias: no `public/` segment.
     "https://free2z.cash/uploadz/alice/photo.png",
     { kind: "image", path: "/uploadz/alice/photo.png", name: "photo.png" },
   ],
@@ -788,4 +788,13 @@ test("a legacy-alias video/audio embed plays from our own origin (codex review)"
   assert.match(html, /<source src="\/uploadz\/public\/u\/p\.mp4"/);
   assert.match(html, /data-audio-url="\/uploadz\/public\/u\/p\.mp3"/);
   assert.doesNotMatch(html, /www\.free2z\.cash/);
+});
+
+test("credit help stays within the existing buy-2z namespace", () => {
+  assert.equal(classify("https://free2z.cash/buy-2z/about")?.kind, "page");
+  // Credits remains available as a creator name; the explanation claims no root.
+  assert.equal(
+    classify("https://free2z.cash/credits/introduction")?.kind,
+    "zpage",
+  );
 });

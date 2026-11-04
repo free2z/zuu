@@ -775,7 +775,11 @@
       "audioEmbed": "Audio incrustado",
       "iframe": "Iframe",
       "qrCode": "Código QR",
-      "footnote": "Nota al pie"
+      "footnote": "Nota al pie",
+      "video": "Vídeo",
+      "audio": "Audio",
+      "document": "Documento",
+      "embedLink": "Enlace incrustado"
     },
     "slashMenu": {
       "title": "Comandos",
@@ -1029,7 +1033,80 @@
     "insertVideo": "Insertar vídeo",
     "uploadingVideo": "Subiendo vídeo…",
     "uploadingMedia": "Subiendo archivos…",
-    "checkingMediaAccess": "Comprobando el acceso al archivo…"
+    "checkingMediaAccess": "Comprobando el acceso al archivo…",
+    "embedLinkHint": "Pega una URL HTTP(S). La vista previa usa los mismos controles de contenido incrustado y privacidad que tu página publicada.",
+    "embedUrl": "URL",
+    "insertEmbed": "Insertar contenido",
+    "insertEmbedLink": "Insertar una URL HTTP(S)",
+    "invalidEmbedLink": "Introduce una URL HTTP o HTTPS completa.",
+    "publicMediaUpload": "Los archivos que subas aquí son públicos. Cualquiera con el enlace puede abrirlos.",
+    "restrictedEmbedLink": "Elige este archivo desde Tu nube para que podamos comprobar el acceso y pedirte permiso antes de compartirlo con los lectores.",
+    "unsupportedMedia": "Algunos archivos no son compatibles. Elige uno de los tipos de archivo indicados.",
+    "uploadProgress": "Progreso de la subida",
+    "cancelUpload": "Cancelar subida",
+    "documentChanged": "El documento ha cambiado. Vuelve a elegir el punto de inserción.",
+    "insertLinkFailed": "No se puede insertar el enlace.",
+    "insert": {
+      "video": "Subir o elegir un vídeo",
+      "audio": "Subir o elegir audio",
+      "document": "Subir o elegir un PDF"
+    },
+    "mediaPicker": {
+      "imageAccessMakeMembersBody": "«{name}» es un archivo privado: ni siquiera tus suscriptores pueden abrirlo. Compártelo con tus suscriptores para que puedan abrirlo en esta página.",
+      "imageAccessMakePublicBody": "«{name}» no es un archivo público, por lo que algunos lectores no pueden abrirlo. Si lo haces público, cualquiera con el enlace podrá abrirlo.",
+      "imageAccessMakeMembers": "Compartir con suscriptores",
+      "imageAccessMakePublic": "Hacerlo público"
+    },
+    "audioPicker": {
+      "imageFallback": "Archivo de audio {id}",
+      "cloudImageOpenFailed": "No se puede abrir ese archivo de audio.",
+      "imageAccessCheckFailed": "No se pudo comprobar quién puede abrir ese archivo de audio. Inténtalo de nuevo.",
+      "imageAccessChangeUnknown": "No pudimos confirmar el cambio. Comprueba quién puede ver el archivo de audio en tu biblioteca actualizada antes de publicar.",
+      "imageAccessChangeFailed": "No se pudo cambiar quién puede ver ese archivo de audio.",
+      "addImage": "Añadir archivo de audio",
+      "imageDialogDescription": "Sube un archivo de audio desde este dispositivo o elige uno guardado en tu nube de Free2Z.",
+      "deviceImageDropzone": "Seleccionar archivos de audio del dispositivo",
+      "dropImagesNow": "Suelta archivos de audio para añadirlos",
+      "dropImagesMultipleHint": "Puedes añadir varios archivos de audio a la vez.",
+      "dropImagesTitle": "Suelta archivos de audio en cualquier lugar de aquí",
+      "selectImages": "Seleccionar archivos de audio",
+      "searchSelectedImages": "Buscar archivos de audio seleccionados",
+      "addMoreImages": "Añadir más archivos de audio",
+      "removeImage": "Eliminar archivo de audio",
+      "noSelectedImagesFound": "No hay archivos de audio coincidentes",
+      "imageSelected": "archivo de audio seleccionado",
+      "imagesSelected": "archivos de audio seleccionados",
+      "cloudImageResults": "Resultados de archivos de audio subidos",
+      "loadingLibrary": "Cargando archivos de audio subidos…",
+      "libraryEmpty": "Todavía no has subido ningún archivo de audio.",
+      "cloudImageAlt": "Archivo de audio de tu nube",
+      "imageAccessTitle": "Tus lectores no podrían ver este archivo de audio"
+    },
+    "documentPicker": {
+      "imageFallback": "Documento PDF {id}",
+      "cloudImageOpenFailed": "No se puede abrir ese documento PDF.",
+      "imageAccessCheckFailed": "No se pudo comprobar quién puede abrir ese documento PDF. Inténtalo de nuevo.",
+      "imageAccessChangeUnknown": "No pudimos confirmar el cambio. Comprueba quién puede ver el documento PDF en tu biblioteca actualizada antes de publicar.",
+      "imageAccessChangeFailed": "No se pudo cambiar quién puede ver ese documento PDF.",
+      "addImage": "Añadir documento PDF",
+      "imageDialogDescription": "Sube un documento PDF desde este dispositivo o elige uno guardado en tu nube de Free2Z.",
+      "deviceImageDropzone": "Seleccionar documentos PDF del dispositivo",
+      "dropImagesNow": "Suelta documentos PDF para añadirlos",
+      "dropImagesMultipleHint": "Puedes añadir varios documentos PDF a la vez.",
+      "dropImagesTitle": "Suelta documentos PDF en cualquier lugar de aquí",
+      "selectImages": "Seleccionar documentos PDF",
+      "searchSelectedImages": "Buscar documentos PDF seleccionados",
+      "addMoreImages": "Añadir más documentos PDF",
+      "removeImage": "Eliminar documento PDF",
+      "noSelectedImagesFound": "No hay documentos PDF coincidentes",
+      "imageSelected": "documento PDF seleccionado",
+      "imagesSelected": "documentos PDF seleccionados",
+      "cloudImageResults": "Resultados de documentos PDF subidos",
+      "loadingLibrary": "Cargando documentos PDF subidos…",
+      "libraryEmpty": "Todavía no has subido ningún documento PDF.",
+      "cloudImageAlt": "Documento PDF de tu nube",
+      "imageAccessTitle": "Tus lectores no podrían ver este documento PDF"
+    }
   },
   "dashboard": {
     "pages": {
@@ -1488,11 +1565,22 @@
         "checking": "Comprobando la grabación…"
       },
       "recordingStartDelayed": "La grabación no se ha confirmado. No des por hecho que se guardará una grabación.",
+      "recordingNotice": {
+        "stageStarting": "Estás en el escenario. La grabación está comenzando.",
+        "stageRecording": "Estás en el escenario y esta reunión se está grabando.",
+        "stagePaused": "Estás en el escenario. La grabación está pausada.",
+        "starting": "La grabación está comenzando.",
+        "recording": "Esta reunión se está grabando.",
+        "paused": "La grabación está pausada."
+      },
       "connectionLost": "Se perdió la conexión",
       "insufficientTuzis": "Necesitas al menos 150 2Z para iniciar una transmisión en vivo.",
       "connectionRestored": "¡Se restableció la conexión!",
       "copyLinkOnNextPage": "Se creó la transmisión. Selecciona «Copiar enlace» en la página siguiente.",
       "copyViewerLink": "Copiar enlace para espectadores",
+      "shareToConverse": "Compartir en Converse",
+      "reviewLiveAnnouncement": "Revisa y edita tu anuncio antes de publicarlo. Tu transmisión seguirá activa mientras escribes.",
+      "notLivePublic": "Solo se puede compartir una transmisión pública activa.",
       "earnMoreTuzis": "Gana más 2Z al participar en la comunidad.",
       "ended": "La transmisión terminó.",
       "leaveConfirmation": "La transmisión está activa. ¿Seguro que quieres salir? Si sales, la transmisión finalizará.",
@@ -1726,7 +1814,7 @@
     "notCharged": "No se te ha cobrado nada.",
     "writeIntro": "Escribe tu zPage de presentación",
     "buy": "Comprar 2Z",
-    "postCost": "Una publicación cuesta 1 2Z, más o menos un centavo. Por eso no hay spam aquí. Tienes {balance} 2Z.",
+    "postCost": "Esta publicación cuesta {cost} 2Z. El pequeño costo desalienta el spam. Tienes {balance} 2Z.",
     "giftIntro": "Escribe una zPage para presentarte: los miembros pueden regalar 2Z a quienes quieren leer más.",
     "giftWaiting": "Tu zPage es tu presentación. Los miembros pueden regalar 2Z a quienes quieren leer más.",
     "yourPages": "Tus zPages",
@@ -3216,5 +3304,12 @@
       "invalid": "Este enlace ha caducado. Vuelve a iniciar sesión para conservar tu cuenta.",
       "failed": "No se pudo conservar tu cuenta. Inténtalo de nuevo."
     }
+  },
+  "credits": {
+    "title": "¿Por qué un centavo por publicación?",
+    "welcome": "¡Bienvenido! Recibiste {amount} 2Z en créditos de la plataforma. Publicar cuesta desde 1 2Z, aproximadamente un centavo de dólar, para mantener Free2Z sin anuncios y desalentar el spam.",
+    "dismiss": "Cerrar mensaje de bienvenida",
+    "model": "Los 2Z son créditos para acciones en Free2Z. Publicar cuesta desde 1 2Z, aproximadamente un centavo de dólar. Este pequeño costo desalienta el spam y ayuda a mantener Free2Z sin anuncios. Tu primera zPage es gratis; crear otra requiere un saldo de 1 2Z, pero no lo gasta.",
+    "sources": "Las cuentas nuevas elegibles reciben créditos de bienvenida. Puedes comprar 2Z o recibir regalos de miembros que quieren leerte más. Preséntate con una zPage para que los lectores te conozcan."
   }
 }

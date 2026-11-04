@@ -26,13 +26,12 @@ Regenerate (only when the builder's output legitimately changes; the diff is
 the review):
 
 ```sh
-cd py && AI_CATALOG_WRITE_SAMPLE=1 pytest dj/apps/pricing/tests/test_ai_catalog.py -k reproduced
+cd py/free2z && AI_CATALOG_WRITE_SAMPLE=1 pytest dj/apps/pricing/tests/test_ai_catalog.py -k reproduced
 ```
 
 ## Verifying it with the Rust crate
 
-CI here has no Rust toolchain, so the crate check is run by hand and its result
-recorded below. A scratch workspace with two members:
+The recorded Rust verification used a scratch workspace with two members:
 
 - `proto/` -- `rs/crates/f2z-ai-proto/src/*.rs` from free2z/zuu at the commit
   below, with the dependencies zuu's workspace gives it
@@ -67,7 +66,7 @@ cargo +1.97.1 run --release -p verify-django-catalog -- \
 ```
 
 The recorded Rust verification below predates the additive `idle_timeout_ms`
-member. It covers the prior sample after the the application contract image fix (gpt-5.6-luna
+member. It covers the prior sample after the image-price fix (gpt-5.6-luna
 `image_nusd` 0); it does not establish that an older `f2z-ai-proto` build
 accepts the new field. Re-run it with the matching gateway/proto update before
 deploying the new signed payload. The prior run used zuu
@@ -116,7 +115,7 @@ at time `4000001234`, against both an OLD and a NEW gateway source:
   `OK version=4000001220000000 rate_card_version=2227 models=3`; the unknown
   member is ignored (`ModelCapabilities` is `#[serde(default)]`, not
   `deny_unknown_fields`).
-- free2z/zuu PR the application contract head `51968db0c63d0555d9266eaca577da869e033a89`
+- free2z/zuu PR [#1129](https://github.com/free2z/zuu/pull/1129) head `51968db0c63d0555d9266eaca577da869e033a89`
   (`feat/response-format-json-schema`): `OK ... models=3`, each model
   `structured_output: Some(false)`.
 
@@ -143,7 +142,7 @@ gateway source:
   in prod before this change, no `strict_tools` field):
   `OK version=4000001220000000 rate_card_version=2227 models=3`; the unknown
   member is ignored.
-- free2z/zuu PR the application contract head `eea37272cb658dbeacec742671dc0a7b688958bb`
+- free2z/zuu PR [#1142](https://github.com/free2z/zuu/pull/1142) head `eea37272cb658dbeacec742671dc0a7b688958bb`
   (`feat/ai-tools-openai`): `OK ... models=3`, each model
   `strict_tools: Some(false)`, `structured_output: Some(false)`.
 
@@ -168,7 +167,7 @@ NEW gateway source:
   in prod before zuu#1170. It has no `reasoning_effort` and no `controls`.
   Result: `OK version=4000001220000000 rate_card_version=2227 models=3`. The
   unknown member is ignored.
-- free2z/zuu PR the application contract head `2afa018db611884e11a8d48801b2c28ff4a7abfe`.
+- free2z/zuu PR [#1170](https://github.com/free2z/zuu/pull/1170) head `2afa018db611884e11a8d48801b2c28ff4a7abfe`.
   Result: `OK ... models=3`, with every model at `reasoning_effort: false`
   and `ModelControls { effort_levels: None }`.
 

@@ -924,12 +924,16 @@ def test_private_kyc_auth_splits_the_uid_before_decoding(
 
     owner = creator_factory(username="kevin")
     other = creator_factory(username="jonathan")
-    mine = UserProfile.objects.create(user=owner)
-    theirs = UserProfile.objects.create(user=other)
+    mine = UserProfile(user=owner)
+    mine.id_front.name = f"{mine.id}/id_front.png"
+    mine.save()
+    theirs = UserProfile(user=other)
+    theirs.id_front.name = f"{theirs.id}/id_front.png"
+    theirs.save()
 
     client.force_login(owner)
 
-    # The honest case still works.
+    # The honest case still works (the name is a recorded document).
     assert client.get(
         reverse("uploads_auth_private"),
         HTTP_X_ORIGINAL_URI=f"/uploadz/private/{mine.id}/id_front.png",

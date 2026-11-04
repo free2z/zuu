@@ -38,10 +38,18 @@ back to the client IP for unauthenticated requests, so it is *also* an anon
 throttle. Hence:class:`AuthenticatedUserRateThrottle`, which is what
 ``DEFAULT_THROTTLE_CLASSES`` actually points at.
 
-Anon throttling is therefore opt-in, per view, on the public endpoints that are
-(a) reached directly from the browser, never through SSR, and (b) worth
-protecting: account creation, credential flows, password reset mail, and the
-Dyte endpoints that fan out to a paid third-party API.
+Scoped anon throttling is therefore opt-in, per view, on the public endpoints
+that are (a) reached directly from the browser, never through SSR, and (b)
+worth protecting: account creation, credential flows, password reset mail, and
+the Dyte endpoints that fan out to a paid third-party API.
+
+Beneath those sits one GLOBAL anonymous backstop,:class:`DefaultAnonRateThrottle`
+(``anon-default``), and it is not the global ``AnonRateThrottle`` ruled out
+above: it keys a request only when the resolved client identity is a public
+address, and never when it is a cluster-internal one
+(:func:`is_internal_source`). After nginx's realip normalization the SSR pod's
+fetches resolve to its in-cluster address and stay unkeyed, while a browser's
+own calls resolve to the visitor and are keyed per client.
 
 Which bucket a view opts into is the other half of the design. DRF's
 anon cache key has no view component, so one scope is one shared per-IP budget
@@ -75,10 +83,13 @@ socket peer, requires Google's documented GFE request range, and selects the
 documented two-IP suffix endpoint-locally.
 """
 
+import functools
+import hashlib
 import ipaddress
 import json
 import logging
 import pickle
+import time
 
 import redis
 from django.conf import settings
@@ -89,6 +100,7 @@ from django_redis.exceptions import CompressorError, ConnectionInterrupted
 from rest_framework.exceptions import APIException
 from rest_framework.throttling import (
     AnonRateThrottle,
+    BaseThrottle,
     SimpleRateThrottle,
     UserRateThrottle,
 )
@@ -613,6 +625,11 @@ class BroadcastJoinAnonRateThrottle(PublicAnonRateThrottle):
 
     scope = 'anon-broadcast-join'
 
+    def get_ident(self, request):
+        # Grouped per IPv6 /64, like every other per-client bucket that
+        # guards a paid provider call: one subscriber holds a whole /64.
+        return _per_subscriber_ident(super().get_ident(request))
+
     def get_cache_key(self, request, view):
         if (
             request.method != 'POST'
@@ -1080,6 +1097,251 @@ class OIDCTokenAnonRateThrottle(
     """
 
     scope = 'anon-oidc-token'
+
+
+@functools.lru_cache(maxsize=8)
+def _parse_networks(entries):
+    return tuple(ipaddress.ip_network(entry, strict=False) for entry in entries)
+
+
+def is_internal_source(ident):
+    """Is this resolved client identity the cluster itself, not a visitor?
+
+    ``ident`` is what the API's client-identity handling produced (DRF's one
+    normalized proxy hop, or the direct-GCLB peer logic). An address in
+    ``settings.API_INTERNAL_SOURCE_NETWORKS`` cannot be produced by a request
+    from the internet -- see the comment on that setting -- so it marks an
+    in-cluster caller: the SvelteKit SSR pod, prerender, a Job, or loopback
+    in local development. Anything unparseable is NOT internal.
+    """
+    try:
+        address = ipaddress.ip_address((ident or "").strip())
+    except ValueError:
+        return False
+    if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped:
+        address = address.ipv4_mapped
+    networks = _parse_networks(tuple(settings.API_INTERNAL_SOURCE_NETWORKS))
+    return any(
+        address.version == network.version and address in network
+        for network in networks
+    )
+
+
+def anonymous_client_ident(request):
+    """The per-client identity for an anonymous request, or None.
+
+    The same two-step resolution the OAuth completion throttle uses: the
+    direct-GCLB route logic first (:func:`direct_gclb_client_ident`, which is
+    None behind the nginx sidecar), then DRF's one normalized proxy hop.
+    IPv6 is grouped per /64 (:func:`_per_subscriber_ident`).
+
+    None means "do not key this request on a client": either it is a
+    cluster-internal source (:func:`is_internal_source`), whose one address
+    stands for every visitor the SSR pod is rendering for, or it is a
+    GFE-peered request whose forwarding chain is not the documented shape.
+    The latter is refused (503) by the credential throttles; a general
+    backstop must not turn it into an outage, and every route the GCLB sends
+    straight to Django carries its own scoped throttle.
+    """
+    try:
+        ident = direct_gclb_client_ident(request)
+    except DirectGCLBClientUnavailable:
+        return None
+    if ident is None:
+        ident = BaseThrottle().get_ident(request)
+    if is_internal_source(ident):
+        return None
+    return _per_subscriber_ident(ident)
+
+
+#Anonymous-reachable views the global anonymous default deliberately leaves
+#unkeyed, each for a recorded reason (``dj/apps/test_throttling.py``
+#``ANON_SCOPE_INVENTORY`` has the same decisions; a stale label here fails
+#``test_default_anon_exemptions_name_live_views``). By label --
+#``module.__name__``, which DRF copies onto ``@api_view`` wrappers -- so this
+#module does not import the views.
+DEFAULT_ANON_EXEMPT_VIEWS = frozenset({
+    # Posted by the meeting provider from its own addresses, authenticated by
+    # the RSA signature inside the handler. A 429 is a 4xx the provider does
+    # not retry, so throttling them loses recordings.
+    "dj.apps.dyte.views.webhook",
+    "dj.apps.dyte.views.webhook_recording_status_update",
+    # Answers only the AI gateway's shared-secret bearer, and is what the
+    # gateway falls back to when the Redis publication is missing -- a
+    # per-address bucket on the gateway's few egress addresses would turn a
+    # Redis blip into a gateway outage. The secret is the admission control.
+    "dj.apps.oidc.views.InternalEpochView",
+    # Crawlers must not be rate-limited.
+    "dj.apps.g12f.views.sitemap.SitemapIndexView",
+    "dj.apps.g12f.views.sitemap.SitemapChunkView",
+})
+
+
+def view_label(view_cls):
+    """``module.__name__`` -- unique for ``@api_view`` functions too."""
+    return f"{view_cls.__module__}.{view_cls.__name__}"
+
+
+class DefaultAnonRateThrottle(PublicAnonRateThrottle):
+    """The global anonymous backstop: ``anon-default``, per public client.
+
+    In ``DEFAULT_THROTTLE_CLASSES``, so it covers every anonymous request to
+    a view that does not name a scoped list -- the public reads above all.
+    Views that set ``throttle_classes`` replace it with their own budget.
+
+    Safe as a GLOBAL anonymous throttle only because it never keys a
+    cluster-internal source (:func:`anonymous_client_ident`). The SSR pod
+    reaches the API from one in-cluster address for every signed-out page
+    view; keying it would put the whole site in one bucket, the outage the
+    rest of this module is organised around. Browser-direct anonymous calls,
+    by contrast, arrive with the visitor's own address and are keyed per
+    client (IPv6 per /64).
+
+    Fails open on a counter-store outage like every non-credential scope.
+    """
+
+    scope = 'anon-default'
+
+    def get_cache_key(self, request, view):
+        if request.user and request.user.is_authenticated:
+            return None
+        if view is not None and view_label(type(view)) in DEFAULT_ANON_EXEMPT_VIEWS:
+            return None
+        ident = anonymous_client_ident(request)
+        if ident is None:
+            return None
+        return self.cache_format % {'scope': self.scope, 'ident': ident}
+
+
+#Cloud Logging ``jsonPayload.event`` when a search query is answered from
+#full text because embedding admission refused it.
+SEARCH_EMBEDDING_REFUSED_EVENT = "search_query_embedding_refused"
+
+
+class SearchEmbeddingAdmission:
+    """May this request spend a provider call embedding its search query?
+
+    Not a DRF throttle: a refusal never answers 429. The search filter asks
+    only on an embedding-cache miss, and a refusal answers the search from
+    Postgres full text instead. That keeps SSR-rendered searches (one shared
+    in-cluster identity) working while bounding what any caller can spend.
+
+    Two budgets, both must admit:
+
+    * per caller -- ``search-embed-user`` per account,
+      ``search-embed-anon`` per public client (IPv6 /64), and ONE shared
+      ``search-embed-internal`` budget for cluster-internal callers, which
+      carry no per-visitor identity;
+    * fleet-wide -- ``search-embed-global``, across all callers and pods.
+
+    Fixed-window counters (``cache.add`` + ``cache.incr``), atomic on Redis,
+    unlike DRF's read-modify-write history list: concurrent misses cannot
+    overshoot a budget. A window boundary can admit up to twice a rate in a
+    short burst; that is the accepted cost of an O(1) counter.
+
+    **Fails closed, to full text.** If the counter store does not answer --
+    including prod's ``IGNORE_EXCEPTIONS`` swallowing an outage, where
+    ``incr`` returns None -- nothing can be counted, so nothing is spent.
+    Search keeps working; it is only less semantic until Redis is back.
+    """
+
+    USER_SCOPE = 'search-embed-user'
+    ANON_SCOPE = 'search-embed-anon'
+    INTERNAL_SCOPE = 'search-embed-internal'
+    GLOBAL_SCOPE = 'search-embed-global'
+
+    KEY_PREFIX = 'search-embed'
+
+    def __init__(self, cache=None):
+        self.cache = cache if cache is not None else caches['default']
+
+    def caller(self, request):
+        """``(scope, ident)`` for the per-caller budget."""
+        user = getattr(request, 'user', None)
+        if user is not None and user.is_authenticated:
+            return self.USER_SCOPE, f'user-{user.pk}'
+        try:
+            direct = direct_gclb_client_ident(request)
+        except DirectGCLBClientUnavailable:
+            # Not attributable to a client: share the internal budget rather
+            # than minting a bucket from an unrecognised forwarding chain.
+            return self.INTERNAL_SCOPE, 'internal'
+        ident = direct if direct is not None else BaseThrottle().get_ident(request)
+        if is_internal_source(ident):
+            return self.INTERNAL_SCOPE, 'internal'
+        return self.ANON_SCOPE, _per_subscriber_ident(ident)
+
+    def _consume(self, scope, ident):
+        """True admitted, False refused, None counter store unavailable."""
+        rate = SimpleRateThrottle.THROTTLE_RATES.get(scope)
+        if not rate:
+            return None
+        limit, window = SimpleRateThrottle.parse_rate(None, rate)
+        digest = hashlib.sha256(str(ident).encode()).hexdigest()[:32]
+        key = (
+            f'{self.KEY_PREFIX}:{scope}:{digest}:'
+            f'{int(time.time() // window)}'
+        )
+        try:
+            # Two windows of TTL: the key outlives its own window, never the
+            # next one, so a slow clock across pods cannot resurrect it.
+            self.cache.add(key, 0, timeout=window * 2)
+            count = self.cache.incr(key)
+        except ValueError:
+            # Evicted between add() and incr(): uncountable this time.
+            return None
+        except Exception as exc:
+            if isinstance(exc, CACHE_FAILURE_EXCEPTIONS) or _raised_inside_the_cache(exc):
+                return None
+            raise
+        if count is None:
+            return None
+        return count <= limit
+
+    def refusal(self, request):
+        """None if admitted; otherwise the reason, which is also logged."""
+        scope, ident = self.caller(request)
+        for budget, budget_ident in ((scope, ident), (self.GLOBAL_SCOPE, 'all')):
+            admitted = self._consume(budget, budget_ident)
+            if admitted:
+                continue
+            reason = 'counter-unavailable' if admitted is None else budget
+            log = logger.warning if admitted is None else logger.info
+            log(json.dumps(
+                {
+                    "message": (
+                        "Search query embedding not admitted; answering "
+                        "from full text."
+                    ),
+                    "event": SEARCH_EMBEDDING_REFUSED_EVENT,
+                    "reason": reason,
+                    "caller_scope": scope,
+                },
+                separators=(",", ":"),
+            ))
+            return reason
+        return None
+
+
+class StorytimeGenerationRateThrottle(AuthenticatedUserRateThrottle):
+    """Per-account brake on Storytime generation (``storytime-generate``).
+
+    Each request is a paid provider call made while holding a sync worker.
+    Keyed per account and never per address (inherited: an anonymous caller
+    returns None, and the views are ``IsAuthenticated`` anyway). Fails open
+    with the rest of the default cache; the ledger debit, not this counter,
+    is what a generation costs the account.
+    """
+
+    scope = 'storytime-generate'
+
+
+#Storytime text and image generation: the dedicated bucket, then the global
+#authenticated ceiling (setting ``throttle_classes`` replaces the defaults).
+STORYTIME_GENERATION_THROTTLES = [
+    StorytimeGenerationRateThrottle,
+    AuthenticatedUserRateThrottle,
+]
 
 
 def _public(anon_throttle):

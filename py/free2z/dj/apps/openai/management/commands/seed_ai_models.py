@@ -228,7 +228,7 @@ DJANGO_CHARGE_OVERRIDES = {}
 #
 # gpt-4.1-mini / -nano are NOT capped: at a full 1M prompt they refund about
 # $0.36 / $0.09 (within gpt-4o's order) and stream far faster, which is why
-# tuzi#2492 admitted them uncapped. LINEUP keeps the DOCUMENTED figures (0026
+# the earlier admission admitted them uncapped. LINEUP keeps the DOCUMENTED figures (0026
 # mirrors it, the flat-window test checks it against the provider);
 # migration ``0030_cap_gpt41_window`` applies these caps to the live row and
 # ``test_lineup_v3_migration`` pins that the fence admits gpt-4.1 only
@@ -298,6 +298,13 @@ NO_CHAT_COMPLETIONS_TOOLS = frozenset({
 TOOL_MODELS = STRUCTURED_OUTPUT_MODELS - NO_CHAT_COMPLETIONS_TOOLS
 STRICT_TOOL_MODELS = TOOL_MODELS
 
+# Official OpenAI migrate-to-responses guide (verified 2026-11-04):
+# GPT-5.4+ Chat Completions tools require effort none. These are the rows
+# that admit tools and default to none (their model pages). Frozen in 0032.
+TOOLS_REQUIRE_EFFORT_NONE = frozenset({
+    (OPENAI, "gpt-5.4"), (OPENAI, "gpt-5.4-mini"), (OPENAI, "gpt-5.4-nano"),
+})
+
 # Signed ``capabilities.reasoning_effort`` + ``controls.effort_levels``
 # (zuu#1170, migration 0028). Each model's levels from its own page on
 # developers.openai.com/api/docs/models/<id> ("Reasoning.effort supports:..."),
@@ -342,7 +349,7 @@ REASONING_EFFORT_LEVELS = {
 }
 
 # Signed ``ttfb_timeout_ms`` / ``idle_timeout_ms`` for OpenAI's
-# silent-reasoning families (tuzi#2492, migration
+# silent-reasoning families (migration
 # ``0029_reasoning_idle_timeouts``). A reasoning model streams nothing while
 # it thinks -- a Chat Completions stream can send no body byte at all until
 # reasoning ends -- so the gateway's 60 s first-byte and idle defaults cut a
@@ -355,7 +362,7 @@ REASONING_EFFORT_LEVELS = {
 SILENT_REASONING_PREFIXES = ("gpt-5", "gpt-6", "o1", "o3", "o4")
 REASONING_TIMEOUT_MS = MAX_IDLE_TIMEOUT_MS
 
-# Signed ``safety_factor_bps`` for every OpenAI row (tuzi#2492, 0029): the
+# Signed ``safety_factor_bps`` for every OpenAI row (0029): the
 # gateway tokenises OpenAI prompts exactly (estimate 1.077-1.079x over the
 # billed count on the AHA corpus, never under), so x1.10 rather than the
 # byte bound's x1.15 default, which other providers keep. Create-only.
@@ -366,8 +373,8 @@ def is_silent_reasoning(provider, model):
     return provider == OPENAI and model.startswith(SILENT_REASONING_PREFIXES)
 
 
-# Signed ``ttfb_timeout_ms`` for the 1M-window gpt-4.1 family (tuzi#2492,
-# 0029): a ~900K-token prompt can take most of a minute to its first byte, and
+# Signed ``ttfb_timeout_ms`` for the 1M-window gpt-4.1 family
+# (0029): a ~900K-token prompt can take most of a minute to its first byte, and
 # a first-byte timeout before the response head ends the call unaccepted (hold
 # released; OpenAI may bill the input). These rows wait up to the hard deadline
 # for their first byte; idle stays 60 s (tokens flow once started).
@@ -593,6 +600,7 @@ class Command(BaseCommand):
                     "supports_strict_tools": (provider, model) in STRICT_TOOL_MODELS,
                     "supports_reasoning": (provider, model) in REASONING_EFFORT_LEVELS,
                     "supports_reasoning_effort": (provider, model) in REASONING_EFFORT_LEVELS,
+                    "tools_require_effort_none": (provider, model) in TOOLS_REQUIRE_EFFORT_NONE,
                     "reasoning_effort_levels": list(
                         REASONING_EFFORT_LEVELS.get((provider, model), ())),
                     **({"ttfb_timeout_ms": REASONING_TIMEOUT_MS,

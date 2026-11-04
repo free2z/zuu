@@ -68,7 +68,7 @@ DEFAULT_AI_REPORT_SURGE_CRON = "2-59/5 * * * *"
 @app.task(name="oidc.reevaluate_ai_report_surges", queue="default", retry=False)
 def reevaluate_ai_report_surges(timestamp: int = 0):
     """Re-judge the AI-output-report page for apps with recent unsafe
-    reports (dj.apps.oidc.ai_reports.reevaluate_surges; tuzi#2654)."""
+    reports (dj.apps.oidc.ai_reports.reevaluate_surges)."""
     from .ai_reports import reevaluate_surges
 
     evaluated = reevaluate_surges()

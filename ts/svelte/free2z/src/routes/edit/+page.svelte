@@ -4524,11 +4524,11 @@
     // recorded LEGACY refund terms while the identical purchase that landed
     // first recorded current ones. Two creators, the same screen, different
     // terms, decided by which of them had a network blip. (codex adversarial
-    // review of tuzi#1908, round 6.)
+    // review, round 6.)
     const purchase = {
       expected_price: quote.price,
       source_digest: quote.source_digest,
-      // Which refund terms this build SHOWED (tuzi#1908). The dialog above
+      // Which refund terms this build SHOWED. The dialog above
       // states the one case in which a failed translation is not refunded in
       // full, so this build may declare 1. Omitting it means "legacy terms,
       // refund everything" — which is what an older tab still open against
@@ -5803,7 +5803,7 @@
         return;
       }
 
-      // `settled` (tuzi#1908): the article moved under a job that had already
+      // `settled`: the article moved under a job that had already
       // been paid for, and the translation had already been generated and billed
       // to us by then. Part of the charge covers that work. Say the numbers --
       // "all your 2Z came back" would be false, and a creator who cannot see
@@ -5838,7 +5838,7 @@
           // of is reachable from exactly this state: the poll timed out while the
           // job is still generating, and the creator's next move might be to edit
           // the article. Say what is certain and name the exception. (codex
-          // adversarial review of tuzi#1908, round 5.)
+          // adversarial review, round 5.)
           "editor.translateAiStillRunning",
           "The {language} translation is taking a while. It will appear in the Translations panel when it is done. If it fails your 2Z come back — unless you keep changing or publishing this article or its translation while it runs, which is charged for the work already done.",
           { language: label },

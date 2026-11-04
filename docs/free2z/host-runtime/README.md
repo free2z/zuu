@@ -24,8 +24,12 @@ cached tokenizer data, and license files are copied into a new tree. A virtual
 environment is not a supported input.
 
 The package includes the backend image's timezone database and its Debian
-copyright notice. Launchers set `PYTHONTZPATH` to the verified
-`runtime/share/zoneinfo` directory before importing application code. They also
+copyright notice. Launchers set `PYTHONTZPATH` and `TZDIR` to the verified
+`runtime/share/zoneinfo` directory, bind that directory read-only at
+`/usr/share/zoneinfo`, and set `TZ=UTC` before importing application code.
+Python uses `PYTHONTZPATH`, libc uses `TZDIR`, and Django validates timezone
+names at `/usr/share/zoneinfo`. The binding must expose the selected bundle's
+directory and files, not a copy or the host's timezone database. Launchers also
 set `SSL_CERT_FILE` to `runtime/share/ca-certificates.crt` and
 `TIKTOKEN_CACHE_DIR` to `runtime/share/tiktoken-cache`, using absolute paths in
 the verified assembly. With Python's `-I`, the trusted launcher must explicitly
@@ -67,7 +71,14 @@ loader cache with no `libpq` entry and verifies the selected bundle path; no
 
 The receiving host supplies only the glibc 2.36 ABI and its loader. The explicit
 library names are `ld-linux-x86-64.so.2`, `libc.so.6`, `libdl.so.2`, `libm.so.6`,
-`libpthread.so.0`, `libresolv.so.2`, and `librt.so.1`. This is not an arbitrary Linux portability
+`libmvec.so.1`, `libpthread.so.0`, `libresolv.so.2`, and `librt.so.1`.
+PyAV's bundled x265 library uses `libmvec.so.1`, the vector math library from
+the host's glibc installation. It must resolve on the receiving system; it is
+not copied from the backend image. Bundling it would introduce glibc's private
+ABI into the payload, which the ELF parser rejects. Missing host vector math
+support fails native import qualification. Consumers must admit this exact
+library list and independently qualify the receiving namespace before activation.
+This is not an arbitrary Linux portability
 claim. Libraries loaded dynamically by application code require qualification
 coverage as well as static dependency inspection.
 
@@ -89,8 +100,10 @@ at two unrelated absolute payload prefixes to exercise relocation.
 It checks Python's resolved prefix and import paths, `pip check`, Django's
 application registry, application/native imports, the bundled certificate
 store, and loaded native mappings. It executes the daemon's help command,
-resolves UTC and Asia/Tokyo from the bundle with host timezone data hidden,
-and exercises Django REST Framework timestamp serialization. It
+verifies the read-only timezone binding's directory and file identities,
+resolves UTC and Asia/Tokyo through Python and libc using the bundle,
+rejects installed timezone-package fallback, and exercises Django REST
+Framework timestamp serialization. It
 proves a flock survives direct Python exec with the receiving UID, checks
 SIGTERM delivery/reaping, and reads a synthetic SQLite WAL database through a
 read-only connection. These checks exercise the bundled interpreter and
@@ -126,17 +139,52 @@ The release producer requires a successful signed website release from the
 same commit as its trusted protected-main workflow. The preparation build has
 read-only permissions. A separate publishing job may attest and upload the
 opaque archive and manifest; it must never execute the artifact, application,
-or a dependency installer. A manual producer does not establish an automatic
-release path: automatic promotion requires independent event-provenance checks
-and a consumer that verifies them.
+or a dependency installer. Publication does not activate a service: promotion
+requires an independent consumer that verifies the signed evidence.
 
-To prepare a candidate, select a successful `free2z-web-<commit>-<run>-<attempt>`
-release whose commit is the current protected `main`, then dispatch
-`free2z-host-release.yml` on `main` with that tag as `web_release_tag`. A source
-mismatch fails before image use. The host release publishes the manifest,
-archive, inventory, separate attestation bundles, and the retained website
-evidence as `website-*` assets. The Actions artifact preserves the website
-evidence under `web-release/`.
+### Automatic publication and recovery
+
+A successful **Free2Z website release** on protected `main` triggers **Free2Z
+paired publication** after the website workflow completes. The dispatcher
+checks the exact successful run attempt, published release asset, source tag,
+retained Actions artifact, and current protected `main`. It dispatches
+`free2z-host-release.yml` on `main` with the immutable
+`free2z-web-<commit>-<run>-<attempt>` tag. Changes to the payment daemon, Rust
+toolchain, root license, and host publisher also trigger website publication so both halves
+can use the same source commit.
+
+The dispatcher executes only its trusted default-branch helper. It does not
+execute release contents, application code, or dependency installers. Its job
+has `contents: read` and `actions: write`; no deployment credentials are needed.
+GitHub permits `workflow_dispatch` events created with the repository's
+[`GITHUB_TOKEN`](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow),
+and the [dispatch API](https://docs.github.com/en/rest/actions/workflows#create-a-workflow-dispatch-event)
+requires Actions write permission. The host producer retains its protected-main
+`workflow_dispatch` identity and independently verifies website signatures,
+image provenance, and exact source before image use.
+
+If `main` advances before dispatch, the dispatcher skips the stale release.
+An advance after its final check is rejected by the host's source comparison.
+Publish a complete pair from current `main` by running **Free2Z website release**
+on `main`; do not combine an older website release with a newer host checkout.
+The completion workflow does not retry itself or follow advancing commits in a
+loop. Changes outside the website publisher's path filters may require this
+manual full publication.
+
+For a dispatcher retry, an existing host run with the exact website tag in its
+run title suppresses another dispatch, whether queued, running, successful, or
+failed. Recover a failed host preparation with **Re-run all jobs** on that host
+run. The dispatcher inspects at most 100 artifacts and 100 host runs for the
+source; larger histories fail closed. GitHub's dispatch API has no idempotency
+key: a transport failure can occur after acceptance. Inspect host runs before
+retrying an uncertain dispatch; the helper never retries its POST automatically.
+
+To prepare manually, select a successful website release whose commit is
+current protected `main`, then dispatch `free2z-host-release.yml` on `main` with
+that tag as `web_release_tag`. The host release publishes the manifest, archive,
+inventory, separate attestation bundles, and retained website evidence as
+`website-*` assets. The Actions artifact preserves website evidence under
+`web-release/`.
 
 Publication creates a draft, uploads and checks every asset's server-reported
 digest, then publishes the complete release. A failed upload leaves an

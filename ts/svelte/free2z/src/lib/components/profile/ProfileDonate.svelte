@@ -655,7 +655,7 @@
                 disabled={sending}
               />
               <div class="space-y-1">
-                <Label for="support-anonymous"
+                <Label for="support-anonymous" control
                   >{$t(
                     "pageActions.donate.anonymousLabel",
                     "Hide your username",

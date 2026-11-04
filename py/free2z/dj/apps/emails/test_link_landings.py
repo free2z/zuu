@@ -479,14 +479,84 @@ def test_opt_out_url_carries_a_token_and_never_the_address(creator_factory):
     path = url.split("/api/emails/opt-out/")[1]
 
     assert "?" not in path, "the token belongs in the path, not the query"
-    assert path == email.token, "the path is the token and nothing else"
+    assert path == opt_out_link_token(email), "the path is the link and nothing else"
     assert email.email not in url
     assert "odd" not in url and "example.com" not in url, (
         "some part of the address survived into the URL"
     )
-    # `secrets.token_urlsafe`'s alphabet, and nothing that could encode text
-    # a reader could decode back into the address.
-    assert re.fullmatch(r"[A-Za-z0-9\-_]+", path), path
+    # The row id and a hex digest, and nothing that could encode text a
+    # reader could decode back into the address.
+    assert re.fullmatch(r"[0-9]+-[0-9a-f]{64}", path), path
+
+
+@pytest.mark.django_db
+def test_the_unsubscribe_link_is_not_the_confirmation_credential(
+    api_client, pending_email,
+):
+    """The two links in a confirmation message carry different credentials.
+
+    The unsubscribe URL is published in a header and seen by whatever handles
+    an unsubscribe click; it must not also be able to confirm the address.
+    """
+    url = build_opt_out_url(pending_email)
+    link = opt_out_link_token(pending_email)
+
+    assert pending_email.token not in url
+    assert link != pending_email.token
+
+    confirm = api_client.post(CONFIRM_URL, {"token": link}, format="multipart")
+    assert confirm.status_code == 404, confirm.content
+    pending_email.refresh_from_db()
+    assert pending_email.confirmed_at is None
+
+    # ...and it still unsubscribes, which is its one job.
+    landing = api_client.get(_token_only_path(pending_email))
+    assert landing.status_code == 200, landing.content
+    assert pending_email.token not in landing.content.decode()
+
+
+@pytest.mark.django_db
+def test_links_mailed_with_the_address_token_keep_working(
+    api_client, confirmed_email,
+):
+    """Messages already delivered carry ``Email.token`` as the link."""
+    path = f"/api/emails/opt-out/{confirmed_email.token}"
+
+    assert api_client.get(path).status_code == 200
+    assert api_client.post(path, {}, format="multipart").status_code == 303
+    assert OptOutEmail.objects.filter(email=confirmed_email.email).exists()
+    assert not Email.objects.filter(pk=confirmed_email.pk).exists()
+    replay = api_client.post(path, {ONE_CLICK_FIELD: ONE_CLICK_VALUE}, format="multipart")
+    assert replay.status_code == 200, replay.content
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("mutate", ["other_row", "digest", "empty_token"])
+def test_a_derived_link_is_bound_to_its_row_and_token(
+    api_client, confirmed_email, creator_factory, mutate,
+):
+    other = Email.objects.create(
+        user=creator_factory(),
+        email="other@example.com",
+        token="other-token",
+        expires_at=timezone.now() + timedelta(hours=1),
+        confirmed_at=timezone.now(),
+    )
+    link = opt_out_link_token(confirmed_email)
+    if mutate == "other_row":
+        link = f"{other.pk}-{link.split('-', 1)[1]}"
+    elif mutate == "digest":
+        link = link[:-1] + ("0" if link[-1] != "0" else "1")
+    else:
+        Email.objects.filter(pk=confirmed_email.pk).update(token="")
+        confirmed_email.token = ""
+        link = opt_out_link_token(confirmed_email)
+
+    response = api_client.post(f"/api/emails/opt-out/{link}", {}, format="multipart")
+
+    assert response.status_code == 404, response.content
+    assert Email.objects.filter(pk__in=[confirmed_email.pk, other.pk]).count() == 2
+    assert not OptOutEmail.objects.exists()
 
 
 @pytest.mark.django_db

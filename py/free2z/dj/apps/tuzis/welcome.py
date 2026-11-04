@@ -206,3 +206,15 @@ def _emit(level, payload) -> None:
     # One line, entirely JSON: Cloud Logging promotes it to jsonPayload, which
     # is what the log-based metric filters on (see dj.free2z.log_json).
     logger.log(level, json.dumps(payload, sort_keys=True, default=str))
+
+
+def remember_welcome_grant(request, grant):
+    """Presentation metadata only, from a real receipt in this signup session.
+
+    The private owner serializer checks the account id before returning it.
+    Existing logins, disabled grants and failed grants never set this marker.
+    """
+    if grant is not None:
+        request.session["welcome_grant"] = {
+            "creator_id": grant.creator_id, "amount": str(grant.amount),
+        }

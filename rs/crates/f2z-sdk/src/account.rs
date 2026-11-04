@@ -21,7 +21,7 @@ const MAX_DISPLAY_BYTES: usize = 256;
 ///
 /// For display only. Neither member is unique or stable: a user may rename the
 /// account, and usernames compare case-insensitively, so two accounts can
-/// look alike (tuzi#1348). It is what the account was called **at sign-in**.
+/// look alike. It is what the account was called **at sign-in**.
 /// Key local data by [`Client::subject`](crate::Client::subject), never by
 /// these.
 #[non_exhaustive]

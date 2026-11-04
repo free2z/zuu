@@ -557,7 +557,7 @@ def extract_poster_bytes(generic_file):
             # FileField has already written the object by the time this
             # runs -- a first-run miss really means the object is gone.
             # Retrying this burns the retry budget on something that can
-            # never succeed (tuzi#2096): every future attempt hits the same
+            # never succeed: every future attempt hits the same
             # FileNotFoundError/NotFound. Terminal, and logged distinctly
             # from both the generic "no poster" info line above and the
             # transient-failure warning below, so this is never mistaken

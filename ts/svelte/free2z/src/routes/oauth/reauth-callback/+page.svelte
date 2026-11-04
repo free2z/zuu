@@ -24,7 +24,7 @@
         !attempt ||
         !window.opener ||
         attempt.expires < Date.now() ||
-        !["google", "github", "twitter"].includes(attempt.provider) ||
+        !["google", "github", "x"].includes(attempt.provider) ||
         attempt.redirect !==
           `${window.location.origin}/oauth/reauth-callback` ||
         params.getAll("state").length !== 1 ||

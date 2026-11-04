@@ -56,6 +56,9 @@ channels_redis==4.3.0
 # bump is a security action, and `pyOpenSSL`'s upper bound must move first.
 cryptography==50.0.2
 daphne==4.2.3
+# Patched WebSocket compression bounds (GHSA-pjh6-c8mg-3x7m).
+# Pin Daphne's transitive protocol dependency so lock regeneration retains the fix.
+autobahn==26.10.1
 # Explicit patched prerelease: the five October 2026 Twisted advisories affect 26.4.0.
 # Keep this exact until a stable patched release is verified.
 twisted[tls]==26.10.0rc1
@@ -69,7 +72,7 @@ djangorestframework==3.18.3
 # django-allauth==0.49.0
 django-cors-headers==4.9.0
 django-countries==9.1.0
-django-dbbackup==5.3.1
+django-dbbackup==5.4.0
 django_debug_toolbar==8.0.0
 django-ratelimit==4.1.0
 django_redis==7.0.0
@@ -99,7 +102,7 @@ drf_spectacular==0.30.0
 # Message verification. CPython 3.12 Linux/amd64 wheels contain the native
 # library; the hash lock and production-base import test cover packaging.
 coincurve==21.0.0
-google-cloud-pubsub==2.42.0
+google-cloud-pubsub==2.43.0
 gunicorn==26.2.0
 # Interactive shell only (django_extensions `shell_plus` picks it up if it is
 # importable). NOTHING in the application imports it -- the only two mentions
@@ -154,7 +157,7 @@ Pillow==13.0.0
 requests==2.34.2
 requests_oauthlib==2.0.0
 slick-bitcoinrpc==0.1.4
-stripe==16.0.0
+stripe==16.0.1
 tiktoken==0.14.0
 # NOTE: torch + transformers were removed here. They were only ever imported by
 # dj/apps/search/transform.py, a module with no callers that also imported

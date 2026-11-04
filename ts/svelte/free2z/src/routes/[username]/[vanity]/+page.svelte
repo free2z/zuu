@@ -420,14 +420,9 @@
   let articleEl: HTMLElement;
   let progressEl: HTMLElement;
 
-  // The hero's measured fit, bound UP from ZPageHeroMedia (`bind:fit`) and
-  // mirrored onto the `.zhero` section as `data-hero-fit`. Mechanism,
-  // chosen over a `:global()` reach into another component's subtree: only
-  // this component's scoped stylesheet can style `.zhero__headline`, so the
-  // decision has to arrive as a plain attribute here. Defaults to "contain" —
-  // what SSR renders — so the headline's glyph pad below is present from first
-  // paint and only the rare cover flip re-renders it.
+  // Kept bound for navigation compatibility; every cover is shown whole.
   let heroFit: HeroFit = "contain";
+  let compactHero = false;
 
   // zPage -> zPage navigation. SvelteKit REUSES this component when
   // only the params change, and it keeps the old `data` until the new load has
@@ -699,6 +694,7 @@
   $: if (pageKey !== heroFitPageKey) {
     heroFitPageKey = pageKey;
     heroFit = "contain";
+    compactHero = false;
   }
 
   // member_price is NOT NULL and "0" is a free membership; null
@@ -841,22 +837,6 @@
       ? 'zhero--media'
       : 'w-full'}"
   >
-    {#if imageUrl}
-      <!-- The measured fit is bound up (see `heroFit`) so the scoped rules
-           below can give the headline a treatment per fit without reaching
-           across the component boundary with:global(). -->
-      {#key pageKey}
-        <ZPageHeroMedia
-          bind:fit={heroFit}
-          src={imageUrl}
-          mobileSrc={thumbnailUrl && thumbnailUrl !== imageUrl
-            ? thumbnailUrl
-            : null}
-          alt={article?.featured_image?.title || article?.title || ""}
-        />
-      {/key}
-    {/if}
-
     <!-- Topbar: Back + Category.
          `z-10` is a fix, not decoration. The headline block is bottom-anchored
          but its height is its content's, so a tall headline — a five-line
@@ -943,144 +923,152 @@
       {/if}
     </div>
 
-    <!-- Title Block (anchored to the bottom of the cover).
-         Two elements rather than one: the outer is full-bleed so the
-         headline's treatment can span the viewport instead of ending in a
-         hard edge at `max-w-5xl` on a wide screen. Which treatment is keyed
-         off the hero's measured fit (`data-hero-fit` above, ): in
-         `cover` it keeps the gradient ramp, because there the text genuinely
-         sits on a cropped photograph; in `contain` the whole cover stays
-         visible and this block paints NO background at all — the contrast
-         comes from a pad that hugs the glyphs on `.zhero__content`, so the
-         picture is never behind a rectangle. -->
-    <div class="zhero__headline relative mt-auto w-full">
-      <!-- Position the headline above the isolated photographic layers. -->
-      <div
-        class="zhero__content relative mx-auto w-full max-w-5xl px-4 pt-10 pb-8 sm:px-6 lg:px-8"
-      >
-        <!-- `dir` on the headline, not only `lang`. It is also what isolates
+    <!-- Narrow artwork sits alongside the headline on desktop. -->
+    <div class="zhero__layout" class:zhero__layout--compact={compactHero}>
+      {#if imageUrl}
+        <!-- Key the image on page identity so a pending cover never shows
+             the previous page's bitmap. Other paid controls stay mounted. -->
+        {#key pageKey}
+          <ZPageHeroMedia
+            bind:fit={heroFit}
+            bind:compact={compactHero}
+            src={imageUrl}
+            mobileSrc={thumbnailUrl && thumbnailUrl !== imageUrl
+              ? thumbnailUrl
+              : null}
+            alt={article?.featured_image?.title || article?.title || ""}
+          />
+        {/key}
+      {/if}
+
+      <div class="zhero__headline relative w-full">
+        <div
+          class="zhero__content relative mx-auto w-full max-w-5xl px-4 pt-6 pb-6 sm:px-6 lg:px-8"
+        >
+          <!-- `dir` on the headline, not only `lang`. It is also what isolates
              it: HTML's UA stylesheet gives any element with an explicit `dir`
              `unicode-bidi: isolate`, so an Arabic title inside this LTR page
              can no longer reorder against the chrome around it. -->
-        <h1
-          lang={articleContentLanguage}
-          dir={articleContentDirection}
-          data-content-lang={articleContentLanguage}
-          class="text-3xl leading-[1.15] font-bold tracking-tight text-balance sm:text-4xl"
-        >
-          {article?.title}
-        </h1>
-
-        {#if article?.description}
-          <p
+          <h1
             lang={articleContentLanguage}
             dir={articleContentDirection}
             data-content-lang={articleContentLanguage}
-            class="mt-3 max-w-2xl text-base leading-relaxed text-pretty text-muted-foreground sm:text-lg"
+            class="text-3xl leading-[1.15] font-bold tracking-tight text-balance sm:text-4xl"
           >
-            {article.description}
-          </p>
-        {/if}
+            {article?.title}
+          </h1>
 
-        <!-- Fallback disclosure: one muted line, in the reader's UI language,
-           naming both languages. Never an alert above the headline. -->
-        {#if fallbackDisclosure}
-          <p
-            id="article-language-fallback"
-            lang={$locale}
-            class="mt-3 max-w-2xl text-xs text-muted-foreground"
-          >
-            {$t(
-              "article.fallbackNotice",
-              "Not available in {requested} — showing the {shown} version.",
-              fallbackDisclosure,
-            )}
-          </p>
-        {/if}
-
-        <!-- Meta Row: Author + Date + Stats -->
-        <div
-          class="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3"
-        >
-          <div class="group flex items-center gap-3">
-            <a
-              href={"/" + (article?.creator?.username || "")}
-              rel="author"
-              title={`View ${authorName}'s profile`}
-              class="block h-10 w-10 shrink-0 overflow-hidden rounded-full border border-primary/20 bg-muted ring-2 ring-transparent ring-offset-2 ring-offset-background transition-all [text-shadow:none] group-has-[a:hover]:ring-primary/40"
+          {#if article?.description}
+            <p
+              lang={articleContentLanguage}
+              dir={articleContentDirection}
+              data-content-lang={articleContentLanguage}
+              class="mt-3 max-w-2xl text-base leading-relaxed text-pretty text-muted-foreground sm:text-lg"
             >
-              {#if avatarUrl}
-                {#key pageKey}
-                  <img
-                    src={avatarUrl}
-                    alt={authorName}
-                    class="h-full w-full object-cover"
-                  />
-                {/key}
-              {:else}
-                <div
-                  class="flex h-full w-full items-center justify-center bg-primary text-sm font-bold text-primary-foreground"
-                >
-                  {authorName.charAt(0).toUpperCase()}
-                </div>
-              {/if}
-            </a>
-            <div class="flex flex-col">
+              {article.description}
+            </p>
+          {/if}
+
+          <!-- Fallback disclosure: one muted line, in the reader's UI language,
+           naming both languages. Never an alert above the headline. -->
+          {#if fallbackDisclosure}
+            <p
+              id="article-language-fallback"
+              lang={$locale}
+              class="mt-3 max-w-2xl text-xs text-muted-foreground"
+            >
+              {$t(
+                "article.fallbackNotice",
+                "Not available in {requested} — showing the {shown} version.",
+                fallbackDisclosure,
+              )}
+            </p>
+          {/if}
+
+          <!-- Meta Row: Author + Date + Stats -->
+          <div
+            class="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3"
+          >
+            <div class="group flex items-center gap-3">
               <a
                 href={"/" + (article?.creator?.username || "")}
                 rel="author"
                 title={`View ${authorName}'s profile`}
-                class="zhero__author-name w-fit text-sm font-semibold text-foreground transition-colors group-has-[a:hover]:text-primary"
+                class="block h-10 w-10 shrink-0 overflow-hidden rounded-full border border-primary/20 bg-muted ring-2 ring-transparent ring-offset-2 ring-offset-background transition-all [text-shadow:none] group-has-[a:hover]:ring-primary/40"
               >
-                <!-- A display name is arbitrary user text sitting in a row
+                {#if avatarUrl}
+                  {#key pageKey}
+                    <img
+                      src={avatarUrl}
+                      alt={authorName}
+                      class="h-full w-full object-cover"
+                    />
+                  {/key}
+                {:else}
+                  <div
+                    class="flex h-full w-full items-center justify-center bg-primary text-sm font-bold text-primary-foreground"
+                  >
+                    {authorName.charAt(0).toUpperCase()}
+                  </div>
+                {/if}
+              </a>
+              <div class="flex flex-col">
+                <a
+                  href={"/" + (article?.creator?.username || "")}
+                  rel="author"
+                  title={`View ${authorName}'s profile`}
+                  class="zhero__author-name w-fit text-sm font-semibold text-foreground transition-colors group-has-[a:hover]:text-primary"
+                >
+                  <!-- A display name is arbitrary user text sitting in a row
                      of LTR chrome, so it is isolated from it. Honest
                      scope: in THIS markup the name is alone in its own block,
                      and measuring it showed no reorder today. Put it next to a
                      neutral in the same inline run -- a separator, a count,
                      a second name -- and an RTL name drags that neutral across
                      with it. The PR body has the measurement. -->
-                <bdi>{authorName}</bdi>
-              </a>
-              <span class="text-xs text-muted-foreground">
-                {createdDate}{#if readingTime}
-                  · {readingTime} min read{/if}
-              </span>
+                  <bdi>{authorName}</bdi>
+                </a>
+                <span class="text-xs text-muted-foreground">
+                  {createdDate}{#if readingTime}
+                    · {readingTime} min read{/if}
+                </span>
+              </div>
             </div>
-          </div>
 
-          {#if article?.total_raised || hasScore(pageScore) || canSubscribe}
-            <div
-              class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
-            >
-              {#if article?.total_raised}
-                <span
-                  data-testid="zpage-hero-raised"
-                  class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background/60 px-3 tabular-nums backdrop-blur-md"
-                >
-                  <Coins class="size-4 text-primary" />
-                  {formatCompact(article.total_raised)} ZEC raised
-                </span>
-              {/if}
-              {#if hasScore(pageScore)}
-                <span
-                  data-testid="zpage-hero-score"
-                  class="inline-flex h-8 w-28 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-background/60 px-2.5 text-xs leading-none tracking-tight whitespace-nowrap tabular-nums backdrop-blur-md sm:h-9 sm:w-32 sm:gap-1.5 sm:px-3 sm:text-sm"
-                >
-                  <Sparkles class="size-3.5 text-primary sm:size-4" />
-                  {formatCompact(pageScore ?? 0)} score
-                </span>
-              {/if}
-              {#if canSubscribe}
-                <ProfileSubscribe
-                  creator={article.creator}
-                  navigationPending={leavingZPage}
-                  triggerSize="sm"
-                  triggerVariant="default"
-                  triggerClass="[text-shadow:none] relative !h-7 !w-24 !rounded-md !bg-primary px-2 text-xs font-semibold text-primary-foreground hover:!bg-primary/90 after:absolute after:inset-x-0 after:-inset-y-2 after:content-[''] sm:!h-8 sm:!w-28 sm:px-2.5 sm:text-sm sm:after:-inset-y-1.5 [&_svg]:!size-3.5 sm:[&_svg]:!size-4 [&_svg]:text-primary-foreground"
-                />
-              {/if}
-            </div>
-          {/if}
+            {#if article?.total_raised || hasScore(pageScore) || canSubscribe}
+              <div
+                class="flex flex-wrap items-center gap-2 text-sm text-muted-foreground"
+              >
+                {#if article?.total_raised}
+                  <span
+                    data-testid="zpage-hero-raised"
+                    class="inline-flex h-9 items-center gap-1.5 rounded-md border border-border bg-background/60 px-3 tabular-nums backdrop-blur-md"
+                  >
+                    <Coins class="size-4 text-primary" />
+                    {formatCompact(article.total_raised)} ZEC raised
+                  </span>
+                {/if}
+                {#if hasScore(pageScore)}
+                  <span
+                    data-testid="zpage-hero-score"
+                    class="inline-flex h-8 w-28 shrink-0 items-center justify-center gap-1 rounded-md border border-border bg-background/60 px-2.5 text-xs leading-none tracking-tight whitespace-nowrap tabular-nums backdrop-blur-md sm:h-9 sm:w-32 sm:gap-1.5 sm:px-3 sm:text-sm"
+                  >
+                    <Sparkles class="size-3.5 text-primary sm:size-4" />
+                    {formatCompact(pageScore ?? 0)} score
+                  </span>
+                {/if}
+                {#if canSubscribe}
+                  <ProfileSubscribe
+                    creator={article.creator}
+                    navigationPending={leavingZPage}
+                    triggerSize="sm"
+                    triggerVariant="default"
+                    triggerClass="[text-shadow:none] relative !h-7 !w-24 !rounded-md !bg-primary px-2 text-xs font-semibold text-primary-foreground hover:!bg-primary/90 after:absolute after:inset-x-0 after:-inset-y-2 after:content-[''] sm:!h-8 sm:!w-28 sm:px-2.5 sm:text-sm sm:after:-inset-y-1.5 [&_svg]:!size-3.5 sm:[&_svg]:!size-4 [&_svg]:text-primary-foreground"
+                  />
+                {/if}
+              </div>
+            {/if}
+          </div>
         </div>
       </div>
     </div>
@@ -1566,159 +1554,48 @@
     will-change: transform;
   }
 
-  /*
-   * The hero's height is reserved up front and never depends on the image, so
-   * a featured image that arrives late — or never — shifts nothing. The `svh`
-   * unit is load-bearing rather than stylistic: on mobile, `vh` changes when
-   * the browser chrome collapses mid-scroll, which would resize the hero (and
-   * so re-size the image) in the middle of a flick. `svh` is pinned to the
-   * chrome-expanded viewport and does not move. The shared token has plain
-   * `rem` values by default and assigns its clamps only inside an `@supports`
-   * block, so engines without `svh` keep a genuine fallback instead of
-   * invalidating the custom property at computed-value time.
-   */
-  .zhero--media {
-    /* The app shell pads the page by 8px below `md` (see +layout.svelte), and
-       a hero that stops 8px short of the edge is not a hero. `width` is left
-       to the flex stretch, so the negative margin simply widens it. */
-    margin-inline: -0.5rem;
-    min-height: var(--f2z-editorial-hero-height);
+  .zhero__layout {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 64rem;
+    margin-inline: auto;
+    padding: 1.25rem 1rem 0;
   }
 
-  @media (min-width: 768px) {
-    .zhero--media {
-      margin-inline: 0;
+  .zhero__layout :global(.hero-media) {
+    flex-shrink: 0;
+  }
+
+  .zhero__layout .zhero__content {
+    padding-inline: 0;
+  }
+
+  @media (min-width: 640px) {
+    .zhero__layout {
+      padding-inline: 1.5rem;
     }
   }
 
-  /*
-   * `cover` fit: the contrast guarantee, and the reason it lives here rather
-   * than in the media layers. This is the one fit where the headline truly
-   * sits ON the photograph (the phone-panorama case), so a text-anchored ramp
-   * is load-bearing and is kept exactly as shipped. It has to be anchored to
-   * the *text*, not to a percentage of the hero: the headline block is
-   * bottom-anchored and its height depends on the title's length, the
-   * description, the byline and whether a subscribe button is present, so any
-   * percentage stop that is safe for a one-line title is far too weak for a
-   * three-line one.
-   *
-   * Fixed `rem` stops measured down from the block's top edge make the ramp
-   * independent of all of that: the `h1` starts at 4.5rem (2.5rem of padding
-   * plus the 2rem added below), by which point the scrim is ~88% of the page
-   * background, and everything below the `h1` is stronger still. Measured
-   * end-to-end in `tests/browser/zpage-hero.spec.ts`, which screenshots the
-   * pixels behind the headline over a near-white and a near-black image, in
-   * both themes, at four scroll positions, and fails below 4.5:1.
-   */
-  .zhero--media .zhero__headline {
-    padding-top: 2rem;
-    background: linear-gradient(
-      to bottom,
-      transparent 0,
-      var(--background) 4.5rem
-    );
-    background: linear-gradient(
-      to bottom,
-      transparent 0,
-      color-mix(in oklab, var(--background) 45%, transparent) 1.75rem,
-      color-mix(in oklab, var(--background) 78%, transparent) 3.25rem,
-      color-mix(in oklab, var(--background) 88%, transparent) 4.5rem,
-      var(--background) 7.5rem
-    );
-  }
+  @media (min-width: 1024px) {
+    .zhero__layout {
+      padding-inline: 2rem;
+    }
 
-  /*
-   * `contain` fit: the whole featured image stays visible, so this
-   * block paints NOTHING of its own. Not a gradient laid across the photo
-   *, and — since this change — not a band either.
-   *
-   * The band is what  left here and what the owner reported next: a
-   * full-width translucent slab, `--background` at 72% with a `blur(14px)`
-   * behind it, covering the bottom of the artwork. On the reference page
-   * (/ZcashInside/cypherpunk-zero-1869-benjamin-e-un-caffe-a-parigi) that is
-   * the character's body, the book and the hands. Softening the slab's top
-   * edge into a long ramp — which is all  did — makes the boundary
-   * pleasant without making the picture visible: the lower half of the image
-   * is still behind a wash either way. The band is now gone entirely and the
-   * contrast it was carrying moved onto the glyphs themselves; see the
-   * `.zhero__content` pad rule below.
-   *
-   * `background: none` is what makes "this block paints nothing" TRUE, and it
-   * has to stay. The comment above has claimed that the block has
-   * no background of its own in `contain` fit; until  the rule only
-   * overrode `padding-top`, so the `cover` ramp above kept applying — opaque
-   * `--background` from 7.5rem down, i.e. a solid slab over the bottom ~118px
-   * of the photograph on a 239px headline. Deleting the band without this line
-   * would put that slab straight back.
-   *
-   * `padding-top` drops to 1.25rem, unchanged from  and now for a
-   * different reason. It used to be "there is no background ramp on this
-   * element to ramp through"; it is now the clearance the pad needs. The
-   * widest `drop-shadow` below is 12px and the `h1`'s own top edge sits
-   * 2.5rem (40px) further down inside `.zhero__content`, so the halo above the
-   * first line has ~60px of room and never reaches the block's edge — which
-   * matters because the block has no box of its own to be clipped against, so
-   * a halo that ran out of room would simply be cut by the hero's
-   * `overflow: hidden` and read as, once again, a straight line.
-   */
-  .zhero--media[data-hero-fit="contain"] .zhero__headline {
-    padding-top: 1.25rem;
-    background: none;
-  }
+    .zhero__layout--compact {
+      flex-direction: row;
+      align-items: center;
+      gap: 2rem;
+    }
 
-  /*
-   * Keep the photograph visible between words and carry contrast on the glyphs.
-   * Text shadows are painted with the text, so their raster can scroll as a
-   * single surface. The previous nested drop-shadow filters required multiple
-   * GPU render passes on every presented frame: headed Chrome at 120 Hz spent
-   * 40–50 ms drawing this static hero on its first scroll. The local
-   * filters on thin secondary text remain small enough to stay responsive.
-   *
-   * Repeated narrow shadows build an opaque core; the wider shadows soften its
-   * edge. The unfiltered title and author name use six copies of the core to
-   * preserve contrast with the thinner glyph rasters of Linux/Arial as well
-   * as the macOS system font. Filtered secondary text keeps a lighter pad.
-   * The pad follows --background in both themes. Secondary text uses the
-   * stronger text token because muted text cannot keep 4.5:1 over a photograph.
-   * The pixel contrast matrix guards the title, description, byline and author.
-   */
-  .zhero--media[data-hero-fit="contain"] .zhero__content {
-    --muted-foreground: var(--f2z-text-secondary);
-    --hero-glyph-core:
-      0 0 4px var(--background), 0 0 4px var(--background),
-      0 0 4px var(--background), 0 0 4px var(--background),
-      0 0 4px var(--background), 0 0 4px var(--background),
-      0 0 4px var(--background), 0 0 4px var(--background),
-      0 0 4px var(--background), 0 0 4px var(--background);
-    text-shadow:
-      var(--hero-glyph-core),
-      0 0 6px var(--background),
-      0 0 6px var(--background),
-      0 0 6px var(--background),
-      0 0 6px var(--background),
-      0 0 12px var(--background);
-  }
-  .zhero--media[data-hero-fit="contain"] .zhero__content h1,
-  .zhero--media[data-hero-fit="contain"] .zhero__content .zhero__author-name {
-    text-shadow:
-      var(--hero-glyph-core),
-      var(--hero-glyph-core),
-      var(--hero-glyph-core),
-      var(--hero-glyph-core),
-      var(--hero-glyph-core),
-      var(--hero-glyph-core),
-      0 0 6px var(--background),
-      0 0 6px var(--background),
-      0 0 6px var(--background),
-      0 0 6px var(--background),
-      0 0 12px var(--background);
-  }
-  /* Thin secondary glyphs retain a local pad; unlike the whole headline
-     subtree, these small surfaces do not stall the compositor. */
-  .zhero--media[data-hero-fit="contain"] .zhero__content p,
-  .zhero--media[data-hero-fit="contain"] .zhero__content span {
-    filter: drop-shadow(0 0 1px var(--background))
-      drop-shadow(0 0 1px var(--background))
-      drop-shadow(0 0 2px var(--background));
+    .zhero__layout--compact :global(.hero-media) {
+      max-width: 40%;
+      margin-inline: 0;
+    }
+
+    .zhero__layout--compact .zhero__headline {
+      min-width: 0;
+      flex: 1;
+    }
   }
 </style>

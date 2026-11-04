@@ -100,6 +100,16 @@ class NativeTests(unittest.TestCase):
             with self.subTest(data=hashlib.sha256(data).hexdigest()), self.assertRaises(ValueError):
                 ELF(data).compatible()
 
+    def test_private_glibc_abi_is_never_a_payload_contract(self):
+        with self.assertRaisesRegex(ValueError, 'private glibc ABI'):
+            ELF(elf(glibc='PRIVATE'))
+
+    @unittest.skipUnless(sys.platform == 'linux' and Path('/lib/x86_64-linux-gnu/libmvec.so.1').is_file(),
+                         'requires the actual Linux x86-64 glibc vector library')
+    def test_actual_glibc_vector_library_cannot_be_bundled(self):
+        with self.assertRaisesRegex(ValueError, 'private glibc ABI'):
+            ELF(Path('/lib/x86_64-linux-gnu/libmvec.so.1').read_bytes())
+
     def test_reject_non_bare_dependency_and_relative_search(self):
         with self.assertRaises(ValueError):
             ELF(elf(['/tmp/lib.so']))
@@ -158,6 +168,49 @@ class ImageTests(unittest.TestCase):
 
 
 class ClosureTests(unittest.TestCase):
+    def test_vector_math_is_an_exact_host_edge_not_a_bundled_private_abi(self):
+        self.assertEqual(set(package.SYSTEM_LIBRARIES), load('host-runtime-qualify.py').SYSTEM)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_tar(root / 'image.tar', {
+                'usr/local/lib/libcodec.so': elf(['libmvec.so.1', 'libm.so.6']),
+                'usr/lib/x86_64-linux-gnu/libmvec.so.1': elf(glibc='PRIVATE'),
+            })
+            image = Image(root / 'image.tar')
+            try:
+                bundle = Package(image, root / 'output', Path('/verified/patchelf'))
+                bundle.copy('usr/local/lib/libcodec.so', 'runtime/lib/libcodec.so')
+                def patch_file(command, **kwargs):
+                    target = Path(command[-1])
+                    target.write_bytes(elf(ELF(target.read_bytes()).needed, runpath=command[-2]))
+                with patch('host_runtime.package.subprocess.run', side_effect=patch_file):
+                    bundle.close_native_dependencies()
+                self.assertEqual(bundle.edges['runtime/lib/libcodec.so']['libmvec.so.1'], 'host:libmvec.so.1')
+                self.assertNotIn('runtime/lib/libmvec.so.1', bundle.sources)
+                self.assertFalse((bundle.root / 'runtime/lib/libmvec.so.1').exists())
+                # Direct copies and similarly named libraries do not inherit
+                # the host exemption. Neither can carry a private ABI payload.
+                with self.assertRaisesRegex(ValueError, 'private glibc ABI'):
+                    bundle.copy('usr/lib/x86_64-linux-gnu/libmvec.so.1', 'runtime/lib/libmvec.so.1')
+            finally:
+                image.close()
+
+    def test_unapproved_vector_library_still_rejects_private_abi_with_source_context(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            image_tar(root / 'image.tar', {
+                'usr/local/lib/libcodec.so': elf(['libmvec.so.2']),
+                'usr/lib/x86_64-linux-gnu/libmvec.so.2': elf(glibc='PRIVATE'),
+            })
+            image = Image(root / 'image.tar')
+            try:
+                bundle = Package(image, root / 'output', Path('/unused'))
+                bundle.copy('usr/local/lib/libcodec.so', 'runtime/lib/libcodec.so')
+                with self.assertRaisesRegex(ValueError, r'libcodec.so -> libmvec.so.2 .*private glibc ABI'):
+                    bundle.close_native_dependencies()
+            finally:
+                image.close()
+
     def test_installed_development_objects_do_not_enter_runtime(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -573,13 +626,75 @@ class LicenseEvidenceTests(unittest.TestCase):
 
 
 class TimezoneQualificationTests(unittest.TestCase):
-    def qualify(self, root):
+    def qualify(self, root, before='', after=''):
         script = ('import runpy,sys; '
                   'm=runpy.run_path(sys.argv[1]); '
-                  'm["select_bundled_timezones"](m["Path"](sys.argv[2]))')
+                  + before + '\n'
+                  'm["select_bundled_timezones"](m["Path"](sys.argv[2])); '
+                  + after)
         return subprocess.run([sys.executable, '-I', '-S', '-c', script,
                                str(ROOT / 'scripts/free2z/host-runtime-qualify.py'), str(root)],
                               capture_output=True, text=True, env={}, timeout=15)
+
+    def test_binding_rejects_host_copy_symlink_and_writable_directory(self):
+        qualify = load('host-runtime-qualify.py')
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            bundle = root / 'runtime/share/zoneinfo'
+            host = root / 'host-zoneinfo'
+            for directory in (bundle, host):
+                (directory / 'Asia').mkdir(parents=True)
+                (directory / 'UTC').write_bytes(tzif(0))
+                (directory / 'Asia/Tokyo').write_bytes(tzif(9))
+            with self.assertRaisesRegex(ValueError, 'not bound'):
+                qualify.check_timezone_binding(root, host)
+            alias = root / 'alias'
+            alias.symlink_to(bundle, target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'not bound'):
+                qualify.check_timezone_binding(root, alias)
+            with self.assertRaisesRegex(ValueError, 'read-only'):
+                qualify.check_timezone_binding(root, bundle)
+            # The actual readonly mount is exercised by Linux qualification;
+            # isolate that one kernel property here to test file identity.
+            with patch.object(qualify.os, 'statvfs', return_value=SimpleNamespace(f_flag=qualify.os.ST_RDONLY)):
+                qualify.check_timezone_binding(root, bundle)
+                (bundle / 'UTC').unlink()
+                with self.assertRaises(FileNotFoundError):
+                    qualify.check_timezone_binding(root, bundle)
+
+    def test_installed_tzdata_package_cannot_mask_missing_bundle(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            wheel = root / 'site-packages'
+            data = wheel / 'tzdata/zoneinfo'
+            data.mkdir(parents=True)
+            (data.parent / '__init__.py').write_text('')
+            (data / '__init__.py').write_text('')
+            (data / 'UTC').write_bytes(tzif(0))
+            result = self.qualify(root, before=f'sys.path.insert(0, {str(wheel)!r}); ')
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('unqualified package fallback', result.stderr)
+
+    @unittest.skipUnless(sys.platform == 'linux', 'requires Linux libc TZDIR support')
+    def test_libc_uses_selected_bundle_and_rejects_wrong_offset(self):
+        with tempfile.TemporaryDirectory() as temp:
+            for prefix in ('one', 'unrelated/deeper/two'):
+                root = Path(temp) / prefix
+                zoneinfo = root / 'runtime/share/zoneinfo'
+                (zoneinfo / 'Asia').mkdir(parents=True)
+                (zoneinfo / 'UTC').write_bytes(tzif(0))
+                (zoneinfo / 'Asia/Tokyo').write_bytes(tzif(9))
+                result = self.qualify(root, after='m["check_libc_timezones"](); '
+                                      'assert m["os"].environ["TZ"] == "UTC"; '
+                                      'assert m["time"].localtime(1704067200).tm_hour == 0')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                # Python accepts the original file first. Change only the
+                # bundle before libc reads it: a host-data fallback would
+                # incorrectly retain Tokyo's real +09 offset and pass.
+                changed = f'm["Path"]({str(zoneinfo / "Asia/Tokyo")!r}).write_bytes({tzif(7)!r}); '
+                result = self.qualify(root, after=changed + 'm["check_libc_timezones"]()')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('libc timezone lookup returned an unexpected offset', result.stderr)
 
     def test_isolated_timezone_resolution_relocates_at_two_prefixes(self):
         with tempfile.TemporaryDirectory() as temp:

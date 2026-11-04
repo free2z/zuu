@@ -211,7 +211,7 @@
           <p>
             {$t(
               "editor.translateAiDraftNotice",
-              // THE TERMS, AND THEY HAVE TO BE TRUE (tuzi#1908).
+              // THE TERMS, AND THEY HAVE TO BE TRUE.
               //
               // This dialog's whole job is that no 2Z is committed from a
               // screen that has not shown the number and said what happens to

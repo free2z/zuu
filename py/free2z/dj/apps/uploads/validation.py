@@ -119,20 +119,20 @@ ALLOWED_TYPE_EXTENSIONS: dict[str, tuple[str, ...]] = {
     'image/png': ('.png',),
     'image/gif': ('.gif',),
     'image/webp': ('.webp',),
-    # Modern phone formats. Passive rasters and trivially sniffable (both are
-    # ISO-BMFF with their own brands). Our pinned Pillow 10.3 cannot *decode*
-    # either, so they get no second-stage confirmation and no WebP ladder —
-    # see NON_RASTER_IMAGE_MIME_TYPES. Accepting them costs nothing and stops
-    # an API client breaking the day iOS stops transcoding.
+    # Modern phone formats: ISO-BMFF containers identified by their brands.
+    # HEIC/AVIF deliberately get no second-stage Pillow confirmation and no
+    # WebP ladder; see _PILLOW_FORMATS and NON_RASTER_IMAGE_MIME_TYPES. These
+    # explicit exclusions preserve original uploads independently of which
+    # decoders Pillow provides. Brand recognition does not prove decodability.
     # `image/heic` is our canonical label for the WHOLE HEIF family, not just
     # HEVC-coded stills: `image/heif`, `image/heic-sequence` and
     # `image/heif-sequence` all normalize here (DECLARED_TYPE_ALIASES) and
     # `.heif` is served as `image/heic` (dj.util.mimetypes_registry). Collapsing
     # them is deliberate — one label the DB, the API and the served header can
     # all agree on — and it is why an AV1-coded HEIF is worth telling apart (see
-    # _GENERIC_MIAF_BRANDS) while a JPEG- or VVC-coded one is not: Pillow 10.3
-    # decodes none of them, so the label only picks which passive extension we
-    # store, never whether the bytes are safe.
+    # _GENERIC_MIAF_BRANDS) while a JPEG- or VVC-coded one is not: this path
+    # uses the label to pick the stored extension, not to select a decoder or
+    # establish pixel validity.
     #
     # The image-*sequence* extensions are here too. `.heics`/`.heifs`
     # resolve on the Debian base image (python:3.10-bullseye at the time) — via
@@ -144,8 +144,8 @@ ALLOWED_TYPE_EXTENSIONS: dict[str, tuple[str, ...]] = {
     # equivalent; it resolves to None on that image, so it was silently
     # renamed rather than rejected, but it is the same omission and is listed
     # for the same reason. All four collapse onto the same two canonical
-    # labels as the stills — a sequence is still a passive raster, Pillow 10.3
-    # decodes neither, and `dj.util.mimetypes_registry` serves all of them as
+    # labels as the stills, with the same explicit second-stage and variant
+    # exclusions. `dj.util.mimetypes_registry` serves all of them as
     # `image/heic` / `image/avif` so the DB column, the API and the response
     # header keep agreeing. The canonical fallback extension is still
     # `.heic` / `.avif` (first entry), so nothing that lacks a usable

@@ -503,9 +503,15 @@ def test_database_rollback_releases_recipient_reservation(
 
 
 @pytest.mark.django_db
-def test_existing_address_is_rejected_before_either_quota(
+def test_an_address_held_elsewhere_is_charged_like_any_other(
     creator_factory, recent_login, mocker,
 ):
+    """The caller's budget is spent before the address is looked at.
+
+    An address another account holds costs the caller one attempt, exactly
+    like a free one, and is neither mailed nor charged to the recipient's
+    shared allowance -- nothing is sent to it.
+    """
     owner = creator_factory()
     Email.objects.create(
         user=owner,
@@ -525,9 +531,10 @@ def test_existing_address_is_rejected_before_either_quota(
         format="json",
     )
 
-    assert response.status_code == 400, response.content
-    for _ in range(10):
+    assert response.status_code == 201, response.content
+    for _ in range(9):
         assert claim_confirmation_account_attempt(submitter.pk) == ALLOWED
+    assert claim_confirmation_account_attempt(submitter.pk) != ALLOWED
     for _ in range(3):
         assert claim_confirmation_recipient("already-owned@example.com") == ALLOWED
     send.assert_not_called()
@@ -555,9 +562,9 @@ def test_unchanged_suppressed_add_preserves_confirmation(
     send = mocker.patch("dj.apps.emails.views.send_confirmation_email")
     response = client.post("/api/emails/add", {"email": email.email}, format="json")
     email.refresh_from_db()
-    # Existing-address validation rejects Add before quota admission; Resend
-    # exercises the successful unchanged-address suppression path above.
-    assert response.status_code == 400, response.content
+    # Re-adding the address already on file binds nothing new and sends
+    # nothing; a fresh link is ResendEmailView's job.
+    assert response.status_code == 201, response.content
     assert (email.token, email.expires_at, email.updated_at, email.token_epoch) == before
     send.assert_not_called()
 

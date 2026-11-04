@@ -1177,7 +1177,7 @@ def test_ai_chat_settlement_failure_rolls_back_answer_and_preserves_hold(
     model = AIModel.objects.create(
         model="test-model", display_name="Test", system_message="hi",
         # A real window: a turn the trim loop cannot fit is now a 400 before
-        # any charge (tuzi#2490), and these tests are about the charge.
+        # any charge, and these tests are about the charge.
         max_tokens=8192,
     )
     conversation = Conversation.objects.create(
@@ -1235,7 +1235,7 @@ def test_ai_chat_charges_the_full_price_on_success(creator_factory,
     model = AIModel.objects.create(
         model="test-model", display_name="Test", system_message="hi",
         # A real window: a turn the trim loop cannot fit is now a 400 before
-        # any charge (tuzi#2490), and these tests are about the charge.
+        # any charge, and these tests are about the charge.
         max_tokens=8192,
     )
     conversation = Conversation.objects.create(

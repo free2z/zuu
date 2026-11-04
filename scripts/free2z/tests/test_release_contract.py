@@ -111,7 +111,7 @@ class ReleaseContract(unittest.TestCase):
             with self.assertRaises(ValueError): assets.check(root)
 
     def test_change_selection(self):
-        for path in ['py/free2z/dj/apps/a.py','ts/react/free2z/src/a.ts','ts/svelte/free2z/src/a.ts','scripts/free2z/check.py','.github/workflows/free2z-web-ci.yml','build/free2z/backend.Dockerfile','docs/about-free2z/docs/a.md']:
+        for path in ['LICENSE','rust-toolchain.toml','rs/zcash-payment-hooks/src/main.rs','py/free2z/dj/apps/a.py','ts/react/free2z/src/a.ts','ts/svelte/free2z/src/a.ts','scripts/free2z/check.py','.github/workflows/free2z-web-ci.yml','build/free2z/backend.Dockerfile','docs/about-free2z/docs/a.md']:
             self.assertTrue(selector.selected([path]),path)
         self.assertFalse(selector.selected(['wallet/zuuli/src/App.svelte','rs/crates/f2z-sdk/src/lib.rs']))
 

@@ -315,7 +315,16 @@ def test_flat_priced_prompt_over_the_old_context_is_refused_free(
         return client.post(url, {"prompt": prompt}, format="json",
                            HTTP_IDEMPOTENCY_KEY=str(uuid.uuid4()))
 
-    over = post(_tokens(budget + 1))
+    if path == "/api/openai/prompt":
+        over_budget = _tokens(budget + 1)
+    else:
+        # Storytime refuses a prompt longer than its 512-char column first,
+        # so reach the token check with characters that cost three tokens
+        # each: 342 characters, 1,026 tokens.
+        over_budget = "\ua66e" * 342
+        assert len(over_budget) <= 512
+        assert providers.prompt_token_count(over_budget) > budget
+    over = post(over_budget)
     assert over.status_code == 400, over.content
     assert "too long" in str(over.data)
     assert calls == []

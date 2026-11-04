@@ -1,6 +1,7 @@
 import json
 import logging
 import re
+import uuid
 from urllib.parse import unquote, unquote_to_bytes, quote
 from django.db.models import Q
 from django.http import HttpRequest
@@ -275,8 +276,14 @@ def _members_access_ok(gfile, user):
     )
 
 
-def _decode_hls_segment(raw_segment):
-    """Decode one encoded HLS path segment without changing its shape."""
+def _decode_path_segment(raw_segment):
+    """Decode one encoded path segment without changing its shape.
+
+    Shared by the HLS and private-upload gates: a segment that is empty,
+    malformed, a dot segment, or that decodes to a separator is refused
+    rather than normalized, so the decoded path is already the path nginx
+    resolves and serves.
+    """
     if not raw_segment or "\\" in raw_segment:
         return None
 
@@ -325,9 +332,9 @@ def _parse_hls_identity(request):
     if len(segments) != 3:
         return None
 
-    username = _decode_hls_segment(segments[0])
-    filename = _decode_hls_segment(segments[1])
-    output = _decode_hls_segment(segments[2])
+    username = _decode_path_segment(segments[0])
+    filename = _decode_path_segment(segments[1])
+    output = _decode_path_segment(segments[2])
     if not username or not filename or not output:
         return None
     if not _HLS_OUTPUT_RE.fullmatch(output):
@@ -426,25 +433,80 @@ def uploads_auth_public(request):
     return HttpResponse("", status=401)
 
 
+_PRIVATE_PREFIX = "/uploadz/private/"
+_KYC_PROFILE_FILE_FIELDS = (
+    "id_front", "id_back", "additional_document", "live_photo",
+)
+# Reverse one-to-one accessors from UserProfile to its tax-form rows.
+_KYC_TAX_FORM_RELATIONS = ("w9", "w8ben", "w8bene")
+
+
+def _parse_private_name(uri):
+    """
+    Return ``(profile_id, stored_name)`` for a private-upload URI, or None.
+
+    The URI is split while still encoded and must be exactly
+    ``<profile-id>/<name>``. Each segment is decoded on its own and refused
+    if it is empty, malformed, a dot segment, or decodes to a separator, so
+    there is nothing left for nginx to normalize: the decoded name is the
+    exact object nginx then requests from storage. The profile id must also
+    be the canonical UUID text the storage key was built from.
+    """
+    if not uri.startswith(_PRIVATE_PREFIX):
+        return None
+    segments = uri[len(_PRIVATE_PREFIX):].split("/")
+    if len(segments) != 2:
+        return None
+    profile_id = _decode_path_segment(segments[0])
+    name = _decode_path_segment(segments[1])
+    if not profile_id or not name:
+        return None
+    try:
+        if str(uuid.UUID(profile_id)) != profile_id:
+            return None
+    except ValueError:
+        return None
+    return profile_id, f"{profile_id}/{name}"
+
+
+def _kyc_document_exists(profile_id, stored_name, user):
+    """
+    Is ``stored_name`` a KYC document currently recorded on the profile?
+
+    A positive, exact lookup against the stored file fields: identity
+    documents on UserProfile and the tax-form file. A name that is not one
+    of those values is denied, even inside the requester's own directory.
+    Non-superusers are limited to their own profile.
+    """
+    from dj.apps.kyc.models import UserProfile
+
+    profiles = UserProfile.objects.filter(pk=profile_id)
+    if not user.is_superuser:
+        profiles = profiles.filter(user=user)
+    match = Q()
+    for field in _KYC_PROFILE_FILE_FIELDS:
+        match |= Q(**{field: stored_name})
+    for relation in _KYC_TAX_FORM_RELATIONS:
+        match |= Q(**{f"{relation}__file": stored_name})
+    return profiles.filter(match).exists()
+
+
 def uploads_auth_private(request):
     """
-    This is for the KYC stuff!!
+    Authorize a private (KYC) document by its exact stored name.
+
+    Applies to superusers too: they may read any profile's documents, but
+    only through a well-formed path naming a recorded file.
     """
     if not request.user.is_authenticated:
         return HttpResponse("", status=401)
-    if request.user.is_superuser:
-        return HttpResponse("OK")
-    if not hasattr(request.user, 'userprofile'):
+
+    parsed = _parse_private_name(_original_uri(request))
+    if parsed is None:
         return HttpResponse("", status=401)
 
-    # Split the profile id off the ENCODED path, then decode just that
-    # segment: `<my-uid>%2F..%2F<their-uid>/doc.pdf` decodes to a path
-    # whose first segment looks like mine, and this check guards KYC
-    # documents. Same bug class as, higher stakes.
-    uri = _original_uri(request)
-    path = uri.replace("/uploadz/private/", "")
-    uid = unquote(path.split("/")[0])
-    if uid != str(request.user.userprofile.id):
+    profile_id, stored_name = parsed
+    if not _kyc_document_exists(profile_id, stored_name, request.user):
         return HttpResponse("", status=401)
     return HttpResponse("OK")
 

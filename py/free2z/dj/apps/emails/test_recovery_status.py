@@ -347,28 +347,31 @@ def test_a_suppressed_address_is_not_recovery(api_client, creator_factory):
 
 
 @pytest.mark.django_db
-def test_a_suppressed_unconfirmed_address_is_not_pending_anywhere(
+def test_a_suppressed_unconfirmed_address_reads_as_pending_to_the_account(
     api_client, creator_factory
 ):
-    """All THREE views of the same account must say the same thing.
+    """The account sees an ordinary pending address; the operator sees why.
 
-    Round 5: the endpoint's ``email_pending`` did not exclude suppression
-    while ``recovery_census``'s summary bucket and its ``--username`` detail
-    both did, so support and the account holder got different diagnoses for
-    one account -- exactly what the runbook promises cannot happen.
+    Any account can put any address on file unconfirmed, so for an address it
+    has not proven it controls the opt-out list is a fact about somebody
+    else's mailbox. The endpoint therefore answers exactly as it would for a
+    clean unconfirmed address. ``recovery_census`` is operator-only and keeps
+    classifying the account by the real state, so support still sees the
+    suppression -- the two views differ here deliberately, and only here.
     """
     user = creator_factory()
     _make_email(user, "sup@example.com", confirmed=False)
     api_client.force_authenticate(user=user)
 
-    assert api_client.get(URL).json()["email_pending"] is True, "control"
+    clean = api_client.get(URL).json()
+    assert clean["email_pending"] is True, "control"
 
     OptOutEmail.objects.create(email="sup@example.com")
 
     body = api_client.get(URL).json()
-    assert body["email_pending"] is False
-    assert body["email_suppressed"] is True
-    assert body["next_step"] == "replace_email"
+    assert body == clean
+    assert body["email_suppressed"] is False
+    assert body["next_step"] == "resend_email"
 
     out = StringIO()
     call_command(
@@ -379,7 +382,8 @@ def test_a_suppressed_unconfirmed_address_is_not_pending_anywhere(
     call_command("recovery_census", "--json", stdout=summary)
     counts = json.loads(summary.getvalue())["recovery"]
 
-    assert detail["email_pending"] == body["email_pending"]
+    assert detail["email_suppressed"] is True
+    assert detail["email_pending"] is False
     assert counts["unconfirmed_address"] == 0
     assert counts["suppressed_address"] == 1
 

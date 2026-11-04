@@ -276,6 +276,10 @@ _BLOCK_DIRECTIVE = re.compile(
 #tag must actually CLOSE with no `<` in between, so `a < b` in prose (and
 #its translation `a < c`) is not read as an element.
 _HTML_TAG = re.compile(r"</?([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^<>]*)?/?>")
+# Marked also treats a standalone complete custom-element tag as a raw HTML
+# block. Keep this tag-shaped and line-anchored rather than relying on the
+# CommonMark block-tag allowlist; custom tags such as <custom> are valid here.
+_MARKED_BLOCK_HTML_START = re.compile(r" {0,3}" + _HTML_TAG.pattern, re.IGNORECASE)
 
 #ZIP-321 plain-text payment URIs carry ZEC amounts that a translated prose
 #amount check would otherwise miss. Preserve parentheses because they are
@@ -283,6 +287,16 @@ _HTML_TAG = re.compile(r"</?([a-zA-Z][a-zA-Z0-9-]*)(?:\s[^<>]*)?/?>")
 #is stripped after tokenization. Scope parsing to zcash: URIs so ordinary web
 #URLs with an `amount=` parameter do not become payment fields.
 _ZIP321_URI = re.compile(r"zcash:[^\s<>]+", re.IGNORECASE)
+
+# JavaScript's RegExp ``\s`` set, used by Marked's reference-definition
+# destination rule (``[^<\s][^\s]*``). Python's ``str.isspace`` differs at
+# U+0085 and U+FEFF, so spell out the renderer's set instead of silently
+# treating Python and the locked Markdown parser as the same grammar.
+_MARKED_WHITESPACE = frozenset(
+    "\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680"
+    "\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009"
+    "\u200a\u2028\u2029\u202f\u205f\u3000\ufeff"
+)
 _ZIP321_QCHAR_VALUE = re.compile(
     r"(?:[A-Za-z0-9._~!$'()*+,;:@-]|%[0-9A-Fa-f]{2})*"
 )
@@ -941,16 +955,54 @@ def _math_body(segment):
     return segment
 
 
-def _markdown_container_content(line):
-    """Strip explicit quote/list prefixes for conservative block recognition."""
+def _markdown_quote_content(line):
+    """Strip explicit blockquote prefixes and return their nesting depth."""
     cursor = 0
-    pattern = re.compile(r" {0,3}(?:>[ \t]?|(?:[-+*]|\d{1,9}[.)])[ \t]+)")
+    depth = 0
+    pattern = re.compile(r" {0,3}>[ \t]?")
     while cursor < len(line):
         match = pattern.match(line, cursor)
         if not match:
             break
         cursor = match.end()
-    return line[cursor:]
+        depth += 1
+    return line[cursor:], depth
+
+
+def _markdown_container_content(line):
+    """Strip explicit quote/list prefixes for conservative block recognition."""
+    content, _depth = _markdown_quote_content(line)
+    cursor = 0
+    pattern = re.compile(
+        r" {0,3}(?:[-+*]|[0-9]{1,9}[.)])(?P<padding>[ \t]+)"
+    )
+    while cursor < len(content):
+        match = pattern.match(content, cursor)
+        if not match:
+            break
+        padding = match.group("padding")
+        if ("\t" in padding and padding != "\t") or (
+            "\t" not in padding and len(padding) > 4
+        ):
+            # Marked consumes one column of padding and leaves the rest as
+            # item content. Four residual columns start an indented code block;
+            # keep those columns so reference parsing cannot hide its URI.
+            residual = 4 if "\t" in padding else len(padding) - 1
+            return content[:match.start()] + " " * residual + content[match.end():]
+        cursor = match.end()
+    return content[cursor:]
+
+
+def _markdown_lines(value, *, keepends=True):
+    """Split only on Markdown line endings, not Unicode line separators."""
+    if not value:
+        return []
+    lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n|$)", value)
+    if lines and lines[-1] == "":
+        lines.pop()
+    if keepends:
+        return lines
+    return [line.rstrip("\r\n") for line in lines]
 
 
 def _fenced_markdown_ranges(value):
@@ -958,7 +1010,7 @@ def _fenced_markdown_ranges(value):
     ranges = []
     offset = 0
     opener = None
-    for line in value.splitlines(keepends=True):
+    for line in _markdown_lines(value):
         content = line.rstrip("\r\n")
         if opener is None:
             match = re.match(
@@ -987,8 +1039,8 @@ def _indented_markdown_ranges(value):
     start = None
     offset = 0
     paragraph_open = False
-    for line in value.splitlines(keepends=True):
-        blank = not line.strip()
+    for line in _markdown_lines(value):
+        blank = not line.strip(" \t\r\n")
         indented = line.startswith(("    ", "\t"))
         if start is not None:
             if blank or indented:
@@ -1050,7 +1102,7 @@ def _mask_unchanged_math_contexts(source, translated):
             outside = "".join(outside)
             if any(char in outside for char in "[]|`<>"):
                 continue
-            if re.search(r"(?m)^(?:[ \t]+\S|[-+*] |\d+[.)] )", outside):
+            if re.search(r"(?m)^(?:[ \t]+\S|[-+*] |[0-9]+[.)] )", outside):
                 continue
             yield fragment, start, end
 
@@ -1152,6 +1204,10 @@ def _zip321_amounts(
         _matched_markdown_delimiters(text or "")[1]
         if source_authorization else ()
     )
+    source_hidden_reference_ranges = (
+        _reference_definition_target_ranges(text or "", titles_only=True)
+        if source_authorization else ()
+    )
     if source_authorization and source_code_spans:
         raw_chars = list(views[0])
         for opening, closing, delimiter_length in source_code_spans:
@@ -1159,9 +1215,15 @@ def _zip321_amounts(
                 raw_chars[opening + offset] = " "
                 raw_chars[closing + offset] = " "
         views[0] = "".join(raw_chars)
+    if source_authorization and source_hidden_reference_ranges:
+        raw_chars = list(views[0])
+        for start, end in source_hidden_reference_ranges:
+            raw_chars[start:end] = "\ufffd" * (end - start)
+        views[0] = "".join(raw_chars)
     rendered_source = text or ""
     if source_authorization:
         literal_ranges = _literal_block_ranges(rendered_source)
+        literal_ranges.extend(source_hidden_reference_ranges)
         literal_ranges.extend(
             (opening, closing + length)
             for opening, closing, length in source_code_spans
@@ -1485,12 +1547,503 @@ def _inline_link_target_ranges(source):
     return ranges
 
 
+def _reference_definition_end(line):
+    """Return the definition-prefix end for a valid, single-line label."""
+    opener = re.match(r" {0,3}\[(?!\^)", line)
+    if opener is None:
+        return None
+    start = opener.end()
+    cursor = start
+    escaped = False
+    while cursor < len(line):
+        char = line[cursor]
+        if escaped:
+            escaped = False
+        elif char == "\\":
+            escaped = True
+        elif char == "[":
+            return None
+        elif char == "]":
+            label = line[start:cursor]
+            if cursor == start or not any(
+                char not in _MARKED_WHITESPACE for char in label
+            ):
+                return None
+            if line[cursor + 1:cursor + 2] == ":":
+                return cursor + 2
+            return None
+        cursor += 1
+    return None
+
+
+def _markdown_heading_or_thematic_break(line):
+    """Whether a line is a Marked block that can end a preceding paragraph."""
+    atx = re.match(r" {0,3}#{1,6}(.*)$", line)
+    if atx is not None and (
+        not atx.group(1) or atx.group(1)[0] in _MARKED_WHITESPACE
+    ):
+        return True
+    return re.fullmatch(
+        r" {0,3}(?:(?:-[ \t]*){3,}|(?:_[ \t]*){3,}|(?:\*[ \t]*){3,})[ \t]*",
+        line,
+    ) is not None
+
+
+def _markdown_setext_underline(line):
+    """Whether a line can close a Setext heading in the current block."""
+    return re.fullmatch(r" {0,3}(?:=+|-+) *", line) is not None
+
+
+def _reference_definition_target_ranges(source, *, titles_only=False):
+    """Return consumed reference ranges, or only hidden title ranges."""
+    value = source or ""
+    ranges = []
+    title_ranges = []
+    # Marked parses raw HTML blocks before reference definitions. Its HTML
+    # renderer escapes their contents as visible text, so definition-like
+    # lines inside a block cannot provide a hidden-title exemption. Keep the
+    # code masker from re-entering this parser while deriving these ranges.
+    html_ranges = (
+        _raw_multiline_html_ranges(
+            value, include_reference_definitions=False, include_block_tags=True,
+        )
+        if "<" in value else ()
+    )
+    html_starts = [start for start, _end in html_ranges]
+    literal_code_ranges = _literal_block_ranges(value)
+    literal_code_starts = [start for start, _end in literal_code_ranges]
+    offset = 0
+    previous_line = ""
+    previous_is_definition = False
+    previous_line_is_html_block = False
+    previous_line_ended_block = False
+    list_content_indent = None
+    while offset < len(value):
+        code_index = bisect_right(literal_code_starts, offset) - 1
+        if (
+            code_index >= 0
+            and offset < literal_code_ranges[code_index][1]
+        ):
+            # Fenced and indented blocks render their contents literally.
+            # Definition-like lines inside them cannot supply a hidden-title
+            # exemption; after the block, Marked starts a new block context.
+            previous_line = ""
+            previous_is_definition = False
+            previous_line_is_html_block = False
+            previous_line_ended_block = False
+            list_content_indent = None
+            offset = literal_code_ranges[code_index][1]
+            continue
+        line_end = offset
+        while line_end < len(value) and value[line_end] not in "\r\n":
+            line_end += 1
+        raw_content = value[offset:line_end]
+        quote_content, quote_depth = _markdown_quote_content(raw_content)
+        list_marker = re.match(
+            r" {0,3}(?:(?P<bullet>[-+*])|(?P<number>[0-9]{1,9})[.)])[ \t]+",
+            quote_content,
+        )
+        list_item_line = list_marker is not None
+        list_interrupts_paragraph = bool(
+            list_marker
+            and (
+                list_marker.group("bullet") in {"-", "+", "*"}
+                or list_marker.group("number") == "1"
+            )
+        )
+        list_continuation = False
+        if list_marker:
+            content = _markdown_container_content(raw_content)
+            content_base = line_end - len(content)
+            list_content_indent = len(quote_content) - len(
+                _markdown_container_content(quote_content)
+            )
+        elif list_content_indent is not None and (
+            not quote_content.strip(" \t")
+            or quote_content.startswith(" " * list_content_indent)
+            or quote_content.startswith("\t")
+        ):
+            list_continuation = bool(quote_content.strip(" \t"))
+            continued_content = quote_content[list_content_indent:]
+            nested_marker = re.match(
+                r" {0,3}(?:[-+*]|[0-9]{1,9}[.)])[ \t]+",
+                continued_content,
+            )
+            list_prefix = list_content_indent
+            if nested_marker:
+                list_content_indent += nested_marker.end()
+            content = _markdown_container_content(continued_content)
+            content_base = (
+                offset + len(raw_content) - len(quote_content)
+                + list_prefix + len(continued_content) - len(content)
+            )
+        else:
+            list_content_indent = None
+            content = _markdown_container_content(raw_content)
+            content_base = line_end - len(content)
+        title_quote_depth = quote_depth
+        title_list_indent = (
+            list_content_indent if list_item_line or list_continuation else None
+        )
+        html_index = bisect_right(html_starts, line_end) - 1
+        if (
+            html_index >= 0
+            and html_ranges[html_index][0] < line_end
+            and html_ranges[html_index][1] > offset
+        ):
+            previous_line = content
+            previous_is_definition = False
+            previous_line_is_html_block = (
+                html_ranges[html_index][0] >= offset
+                and html_ranges[html_index][1] <= line_end
+            )
+            previous_line_ended_block = False
+            offset = line_end
+            if offset < len(value):
+                offset += 2 if value.startswith("\r\n", offset) else 1
+            continue
+        definition_end = _reference_definition_end(content)
+        setext_heading_end = bool(
+            previous_line.strip(" \t")
+            and _markdown_setext_underline(content)
+        )
+        current_is_definition = False
+        consumed_line_end = line_end
+        if definition_end is not None and (
+            offset == 0
+            or not previous_line.strip(" \t")
+            or previous_is_definition
+            or previous_line_ended_block
+            or list_interrupts_paragraph
+            or (list_continuation and previous_line_is_html_block)
+        ):
+            cursor = definition_end
+            while cursor < len(content) and content[cursor] == " ":
+                cursor += 1
+
+            definition_content = content
+            definition_content_base = content_base
+            definition_line_end = line_end
+            if cursor == len(content) and line_end < len(value):
+                destination_line_start = line_end + (
+                    2 if value.startswith("\r\n", line_end) else 1
+                )
+                destination_line_end = destination_line_start
+                while (
+                    destination_line_end < len(value)
+                    and value[destination_line_end] not in "\r\n"
+                ):
+                    destination_line_end += 1
+                destination_raw = value[
+                    destination_line_start:destination_line_end
+                ]
+                destination_quote, destination_quote_depth = (
+                    _markdown_quote_content(destination_raw)
+                )
+                destination_list_marker = re.match(
+                    r" {0,3}(?:[-+*]|[0-9]{1,9}[.)])[ \t]+",
+                    destination_quote,
+                )
+                destination_content = _markdown_container_content(
+                    destination_raw
+                )
+                destination_content_indent = len(destination_content) - len(
+                    destination_content.lstrip(" \t")
+                )
+                destination_indent = len(destination_quote) - len(
+                    destination_quote.lstrip(" \t")
+                )
+                if (
+                    destination_content_indent < len(destination_content)
+                    and destination_quote_depth == title_quote_depth
+                    and destination_list_marker is None
+                    and (
+                        title_list_indent is None
+                        or destination_indent >= title_list_indent
+                    )
+                ):
+                    definition_content = destination_content[
+                        destination_content_indent:
+                    ]
+                    definition_content_base = (
+                        destination_line_end - len(destination_content)
+                        + destination_content_indent
+                    )
+                    definition_line_end = destination_line_end
+                    cursor = 0
+                    consumed_line_end = destination_line_end
+
+            if cursor < len(definition_content) and definition_content[cursor] == "<":
+                cursor += 1
+                while cursor < len(definition_content):
+                    if (
+                        value[definition_content_base + cursor] == "\\"
+                        and definition_content_base + cursor + 1 < definition_line_end
+                        and value[definition_content_base + cursor + 1] in string.punctuation
+                    ):
+                        cursor += 2
+                    elif value[definition_content_base + cursor] == ">":
+                        cursor += 1
+                        break
+                    else:
+                        cursor += 1
+                else:
+                    previous_line = content
+                    previous_is_definition = False
+                    offset = line_end
+                    if offset < len(value):
+                        offset += 2 if value.startswith("\r\n", offset) else 1
+                    continue
+            else:
+                destination_start = cursor
+                while (
+                    cursor < len(definition_content)
+                    and definition_content[cursor] not in _MARKED_WHITESPACE
+                ):
+                    cursor += 1
+                # Marked's destination token ends at ECMAScript ``\s``, but
+                # its optional-title separator accepts literal spaces only.
+                # A Unicode whitespace boundary therefore makes the entire
+                # definition ordinary text; do not mask a title that follows
+                # it. Tabs are also not valid separators for a title.
+                if (
+                    cursor == destination_start
+                    or (
+                        cursor < len(definition_content)
+                        and definition_content[cursor] not in " \t"
+                    )
+                ):
+                    previous_line = content
+                    previous_is_definition = False
+                    offset = line_end
+                    if offset < len(value):
+                        offset += 2 if value.startswith("\r\n", offset) else 1
+                    continue
+
+            destination_end = cursor
+            separator_end = cursor
+            while (
+                separator_end < len(definition_content)
+                and definition_content[separator_end] == " "
+            ):
+                separator_end += 1
+            title_start = definition_content_base + separator_end
+            title_line_end = definition_line_end
+            if separator_end == len(definition_content) and definition_line_end < len(value):
+                newline_end = definition_line_end + (
+                    2 if value.startswith("\r\n", definition_line_end) else 1
+                )
+                next_line_end = newline_end
+                while next_line_end < len(value) and value[next_line_end] not in "\r\n":
+                    next_line_end += 1
+                next_raw_content = value[newline_end:next_line_end]
+                next_quote_content, next_quote_depth = _markdown_quote_content(
+                    next_raw_content
+                )
+                next_list_marker = re.match(
+                    r" {0,3}(?:[-+*]|[0-9]{1,9}[.)])[ \t]+",
+                    next_quote_content,
+                )
+                next_content = _markdown_container_content(next_raw_content)
+                title_indent = len(next_content) - len(next_content.lstrip(" \t"))
+                next_title_start = next_line_end - len(next_content) + title_indent
+                if (
+                    # Marked consumes a following title at any indentation,
+                    # including indentation that would start code elsewhere.
+                    next_title_start < next_line_end
+                    and value[next_title_start] in {'"', "'", "("}
+                    and next_quote_depth == title_quote_depth
+                    and next_list_marker is None
+                    and (
+                        title_list_indent is None
+                        or len(next_quote_content)
+                        - len(next_quote_content.lstrip(" \t"))
+                        >= title_list_indent
+                    )
+                ):
+                    title_start = next_title_start
+                    title_line_end = next_line_end
+
+            target_end = definition_content_base + destination_end
+            if (
+                title_start < title_line_end
+                and title_start > definition_content_base + destination_end
+            ):
+                opener = value[title_start]
+                if opener in {'"', "'", "("}:
+                    closer = ")" if opener == "(" else opener
+                    cursor_abs = title_start + 1
+                    title_end = None
+                    malformed = False
+                    while cursor_abs < len(value):
+                        char = value[cursor_abs]
+                        if char in "\r\n":
+                            cursor_abs += 2 if value.startswith("\r\n", cursor_abs) else 1
+                            next_line_end = cursor_abs
+                            while next_line_end < len(value) and value[next_line_end] not in "\r\n":
+                                next_line_end += 1
+                            next_raw_content = value[cursor_abs:next_line_end]
+                            next_quote_content, next_quote_depth = (
+                                _markdown_quote_content(next_raw_content)
+                            )
+                            next_content = _markdown_container_content(
+                                next_raw_content
+                            )
+                            next_indent = len(next_quote_content) - len(
+                                next_quote_content.lstrip(" \t")
+                            )
+                            if (
+                                not next_content.strip(" \t")
+                                or next_quote_depth != title_quote_depth
+                                or (
+                                    title_list_indent is not None
+                                    and next_indent < title_list_indent
+                                )
+                            ):
+                                malformed = True
+                                break
+                            continue
+                        if char == "\\" and cursor_abs + 1 < len(value):
+                            if (
+                                opener == '"'
+                                and value[cursor_abs + 1] in string.punctuation
+                            ):
+                                cursor_abs += 2
+                                continue
+                        if opener == "(" and char == "(":
+                            malformed = True
+                            break
+                        if char == closer:
+                            title_end = cursor_abs + 1
+                            break
+                        cursor_abs += 1
+                    if title_end is not None and not malformed:
+                        tail_end = title_end
+                        # Marked's reference-definition rule permits only
+                        # literal spaces after a title. A trailing tab makes
+                        # the whole definition ordinary paragraph text, so it
+                        # must not be treated as a hidden title here.
+                        while tail_end < len(value) and value[tail_end] == " ":
+                            tail_end += 1
+                        title_tail_line_end = tail_end
+                        while title_tail_line_end < len(value) and value[title_tail_line_end] not in "\r\n":
+                            title_tail_line_end += 1
+                        if tail_end == title_tail_line_end:
+                            target_end = title_end
+                            title_ranges.append((title_start, title_end))
+                            # A multiline title can contain text that looks
+                            # like another definition. Skip its consumed lines
+                            # so their contents cannot create overlapping,
+                            # false hidden-title ranges.
+                            consumed_line_end = max(
+                                consumed_line_end, title_tail_line_end,
+                            )
+                        else:
+                            target_end = None
+                    else:
+                        target_end = None
+                else:
+                    target_end = None
+            elif separator_end != len(definition_content):
+                target_end = None
+
+            if target_end is not None:
+                ranges.append((content_base + definition_end, target_end))
+                current_is_definition = True
+
+        previous_line = content
+        previous_is_definition = current_is_definition
+        previous_line_is_html_block = False
+        previous_line_ended_block = (
+            not current_is_definition
+            and (
+                setext_heading_end
+                or _markdown_heading_or_thematic_break(content)
+            )
+        )
+        offset = consumed_line_end
+        if offset < len(value):
+            offset += 2 if value.startswith("\r\n", offset) else 1
+    return title_ranges if titles_only else ranges
+
+
+def _markdown_inline_code_spans(source):
+    """Pair code spans in renderer order, consuming inner ticks as literals."""
+    value = source or ""
+    ignored_ranges = sorted(
+        _inline_link_target_ranges(value)
+        + _reference_definition_target_ranges(value)
+        + _markdown_math_ranges(value)
+    )
+    merged_ignored = []
+    for start, end in ignored_ranges:
+        if merged_ignored and merged_ignored[-1][1] >= start:
+            merged_ignored[-1] = (
+                merged_ignored[-1][0], max(merged_ignored[-1][1], end),
+            )
+        else:
+            merged_ignored.append((start, end))
+
+    runs = []
+    cursor = 0
+    ignored_index = 0
+    while cursor < len(value):
+        while (
+            ignored_index < len(merged_ignored)
+            and merged_ignored[ignored_index][1] <= cursor
+        ):
+            ignored_index += 1
+        if (
+            ignored_index < len(merged_ignored)
+            and merged_ignored[ignored_index][0] <= cursor
+            < merged_ignored[ignored_index][1]
+        ):
+            cursor = merged_ignored[ignored_index][1]
+            continue
+        if value[cursor] != "`":
+            cursor += 1
+            continue
+        end = cursor + 1
+        while end < len(value) and value[end] == "`":
+            end += 1
+        backslash_start = cursor
+        while backslash_start > 0 and value[backslash_start - 1] == "\\":
+            backslash_start -= 1
+        escaped = (cursor - backslash_start) % 2
+        runs.append((cursor, end, end - cursor, escaped))
+        cursor = end
+
+    next_equal = [None] * len(runs)
+    next_by_length = {}
+    for index in range(len(runs) - 1, -1, -1):
+        length = runs[index][2]
+        next_equal[index] = next_by_length.get(length)
+        next_by_length[length] = index
+
+    spans = []
+    index = 0
+    while index < len(runs):
+        if runs[index][3]:
+            index += 1
+            continue
+        closing_index = next_equal[index]
+        if closing_index is None:
+            index += 1
+            continue
+        spans.append((runs[index][0], runs[closing_index][0], runs[index][2]))
+        index = closing_index + 1
+    return spans
+
+
 def _matched_markdown_delimiters(source, *, strict_emphasis=False):
     """Paired marker offsets and literal code-span bounds in inline Markdown."""
     pairs = set()
     code_spans = []
     code_openings = {}
-    target_ranges = _inline_link_target_ranges(source)
+    target_ranges = sorted(
+        _inline_link_target_ranges(source)
+        + _reference_definition_target_ranges(source)
+    )
     target_range_index = 0
     math_ranges = _markdown_math_ranges(source)
     math_range_index = 0
@@ -1642,7 +2195,7 @@ def _markdown_math_ranges(source):
     offset = 0
     block_opener = None
     block_delimiter = None
-    for line in source.splitlines(keepends=True):
+    for line in _markdown_lines(source):
         line_end = offset + len(line)
         content = line.rstrip("\r\n")
         indent = len(content) - len(content.lstrip(" "))
@@ -1708,7 +2261,7 @@ def _markdown_math_ranges(source):
         offset = line_end
     return ranges
 
-def _mask_markdown_code_contexts(source):
+def _mask_markdown_code_contexts(source, *, include_reference_definitions=True):
     """Hide code blocks and spans before deriving source authorization views.
 
     Math and emphasis normalization is useful in prose, where the renderer
@@ -1722,7 +2275,7 @@ def _mask_markdown_code_contexts(source):
     offset = 0
     fence = None
     indented_until = 0
-    lines = value.splitlines(keepends=True)
+    lines = _markdown_lines(value)
 
     content_after_containers = _markdown_container_content
 
@@ -1759,7 +2312,9 @@ def _mask_markdown_code_contexts(source):
                 and indent_columns(markdown_content) >= 4
                 and (
                     index == 0
-                    or not content_after_containers(lines[index - 1].rstrip("\r\n")).strip()
+                    or not content_after_containers(
+                        lines[index - 1].rstrip("\r\n")
+                    ).strip(" \t")
                 )
             ):
                 # A blank line or document start permits an indented code
@@ -1835,6 +2390,11 @@ def _mask_markdown_code_contexts(source):
     cursor = 0
     block_index = 0
     ordinary_index = 0
+    target_ranges = _inline_link_target_ranges(value)
+    if include_reference_definitions:
+        target_ranges += _reference_definition_target_ranges(value)
+    target_ranges.sort()
+    target_index = 0
     run_context = None
     runs = []
     while cursor < len(value):
@@ -1848,6 +2408,21 @@ def _mask_markdown_code_contexts(source):
             runs = []
             run_context = None
             cursor = block_ranges[block_index][1]
+            continue
+        while (
+            target_index < len(target_ranges)
+            and target_ranges[target_index][1] <= cursor
+        ):
+            target_index += 1
+        if (
+            target_index < len(target_ranges)
+            and target_ranges[target_index][0] <= cursor < target_ranges[target_index][1]
+        ):
+            mask_inline_runs(runs, run_context is not None)
+            runs = []
+            run_context = None
+            cursor = target_ranges[target_index][1]
+            target_index += 1
             continue
         if value[cursor] != "`":
             cursor += 1
@@ -1885,6 +2460,321 @@ def _mask_markdown_code_contexts(source):
             if chars[index] not in "\r\n":
                 chars[index] = " "
         masked_until = max(masked_until, end)
+    return "".join(chars)
+
+
+def _raw_multiline_html_ranges(
+    source, *, include_reference_definitions=True, include_block_tags=False,
+):
+    """Ranges for raw HTML blocks that can continue through blank lines."""
+    value = _mask_markdown_code_contexts(
+        source or "",
+        include_reference_definitions=include_reference_definitions,
+    )
+    openers = (
+        (re.compile(r" {0,3}<!--"), re.compile(r"-->")),
+        (re.compile(r" {0,3}<\?"), re.compile(r"\?>")),
+        (re.compile(r" {0,3}<!\[CDATA\["), re.compile(r"\]\]>")),
+        (re.compile(r" {0,3}<![A-Z]"), re.compile(r">")),
+    )
+    ranges = []
+    active = None
+    offset = 0
+    for line in _markdown_lines(value):
+        raw_content = line.rstrip("\r\n")
+        content = _markdown_container_content(raw_content)
+        content_base = offset + len(raw_content) - len(content)
+        if active:
+            if active[1] is None:
+                if not content.strip(" \t"):
+                    ranges.append((active[0], offset))
+                    active = None
+                else:
+                    offset += len(line)
+                    continue
+            else:
+                closing = active[1].search(content)
+                if closing:
+                    ranges.append((active[0], content_base + closing.end()))
+                    active = None
+            offset += len(line)
+            continue
+
+        candidates = [
+            (opening.search(content), closing)
+            for opening, closing in openers
+        ]
+        candidates = [item for item in candidates if item[0]]
+        tag_opening = re.match(
+            r" {0,3}<(script|pre|style|textarea)(?=[\s>])", content, re.I,
+        )
+        if tag_opening:
+            tag = tag_opening.group(1)
+            candidates.append((tag_opening, re.compile(rf"</{tag}>", re.I)))
+        elif include_block_tags:
+            block_tag_opening = _MARKED_BLOCK_HTML_START.match(content)
+            if block_tag_opening:
+                candidates.append((block_tag_opening, None))
+        if candidates:
+            opening, closing_pattern = min(
+                candidates, key=lambda item: item[0].start(),
+            )
+            if closing_pattern is None:
+                active = (content_base + opening.start(), None)
+            else:
+                closing = closing_pattern.search(content, opening.end())
+                if closing:
+                    ranges.append((
+                        content_base + opening.start(), content_base + closing.end(),
+                    ))
+                else:
+                    active = (content_base + opening.start(), closing_pattern)
+        offset += len(line)
+
+    if active:
+        ranges.append((active[0], len(value)))
+    return ranges
+
+
+def _stable_literal_code_ranges(source):
+    """Return top-level literal blocks without container-boundary ambiguity."""
+    value = source or ""
+    math_ranges = _markdown_math_ranges(value)
+    math_starts = [start for start, _end in math_ranges]
+    html_ranges = _raw_multiline_html_ranges(value)
+    html_starts = [start for start, _end in html_ranges]
+    document_lines = _markdown_lines(value, keepends=False)
+    line_starts = []
+    line_offset = 0
+    previous_nonblank_line = []
+    last_nonblank = -1
+    for index, line in enumerate(_markdown_lines(value)):
+        line_starts.append(line_offset)
+        previous_nonblank_line.append(last_nonblank)
+        if document_lines[index].strip(" \t"):
+            last_nonblank = index
+        line_offset += len(line)
+    list_markers = [
+        line_starts[index]
+        for index, line in enumerate(document_lines)
+        if re.match(r" {0,3}(?:[-+*]|[0-9]+[.)])[ \t]+", line)
+    ]
+
+    def preceding_context(start):
+        line_index = bisect_right(line_starts, start) - 1
+        previous_index = line_index - 1
+        previous_line = (
+            document_lines[previous_index] if previous_index >= 0 else ""
+        )
+        nonblank_index = (
+            previous_nonblank_line[line_index] if line_index >= 0 else -1
+        )
+        previous_content = (
+            document_lines[nonblank_index] if nonblank_index >= 0 else ""
+        )
+        return previous_line, previous_content
+
+    def overlaps_math(start, end):
+        index = bisect_right(math_starts, start) - 1
+        return (
+            index >= 0 and math_ranges[index][1] > start
+        ) or (
+            index + 1 < len(math_ranges) and math_ranges[index + 1][0] < end
+        )
+
+    def overlaps_html_block(start):
+        index = bisect_right(html_starts, start) - 1
+        return index >= 0 and html_ranges[index][1] > start
+
+    ranges = []
+    for start, end in _fenced_markdown_ranges(value):
+        fragment = value[start:end]
+        lines = _markdown_lines(fragment, keepends=False)
+        if len(lines) < 2:
+            continue
+        opening = re.fullmatch(r"(`{3,}|~{3,})(.*)", lines[0])
+        closing = re.fullmatch(r" {0,3}(`+|~+)[ \t]*", lines[-1])
+        if not opening or not closing:
+            continue
+        marker = opening.group(1)
+        if (
+            closing.group(1)[0] != marker[0]
+            or len(closing.group(1)) < len(marker)
+            or (marker.startswith("`") and "`" in opening.group(2))
+            or overlaps_math(start, end)
+            or overlaps_html_block(start)
+        ):
+            continue
+        previous_line, _previous_content = preceding_context(start)
+        if previous_line and previous_line.strip(" \t"):
+            continue
+        ranges.append((start, end))
+
+    for start, end in _indented_markdown_ranges(value):
+        fragment = value[start:end]
+        fragment_lines = _markdown_lines(fragment, keepends=False)
+        first_line = fragment_lines[0] if fragment_lines else ""
+        if (
+            not first_line.startswith(("    ", "\t"))
+            or overlaps_math(start, end)
+            or overlaps_html_block(start)
+        ):
+            continue
+        if bisect_right(list_markers, start):
+            continue
+        previous_line, previous_content = preceding_context(start)
+        if previous_line and previous_line.strip(" \t"):
+            continue
+        if (
+            previous_content[:1].isspace()
+            or re.match(r" {0,3}(?:[-+*]|[0-9]+[.)])[ \t]+", previous_content)
+        ):
+            continue
+        ranges.append((start, end))
+
+    merged = []
+    for start, end in sorted(ranges):
+        if merged and merged[-1][1] >= start:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _stable_zip321_code_ranges(source):
+    """Return code ranges whose Markdown context is safe to exempt."""
+    value = source or ""
+    if not _ZIP321_URI.search(value):
+        return []
+    block_ranges = _stable_literal_code_ranges(value)
+    ranges = list(block_ranges)
+    block_index = 0
+    paragraph_ranges = []
+    cursor = 0
+    for match in re.finditer(r"\r?\n[ \t]*\r?\n", value):
+        paragraph_ranges.append((cursor, match.start()))
+        cursor = match.end()
+    paragraph_ranges.append((cursor, len(value)))
+    unsafe_paragraphs = []
+    inline_index = 0
+    code_spans = _markdown_inline_code_spans(value)
+    hazards = ("<", ">", "[", "]", "|", "\\", "$", "@", "://", "www.")
+
+    for start, end in paragraph_ranges:
+        fragment = value[start:end]
+        unsafe_paragraphs.append(any(hazard in fragment for hazard in hazards))
+
+    for opening, closing, delimiter_length in code_spans:
+        end = closing + delimiter_length
+        while (
+            block_index < len(block_ranges)
+            and block_ranges[block_index][1] <= opening
+        ):
+            block_index += 1
+        if (
+            block_index < len(block_ranges)
+            and block_ranges[block_index][0] <= opening
+            and end <= block_ranges[block_index][1]
+        ):
+            continue
+        if "\n" in value[opening:end] or "\r" in value[opening:end]:
+            continue
+        while (
+            inline_index + 1 < len(paragraph_ranges)
+            and paragraph_ranges[inline_index][1] <= opening
+        ):
+            inline_index += 1
+        paragraph_start, paragraph_end = paragraph_ranges[inline_index]
+        if (
+            paragraph_start <= opening
+            and end <= paragraph_end
+            and not unsafe_paragraphs[inline_index]
+        ):
+            ranges.append((opening, end))
+
+    merged = []
+    for start, end in sorted(ranges):
+        if merged and merged[-1][1] >= start:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    return merged
+
+
+def _mask_unchanged_code_zip321_uris(source, translated):
+    """Ignore exact ZIP-321 tokens still in stable code on both sides."""
+    source_value = source or ""
+    translated_value = translated or ""
+    if not _ZIP321_URI.search(source_value) or not _ZIP321_URI.search(translated_value):
+        return translated_value
+    source_code_ranges = _stable_zip321_code_ranges(source_value)
+    source_code_starts = [start for start, _end in source_code_ranges]
+
+    def in_code_range(match, ranges, starts):
+        index = bisect_right(starts, match.start()) - 1
+        return (
+            index >= 0
+            and ranges[index][0] <= match.start()
+            and match.end() <= ranges[index][1]
+        )
+
+    source_code_uris = Counter(
+        match.group(0)
+        for match in _ZIP321_URI.finditer(source_value)
+        if in_code_range(match, source_code_ranges, source_code_starts)
+    )
+
+    translated_code_ranges = _stable_zip321_code_ranges(translated_value)
+    translated_code_starts = [start for start, _end in translated_code_ranges]
+    chars = list(translated_value)
+    for match in _ZIP321_URI.finditer(translated_value):
+        uri = match.group(0)
+        if source_code_uris[uri] and in_code_range(
+            match, translated_code_ranges, translated_code_starts,
+        ):
+            chars[match.start():match.end()] = " " * (match.end() - match.start())
+            source_code_uris[uri] -= 1
+    return "".join(chars)
+
+
+def _mask_unchanged_reference_title_zip321_uris(source, translated):
+    """Ignore exact ZIP-321 tokens that remain hidden in a reference title."""
+    source_value = source or ""
+    translated_value = translated or ""
+    if not _ZIP321_URI.search(source_value) or not _ZIP321_URI.search(translated_value):
+        return translated_value
+
+    def title_uris(value):
+        ranges = _reference_definition_target_ranges(value, titles_only=True)
+        starts = [start for start, _end in ranges]
+        return Counter(
+            match.group(0)
+            for match in _ZIP321_URI.finditer(value)
+            if (index := bisect_right(starts, match.start()) - 1) >= 0
+            and ranges[index][0] <= match.start()
+            and match.end() <= ranges[index][1]
+        )
+
+    source_title_uris = title_uris(source_value)
+    if not source_title_uris:
+        return translated_value
+
+    translated_ranges = _reference_definition_target_ranges(
+        translated_value, titles_only=True,
+    )
+    translated_starts = [start for start, _end in translated_ranges]
+    chars = list(translated_value)
+    for match in _ZIP321_URI.finditer(translated_value):
+        uri = match.group(0)
+        index = bisect_right(translated_starts, match.start()) - 1
+        if (
+            source_title_uris[uri]
+            and index >= 0
+            and translated_ranges[index][0] <= match.start()
+            and match.end() <= translated_ranges[index][1]
+        ):
+            chars[match.start():match.end()] = " " * (match.end() - match.start())
+            source_title_uris[uri] -= 1
     return "".join(chars)
 
 def _is_markdown_punctuation(char):
@@ -2447,7 +3337,7 @@ def _mask_unchanged_code_spans(source, translated):
             fragment = value[start:end]
             # Only complete fenced blocks qualify; an unclosed fence's later
             # context can alter whether the renderer treats it as code.
-            lines = fragment.splitlines()
+            lines = _markdown_lines(fragment, keepends=False)
             if not fragment.startswith(("    ", "\t")):
                 if len(lines) < 2 or not re.fullmatch(r" {0,3}(`{3,}|~{3,})[ \t]*", lines[-1]):
                     continue
@@ -2745,28 +3635,16 @@ def _find_violations(
     source_zip321_amounts = _zip321_amounts(
         source, include_rendered_views=True, source_authorization=True,
     )
-    # A Markdown-formatted source URI can render to the same visible amount
-    # while remaining invalid as raw ZIP-321 syntax. Preserve that unchanged
-    # instruction without letting its reconstructed amount authorize a
-    # rewritten URI. Only raw URI tokens present on both sides can contribute.
-    shared_uri_amounts = Counter()
-    literal_source_ranges = _literal_block_ranges(source or "")
-    literal_source_ranges.extend(
-        (opening, closing + length)
-        for opening, closing, length in _matched_markdown_delimiters(source or "")[1]
+    # Raw URI identity cannot authorize a rendered amount: markup may be
+    # literal inside source code and active in the translation. Exempt a code
+    # example only when that exact URI remains in a recognized code context on
+    # both sides; source authorization still comes from visible source views.
+    translated_zip321_amounts = _zip321_amounts(
+        _mask_unchanged_code_zip321_uris(
+            source,
+            _mask_unchanged_reference_title_zip321_uris(source, translated),
+        )
     )
-    raw_source_instructions, _math_views = _source_math_authorization_views(
-        source, protected_ranges=literal_source_ranges,
-    )
-    source_uri_tokens = Counter({
-        uri: count for uri, count in _zip321_uri_tokens(raw_source_instructions).items()
-        if "\ufffd" not in uri
-    })
-    for uri, count in (source_uri_tokens & _zip321_uri_tokens(translated)).items():
-        for payment, payment_count in _zip321_amounts(uri).items():
-            shared_uri_amounts[payment] += payment_count * count
-    source_zip321_amounts |= shared_uri_amounts
-    translated_zip321_amounts = _zip321_amounts(translated)
     new_zip321_amounts = sorted(
         payment
         for payment, count in (

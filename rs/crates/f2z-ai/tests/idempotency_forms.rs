@@ -9,7 +9,7 @@
 //!
 //! The ledger's key rows and the Redis records expire on one simulated
 //! [`Clock`] the tests advance, so a record's TTL is tested against the key
-//! row it must outlive (tuzi#2670), not just its size.
+//! row it must outlive, not just its size.
 #![allow(
     missing_docs,
     clippy::unwrap_used,
@@ -645,7 +645,7 @@ async fn straddle_at(child_first: bool, age: Duration, forms: Forms) -> (usize, 
     (ledger.charges(), g)
 }
 
-// tuzi#2670: the ledger's key row lives 24 h, so a straddling retry in its
+// The ledger's key row lives 24 h, so a straddling retry in its
 // last minutes must still find the record and replay. With the old
 // 23 h 50 m TTL this retry, at 23 h 55 m, found nothing and was charged.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

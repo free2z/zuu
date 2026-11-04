@@ -502,6 +502,58 @@ def test_matching_abandonment_marker_makes_live_worker_orphan_actionable():
 
 
 @pytest.mark.django_db
+def test_durable_prebody_lease_phase_makes_live_worker_orphan_actionable():
+    """A committed acquisition phase survives the lost follow-up marker."""
+    now = timezone.now()
+    job_id = index_zpage.defer(zpage_id=924)
+    worker_id = _worker(now)
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE procrastinate_jobs SET worker_id=%s WHERE id=%s",
+            [worker_id, job_id])
+    started = now - timedelta(seconds=4500)
+    _mark_doing(job_id, started)
+    token = uuid.uuid4()
+    JobLease.objects.create(
+        job_id=job_id, token=token, task_name='search.index_zpage',
+        queue='search', started_at=started,
+        last_beat_at=now - timedelta(seconds=4000),
+        deadline_at=None, attempt=0, phase='before_body',
+        phase_token=token, phase_attempt=0)
+
+    search = _q(health.collect(now=now), 'search')
+
+    assert search.orphaned == 1
+    assert search.oldest_orphaned_seconds >= 600
+
+
+@pytest.mark.django_db
+def test_mismatched_prebody_proof_does_not_make_live_worker_orphan_actionable():
+    """Health requires the same token/attempt binding as reclaim."""
+    now = timezone.now()
+    job_id = index_zpage.defer(zpage_id=925)
+    worker_id = _worker(now)
+    with connection.cursor() as cur:
+        cur.execute(
+            "UPDATE procrastinate_jobs SET worker_id=%s WHERE id=%s",
+            [worker_id, job_id])
+    started = now - timedelta(seconds=4500)
+    _mark_doing(job_id, started)
+    token = uuid.uuid4()
+    JobLease.objects.create(
+        job_id=job_id, token=token, task_name='search.index_zpage',
+        queue='search', started_at=started,
+        last_beat_at=now - timedelta(seconds=4000),
+        deadline_at=None, attempt=0, phase='before_body',
+        phase_token=uuid.uuid4(), phase_attempt=0)
+
+    search = _q(health.collect(now=now), 'search')
+
+    assert search.orphaned == 0
+    assert search.oldest_orphaned_seconds == 0
+
+
+@pytest.mark.django_db
 def test_health_reports_orphan_age_and_expired_deadline():
     now = timezone.now()
     # A NEVER task keeps orphan eligibility age independent of its

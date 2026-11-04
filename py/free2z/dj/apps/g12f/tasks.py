@@ -26,7 +26,7 @@ cancel.
 import logging
 from datetime import timedelta, timezone as dt_timezone
 
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Case, DateTimeField, F, Value, When
 from django.utils import timezone
 
@@ -777,6 +777,19 @@ def renew_subscription(subscription_id: int):
         from dj.apps.economy.services import EconomicRefusal
         try:
             sub.extend(enforce_max_price=True)
+        except DatabaseError as exc:
+            # extend() has rolled back its atomic savepoint before this
+            # handler runs. Only the recipient funding-cap refusal is an
+            # eligibility outcome; other database failures must still fail
+            # the task. The SQL guard and all money mutations stay intact.
+            cause = getattr(exc, '__cause__', None)
+            diagnostic = getattr(cause, 'diag', None)
+            if (getattr(cause, 'sqlstate', None) != '23514'
+                    or getattr(diagnostic, 'message_primary', None)
+                    != 'usage_daily_funding_limit'):
+                raise
+            _defer_renewal_retry(
+                sub, now, reason='utility sharing unavailable: usage_daily_funding_limit')
         except EconomicRefusal as exc:
             _defer_renewal_retry(sub, now, reason=f'utility sharing unavailable: {exc}')
 

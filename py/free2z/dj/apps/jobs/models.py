@@ -237,7 +237,7 @@ class JobLease(models.Model):
     from the column after a migration; ``db_default`` (Django 5.0+) is
     kept in the DDL. The DDL has three (``worker_name``, ``pod``,
     ``attempt``), so ``db_default`` is what reproduces it. No writer
-    relies on them today -- every INSERT in ``lease.py`` names all ten
+    relies on them today -- every INSERT in ``lease.py`` names all thirteen
     columns -- and that is exactly why they have to be pinned here: a
     future writer that omits a column would silently get a different
     answer against a table built by the migration than against one built
@@ -296,6 +296,19 @@ class JobLease(models.Model):
     #``IntegerField``: ``PositiveIntegerField`` would add a CHECK
     #constraint the DDL does not have.
     attempt = models.IntegerField(default=0, db_default=0)
+
+    #Durable body-entry fence. New lease INSERTs are ``before_body``;
+    #middleware must commit ``body_started`` for the same token/attempt
+    #before it calls task code. The DB default is conservative for old or
+    #partial writers so an unknown phase can never authorize NEVER replay.
+    phase = models.CharField(
+        max_length=24, default='unknown', db_default='unknown')
+
+    #Identity to which ``phase`` is bound. These columns are not touched by
+    #old worker UPSERTs, so a legacy writer cannot carry a before-body proof
+    #onto its replacement token or attempt. NULL means no usable proof.
+    phase_token = models.UUIDField(null=True, blank=True)
+    phase_attempt = models.IntegerField(null=True, blank=True)
 
     class Meta:
         db_table = 'jobs_joblease'

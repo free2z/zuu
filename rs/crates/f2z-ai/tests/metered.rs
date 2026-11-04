@@ -60,6 +60,7 @@ struct Memory {
     amount: i64,
     terminal: Option<&'static str>,
     charges: usize,
+    hold_requests: usize,
     settle_requests: usize,
     revoked: bool,
     expire_at_completion: bool,
@@ -162,6 +163,7 @@ impl Ledger for Database {
                 )
             }
             Operation::Hold { amount_milli, .. } => {
+                m.hold_requests += 1;
                 if m.revoked {
                     return Ok(json!({"status":"revoked"}));
                 }
@@ -746,7 +748,7 @@ async fn a_stream_cut_after_output_settles_partial_on_the_estimate() {
     }
     mock.shutdown().await;
 }
-// The case that fenced the production shelf to gpt-4o (tuzi#2490): a model
+// The case that fenced the production shelf to gpt-4o: a model
 // that reasons silently past the idle limit produced nothing the gateway
 // could see, yet the provider accepted — and bills — the request. The input
 // estimate is charged; the unseen reasoning is the platform's loss, as
@@ -2822,4 +2824,117 @@ async fn a_chat_completions_tool_turn_streams_fragments_then_the_call() {
         assert_eq!(db.0.lock().unwrap().charges, 1);
     }
     server.abort();
+}
+
+// zuu#1177: the real HTTP -> metered admission -> ledger/adapter path.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn signed_tools_effort_conflict_refuses_before_reservation_and_provider() {
+    for level in ["minimal", "low", "medium", "high"] {
+        let db = Arc::new(Database::new());
+        let catalog = effort_tool_catalog(true);
+        let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, catalog).await;
+        let mut request = tool_request();
+        request["model"] = json!("m-chat");
+        request["reasoning_effort"] = json!(level);
+        request["stream"] = json!(level == "high");
+        let (status, refused) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+        assert_eq!(refused["error"]["code"], "invalid_request");
+        let api_error: f2z_ai_proto::error::ApiError =
+            serde_json::from_value(refused["error"].clone()).unwrap();
+        assert!(!api_error.retryable());
+        assert!(f2z_ai_proto::error::ErrorCode::ProviderError.retryable());
+        assert_eq!(refused["error"]["details"]["field"], "reasoning_effort");
+        assert_eq!(
+            refused["error"]["details"]["reason"],
+            "reasoning_effort_unsupported"
+        );
+        assert_eq!(refused["error"]["details"]["conflict"], "tools");
+        let (status, estimate) = post(&r, "/v1/chat/estimate", &request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{estimate}");
+        assert_eq!(estimate["error"]["details"], refused["error"]["details"]);
+        final_state(&db).await;
+        let (status, replay) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::OK, "{replay}");
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(replay["error"]["code"], "invalid_request");
+        {
+            let state = db.0.lock().unwrap();
+            assert!(state.hold.is_none());
+            assert_eq!(state.hold_requests, 0);
+            assert_eq!(state.charges, 0);
+        }
+        assert_eq!(mock.request_count(), 0);
+        mock.shutdown().await;
+    }
+}
+
+fn effort_tool_catalog(restricted: bool) -> f2z_ai::catalog::VerifiedCatalog {
+    let mut catalog = tool_catalog().catalog().clone();
+    for model in &mut catalog.models {
+        model.capabilities.reasoning_effort = true;
+        model.controls.tools_require_effort_none = restricted;
+    }
+    f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn signed_tools_effort_control_preserves_supported_requests() {
+    // Restricted: tools + omitted effort, effort + no tools, neither.
+    // Unrestricted: tools + effort (same model id, metadata alone decides).
+    for (restricted, tools, effort) in [
+        (true, true, None),
+        (true, false, Some("high")),
+        (true, false, None),
+        (false, true, Some("low")),
+    ] {
+        let db = Arc::new(Database::new());
+        let (r, mock) = launch_catalog(
+            db.clone(),
+            Scenario::default(),
+            None,
+            effort_tool_catalog(restricted),
+        )
+        .await;
+        let models = axum::http::Request::get("/v1/models")
+            .header("host", "gateway")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let models: Value =
+            serde_json::from_str(&support::text(support::send(r.public, models).await).await)
+                .unwrap();
+        let advertised = models["models"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["id"] == "m-chat")
+            .unwrap();
+        assert_eq!(
+            advertised["controls"]["tools_require_effort_none"].as_bool(),
+            restricted.then_some(true)
+        );
+        let mut request = request();
+        request["model"] = json!("m-chat");
+        request["stream"] = json!(false);
+        if tools {
+            request["tools"] = tool_request()["tools"].clone();
+        }
+        if let Some(level) = effort {
+            request["reasoning_effort"] = json!(level);
+        }
+        let (status, estimate) = post(&r, "/v1/chat/estimate", &request).await;
+        assert_eq!(status, StatusCode::OK, "{estimate}");
+        let (status, response) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, StatusCode::OK, "{response}");
+        final_state(&db).await;
+        assert_eq!(db.0.lock().unwrap().hold_requests, 1);
+        assert_eq!(mock.request_count(), 1);
+        let sent = mock.recorded_requests();
+        assert_eq!(
+            sent[0].body.get("reasoning_effort"),
+            effort.map(|v| json!(v)).as_ref()
+        );
+        assert_eq!(sent[0].body.get("tools").is_some(), tools);
+        mock.shutdown().await;
+    }
 }

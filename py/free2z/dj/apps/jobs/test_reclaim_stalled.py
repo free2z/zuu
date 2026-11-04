@@ -864,6 +864,14 @@ def _lease(job_id, task_name, queue, *, last_beat_at, deadline_at=None,
         deadline_at=deadline_at, attempt=0)
 
 
+def _mark_lease_before_body(job_id):
+    """Install a phase and identity pair as one acquisition commit would."""
+    current = JobLease.objects.get(job_id=job_id)
+    JobLease.objects.filter(job_id=job_id).update(
+        phase='before_body', phase_token=current.token,
+        phase_attempt=current.attempt)
+
+
 async def _requeue_and_restart(job_id):
     """
     What a CONCURRENT sweep plus a worker do to a row: requeue it (the
@@ -1544,8 +1552,9 @@ def test_emptying_the_queue_exclusion_does_not_re_enable_the_export(
     `JOB_RECLAIM_EXCLUDED_QUEUES` is the operator escape hatch -- an env
     var, no deploy. It is NOT what keeps `export_publication` safe: the
     per-task registry is, and emptying the queue list must not make an
-    ordinary/ambiguous NEVER attempt reclaimable. Only a matching durable
-    `before_body` marker proves an export never reached its own claim.
+    ordinary/ambiguous NEVER attempt reclaimable. Only matching
+    attempt/token-scoped `before_body` evidence proves an export never
+    reached its own claim.
     """
     caplog.set_level('INFO', logger='dj.apps.jobs.reclaim')
     stalled_settings.JOB_RECLAIM_EXCLUDED_QUEUES = ()
@@ -1567,17 +1576,14 @@ def test_emptying_the_queue_exclusion_does_not_re_enable_the_export(
 def test_only_a_matching_prebody_export_marker_bypasses_default_exclusion(
     stalled_settings,
 ):
-    """A proved-unstarted export is safe to retry through the default lane guard."""
+    """A proved-unstarted export may pass the default lane guard."""
     job_id = export_publication_task.defer(job_id='prebody-export')
     started = timezone.now() - timedelta(seconds=2400)
     _mark_doing(job_id, started)
-    held = _lease(
+    _lease(
         job_id, 'exports.export_publication', 'exports',
         last_beat_at=started, started_at=started)
-    QuarantinedJob.objects.create(
-        job_id=job_id, task_name='exports.export_publication', queue='exports',
-        reason=f'recovery abandoned attempt before_body:{held.token}',
-        attempts=0)
+    _mark_lease_before_body(job_id)
 
     result = _sweep()
 
@@ -1590,19 +1596,15 @@ def test_only_a_matching_prebody_export_marker_bypasses_default_exclusion(
 def test_explicit_export_exclusion_and_manual_pause_override_prebody_marker(
     stalled_settings,
 ):
-    """An operator exclusion and a paused queue stay stronger than the marker."""
+    """Operator exclusion and queue pause stay stronger than phase proof."""
     stalled_settings.JOB_RECLAIM_OPERATOR_EXCLUDED_QUEUES = ('exports',)
     explicit_id = export_publication_task.defer(job_id='operator-paused-export')
     started = timezone.now() - timedelta(seconds=2400)
     _mark_doing(explicit_id, started)
-    held = _lease(
+    _lease(
         explicit_id, 'exports.export_publication', 'exports',
         last_beat_at=started, started_at=started)
-    QuarantinedJob.objects.create(
-        job_id=explicit_id, task_name='exports.export_publication',
-        queue='exports',
-        reason=f'recovery abandoned attempt before_body:{held.token}',
-        attempts=0)
+    _mark_lease_before_body(explicit_id)
 
     result = _sweep()
 
@@ -2749,9 +2751,10 @@ def test_four_export_acquisition_failures_recover_capacity_without_body_replay(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_real_restart_without_prebody_evidence_waits_for_export_cleanup(
-        stalled_settings, settings, creator_factory, request, tmp_path):
-    """SIGTERM loses queued evidence; NEVER fences replay until cleanup frees slots."""
+def test_real_restart_after_lease_commit_recovers_export_before_cleanup(
+        stalled_settings, settings, creator_factory, request, tmp_path,
+        monkeypatch):
+    """SIGTERM after lease commit preserves pre-body proof and frees capacity."""
     import os
     import signal
     import subprocess
@@ -2760,12 +2763,14 @@ def test_real_restart_without_prebody_evidence_waits_for_export_cleanup(
 
     from rest_framework.test import APIClient
 
-    from dj.apps.exports.exporter import cleanup_expired_jobs
+    from dj.apps.exports.exporter import PublicationExporter, process_export_job
     from dj.apps.exports.models import ExportStatus, PublicationExportJob
 
     settings.JOB_RECLAIM_EXCLUDED_QUEUES = ()
     settings.EXPORT_MAX_ACTIVE_JOBS = 4
     settings.EXPORT_TASK_ROLLOUT_DELAY_SECONDS = 0
+    settings.JOB_LEASE_ENABLED = True
+    settings.JOB_LEASE_WITHOUT_RECLAIMER = False
     owners = [creator_factory() for _ in range(5)]
     exports = [PublicationExportJob.objects.create(creator=owner)
                for owner in owners[:4]]
@@ -2839,12 +2844,16 @@ def test_real_restart_without_prebody_evidence_waits_for_export_cleanup(
     assert not body_marker.exists()
     assert JobLease.objects.filter(job_id=job_id).exists()
     assert not QuarantinedJob.objects.filter(job_id=job_id).exists()
+    assert JobLease.objects.get(job_id=job_id).phase == 'before_body'
     JobLease.objects.filter(job_id=job_id).update(last_beat_at=started)
 
-    # A real sweep cannot treat absent evidence as permission to rerun NEVER.
-    _sweep_with_production_pool()
-    assert _status(job_id) == 'doing'
-    assert _attempts(job_id) == 0
+    # The lost INSERT response and worker termination do not erase the phase
+    # committed with the lease. The production-connector sweep can therefore
+    # retry this exact NEVER attempt without waiting for export abandonment.
+    summary = _sweep_with_production_pool()
+    assert summary['reclaimed_ids'] == [job_id]
+    assert _status(job_id) == 'todo'
+    assert _attempts(job_id) == 1
     assert not body_marker.exists()
     exports[0].refresh_from_db()
     assert exports[0].status == ExportStatus.QUEUED
@@ -2852,26 +2861,358 @@ def test_real_restart_without_prebody_evidence_waits_for_export_cleanup(
     client.force_authenticate(user=owners[4])
     assert client.post('/api/exports/publications/').status_code == 503
 
-    # The cutoff is two hours, not an immediate failure on restart. The actual
-    # cleanup query owns that boundary; backdating avoids a two-hour test sleep.
-    PublicationExportJob.objects.filter(pk=exports[0].pk).update(
-        updated_at=timezone.now() - timedelta(hours=1, minutes=59))
-    cleanup_expired_jobs()
+    # Run the replacement attempt through the real export task entry point;
+    # only its storage export is replaced, so the application claim and
+    # capacity release are real. Middleware commits body_started before it
+    # reaches this code.
+    body_calls = []
+
+    def finish_export(self):
+        body_calls.append(self.job.pk)
+        PublicationExportJob.objects.filter(
+            pk=self.job.pk, status=ExportStatus.RUNNING
+        ).update(status=ExportStatus.READY, updated_at=timezone.now())
+
+    with monkeypatch.context() as export_patch:
+        export_patch.setattr(PublicationExporter, 'export', finish_export)
+        attempt_started = timezone.now()
+        worker_id = _make_worker(attempt_started)
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "UPDATE procrastinate_jobs SET status='doing', worker_id=%s, "
+                "attempts=1 WHERE id=%s", [worker_id, job_id])
+        replacement = app.job_manager.list_jobs(id=job_id)[0]
+        context = SimpleNamespace(
+            job=replacement, start_timestamp=attempt_started.timestamp(),
+            worker_name='restart-recovery-export', additional_context={})
+        lease.lease_middleware(
+            lambda: process_export_job(str(exports[0].pk)), context,
+            SimpleNamespace(_job_ids_to_abort={}))
+
+    assert body_calls == [exports[0].pk]
+    assert JobLease.objects.filter(job_id=job_id).exists() is False
     exports[0].refresh_from_db()
-    assert exports[0].status == ExportStatus.QUEUED
-    PublicationExportJob.objects.filter(pk=exports[0].pk).update(
-        updated_at=timezone.now() - timedelta(hours=2, seconds=1))
-    cleanup_expired_jobs()
-    exports[0].refresh_from_db()
-    assert exports[0].status == ExportStatus.FAILED
-    assert not body_marker.exists()
-    assert _status(job_id) == 'doing'
+    assert exports[0].status == ExportStatus.READY
     response = client.post('/api/exports/publications/')
     assert response.status_code == 201
     new_job = ProcrastinateJob.objects.filter(
         task_name='exports.export_publication',
         args__job_id=str(response.data['id'])).get()
     _cleanup_production_pool_jobs(request, new_job.pk)
+
+
+@pytest.mark.django_db(transaction=True)
+def test_sigterm_after_export_body_entry_never_replays_never_task(
+        stalled_settings, settings, creator_factory, request, tmp_path):
+    """The negative control: durable body_started evidence blocks NEVER retry."""
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+    import textwrap
+
+    from rest_framework.test import APIClient
+
+    from dj.apps.exports.models import ExportStatus, PublicationExportJob
+
+    settings.JOB_RECLAIM_EXCLUDED_QUEUES = ()
+    settings.EXPORT_MAX_ACTIVE_JOBS = 1
+    settings.EXPORT_TASK_ROLLOUT_DELAY_SECONDS = 0
+    settings.JOB_LEASE_ENABLED = True
+    settings.JOB_LEASE_WITHOUT_RECLAIMER = False
+    owners = [creator_factory(), creator_factory()]
+    export = PublicationExportJob.objects.create(creator=owners[0])
+    job_id = export_publication_task.defer(job_id=str(export.pk))
+    _cleanup_production_pool_jobs(request, job_id)
+    started = timezone.now() - timedelta(hours=1)
+    _mark_doing(job_id, started, worker_id=_make_worker(started))
+    body_marker = tmp_path / 'never-body-started'
+    script = textwrap.dedent(r"""
+        import sys, time
+        from pathlib import Path
+        from types import SimpleNamespace
+        import django
+        django.setup()
+        from django.conf import settings
+        from procrastinate.contrib.django import app
+        from dj.apps.jobs import lease
+        settings.JOB_LEASE_ENABLED = True
+        settings.JOB_LEASE_WITHOUT_RECLAIMER = False
+        settings.JOB_LEASE_BEAT_SECONDS = 60
+        job = app.job_manager.list_jobs(id=int(sys.argv[1]))[0]
+        context = SimpleNamespace(job=job, start_timestamp=time.time(),
+                                  worker_name='started-export',
+                                  additional_context={})
+        worker = SimpleNamespace(_job_ids_to_abort={})
+        lease.lease_middleware(
+            lambda: (Path(sys.argv[2]).write_text('body entered'),
+                     time.sleep(60)), context, worker)
+    """)
+    env = dict(os.environ, DBNAME=connection.settings_dict['NAME'],
+               DJANGO_SETTINGS_MODULE='pytest_settings')
+    py_root = Path(__file__).resolve().parents[3]
+    env['PYTHONPATH'] = str(py_root)
+    child = subprocess.Popen(
+        [sys.executable, '-c', script, str(job_id), str(body_marker)],
+        cwd=py_root, env=env, start_new_session=True,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+    try:
+        deadline = time.monotonic() + 20
+        while not body_marker.exists() and child.poll() is None \
+                and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert body_marker.exists(), child.communicate(timeout=5)[0]
+        os.kill(child.pid, signal.SIGTERM)
+        output, _ = child.communicate(timeout=10)
+    finally:
+        if child.poll() is None:
+            child.kill()
+            child.wait(timeout=5)
+
+    assert child.returncode == -signal.SIGTERM, output
+    assert JobLease.objects.get(job_id=job_id).phase == 'body_started'
+    JobLease.objects.filter(job_id=job_id).update(last_beat_at=started)
+    summary = _sweep_with_production_pool()
+    assert job_id in summary['skipped_never_ids']
+    assert job_id not in summary['reclaimed_ids']
+    assert _status(job_id) == 'doing'
+    assert _attempts(job_id) == 0
+    export.refresh_from_db()
+    assert export.status == ExportStatus.QUEUED
+
+    client = APIClient()
+    client.force_authenticate(user=owners[1])
+    assert client.post('/api/exports/publications/').status_code == 503
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('connector_path', ['django', 'worker_pool'])
+def test_locked_reclaim_rechecks_prebody_proof_after_body_start(
+        connector_path, stalled_settings, settings, creator_factory):
+    """A stale NEVER decision loses authority when body entry commits first."""
+    from rest_framework.test import APIClient
+
+    from dj.apps.exports.models import ExportStatus, PublicationExportJob
+    from procrastinate.contrib.django.utils import connector_params
+    from procrastinate.psycopg_connector import PsycopgConnector
+
+    settings.JOB_LEASE_ENABLED = True
+    settings.JOB_LEASE_WITHOUT_RECLAIMER = False
+    settings.JOB_RECLAIM_EXCLUDED_QUEUES = ()
+    settings.JOB_RECLAIM_OPERATOR_EXCLUDED_QUEUES = ()
+    settings.EXPORT_MAX_ACTIVE_JOBS = 1
+    settings.EXPORT_TASK_ROLLOUT_DELAY_SECONDS = 0
+
+    owner, next_owner = creator_factory(), creator_factory()
+    export = PublicationExportJob.objects.create(creator=owner)
+    job_id = export_publication_task.defer(job_id=str(export.pk))
+    now = timezone.now()
+    started = now - timedelta(hours=1)
+    _mark_doing(job_id, started)
+
+    job = app.job_manager.list_jobs(id=job_id)[0]
+    token = uuid.uuid4()
+    values = {
+        'job_id': job_id,
+        'token': token,
+        'worker_name': 'interleaved-export',
+        'pod': 'test',
+        'task_name': job.task_name,
+        'queue': job.queue,
+        'started_at': started,
+        'deadline_at': None,
+        'attempt': job.attempts,
+        'phase': 'before_body',
+        'phase_token': token,
+        'phase_attempt': job.attempts,
+    }
+    params = lease._connection_params()
+    with lease._connect(params, 'reclaim-phase-race') as conn:
+        assert conn.execute(lease._INSERT_SQL, values).rowcount == 1
+        conn.execute(
+            'UPDATE jobs_joblease SET last_beat_at=%s WHERE job_id=%s',
+            [started, job_id])
+
+    decision = async_to_sync(reclaim.reclaim_decision)(
+        job, floor=600, margin=60, heartbeat_seconds=180,
+        max_reclaims=settings.JOB_RECLAIM_MAX_RECLAIMS, now=now)
+    assert decision['reason'] == 'eligible'
+    assert decision['abandoned_phase'] == 'before_body'
+
+    # Commit the exact middleware body-start statement before the already-made
+    # reclaim decision reaches its locked row action, then enter the body.
+    with lease._connect(params, 'reclaim-phase-race-body') as conn:
+        assert conn.execute(lease._BODY_STARTED_SQL, values).rowcount == 1
+    body_calls = []
+    body_calls.append('entered')
+    assert JobLease.objects.get(job_id=job_id).phase == 'body_started'
+
+    stale_before = now - timedelta(seconds=settings.JOB_LEASE_STALE_SECONDS)
+    worker_stale_before = now - timedelta(
+        seconds=settings.JOB_RECLAIM_WORKER_HEARTBEAT_SECONDS)
+
+    async def pool_action(action):
+        connector = PsycopgConnector(
+            kwargs=connector_params(), min_size=1, max_size=1)
+        await connector.open_async()
+        try:
+            async with connector.pool.connection(timeout=3) as conn:
+                return await reclaim._apply_action_worker_pool_transaction(
+                    conn, connector, action, decision['job'],
+                    lease=decision['lease'], now=now,
+                    attempts=job.attempts, stale_before=stale_before,
+                    reason='test exhaustion', timeout_ms=5000,
+                    worker_stale_before=worker_stale_before,
+                    recovery_phase=decision['abandoned_phase'])
+        finally:
+            await connector.close_async()
+
+    def apply(action):
+        if connector_path == 'django':
+            return reclaim._apply_action_sync(
+                action, decision['job'], lease=decision['lease'], now=now,
+                attempts=job.attempts, stale_before=stale_before,
+                reason='test exhaustion',
+                worker_stale_before=worker_stale_before,
+                recovery_phase=decision['abandoned_phase'])
+        return async_to_sync(pool_action)(action)
+
+    assert apply('retry') == 'recovery_proof_changed'
+    assert apply('failed') == 'recovery_proof_changed'
+    assert body_calls == ['entered']
+    assert _status(job_id) == 'doing'
+    assert _attempts(job_id) == 0
+    export.refresh_from_db()
+    assert export.status == ExportStatus.QUEUED
+
+    client = APIClient()
+    client.force_authenticate(user=next_owner)
+    assert client.post('/api/exports/publications/').status_code == 503
+
+
+@pytest.mark.django_db(transaction=True)
+def test_old_writer_upsert_cannot_inherit_prebody_proof(
+        stalled_settings, settings):
+    """A legacy writer's mutable token/attempt cannot carry phase authority."""
+    settings.JOB_RECLAIM_OPERATOR_EXCLUDED_QUEUES = ()
+    settings.JOB_RECLAIM_EXCLUDED_QUEUES = ()
+    job_id = export_publication_task.defer(job_id='old-writer-phase-proof')
+    now = timezone.now()
+    started = now - timedelta(hours=1)
+    _mark_doing(job_id, started, attempts=1)
+    job = app.job_manager.list_jobs(id=job_id)[0]
+    old_token = uuid.uuid4()
+    _lease(job_id, job.task_name, job.queue,
+           last_beat_at=started, started_at=started)
+    JobLease.objects.filter(job_id=job_id).update(
+        phase='before_body', phase_token=JobLease.objects.get(
+            job_id=job_id).token, phase_attempt=0)
+
+    # This matches the deployed pre-identity ON CONFLICT write: it does not
+    # know the phase proof columns and replaces token/attempt in place.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO jobs_joblease "
+            "(job_id, token, worker_name, pod, task_name, queue, "
+            "started_at, last_beat_at, deadline_at, attempt) "
+            "SELECT %s, %s, %s, %s, %s, %s, %s, now(), NULL, %s "
+            "FROM procrastinate_jobs WHERE id=%s AND status='doing' "
+            "AND attempts=%s ON CONFLICT (job_id) DO UPDATE SET "
+            "token=EXCLUDED.token, worker_name=EXCLUDED.worker_name, "
+            "pod=EXCLUDED.pod, task_name=EXCLUDED.task_name, "
+            "queue=EXCLUDED.queue, started_at=EXCLUDED.started_at, "
+            "last_beat_at=now(), deadline_at=EXCLUDED.deadline_at, "
+            "attempt=EXCLUDED.attempt "
+            "WHERE EXCLUDED.attempt >= jobs_joblease.attempt",
+            [job_id, old_token, 'legacy-worker', 'legacy-pod',
+             job.task_name, job.queue, started, 1, job_id, 1])
+
+    current = JobLease.objects.get(job_id=job_id)
+    assert current.token == old_token
+    assert current.attempt == 1
+    assert current.phase == 'before_body'
+    assert current.phase_token != current.token
+    assert current.phase_attempt == 0
+    assert reclaim._abandoned_phase(None, {
+        'token': current.token, 'attempt': current.attempt,
+        'phase': current.phase, 'phase_token': current.phase_token,
+        'phase_attempt': current.phase_attempt,
+    }, 1) is None
+
+    decision = async_to_sync(reclaim.reclaim_decision)(
+        app.job_manager.list_jobs(id=job_id)[0], floor=600, margin=60,
+        heartbeat_seconds=180,
+        max_reclaims=settings.JOB_RECLAIM_MAX_RECLAIMS, now=now)
+    assert decision['reason'] == 'never_reclaimed'
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('connector_path', ['django', 'worker_pool'])
+def test_finite_budget_bypass_is_revoked_when_body_starts(
+        connector_path, stalled_settings, settings):
+    """A pre-body candidate cannot use its early-runtime bypass after entry."""
+    from procrastinate.contrib.django.utils import connector_params
+    from procrastinate.psycopg_connector import PsycopgConnector
+
+    settings.JOB_RECLAIM_OPERATOR_EXCLUDED_QUEUES = ()
+    settings.JOB_RECLAIM_EXCLUDED_QUEUES = ()
+    now = timezone.now()
+    started = now - timedelta(minutes=10)
+    job_id = generate_video_poster.defer(generic_file_id=2715001)
+    _mark_doing(job_id, started)
+    _lease(job_id, 'uploads.generate_video_poster', 'images',
+           last_beat_at=started, started_at=started)
+    _mark_lease_before_body(job_id)
+    job = app.job_manager.list_jobs(id=job_id)[0]
+    decision = async_to_sync(reclaim.reclaim_decision)(
+        job, floor=120, margin=300, heartbeat_seconds=60,
+        max_reclaims=settings.JOB_RECLAIM_MAX_RECLAIMS, now=now)
+    assert decision['reason'] == 'eligible'
+    assert decision['abandoned_phase'] == 'before_body'
+    assert reclaim.task_threshold_seconds(job.task_name) > (
+        now - started).total_seconds()
+
+    token = decision['lease']['token']
+    body_values = {
+        'job_id': job_id, 'token': token,
+        'attempt': decision['lease']['attempt'],
+    }
+    with lease._connect(lease._connection_params(), 'finite-body-start') as conn:
+        assert conn.execute(lease._BODY_STARTED_SQL, body_values).rowcount == 1
+    body_calls = []
+    body_calls.append('entered')
+
+    if connector_path == 'django':
+        outcome = reclaim._apply_action_sync(
+            'retry', decision['job'], lease=decision['lease'], now=now,
+            attempts=job.attempts,
+            stale_before=now - timedelta(seconds=180),
+            worker_stale_before=now - timedelta(seconds=60),
+            recovery_phase=decision['abandoned_phase'])
+    else:
+        async def pool_action():
+            connector = PsycopgConnector(
+                kwargs=connector_params(), min_size=1, max_size=1)
+            await connector.open_async()
+            try:
+                async with connector.pool.connection(timeout=3) as conn:
+                    return await reclaim._apply_action_worker_pool_transaction(
+                        conn, connector, 'retry', decision['job'],
+                        lease=decision['lease'], now=now,
+                        attempts=job.attempts,
+                        stale_before=now - timedelta(seconds=180),
+                        reason='finite task early-recovery test',
+                        timeout_ms=5000,
+                        worker_stale_before=now - timedelta(seconds=60),
+                        recovery_phase=decision['abandoned_phase'])
+            finally:
+                await connector.close_async()
+        outcome = async_to_sync(pool_action)()
+    assert body_calls == ['entered']
+    assert outcome == 'recovery_proof_changed'
+    assert _status(job_id) == 'doing'
+    assert _attempts(job_id) == 0
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3024,6 +3365,26 @@ def test_export_recovery_refuses_marker_for_a_different_attempt(
         job_id=job_id, task_name='exports.export_publication', queue='exports',
         reason=f'recovery abandoned attempt before_body:{old_lease.token}',
         attempts=0)
+
+    result = _sweep()
+
+    assert result['reclaimed_ids'] == []
+    assert result['skipped_excluded'] == 1
+    assert _status(job_id) == 'doing'
+    assert _attempts(job_id) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_export_recovery_refuses_prebody_phase_for_a_different_attempt(
+        stalled_settings):
+    """A stale lease phase cannot authorize the queue row's newer attempt."""
+    job_id = export_publication_task.defer(job_id='stale-prebody-phase')
+    started = timezone.now() - timedelta(seconds=2400)
+    _mark_doing(job_id, started, attempts=1)
+    _lease(
+        job_id, 'exports.export_publication', 'exports',
+        last_beat_at=started, started_at=started)
+    _mark_lease_before_body(job_id)
 
     result = _sweep()
 

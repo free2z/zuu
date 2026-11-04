@@ -51,6 +51,9 @@ from dj.apps.g12f.test_translation_settlement import (  # noqa: F401
 _FIXTURE = json.loads(
     (pathlib.Path(__file__).parent / "test_translation_url_bypasses.json").read_text()
 )
+_ZCASH_FIXTURE = json.loads(
+    (pathlib.Path(__file__).parent / "test_translation_zcash_bypasses.json").read_text()
+)
 SOURCE = _FIXTURE["source"]
 CASES = {case["name"]: case["output"] for case in _FIXTURE["cases"]}
 BENIGN = {case["name"]: case["output"] for case in _FIXTURE["benign"]}
@@ -109,6 +112,36 @@ def test_a_faithful_translation_is_still_clean(name):
     repeated inside code and inside parentheses -- introduces nothing.
     Without this, "fatal" would be satisfiable by refusing everything."""
     assert _codes(SOURCE, BENIGN[name]) == []
+
+
+@pytest.mark.parametrize(
+    "separator",
+    ["\u0085", "\u2028", "\u2029", "\u000b", "\u000c"],
+    ids=["next-line", "line-separator", "paragraph-separator", "vertical-tab", "form-feed"],
+)
+def test_unicode_separators_do_not_create_markdown_fence_exemptions(separator):
+    address = _ZCASH_FIXTURE["address"]
+    uri = f"zcash:{address}?amount=1**00**"
+    fake_fence = f"~~~text{separator}{uri}{separator}~~~"
+    fake_indented_block = f"    example\n{separator}\n    {uri}"
+
+    assert safety._stable_zip321_code_ranges(fake_fence) == []
+    uri_start = fake_indented_block.index(uri)
+    assert all(
+        not start <= uri_start < end
+        for start, end in safety._stable_zip321_code_ranges(fake_indented_block)
+    )
+
+
+def test_zip321_code_scanner_skips_documents_without_zip_uris(monkeypatch):
+    def unexpected_scan(_value):
+        pytest.fail("URI-free content should skip literal-code range parsing")
+
+    monkeypatch.setattr(safety, "_stable_literal_code_ranges", unexpected_scan)
+    content = ("```text\nexample\n```\n\n" * 6000)
+
+    assert safety._stable_zip321_code_ranges(content) == []
+    assert safety._mask_unchanged_code_zip321_uris(content, "translated") == "translated"
 
 
 def test_the_zpage_4966_placeholder_inside_code_is_fatal_again():
@@ -195,6 +228,52 @@ def test_a_bypass_is_refunded_by_the_worker(name, creator_factory, monkeypatch):
     body = record_for(response)
     assert body["status"] == charges.REFUNDED
     assert body["error"] == "url_not_in_source"
+    assert not body.get("warnings")
+    assert balance(creator) == before
+    assert not ZPageTranslation.objects.filter(zpage=page).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.usefixtures("ai_model")
+@pytest.mark.parametrize(
+    "definition",
+    [
+        '# Example\n[a]: #x "hidden {uri} "',
+        '[a]:\n #x "hidden {uri}"',
+        '<pre-example>example</pre-example>\n\n[a]: #x "hidden {uri}"',
+    ],
+    ids=["after-heading", "multiline-destination", "pre-prefix-custom-tag"],
+)
+def test_hidden_zip321_reference_amount_is_refunded_by_the_worker(
+    definition, creator_factory, monkeypatch,
+):
+    address = _ZCASH_FIXTURE["address"]
+    uri = f"zcash:{address}?amount=1**00**"
+    prefix = f"Donate {address}.\n\n"
+    hidden = definition.format(uri=uri)
+    source = prefix + hidden
+    creator = creator_factory(tuzis=Decimal("100"))
+    page = make_page(creator, content=source)
+    before = balance(creator)
+    response = buy(client_for(creator), page)
+    # The body's translation drops the non-rendered definition and shows the
+    # same URI as visible text; the title and description are translated
+    # unchanged. The source's non-rendered copy is not authority for it.
+    monkeypatch.setattr(
+        service, "stream_chat",
+        Provider(
+            transform=lambda fragment: (
+                f"[tr] {fragment.replace(hidden, '').rstrip()}\n\n{uri}"
+                if hidden in fragment else f"[tr] {fragment}"
+            ),
+        ),
+    )
+
+    assert run_job(response) is False
+
+    body = record_for(response)
+    assert body["status"] == charges.REFUNDED
+    assert body["error"] == "zip321_amount_not_in_source"
     assert not body.get("warnings")
     assert balance(creator) == before
     assert not ZPageTranslation.objects.filter(zpage=page).exists()

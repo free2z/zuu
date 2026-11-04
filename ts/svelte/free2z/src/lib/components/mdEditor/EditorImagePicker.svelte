@@ -6,14 +6,23 @@
   import * as Dialog from "$lib/components/ui/dialog";
   import * as Tabs from "$lib/components/ui/tabs";
   import {
-    VIDEO_ACCEPT,
-    supportedVideo,
-    supportedVideoFile,
-  } from "./videoMedia";
+    mediaAccept,
+    mediaMimeTypes,
+    acceptsEditorMedia,
+    acceptsEditorMediaFile,
+    type EditorMediaKind,
+  } from "./editorMedia";
+  import {
+    uploadPublicFile,
+    explainUploadRejection,
+    uploadErrorMessage,
+  } from "$lib/api/uploads";
   import { videoPickerCopy } from "./videoPickerCopy";
   import type { TranslationFunction } from "$lib/i18n";
   import { tStore as t } from "$lib/i18n";
   import {
+    AudioLines,
+    FileText,
     ClipboardPaste,
     ImagePlus,
     Images,
@@ -43,7 +52,10 @@
   import { appendMediaPage } from "./mediaLibrary.js";
 
   interface Props {
-    mediaType?: "image" | "video";
+    mediaType?: "image" | EditorMediaKind;
+    /** Inline hosts own placeholders and pending-post guards; long-form embeds
+     * upload inside the dialog and insert only after successful completion. */
+    uploadMode?: "inline" | "embed";
     onChooseCloudImage: (item: CoverLibraryImage) => void | Promise<void>;
     /** Resolving `false` means "refused": the picker stays open. */
     onUploadLocalImages: (
@@ -86,23 +98,82 @@
     onChooseCloudImage,
     onUploadLocalImages,
     mediaType = "image",
+    uploadMode = "inline",
     subscriberOnly = false,
     accessSlot = "body",
     localUploadsAllowed = true,
     beforeChooseCloudImage,
   }: Props = $props();
 
-  const PickerIcon = $derived(mediaType === "video" ? Video : ImagePlus);
-  const LibraryIcon = $derived(mediaType === "video" ? Video : Images);
-  const mimePrefix = $derived(`${mediaType}/`);
-  const translate: TranslationFunction = (key, fallback, params) =>
-    mediaType === "video" && videoPickerCopy[key]
-      ? $t(
-          key.replace("editor.", "editor.videoPicker."),
-          videoPickerCopy[key],
-          params,
+  const PickerIcon = $derived(
+    mediaType === "video"
+      ? Video
+      : mediaType === "audio"
+        ? AudioLines
+        : mediaType === "document"
+          ? FileText
+          : ImagePlus,
+  );
+  const LibraryIcon = $derived(mediaType === "image" ? Images : PickerIcon);
+  const mimePrefix = $derived(
+    mediaType === "document" ? "application/pdf" : `${mediaType}/`,
+  );
+  const matchesMedia = (mime: string, name: string) =>
+    mediaType === "image"
+      ? mime?.startsWith("image/")
+      : acceptsEditorMedia(mediaType, mime, name);
+  let uploading = $state(false);
+  let uploadProgress = $state(0);
+  let uploadError = $state("");
+  let uploadAbort: AbortController | null = null;
+
+  const translate: TranslationFunction = (key, fallback, params) => {
+    if (mediaType === "image") return $t(key, fallback, params);
+    if (
+      [
+        "editor.imageAccessMakeMembersBody",
+        "editor.imageAccessMakePublicBody",
+        "editor.imageAccessMakeMembers",
+        "editor.imageAccessMakePublic",
+      ].includes(key)
+    ) {
+      return $t(
+        key.replace("editor.", "editor.mediaPicker."),
+        fallback,
+        params,
+      );
+    }
+    if (!videoPickerCopy[key]) return $t(key, fallback, params);
+    let copy =
+      videoPickerCopy[key] ??
+      (fallback ?? key)
+        .replace(/Images/g, "Videos")
+        .replace(/images/g, "videos")
+        .replace(/Image/g, "Video")
+        .replace(/image/g, "video");
+    if (key === "editor.imageFileHint")
+      return mediaMimeTypes(mediaType).join(" · ");
+    if (mediaType !== "video")
+      copy = copy
+        .replace(
+          /Videos/g,
+          mediaType === "audio" ? "Audio files" : "PDF documents",
         )
-      : $t(key, fallback, params);
+        .replace(
+          /videos/g,
+          mediaType === "audio" ? "audio files" : "PDF documents",
+        )
+        .replace(/Video/g, mediaType === "audio" ? "Audio" : "Document")
+        .replace(
+          /video/g,
+          mediaType === "audio" ? "audio file" : "PDF document",
+        );
+    return $t(
+      key.replace("editor.", `editor.${mediaType}Picker.`),
+      copy,
+      params,
+    );
+  };
 
   const slotContext = $derived<MediaSlotContext>({
     slot: accessSlot,
@@ -169,9 +240,9 @@
 
   function imageFilesFromList(files: FileList | File[]) {
     return Array.from(files).filter((file) =>
-      mediaType === "video"
-        ? supportedVideoFile(file.type, file.name)
-        : file.type.startsWith(mimePrefix),
+      mediaType === "image"
+        ? file.type.startsWith("image/")
+        : acceptsEditorMediaFile(mediaType, file.type, file.name),
     );
   }
 
@@ -196,7 +267,9 @@
       .filter(
         (file): file is File =>
           file !== null &&
-          (mediaType !== "video" || supportedVideoFile(file.type, file.name)),
+          (mediaType === "image"
+            ? file.type.startsWith("image/")
+            : acceptsEditorMediaFile(mediaType, file.type, file.name)),
       );
   }
 
@@ -221,6 +294,7 @@
   }
 
   function closePicker() {
+    uploadAbort?.abort();
     open = false;
     chooseRequestId += 1;
     choosingCloudImageId = null;
@@ -238,9 +312,13 @@
 
     const images = imageFilesFromList(files);
 
-    if (!images.length) {
-      return;
+    if (images.length !== files.length) {
+      uploadError = translate(
+        "editor.unsupportedMedia",
+        "Some files are unsupported. Choose one of the listed file types.",
+      );
     }
+    if (!images.length || uploading) return;
 
     localFiles = [...localFiles, ...images.map(createLocalImage)];
   }
@@ -310,11 +388,51 @@
       return;
     }
 
-    const accepted = await onUploadLocalImages(
-      images.map((image) => image.file),
-    );
-    if (accepted === false) return;
-    closePicker();
+    if (mediaType === "image" || uploadMode === "inline") {
+      const accepted = await onUploadLocalImages(
+        images.map((image) => image.file),
+      );
+      if (accepted !== false) closePicker();
+      return;
+    }
+    if (uploading) return;
+    uploading = true;
+    uploadError = "";
+    uploadProgress = 0;
+    const controller = new AbortController();
+    uploadAbort = controller;
+    try {
+      for (const image of images) {
+        const uploaded = await uploadPublicFile(image.file, image.file.name, {
+          signal: controller.signal,
+          onProgress: (loaded, total) => {
+            uploadProgress = Math.round((loaded / total) * 100);
+          },
+        });
+        if (controller.signal.aborted || !open) return;
+        if (
+          !uploaded.url ||
+          !matchesMedia(uploaded.mime_type || image.file.type, uploaded.url)
+        )
+          throw new Error("Invalid upload response");
+        await onChooseCloudImage({
+          ...uploaded,
+          access: "public",
+        } as CoverLibraryImage);
+        removeLocalFile(image);
+      }
+      closePicker();
+    } catch (error) {
+      if (open && !controller.signal.aborted) {
+        const explained = await explainUploadRejection(error, {
+          request: apiFetch,
+        });
+        uploadError = uploadErrorMessage(explained, $t);
+      }
+    } finally {
+      uploading = false;
+      uploadAbort = null;
+    }
   }
 
   function imageName(item: CoverLibraryImage) {
@@ -387,11 +505,7 @@
     // and 401s for every subscriber, and the publish-sheet hint stays quiet
     // because that page IS subscribers-only. A refused click is recoverable;
     // this is not.
-    if (
-      !current ||
-      !current.mime_type?.startsWith(mimePrefix) ||
-      (mediaType === "video" && !supportedVideo(current.mime_type, current.url))
-    ) {
+    if (!current || !matchesMedia(current.mime_type, current.url)) {
       operationNotice.error(
         translate(
           "editor.imageAccessCheckFailed",
@@ -483,6 +597,7 @@
         satisfies: (candidate) => satisfiesSlot(candidate.access, slotContext),
       });
 
+      if (!open || pendingItem !== item) return;
       cloudItems = cloudItems.map((entry) =>
         entry.id === updated.id ? updated : entry,
       );
@@ -564,10 +679,8 @@
         return;
       }
 
-      const nextItems = (data.results ?? []).filter(
-        (item) =>
-          item.mime_type?.startsWith(mimePrefix) &&
-          (mediaType !== "video" || supportedVideo(item.mime_type, item.url)),
+      const nextItems = (data.results ?? []).filter((item) =>
+        matchesMedia(item.mime_type, item.url),
       );
 
       cloudItems = reset ? nextItems : appendMediaPage(cloudItems, nextItems);
@@ -606,6 +719,7 @@
     open = nextOpen;
 
     if (!nextOpen) {
+      uploadAbort?.abort();
       chooseRequestId += 1;
       choosingCloudImageId = null;
       clearLocalFiles();
@@ -622,6 +736,15 @@
   }
 
   export function openPicker(defaultTab: "device" | "cloud" = "device") {
+    if (mediaType !== "image") {
+      cloudRequestId += 1;
+      cloudItems = [];
+      cloudHasNext = false;
+      cloudLoading = false;
+      cloudLoadingMore = false;
+      cloudError = "";
+      uploadError = "";
+    }
     tab =
       !localUploadsAllowed && defaultTab === "device" ? "cloud" : defaultTab;
     open = true;
@@ -677,6 +800,7 @@
     if (cloudSearchTimeout) {
       clearTimeout(cloudSearchTimeout);
     }
+    uploadAbort?.abort();
     cloudRequestId += 1;
     clearLocalFiles();
   });
@@ -702,6 +826,31 @@
       </Dialog.Description>
     </Dialog.Header>
 
+    {#if mediaType !== "image" && tab === "device"}
+      <p class="text-sm text-muted-foreground">
+        {$t(
+          "editor.publicMediaUpload",
+          "Files uploaded here are public. Anyone with the link can open them.",
+        )}
+      </p>
+    {/if}
+    {#if uploadError}<p role="alert" class="text-sm text-destructive">
+        {uploadError}
+      </p>{/if}
+    {#if uploading}
+      <div role="status" class="flex items-center gap-3">
+        <progress
+          max="100"
+          value={uploadProgress}
+          class="min-w-0 flex-1"
+          aria-label={$t("editor.uploadProgress", "Upload progress")}
+        ></progress>
+        <span>{uploadProgress}%</span>
+        <Button variant="outline" onclick={() => uploadAbort?.abort()}
+          >{$t("editor.cancelUpload", "Cancel upload")}</Button
+        >
+      </div>
+    {/if}
     <Tabs.Root bind:value={tab} class="min-h-0 flex-1 gap-4 overflow-hidden">
       <Tabs.List class="shrink-0">
         {#if localUploadsAllowed}
@@ -728,7 +877,7 @@
           <input
             bind:this={localInputRef}
             type="file"
-            accept={mediaType === "video" ? VIDEO_ACCEPT : "image/*"}
+            accept={mediaType === "image" ? "image/*" : mediaAccept(mediaType)}
             multiple
             class="hidden"
             onchange={handleLocalInputChange}
@@ -877,6 +1026,13 @@
                           aria-label={image.file.name}
                           class="h-14 w-14 shrink-0 rounded-lg bg-muted object-cover"
                         ></video>
+                      {:else if mediaType === "audio" || mediaType === "document"}
+                        <span
+                          class="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-xs"
+                          >{mediaType === "document"
+                            ? "PDF"
+                            : $t("editor.commandNames.audio", "Audio")}</span
+                        >
                       {:else}
                         <img
                           src={image.previewUrl}
@@ -944,7 +1100,7 @@
                 <Button
                   size="sm"
                   onclick={() => void uploadLocalFiles(localFiles)}
-                  disabled={!localFiles.length}
+                  disabled={!localFiles.length || uploading}
                 >
                   <UploadCloud class="h-4 w-4" />
                   {translate("editor.insertSelectedImages", "Insert Selected")}
@@ -1103,7 +1259,7 @@
                   type="button"
                   class={`group relative overflow-hidden rounded-lg border bg-card text-left transition hover:border-primary/35 hover:shadow-md ${cloudView === "list" ? "flex min-h-20 items-center" : ""}`}
                   onclick={() => void chooseCloudImage(item)}
-                  disabled={choosingCloudImageId !== null}
+                  disabled={choosingCloudImageId !== null || uploading}
                 >
                   <div
                     class={`${cloudView === "list" ? "h-20 w-24 shrink-0 sm:h-24 sm:w-32" : "aspect-square sm:aspect-[4/3]"} overflow-hidden bg-muted`}
@@ -1122,6 +1278,13 @@
                           )}
                         class="h-full w-full object-cover"
                       ></video>
+                    {:else if mediaType === "audio" || mediaType === "document"}
+                      <span
+                        class="flex h-full items-center justify-center text-sm text-muted-foreground"
+                        >{mediaType === "document"
+                          ? "PDF"
+                          : $t("editor.commandNames.audio", "Audio")}</span
+                      >
                     {:else}
                       <img
                         src={buildMediaUrl(item.thumbnail || item.url)}

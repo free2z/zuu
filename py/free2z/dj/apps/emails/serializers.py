@@ -4,6 +4,13 @@ from rest_framework import serializers
 from .models import Email
 
 class EmailSerializer(serializers.ModelSerializer):
+    # Declared rather than derived from the model so that validation checks
+    # only the request's own shape. The model's uniqueness would otherwise be
+    # enforced here, before the view has checked the caller's recent sign-in
+    # or charged the attempt to the caller's budget; `AddEmailView` decides
+    # what an address already held by another account means, after both.
+    email = serializers.EmailField(max_length=254)
+
     class Meta:
         model = Email
         fields = [

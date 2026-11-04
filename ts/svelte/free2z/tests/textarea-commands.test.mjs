@@ -253,3 +253,32 @@ test("a host without headings gets none from the keyboard either", () => {
     { kind: "inline", marker: "**" },
   );
 });
+
+test("media palette preserves the exact replacement range without writing a directive", () => {
+  for (const [action, mediaPicker] of [
+    ["open-audio-picker", "audio"],
+    ["open-document-picker", "document"],
+    ["open-embed-link", "link"],
+  ]) {
+    const result = applySlashCommand(
+      "Before selected after",
+      7,
+      { id: "media", name: "Media", description: "", action },
+      true,
+      15,
+    );
+    assert.equal(result.nextValue, "Before selected after");
+    assert.equal(result.selectionStart, 7);
+    assert.equal(result.selectionEnd, 15);
+    assert.equal(result.mediaPicker, mediaPicker);
+    const slash = applySlashCommand(
+      "Before\n/pdf after",
+      11,
+      { id: "media", name: "Media", description: "", action },
+      false,
+    );
+    assert.equal(slash.nextValue, "Before\n after");
+    assert.equal(slash.selectionStart, 7);
+    assert.equal(slash.selectionEnd, 7);
+  }
+});

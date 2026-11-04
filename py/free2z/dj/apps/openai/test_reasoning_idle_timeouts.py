@@ -1,5 +1,5 @@
 """Silent-reasoning rows carry ``ttfb_timeout_ms`` and ``idle_timeout_ms``
-= 300000 (tuzi#2492).
+= 300000.
 
 A reasoning model's Chat Completions stream can send no body byte until it
 has finished thinking, so both gateway deadlines must step aside for the
