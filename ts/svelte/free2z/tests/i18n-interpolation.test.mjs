@@ -92,3 +92,20 @@ test("fallbacks interpolate known params and preserve unknown placeholders", () 
     "resolved {unknown}",
   );
 });
+
+test("ICU migrated keys retain shipped output and source fallback is distinct from missing", () => {
+  assert.equal(
+    i18n.translate("fr", "trending.pageOf", "unused", { page: 2, total: 4 }),
+    "Page 2 sur 4",
+  );
+  assert.equal(
+    i18n.translate("es", "missing.translation", "fallback {value}", {
+      value: 7,
+    }),
+    "fallback 7",
+  );
+  assert.equal(
+    i18n.translate("en", "missing.translation"),
+    "missing.translation",
+  );
+});

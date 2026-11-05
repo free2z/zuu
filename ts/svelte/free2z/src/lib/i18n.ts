@@ -17,6 +17,7 @@ import {
   normalizeLocale,
   resolveLocale,
 } from "./locale.js";
+import { formatIcuMessage, ICU_MESSAGE_KEYS } from "./icu-message.js";
 import { getRequestLocale } from "./request-locale.js";
 import { requestScopedStore } from "./request-scoped-store.js";
 
@@ -93,7 +94,7 @@ function getTranslation(
   key: string,
   currentLocale: string = DEFAULT_LOCALE,
   params?: TranslationParams,
-): string {
+): string | undefined {
   const requestedLocale = normalizeLocale(
     currentLocale,
   ) as SupportedLocale | null;
@@ -110,11 +111,24 @@ function getTranslation(
         translations[sourceLocale],
         candidateKey,
       );
-      if (result !== undefined) return interpolate(result, params);
+      if (result !== undefined) {
+        if ((ICU_MESSAGE_KEYS as readonly string[]).includes(candidateKey)) {
+          try {
+            return formatIcuMessage(result, sourceLocale, params);
+          } catch (error) {
+            console.error(
+              `Invalid ICU message ${candidateKey} (${sourceLocale})`,
+              error,
+            );
+            return result;
+          }
+        }
+        return interpolate(result, params);
+      }
     }
   }
 
-  return key;
+  return undefined;
 }
 
 /** @type {import('@sveltekit-i18n/parser-default').Config} */
@@ -222,9 +236,7 @@ export function translate(
   params?: TranslationParams,
 ): string {
   const translation = getTranslation(key, currentLocale, params);
-  return translation !== key
-    ? translation
-    : interpolate(fallback || key, params);
+  return translation ?? interpolate(fallback || key, params);
 }
 
 /**
