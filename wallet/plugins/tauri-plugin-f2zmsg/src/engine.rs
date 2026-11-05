@@ -5979,6 +5979,7 @@ mod tests {
     use f2z_msg_store::{Durability, MemoryBackend, Op, SqliteBackend, StorageBackend, StoreError};
     use f2z_relay_testkit::fake::FakeRelay;
     use f2z_relay_testkit::faults::{Effect, Fault, Trigger};
+    use openmls::prelude::MlsGroup;
     use rand::TryRng;
 
     use super::*;
