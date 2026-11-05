@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Signed tri-state `ModelCapabilities::forced_tool_choice` (zuu#1144): explicit false refuses required/named function choice before holds; absent preserves legacy tool-control admission.
+
 ### Deprecated
 
 - Request `metadata`: the gateway refuses a non-empty `metadata` for every

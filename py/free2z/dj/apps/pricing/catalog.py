@@ -125,10 +125,10 @@ CATALOG_SIGNING_LABEL = b"free2z/ai-catalog/v1"
 CATALOG_SCHEMA = 1
 #Every ``capabilities`` member a schema-1 model may carry, each a bool.
 #``structured_output`` (zuu#1128), ``strict_tools`` (zuu#1142) and
-#``reasoning_effort`` (zuu#1170) are additive: unknown to older gateways,
+#``reasoning_effort`` (zuu#1170), and ``forced_tool_choice`` (zuu#1144) are additive: unknown to older gateways,
 #which ignore them (``ModelCapabilities`` does not deny unknown members).
 CAPABILITY_MEMBERS = frozenset(
-    {"vision", "tools", "reasoning", "structured_output", "strict_tools",
+    {"vision", "tools", "reasoning", "structured_output", "strict_tools", "forced_tool_choice",
      "reasoning_effort"})
 #Every member a model's optional ``controls`` object may carry (crate
 #``ModelControls``, zuu#1170). Additive: an older gateway's ``CatalogModel``
@@ -685,6 +685,11 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
             # explicitly like every member.
             "reasoning_effort": ai_model.supports_reasoning_effort,
         }
+        # NULL on pre-migration rows preserves their exact signed body and
+        # cache identity. New rows default false, requiring reviewed opt-in.
+        # Saves stamp updated_at; migration does not alter existing bodies.
+        if ai_model.supports_forced_tool_choice is not None:
+            candidates[-1]["capabilities"]["forced_tool_choice"] = ai_model.supports_forced_tool_choice
         # Signed narrowing, only where the capability is on and a list is
         # recorded: a list left on a row whose capability an operator turned
         # off is simply not signed (never a reason to exclude the model).

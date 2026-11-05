@@ -664,6 +664,16 @@ pub fn strict_tools_supported(model: &CatalogModel) -> bool {
             .unwrap_or(model.provider == "openai")
 }
 
+/// Whether required/named function choice can be sent. Legacy catalogues
+/// omit the declaration and retain their existing tool-control admission.
+/// Explicit false always refuses; no model-name inference is performed.
+#[must_use]
+pub fn forced_tool_choice_supported(model: &CatalogModel) -> bool {
+    model.capabilities.tools
+        && TOOL_CONTROL_STYLES.contains(&model.api_style)
+        && model.capabilities.forced_tool_choice.unwrap_or(true)
+}
+
 /// Refuse a tool feature `model` cannot honour — before any hold, charge or
 /// provider request, and never by dropping it. Runs in the metering plan;
 /// each adapter's `body` re-runs the translation half,
@@ -689,6 +699,7 @@ pub fn check_tools(request: &ChatRequest, model: &CatalogModel) -> Result<(), Ap
 /// Never by dropping a field:
 ///
 /// * `tool_choice` / `parallel_tool_calls` outside [`TOOL_CONTROL_STYLES`].
+/// * Required/named `tool_choice` without [`forced_tool_choice_supported`].
 /// * `tools[i].strict: true` without [`strict_tools_supported`].
 /// * Anthropic Messages also refuses a `response_format` beside `tools`
 ///   ([`anthropic::check`]).
@@ -715,6 +726,19 @@ pub fn check_tool_translation(
                 "this model does not support parallel_tool_calls",
             ));
         }
+    }
+    if matches!(
+        request.tool_choice,
+        Some(
+            f2z_ai_proto::chat::ToolChoice::Required
+                | f2z_ai_proto::chat::ToolChoice::Function { .. }
+        )
+    ) && !forced_tool_choice_supported(model)
+    {
+        return Err(tools_unsupported(
+            "tool_choice",
+            "this model does not support forced tool_choice",
+        ));
     }
     if let Some(index) = request.tools.iter().position(|t| t.strict == Some(true))
         && !strict_tools_supported(model)

@@ -1090,6 +1090,19 @@ test("models types capabilities, prices and limits, and tolerates additive field
   assert.equal(next.prices.audio_milli_2z_per_mtok, 7n);
   assert.equal(next.prices.tier, "std");
   assert.deepEqual({ ...next.future_field }, { x: 1n });
+  assert.notEqual(old.capabilities.forced_tool_choice, true);
+  for (const forced of [true, false]) {
+    body = catalog(
+      gpt4o.replace(
+        '"structured_output":true',
+        `"structured_output":true,"forced_tool_choice":${forced}`,
+      ),
+    );
+    assert.equal(
+      (await transport.models()).models[0].capabilities.forced_tool_choice,
+      forced,
+    );
+  }
   // A reasoning model with its signed effort levels.
   body = catalog(
     gpt4o
@@ -1110,6 +1123,10 @@ test("models types capabilities, prices and limits, and tolerates additive field
   );
   assert.deepEqual({ ...(await transport.models()).models[0].controls }, {});
   for (const bad of [
+    gpt4o.replace(
+      '"structured_output":true',
+      '"structured_output":true,"forced_tool_choice":"true"',
+    ),
     gpt4o.replace('"structured_output":true', '"structured_output":"true"'),
     gpt4o.replace(
       '"structured_output":true',

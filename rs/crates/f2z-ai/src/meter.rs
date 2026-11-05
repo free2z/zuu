@@ -938,7 +938,7 @@ impl ChatBackend for Metered {
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"forced_tool_choice":crate::provider::forced_tool_choice_supported(m),"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),

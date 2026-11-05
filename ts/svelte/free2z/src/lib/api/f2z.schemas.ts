@@ -807,6 +807,8 @@ export interface CatalogModelCapabilities {
   structured_output?: boolean;
   /** `strict: true` on a function tool is supported. Always emitted by this signer; a gateway reads absence as 'not declared', never as false. */
   strict_tools?: boolean;
+  /** Required/named function choice is supported. Explicit false refuses forcing before a hold; absent preserves legacy tools/adapter admission. No default: legacy rows omit this member; new rows default false pending reviewed opt-in. */
+  forced_tool_choice?: boolean;
   /** `reasoning_effort` is supported (zuu#1170); not implied by `reasoning`. Always emitted by this signer; absent reads as false. */
   reasoning_effort?: boolean;
 }
@@ -858,7 +860,7 @@ export interface CatalogModel {
      */
   idle_timeout_ms: number;
   enabled: boolean;
-  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared. */
+  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared; absent forced_tool_choice preserves legacy tools/adapter admission. */
   capabilities?: CatalogModelCapabilities;
   /** Signed per-model narrowing (zuu#1170); present only when it narrows something. */
   controls?: CatalogModelControls;
@@ -942,7 +944,7 @@ export interface CatalogModelV2 {
      */
   idle_timeout_ms: number;
   enabled: boolean;
-  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared. */
+  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared; absent forced_tool_choice preserves legacy tools/adapter admission. */
   capabilities?: CatalogModelCapabilities;
   /** Signed per-model narrowing (zuu#1170); present only when it narrows something. */
   controls?: CatalogModelControls;

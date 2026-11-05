@@ -389,3 +389,44 @@ fn even_signed_tools_effort_controls_refuse_non_booleans() {
         ));
     }
 }
+
+#[test]
+fn forced_tool_choice_is_signed_tri_state_and_legacy_encoding_is_unchanged() {
+    let f = load();
+    for declared in [None, Some(false), Some(true)] {
+        let mut tree: Value = serde_json::from_slice(&f.served).unwrap();
+        tree["models"][0]["capabilities"] =
+            serde_json::json!({"tools":true,"vision":false,"reasoning":false});
+        if let Some(value) = declared {
+            tree["models"][0]["capabilities"]["forced_tool_choice"] = value.into();
+        }
+        let signing = SigningKey::from_bytes(&[42; 32]);
+        let key = TrustedKey {
+            key_id: "test".into(),
+            key: signing.verifying_key(),
+        };
+        let signature = signing.sign(&catalog_signing_message(&tree).unwrap());
+        let sig = DetachedSignature {
+            key_id: "test".into(),
+            signature,
+        };
+        let wire = serde_json::to_vec(&tree).unwrap();
+        let decoded = verify_now(&wire, &sig, std::slice::from_ref(&key)).unwrap();
+        assert_eq!(decoded.models[0].capabilities.forced_tool_choice, declared);
+        assert_eq!(
+            serde_json::to_value(decoded.models[0].capabilities).unwrap(),
+            tree["models"][0]["capabilities"]
+        );
+        tree["models"][0]["capabilities"]["forced_tool_choice"] =
+            serde_json::json!(!declared.unwrap_or(true));
+        assert!(verify_now(&serde_json::to_vec(&tree).unwrap(), &sig, &[key]).is_err());
+    }
+    for bad in ["null", "0", "\"true\"", "[]"] {
+        assert!(
+            serde_json::from_str::<f2z_ai_proto::catalog::ModelCapabilities>(&format!(
+                "{{\"forced_tool_choice\":{bad}}}"
+            ))
+            .is_err()
+        );
+    }
+}
