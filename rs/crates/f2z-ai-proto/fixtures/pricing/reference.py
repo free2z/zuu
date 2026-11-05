@@ -32,7 +32,8 @@ def usage_cost_usd(u, pr):
     n = F(1, 10**9)
     return (u["input_tokens"] * F(pr["input_nusd_per_mtok"], 10**6) * n
             + u["cached_input_tokens"] * F(pr["cached_input_nusd_per_mtok"], 10**6) * n
-            + u["cache_write_tokens"] * F(pr["cache_write_nusd_per_mtok"], 10**6) * n
+            + (u["cache_write_tokens"] - u.get("cache_write_1h_tokens", 0)) * F(pr["cache_write_nusd_per_mtok"], 10**6) * n
+            + u.get("cache_write_1h_tokens", 0) * F(pr.get("cache_write_1h_nusd_per_mtok", 0), 10**6) * n
             + u["output_tokens"] * F(pr["output_nusd_per_mtok"], 10**6) * n
             + u["images"] * pr["image_nusd"] * n
             + u["tool_calls"] * pr["tool_call_nusd"] * n)
@@ -83,6 +84,9 @@ usage_cases = [
    dict(P, output_nusd_per_mtok=15_000_000_000),
    0, 0, 1),
 ]
+usage_cases.append(("synthetic_hourly_subset", "Synthetic total/subset TTL counts, one metering ceil, no provider price assertion.",
+    dict(Z, cache_write_tokens=1_000_001, cache_write_1h_tokens=500_000),
+    dict(P, cache_write_nusd_per_mtok=2, cache_write_1h_nusd_per_mtok=5), 5000, 1000, 1))
 out_usage = []
 for name, note, u, pr, m, k, mn in usage_cases:
     cost_nusd = math.ceil(usage_cost_usd(u, pr) * 10**9)  # step 1: meter, round up

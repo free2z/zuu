@@ -389,9 +389,8 @@ pub struct Scenario {
     /// Anthropic only: the part of `cache_write_tokens` written with the 1-hour
     /// TTL. Anthropic splits cache writes into
     /// `cache_creation.ephemeral_5m_input_tokens` and
-    /// `ephemeral_1h_input_tokens`, priced differently; `f2z-ai-proto` has one
-    /// cache-write price today, so [`Scenario::expected_usage`] reports the
-    /// sum. Clamped to `cache_write_tokens`.
+    /// `ephemeral_1h_input_tokens`, priced differently. Expected usage carries
+    /// the hourly subset beside the total. Clamped to `cache_write_tokens`.
     pub cache_write_1h_tokens: u64,
     /// Serve this body verbatim instead of rendering one (see the module's
     /// *Replay* section). `None` renders as usual.
@@ -551,6 +550,7 @@ impl Scenario {
         match style {
             ProviderStyle::ChatCompletions if !include_usage => None,
             ProviderStyle::OpenAiResponses | ProviderStyle::ChatCompletions => Some(Usage {
+                cache_write_1h_tokens: 0,
                 // No cache-write count exists in OpenAI's shape: those tokens
                 // arrive as ordinary (uncached) prompt tokens.
                 input_tokens: self.input_tokens.saturating_add(self.cache_write_tokens),
@@ -562,6 +562,7 @@ impl Scenario {
                 tool_calls: 0,
             }),
             ProviderStyle::AnthropicMessages => Some(Usage {
+                cache_write_1h_tokens: self.cache_write_1h_tokens,
                 // From the LAST message_delta when usage is cumulative.
                 input_tokens: self.input_tokens.saturating_add(
                     self.anthropic_cumulative

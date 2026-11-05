@@ -282,6 +282,10 @@ impl Catalog {
     ///
     /// [`CatalogError::Invalid`] naming the first violation.
     pub fn validate(&self) -> Result<(), CatalogError> {
+        self.validate_with_hourly(false)
+    }
+
+    pub(crate) fn validate_with_hourly(&self, allow_hourly: bool) -> Result<(), CatalogError> {
         if self.schema != CATALOG_SCHEMA {
             return Err(CatalogError::Invalid("unsupported catalogue schema"));
         }
@@ -295,6 +299,11 @@ impl Catalog {
         }
         let mut seen = BTreeSet::new();
         for model in &self.models {
+            if !allow_hourly && model.prices.cache_write_1h_nusd_per_mtok.is_some() {
+                return Err(CatalogError::Invalid(
+                    "hourly pricing requires catalogue schema 2",
+                ));
+            }
             if model.id.is_empty() {
                 return Err(CatalogError::Invalid("empty model id"));
             }
@@ -315,7 +324,11 @@ impl Catalog {
             if model.idle_timeout_ms == Some(0) {
                 return Err(CatalogError::Invalid("idle_timeout_ms of 0"));
             }
-            if model.prices == ModelPrices::default() {
+            let mut legacy_dimensions = model.prices;
+            legacy_dimensions.cache_write_1h_nusd_per_mtok = None;
+            if legacy_dimensions == ModelPrices::default()
+                && model.prices.cache_write_1h_nusd_per_mtok.unwrap_or(0) == 0
+            {
                 return Err(CatalogError::Invalid("all prices are zero"));
             }
         }
@@ -468,6 +481,20 @@ pub fn verify_catalog(
     {
         return Err(CatalogError::Invalid(
             "context pricing requires catalogue schema 2",
+        ));
+    }
+    if tree
+        .get("models")
+        .and_then(Value::as_array)
+        .is_some_and(|models| {
+            models.iter().any(|m| {
+                m.get("prices")
+                    .is_some_and(|p| p.get("cache_write_1h_nusd_per_mtok").is_some())
+            })
+        })
+    {
+        return Err(CatalogError::Invalid(
+            "hourly pricing requires catalogue schema 2",
         ));
     }
     let catalog: Catalog = serde_json::from_value(tree).map_err(CatalogError::Json)?;

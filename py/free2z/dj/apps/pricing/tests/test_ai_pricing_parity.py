@@ -251,7 +251,7 @@ def test_from_crate_refuses_unknown_and_missing_members():
         "tool_call_nusd": 0,
     }
     assert ModelPrices.from_crate(good).cache_write_5m_nusd_per_mtok == 7
-    assert ModelPrices.from_crate(good).cache_write_1h_nusd_per_mtok == 0
+    assert ModelPrices.from_crate(good).cache_write_1h_nusd_per_mtok is None
     with pytest.raises(ValueError, match="unknown"):
         ModelPrices.from_crate({**good, "cache_write_1h_nusd_per_mtok": 9})
     missing = dict(good)
@@ -278,3 +278,36 @@ def test_usd_per_token_conversion_is_exact_or_refused():
     assert nusd_per_mtok_from_usd_per_token("0.000000001") == 1_000_000
     with pytest.raises(ValueError):
         nusd_per_mtok_from_usd_per_token("0.0000000000000001")
+
+
+def test_v2_public_total_is_projected_to_exclusive_internal_buckets():
+    prices = ModelPrices.from_crate({
+        "input_nusd_per_mtok": 0, "cached_input_nusd_per_mtok": 0,
+        "cache_write_nusd_per_mtok": 2, "cache_write_1h_nusd_per_mtok": 5,
+        "output_nusd_per_mtok": 0, "image_nusd": 0, "tool_call_nusd": 0,
+    }, schema=2)
+    for total, hourly, expected in [(1_000_000, 0, 2), (1_000_000, 1_000_000, 5),
+                                    (1_000_000, 500_000, 4), (2, 1, 1)]:
+        usage = Usage.from_crate({"cache_write_tokens": total,
+                                  "cache_write_1h_tokens": hourly}, schema=2)
+        assert usage.cache_write_tokens == total - hourly
+        assert metered_cost_nusd(usage, prices) == expected
+    with pytest.raises(ValueError):
+        Usage.from_crate({"cache_write_tokens": 1, "cache_write_1h_tokens": 2}, schema=2)
+
+
+def test_missing_hourly_rate_is_not_a_free_rate():
+    with pytest.raises(ValueError, match="unpriced"):
+        metered_cost_nusd(Usage(cache_write_1h_tokens=1), ModelPrices())
+    assert metered_cost_nusd(Usage(cache_write_1h_tokens=1),
+                             ModelPrices(cache_write_1h_nusd_per_mtok=0)) == 0
+
+
+def test_v2_pricing_decode_refuses_missing_null_and_unknown_money():
+    base = {"input_nusd_per_mtok": 1, "cached_input_nusd_per_mtok": 0,
+            "cache_write_nusd_per_mtok": 2, "output_nusd_per_mtok": 0,
+            "image_nusd": 0, "tool_call_nusd": 0}
+    for rates in (base, {**base, "cache_write_1h_nusd_per_mtok": None},
+                  {**base, "cache_write_1h_nusd_per_mtok": 5, "unknown_money": 1}):
+        with pytest.raises((TypeError, ValueError, PricingOverflow)):
+            ModelPrices.from_crate(rates, schema=2)

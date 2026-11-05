@@ -44,6 +44,7 @@ fn usage() -> impl Strategy<Value = Usage> {
         0..1_000u64,
     )
         .prop_map(|(i, ci, cw, o, img, t)| Usage {
+            cache_write_1h_tokens: 0,
             input_tokens: i,
             cached_input_tokens: ci,
             cache_write_tokens: cw,
@@ -67,6 +68,7 @@ fn prices() -> impl Strategy<Value = ModelPrices> {
         per_unit,
     )
         .prop_map(|(i, ci, cw, o, img, t)| ModelPrices {
+            cache_write_1h_nusd_per_mtok: None,
             input_nusd_per_mtok: i,
             cached_input_nusd_per_mtok: ci,
             cache_write_nusd_per_mtok: cw,

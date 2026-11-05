@@ -196,6 +196,10 @@ const LABEL_BEARING_DOCUMENTS = [
   // shares the one prefix-free namespace with the relay, the log and the
   // intent bridge.
   "docs/free2z/ai-gateway/README.md",
+  // Schema-2 hourly cache-write prices (#1059) quote the same catalogue
+  // signature label. The metering spec does not mint a new domain; it has to
+  // be registered because it names one.
+  "docs/free2z/sdk/spec/metering.md",
 ];
 
 /// Files under this prefix are subject to the registration half of the anchor.

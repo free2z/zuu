@@ -11,7 +11,7 @@ from rest_framework.views import APIView
 from dj.free2z.throttling import POLLING_THROTTLES
 
 from . import catalog, constants
-from .serializers import PricingSerializer, QuoteSerializer, SignedCatalogSerializer
+from .serializers import SignedCatalogV2Serializer, PricingSerializer, QuoteSerializer, SignedCatalogSerializer
 from .service import PricingUnavailable, get_current_snapshot, get_pricing
 
 
@@ -143,6 +143,7 @@ class AICatalogView(APIView):
     A genuinely unexpected error still surfaces as a 500.
     """
 
+    catalog_schema = 1
     permission_classes = [AllowAny]
     # No session/CSRF processing: the response does not depend on who asks.
     authentication_classes: list = []
@@ -196,7 +197,8 @@ class AICatalogView(APIView):
     def get(self, request, *args, **kwargs):
         now = catalog.now_unix()
         try:
-            signed = catalog.signed_catalog(now)
+            signed = (catalog.signed_catalog(now) if self.catalog_schema == 1
+                      else catalog.signed_catalog(now, schema=self.catalog_schema))
         except catalog.CatalogRefused as exc:
             if exc.reason in catalog.NOT_PROVISIONED_REASONS:
                 catalog.log_not_provisioned(exc)
@@ -219,3 +221,13 @@ class AICatalogView(APIView):
         # it was issued in.
         response["Cache-Control"] = "no-cache"
         return response
+
+
+class AICatalogV2View(AICatalogView):
+    """Opt-in TTL pricing publication; schema-1 clients keep their endpoint."""
+
+    catalog_schema = 2
+
+    @extend_schema(operation_id="ai_catalog_v2", responses={200: SignedCatalogV2Serializer})
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)

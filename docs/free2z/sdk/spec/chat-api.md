@@ -414,7 +414,8 @@ data: {"usage":{"input_tokens":1187,"cached_input_tokens":0,"cache_write_tokens"
 |---|---|
 | `usage.input_tokens` | Uncached input tokens billed. The three input buckets are **disjoint** |
 | `usage.cached_input_tokens` | Input served from the provider's prompt cache (cheaper) |
-| `usage.cache_write_tokens` | Input written to the provider's cache (sometimes dearer) |
+| `usage.cache_write_tokens` | Total input written to the provider's cache across TTLs |
+| `usage.cache_write_1h_tokens` | Hourly subset of cache writes; absent means zero for legacy records. Never add to total writes. |
 | `usage.output_tokens` | Output tokens **including** reasoning |
 | `usage.reasoning_tokens` | The part of `output_tokens` that was reasoning; informational, never priced a second time |
 | `usage.images` | Input images billed per image, where the model prices them so |
