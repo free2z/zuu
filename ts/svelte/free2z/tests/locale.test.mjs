@@ -108,7 +108,8 @@ import { fileURLToPath } from "node:url";
 
 const UI_ROOT = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(UI_ROOT, "..", "src");
-const LOCALES = path.join(SRC, "lib", "locales");
+const LOCALES =
+  process.env.I18N_TEST_LOCALES ?? path.join(SRC, "lib", "locales");
 const APP_LOCALES = ["en", "es", "fr", "pt-BR"];
 
 function readCatalog(dir, locale) {

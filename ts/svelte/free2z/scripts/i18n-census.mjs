@@ -13,7 +13,12 @@ const oldBaseline = new Set(
     .map((line) => line.trim())
     .filter((line) => line && !line.startsWith("#")),
 );
-const english = JSON.parse(fs.readFileSync("src/lib/locales/en.json", "utf8"));
+const english = JSON.parse(
+  fs.readFileSync(
+    process.env.I18N_CENSUS_ENGLISH ?? "src/lib/locales/en.json",
+    "utf8",
+  ),
+);
 function hasKey(key) {
   const find = (k) =>
     typeof k
@@ -38,6 +43,16 @@ function files(dir) {
     );
 }
 const findings = [];
+const escapes = [];
+function escape(file, node, source) {
+  const text = source.replace(/\s+/g, " ");
+  const fingerprint = crypto
+    .createHash("sha256")
+    .update(text)
+    .digest("hex")
+    .slice(0, 16);
+  escapes.push(`${path.relative(".", file)}:${node}:escape:${fingerprint}`);
+}
 function record(file, callee, argument, call) {
   if (
     argument.type === "literal" &&
@@ -52,15 +67,15 @@ function record(file, callee, argument, call) {
     .slice(0, 16);
   findings.push(`${path.relative(".", file)}:${callee}:${kind}:${fingerprint}`);
 }
-function walkObject(node, visit) {
+function walkObject(node, visit, parent = null) {
   if (!node || typeof node !== "object") return;
   if (Array.isArray(node)) {
-    for (const child of node) walkObject(child, visit);
+    for (const child of node) walkObject(child, visit, parent);
     return;
   }
-  visit(node);
+  visit(node, parent);
   for (const [key, value] of Object.entries(node))
-    if (key !== "parent" && key !== "metadata") walkObject(value, visit);
+    if (key !== "parent" && key !== "metadata") walkObject(value, visit, node);
 }
 for (const file of files(root)) {
   const source = fs.readFileSync(file, "utf8");
@@ -68,6 +83,11 @@ for (const file of files(root)) {
     const ast = parse(source, { modern: true });
     const names = new Set();
     walkObject(ast, (n) => {
+      if (
+        n.type === "ExportNamedDeclaration" &&
+        /(?:^|\/)i18n(?:-message)?$/.test(n.source?.value ?? "")
+      )
+        escape(file, "reexport", source.slice(n.start, n.end));
       if (
         n.type === "Identifier" &&
         n.typeAnnotation?.typeAnnotation?.typeName?.name ===
@@ -89,6 +109,35 @@ for (const file of files(root)) {
               names.add(`$${spec.local.name}`);
           }
         }
+    });
+    // Track simple local aliases to a fixed point. Every other use of a
+    // translator binding is separately governed as an escape below.
+    for (let i = 0; i < 8; i++)
+      walkObject(ast, (n) => {
+        if (
+          n.type === "VariableDeclarator" &&
+          n.id?.type === "Identifier" &&
+          n.init?.type === "Identifier" &&
+          names.has(n.init.name)
+        )
+          names.add(n.id.name);
+        if (
+          n.type === "VariableDeclarator" &&
+          n.id?.type === "ObjectPattern" &&
+          n.init?.type === "CallExpression" &&
+          n.init.callee?.name === "getContext"
+        )
+          for (const p of n.id.properties ?? [])
+            if (["t", "translate", "translator"].includes(p.key?.name))
+              names.add(p.value.name);
+      });
+    walkObject(ast, (n, parent) => {
+      if (n.type !== "Identifier" || !names.has(n.name) || !parent) return;
+      if (["ImportSpecifier", "ImportDeclaration"].includes(parent.type))
+        return;
+      if (parent.type === "CallExpression" && parent.callee === n) return;
+      if (parent.start == null || parent.end == null) return;
+      escape(file, n.name, source.slice(parent.start, parent.end));
     });
     walkObject(ast, (n) => {
       if (
@@ -133,6 +182,13 @@ for (const file of files(root)) {
         }
     function visit(n) {
       if (
+        ts.isExportDeclaration(n) &&
+        n.moduleSpecifier &&
+        ts.isStringLiteral(n.moduleSpecifier) &&
+        /(?:^|\/)i18n(?:-message)?$/.test(n.moduleSpecifier.text)
+      )
+        escape(file, "reexport", n.getText(ast));
+      if (
         n.name &&
         ts.isIdentifier(n.name) &&
         n.type &&
@@ -170,6 +226,47 @@ for (const file of files(root)) {
       ts.forEachChild(n, collect);
     }
     collect(ast);
+    for (let i = 0; i < 8; i++) {
+      function aliases(n) {
+        if (
+          ts.isVariableDeclaration(n) &&
+          ts.isIdentifier(n.name) &&
+          n.initializer &&
+          ts.isIdentifier(n.initializer) &&
+          names.has(n.initializer.text)
+        )
+          names.set(n.name.text, names.get(n.initializer.text));
+        if (
+          ts.isVariableDeclaration(n) &&
+          ts.isObjectBindingPattern(n.name) &&
+          n.initializer &&
+          ts.isCallExpression(n.initializer) &&
+          n.initializer.expression.getText(ast) === "getContext"
+        )
+          for (const e of n.name.elements)
+            if (
+              ts.isIdentifier(e.name) &&
+              ["t", "translate", "translator"].includes(
+                (e.propertyName ?? e.name).getText(ast),
+              )
+            )
+              names.set(e.name.text, 0);
+        ts.forEachChild(n, aliases);
+      }
+      aliases(ast);
+    }
+    function capture(n) {
+      if (
+        ts.isIdentifier(n) &&
+        names.has(n.text) &&
+        n.parent &&
+        !ts.isImportSpecifier(n.parent) &&
+        !(ts.isCallExpression(n.parent) && n.parent.expression === n)
+      )
+        escape(file, n.text, n.parent.getText(ast));
+      ts.forEachChild(n, capture);
+    }
+    capture(ast);
     visit(ast);
   }
 }
@@ -189,4 +286,22 @@ findings.sort();
     console.log(
       `i18n census: ${findings.length} owned legacy exceptions; no new calls`,
     );
+}
+
+escapes.sort();
+const escapePath = "tests/i18n-escape-baseline.json";
+{
+  const baseline = JSON.parse(fs.readFileSync(escapePath, "utf8"));
+  const count = (xs) =>
+    xs.reduce((m, x) => m.set(x, (m.get(x) ?? 0) + 1), new Map());
+  const actual = count(escapes),
+    expected = count(baseline);
+  const added = [...actual].filter(([x, n]) => n > (expected.get(x) ?? 0));
+  const removed = [...expected].filter(([x, n]) => n > (actual.get(x) ?? 0));
+  if (added.length || removed.length) {
+    console.error(
+      JSON.stringify({ escapeAdded: added, escapeRemoved: removed }, null, 2),
+    );
+    process.exitCode = 1;
+  }
 }
