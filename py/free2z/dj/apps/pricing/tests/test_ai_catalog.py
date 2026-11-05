@@ -217,7 +217,7 @@ def test_the_crate_fixture_minus_what_we_refuse_to_publish_validates():
 
 
 @pytest.mark.parametrize("mutate, reason", [
-    (lambda c: c.update(schema=2), "invalid_catalog"),
+    (lambda c: c.update(schema=3), "invalid_catalog"),
     (lambda c: c.update(expires_at=c["issued_at"]), "invalid_catalog"),
     (lambda c: c.update(platform_margin_bps=100_001), "invalid_catalog"),
     (lambda c: c.update(version=-1), "invalid_catalog"),
@@ -975,14 +975,14 @@ def test_no_refusal_path_returns_5xx(sample_dataset, at_sample_now, monkeypatch,
         # The DB CHECK forbids all-zero rows, so feed the builder directly.
         real = catalog.validate_model
 
-        def poisoned(model, disabled=()):
+        def poisoned(model, disabled=(), *, schema=1):
             if model["id"] == "grok-4.5":
                 model = json.loads(json.dumps(model))
                 if refusal == "all_zero":
                     model["prices"] = dict.fromkeys(model["prices"], 0)
                 else:
                     model["provider"], model["prices"]["image_nusd"] = "openai", 5
-            return real(model, disabled)
+            return real(model, disabled, schema=schema)
 
         monkeypatch.setattr(catalog, "validate_model", poisoned)
     with ctx:
@@ -1581,3 +1581,33 @@ def test_forced_tool_choice_serializer_and_committed_schema(declared):
     assert "forced_tool_choice" not in capabilities.get("required", [])
     assert "preserves legacy" in field["description"]
     assert "supports_forced_tool_choice" not in schemas["AIModel"]["properties"]
+
+
+def test_schema2_ttl_publication_preserves_v1(sample_dataset, at_sample_now):
+    old = catalog.build_catalog(SAMPLE_NOW)
+    new = catalog.build_catalog(SAMPLE_NOW, schema=2)
+    assert new["schema"] == 2
+    assert old["version"] == new["version"]
+    for v1, v2 in zip(old["models"], new["models"], strict=True):
+        assert "cache_write_1h_nusd_per_mtok" not in v1["prices"]
+        row = RateCardModel.objects.get(rate_card=sample_dataset, model_id=v1["id"])
+        assert v2["prices"]["cache_write_1h_nusd_per_mtok"] == row.cache_write_1h_nusd_per_mtok
+    client = APIClient()
+    v1 = client.get(URL)
+    v2 = client.get("/api/ai/catalog/v2")
+    assert v1.status_code == v2.status_code == 200
+    assert v1["ETag"] != v2["ETag"]
+    body = v2.json()
+    assert ed25519_reference.verify(
+        bytes.fromhex(TEST1_PUBLIC_HEX), catalog.signing_message(body["catalog"]),
+        bytes.fromhex(body["signature"]["signature_hex"]),
+    )
+    poisoned = json.loads(json.dumps(old))
+    poisoned["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = None
+    with pytest.raises(catalog.CatalogRefused):
+        catalog.validate_catalog(poisoned)
+    for value in (None, -1, True):
+        bad = json.loads(json.dumps(new))
+        bad["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = value
+        with pytest.raises(catalog.CatalogRefused):
+            catalog.validate_catalog(bad)

@@ -260,7 +260,8 @@ impl Plan {
         prices.input_nusd_per_mtok = prices
             .input_nusd_per_mtok
             .max(prices.cached_input_nusd_per_mtok)
-            .max(prices.cache_write_nusd_per_mtok);
+            .max(prices.cache_write_nusd_per_mtok)
+            .max(prices.cache_write_1h_nusd_per_mtok.unwrap_or(0));
         let usage = Usage {
             input_tokens: self.input,
             output_tokens: output,
@@ -1439,12 +1440,18 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
         .filter(|p| {
             let total = p
                 .input_tokens
-                .saturating_add(p.cached_input_tokens)
-                .saturating_add(p.cache_write_tokens);
-            total > 0 && total <= plan.input
+                .checked_add(p.cached_input_tokens)
+                .and_then(|n| n.checked_add(p.cache_write_tokens));
+            p.cache_write_1h_tokens <= p.cache_write_tokens
+                && total.is_some_and(|n| n > 0 && n <= plan.input)
         })
-        .map_or((plan.input, 0, 0), |p| {
-            (p.input_tokens, p.cached_input_tokens, p.cache_write_tokens)
+        .map_or((plan.input, 0, 0, 0), |p| {
+            (
+                p.input_tokens,
+                p.cached_input_tokens,
+                p.cache_write_tokens,
+                p.cache_write_1h_tokens,
+            )
         });
     if !plan.input_exact && partial.is_none() {
         // metering.md §5.4: a provider without a tokeniser settles its
@@ -1489,6 +1496,7 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
         input_tokens: input.0,
         cached_input_tokens: input.1,
         cache_write_tokens: input.2,
+        cache_write_1h_tokens: input.3,
         output_tokens: output,
         ..Usage::default()
     })
@@ -2145,6 +2153,112 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn unpriced_hourly_finalize_persists_reported_and_interrupted_usage_without_settlement() {
+        struct RecordingLedger {
+            hold: Uuid,
+            operations: Mutex<Vec<Operation>>,
+            durable_completion: Mutex<Option<Value>>,
+        }
+        #[async_trait]
+        impl Ledger for RecordingLedger {
+            async fn execute(&self, operation: &Operation) -> Result<Value, ledger::Failure> {
+                lock(&self.operations).push(operation.clone());
+                if let Operation::Complete {
+                    completion,
+                    no_hold,
+                    ..
+                } = operation
+                {
+                    assert!(!no_hold, "the admitted call has a hold");
+                    *lock(&self.durable_completion) = Some(completion.clone());
+                    Ok(json!({"status":"recorded","record":{
+                        "status":"settling","attempts":[{"hold_id":self.hold}]
+                    }}))
+                } else {
+                    Err(ledger::Failure)
+                }
+            }
+        }
+        for reported in [true, false] {
+            let catalog = priced(200_000);
+            let model = catalog.catalog().models[0].clone();
+            assert!(model.prices.cache_write_1h_nusd_per_mtok.is_none());
+            let active = active_with(Plan {
+                model,
+                input: 135,
+                input_exact: true,
+                output: 72,
+                reasoning_output: false,
+                hold: Whole2z::new(1),
+                markup: Bps::ZERO,
+                margin: Bps(2000),
+            });
+            let hold = Uuid::now_v7();
+            *lock(&active.hold) = Some(Operation::Hold {
+                identity: active.identity,
+                call: active.id,
+                amount_milli: 1000,
+                model: "m".into(),
+                rate_card: 1,
+                catalog: "1".into(),
+                consented_markup: 0,
+                provider: "p".into(),
+            });
+            // Recover the hold from the durable Complete reply, as after a
+            // lost hold response; do not seed active.hold_id.
+            let usage = Usage {
+                input_tokens: 40,
+                cached_input_tokens: 5,
+                cache_write_tokens: 3,
+                cache_write_1h_tokens: 2,
+                output_tokens: if reported { 7 } else { 0 },
+                ..Usage::default()
+            };
+            let mut outcome = drained_outcome(Some(usage));
+            if reported {
+                outcome.usage = UsageReport::Reported(usage);
+                outcome.finish_reason = Some(FinishReason::Stop);
+            } else {
+                // Partial input survived an interrupted stream after output.
+                *lock(&active.output_bytes) = 1;
+                outcome.failure = Some(crate::provider::ProviderFailure::new(
+                    ErrorCode::ProviderError,
+                    "truncated",
+                    true,
+                ));
+            }
+            let intent = completion(&active, Some(&outcome));
+            assert_eq!(intent["usage"]["cache_write_tokens"], 3);
+            assert_eq!(intent["usage"]["cache_write_1h_tokens"], 2);
+            assert_eq!(
+                intent["usage_source"],
+                if reported { "provider" } else { "estimated" }
+            );
+            assert_eq!(intent["partial"], !reported);
+            *lock(&active.completion) = Some(intent.clone());
+            let ledger = RecordingLedger {
+                hold,
+                operations: Mutex::new(Vec::new()),
+                durable_completion: Mutex::new(None),
+            };
+            assert!(finalize(&ledger, &active).await.is_err());
+            assert_eq!(*lock(&active.hold_id), Some(hold));
+            assert_eq!(*lock(&ledger.durable_completion), Some(intent));
+            let operations = lock(&ledger.operations);
+            assert_eq!(
+                operations.len(),
+                1,
+                "only durable Complete, no Settle or Release"
+            );
+            assert!(matches!(
+                operations.first(),
+                Some(Operation::Complete { .. })
+            ));
+            assert!(lock(&active.final_record).is_none());
+        }
+    }
+
     // metering.md §5.4's guard on the byte-bound settlement: a provider
     // without a tokeniser whose interrupted call settles at the byte bound
     // logs `estimated_input_byte_bound`; a tokenised model, or partial
@@ -2196,6 +2310,7 @@ mod tests {
         let catalog = priced(200_000);
         let mut model = catalog.catalog().models[0].clone();
         model.capabilities.reasoning = true;
+        model.prices.cache_write_1h_nusd_per_mtok = Some(7000);
         let mut plan = Plan {
             model,
             input: 135,
@@ -2213,6 +2328,7 @@ mod tests {
             input_tokens: 40,
             cached_input_tokens: 5,
             cache_write_tokens: 3,
+            cache_write_1h_tokens: 2,
             output_tokens: 0,
             ..Usage::default()
         };
@@ -2220,6 +2336,7 @@ mod tests {
         assert_eq!(usage.input_tokens, 40);
         assert_eq!(usage.cached_input_tokens, 5);
         assert_eq!(usage.cache_write_tokens, 3);
+        assert_eq!(usage.cache_write_1h_tokens, 2);
         assert_eq!(usage.output_tokens, 72);
         assert_eq!(
             usage.reasoning_tokens, 0,

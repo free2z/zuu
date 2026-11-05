@@ -411,6 +411,14 @@ struct Counts {
 impl Counts {
     fn read(usage: &Value) -> Result<Self, Malformed> {
         let creation = usage.get("cache_creation");
+        if creation.is_some_and(|c| {
+            !c.is_object()
+                || ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"]
+                    .iter()
+                    .any(|key| c.get(key).is_some_and(Value::is_null))
+        }) {
+            return Err(Malformed("usage.cache_creation"));
+        }
         let split = |key| count(creation.and_then(|c| c.get(key)), "usage.cache_creation");
         let (five_min, one_hour) = (
             split("ephemeral_5m_input_tokens")?,
@@ -422,11 +430,22 @@ impl Counts {
         )? {
             Some(n) => Some(n),
             // Only the split was sent: its sum is the write count.
-            None if five_min.is_some() || one_hour.is_some() => {
-                Some(five_min.unwrap_or(0).saturating_add(one_hour.unwrap_or(0)))
-            }
+            None if five_min.is_some() || one_hour.is_some() => Some(
+                five_min
+                    .unwrap_or(0)
+                    .checked_add(one_hour.unwrap_or(0))
+                    .ok_or(Malformed("usage.cache_creation"))?,
+            ),
             None => None,
         };
+        if let Some(total) = cache_write {
+            let hourly = one_hour.unwrap_or(0);
+            if hourly > total
+                || five_min.is_some_and(|five| five.checked_add(hourly) != Some(total))
+            {
+                return Err(Malformed("usage.cache_creation"));
+            }
+        }
         let server = usage.get("server_tool_use");
         let search = count(
             server.and_then(|s| s.get("web_search_requests")),
@@ -463,6 +482,7 @@ impl Counts {
             input_tokens: self.input.unwrap_or(0),
             cached_input_tokens: self.cache_read.unwrap_or(0),
             cache_write_tokens: self.cache_write.unwrap_or(0),
+            cache_write_1h_tokens: self.cache_write_1h.unwrap_or(0),
             output_tokens: output,
             reasoning_tokens: 0,
             images: 0,
@@ -689,6 +709,10 @@ impl StreamParser for Parser {
                     // Cumulative: the latest report of each count replaces
                     // the earlier one.
                     self.deltas = self.deltas.overlay(Counts::read(usage)?);
+                    let merged = self.start.overlay(self.deltas);
+                    if merged.cache_write_1h.unwrap_or(0) > merged.cache_write.unwrap_or(0) {
+                        return Err(Malformed("usage.cache_creation"));
+                    }
                 }
             }
             "message_stop" => {
@@ -778,6 +802,53 @@ mod tests {
     }
 
     #[test]
+    fn ttl_reports_price_the_actual_split_and_preserve_partial_usage() {
+        use f2z_ai_proto::pricing::{ModelPrices, metered_cost_nusd};
+        let prices = ModelPrices {
+            cache_write_nusd_per_mtok: 2_000_000,
+            cache_write_1h_nusd_per_mtok: Some(5_000_000),
+            ..ModelPrices::default()
+        };
+        for (five, hour) in [(9, 0), (0, 9), (4, 5)] {
+            let mut p = Parser::default();
+            feed(
+                &mut p,
+                "message_start",
+                json!({"message":{"usage":{
+                "input_tokens":0,"cache_creation_input_tokens":9,
+                "cache_creation":{"ephemeral_5m_input_tokens":five,"ephemeral_1h_input_tokens":hour}}}}),
+            );
+            let partial = match p.end(false).usage {
+                UsageReport::Missing { partial: Some(u) } => u,
+                other => panic!("{other:?}"),
+            };
+            assert_eq!(partial.cache_write_1h_tokens, hour);
+            feed(
+                &mut p,
+                "message_delta",
+                json!({"usage":{"output_tokens":0}}),
+            );
+            let full = p.end(false).usage.reported().unwrap();
+            assert_eq!(full, partial);
+            assert_eq!(
+                metered_cost_nusd(&full, &prices).unwrap().get(),
+                five * 2 + hour * 5
+            );
+            let recovered: Usage =
+                serde_json::from_value(serde_json::to_value(full).unwrap()).unwrap();
+            assert_eq!(recovered, full);
+        }
+        for usage in [
+            json!({"cache_creation_input_tokens":1,"cache_creation":{"ephemeral_1h_input_tokens":2}}),
+            json!({"cache_creation_input_tokens":10,"cache_creation":{"ephemeral_5m_input_tokens":4,"ephemeral_1h_input_tokens":5}}),
+            json!({"cache_creation":{"ephemeral_5m_input_tokens":u64::MAX,"ephemeral_1h_input_tokens":1}}),
+            json!({"cache_creation":{"ephemeral_1h_input_tokens":null}}),
+        ] {
+            assert!(Counts::read(&usage).is_err());
+        }
+    }
+
+    #[test]
     fn the_last_cumulative_delta_wins_and_start_fills_the_gaps() {
         let mut p = Parser::default();
         start(&mut p);
@@ -795,6 +866,7 @@ mod tests {
         assert_eq!(
             end.usage,
             UsageReport::Reported(Usage {
+                cache_write_1h_tokens: 10,
                 input_tokens: 400,
                 cached_input_tokens: 7,
                 cache_write_tokens: 30,

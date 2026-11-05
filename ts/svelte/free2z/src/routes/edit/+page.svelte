@@ -160,6 +160,14 @@
     quoteTranslations,
     type BulkQuote,
   } from "$lib/api/zpage-translations";
+  import {
+    conflictDraftKey,
+    readConflictDraft,
+    storeConflictDraft,
+    clearConflictDraft,
+    type ConflictDraft,
+  } from "$lib/editor/conflict-draft";
+  import type { ZPageTagDecision } from "$lib/api/f2z.schemas";
   import SeriesEditor from "$lib/components/SeriesEditor.svelte";
 
   interface Props {
@@ -284,6 +292,126 @@
    * (or a hydration onto freshly read state) clears it.
    */
   let saveConflicted = $state(false);
+
+  let recoveryKey = "";
+  let recoveryDraft = $state<ConflictDraft | null>(null);
+  let tagDecisionBusy = $state(false);
+
+  function draftSnapshot(): ConflictDraft {
+    return {
+      title,
+      content,
+      description,
+      canonicalUrl,
+      coverImage,
+      coverImageId,
+      tags: [...tags],
+      zcashAddress,
+      vanity,
+      isPublished,
+      isSubscriberOnly,
+      publishAt,
+      showCover,
+      showSubtitle,
+    };
+  }
+
+  function reloadWithDraft(generation = hydrationGeneration) {
+    if (generation !== hydrationGeneration) return;
+    if (!ownerSignedIn || !recoveryKey) return;
+    if (!storeConflictDraft(recoveryKey, draftSnapshot())) {
+      saveError = $t("editor.draftStorageFailed");
+      toast.error(saveError);
+      return;
+    }
+    bypassNextNavigationGuard = true;
+    location.reload();
+  }
+
+  $effect(() => {
+    if (saveConflicted && ownerSignedIn && recoveryKey)
+      storeConflictDraft(recoveryKey, draftSnapshot());
+  });
+
+  function restoreConflictDraft() {
+    if (!ownerSignedIn || !recoveryDraft) return;
+    ({
+      title,
+      content,
+      description,
+      canonicalUrl,
+      coverImage,
+      coverImageId,
+      tags,
+      zcashAddress,
+      vanity,
+      isPublished,
+      isSubscriberOnly,
+      publishAt,
+      showCover,
+      showSubtitle,
+    } = recoveryDraft);
+    recoveryDraft = null;
+    handleMetadataChange();
+  }
+
+  async function decideEditorTags(decision: ZPageTagDecision) {
+    if (
+      isSaving ||
+      tagDecisionBusy ||
+      saveConflicted ||
+      recoveryDraft ||
+      !ownerSignedIn
+    )
+      throw new Error("Editor unavailable");
+    const generation = hydrationGeneration;
+    const id = currentZPage?.free2zaddr;
+    const language = selectedLanguage;
+    if (!id || isNewTranslationDraft) throw new Error("Variant unavailable");
+    const canonical = isCanonicalLanguage(language);
+    const key = preconditionKeyFor(id, language, canonical)!;
+    const variantQuery = canonical
+      ? ""
+      : `?lang=${encodeURIComponent(language)}`;
+    const ownership = authStore.captureRequestOwnership();
+    tagDecisionBusy = true;
+    try {
+      const response = await apiFetch(
+        `/api/tagging/zpage/${encodeURIComponent(id)}/suggestions/decide${variantQuery}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...preconditionHeaders(etags.get(key)),
+          },
+          body: JSON.stringify(decision),
+        },
+      );
+      if (!saveDocumentIsCurrent(generation) || !ownerSignedIn || !ownership())
+        throw new Error("Editor changed");
+      if (response.status === 412) {
+        saveConflicted = true;
+        saveError = $t("editor.saveConflict");
+        throw new Error(saveError);
+      }
+      if (!response.ok) throw new Error("Tag decision failed");
+      const result = await response.json();
+      if (!saveDocumentIsCurrent(generation) || !ownerSignedIn || !ownership())
+        throw new Error("Editor changed");
+      // A stripped header must not turn the next save into an unconditional write.
+      const nextEtag = response.headers.get("ETag");
+      if (!nextEtag) {
+        saveConflicted = true;
+        saveError = $t("editor.saveConflict");
+        throw new Error(saveError);
+      }
+      etags.set(key, nextEtag);
+      return result;
+    } finally {
+      tagDecisionBusy = false;
+      if (saveDocumentIsCurrent(generation) && isDirty) scheduleAutoSave();
+    }
+  }
 
   let currentZPage = $state<ZPage | null>(null);
   let title = $state("");
@@ -1247,6 +1375,8 @@
    * never sent. This is the escape hatch the language control never had.
    */
   function discardPendingChanges() {
+    if (recoveryKey) clearConflictDraft(recoveryKey);
+    recoveryDraft = null;
     clearAutoSaveTimer();
     changeVersion = 0;
     savedVersion = 0;
@@ -1483,6 +1613,15 @@
     saveBlockReason = null;
     languagePicker = null;
     saveConflicted = false;
+    recoveryKey = routeData.zpage
+      ? conflictDraftKey(
+          routeData.currentUser.id,
+          routeData.zpage.free2zaddr,
+          routeData.requestedLanguage,
+        )
+      : "";
+    recoveryDraft =
+      browser && recoveryKey ? readConflictDraft(recoveryKey) : null;
     translationReviewNeeded = false;
     translationReviewTarget = null;
     // Seed the canonical article's validator from the load's own GET.
@@ -1586,8 +1725,7 @@
    * Drop every validator after a canonical write this tab made outside the
    * save path.
    *
-   * Two of those exist — the article-language relabel PATCH and accepting an
-   * AI tag suggestion — and both change the canonical row without returning a
+   * The article-language relabel PATCH changes the canonical row without returning a
    * readable `ETag`. A stale validator after a change we made ourselves is
    * worse than none: the next autosave 412s and the editor latches into "you
    * are holding a superseded version" over an edit nobody else made, and the
@@ -2140,7 +2278,7 @@
     // point: the alternative is a save that either fails identically forever
     // or, if the validator were dropped, succeeds by overwriting the newer
     // version the creator was just told about.
-    if (saveConflicted) {
+    if (saveConflicted || recoveryDraft || tagDecisionBusy) {
       return failSave("conflict");
     }
 
@@ -2340,6 +2478,11 @@
     const operationNotice = captureAccountToast();
     const { isAuto = false, overrides, successMessage } = options;
     const documentGeneration = hydrationGeneration;
+
+    // A manual save may have awaited an earlier save after its first check.
+    // Recheck at the synchronous mutation boundary before building a payload.
+    if (tagDecisionBusy || saveConflicted || recoveryDraft)
+      return failSave("conflict");
 
     if (isSaving) {
       return failSave("in-flight");
@@ -2644,54 +2787,16 @@
       }
 
       if (isPreconditionFailure(response)) {
-        // Somebody else saved this article since the version in front of the
-        // creator was read. The one thing that must NOT happen here is
-        // "Failed to save article": the creator needs to know their words are
-        // still on screen, that the server has a newer version, and that
-        // reloading is the way out. The stale validator is dropped so the
-        // retry is not refused for the same reason forever, and the editor
-        // stays dirty so nothing the creator typed is discarded.
-        // The stale validator is deliberately KEPT. Dropping it would make
-        // the next save unconditional, and the backend accepts unconditional
-        // writes by design — so this tab would warn the creator about a
-        // conflict and then silently clobber the other tab seconds later.
-        // (codex adversarial review.)
+        // Latch the editor and keep the stale validator: dropping it would
+        // allow a later autosave to overwrite the server unconditionally.
+        // The reload action snapshots the latest fields, including edits
+        // typed after this request left, before it permits navigation.
         saveConflicted = true;
-        // A save this tab abandoned at its bound  may still have
-        // committed server-side — and then the "newer version" the 412 is
-        // about is this tab's OWN earlier save, not somebody else's. Say so
-        // rather than blaming a second editor who does not exist.
-        saveError = saveTimedOutSinceLastSuccess
-          ? $t(
-              "editor.saveConflictAfterTimeout",
-              "An earlier save that timed out may have gone through after all, so the server now has a newer version. Your changes are still here — reload to check, then re-apply anything missing.",
-            )
-          : // Localized first: `sentCreateOnly` is a fact this tab knows,
-            // and the server's English `detail` would otherwise always win
-            // over the translation ( review).
-            sentCreateOnly
-            ? $t(
-                "editor.createConflict",
-                "A {language} version already exists — from another tab, an AI translation or an earlier save. Your text is still here; copy it before reloading, which shows the saved version.",
-                { language: languageLabel(languageAtSaveStart) },
-              )
-            : apiRequestErrorMessage(result) ||
-              $t(
-                "editor.saveConflict",
-                "Someone else saved this article while you were editing. Your changes are still here — reload to get the newer version, then re-apply them.",
-              );
-        // Toasted even on an autosave, unlike every other failure. An autosave
-        // is silent by design because its failures are transient and retried;
-        // this one is neither, and staying silent would let the creator keep
-        // typing into a page that can no longer be saved.
+        saveError = $t("editor.saveConflict");
         if (!destroyed)
           editorActionToastIds.add(
             operationNotice.error(saveError, {
               duration: Infinity,
-              action: {
-                label: $t("editor.saveConflictReload", "Reload"),
-                onClick: () => location.reload(),
-              },
             }),
           );
         validationErrors = {};
@@ -2841,6 +2946,8 @@
       }
 
       createNeeds2z = null;
+      if (changeVersion === versionAtSaveStart && recoveryKey)
+        clearConflictDraft(recoveryKey);
 
       // The write response carries the validator the next read will emit, so
       // the following autosave is conditional too — including the first save
@@ -6066,6 +6173,29 @@
 </svelte:head>
 
 <div class="flex min-h-[calc(100vh-4rem)] w-full flex-col bg-background">
+  {#if ownerSignedIn && recoveryDraft}
+    <section role="status" class="space-y-2 border-b p-4">
+      <p>{$t("editor.draftRecovery")}</p>
+      <button class="cursor-pointer underline" onclick={restoreConflictDraft}
+        >{$t("editor.restoreDraft")}</button
+      >
+      <button
+        class="ml-4 cursor-pointer underline"
+        onclick={() => {
+          clearConflictDraft(recoveryKey);
+          recoveryDraft = null;
+        }}>{$t("editor.discardDraft")}</button
+      >
+    </section>
+  {/if}
+  {#if ownerSignedIn && saveConflicted}
+    <section role="status" class="border-b p-4">
+      <p>{saveError}</p>
+      <button class="cursor-pointer underline" onclick={() => reloadWithDraft()}
+        >{$t("editor.saveConflictReload")}</button
+      >
+    </section>
+  {/if}
   <EditorTopbar
     currentUser={getRouteData().currentUser}
     {canSchedule}
@@ -6083,7 +6213,7 @@
     bind:vanity
     bind:tags
     free2zaddr={currentZPage?.free2zaddr ?? ""}
-    onTagSuggestionWrite={() => invalidateEtags(currentZPage?.free2zaddr)}
+    onTagSuggestionWrite={decideEditorTags}
     bind:zcashAddress
     bind:isSubscriberOnly
     bind:publishAt

@@ -29,6 +29,7 @@ use f2z_ai_testkit::mock::{ChatFlavor, Fault, MockProvider, ProviderStyle, Scena
 use serde_json::json;
 
 const PRICES: ModelPrices = ModelPrices {
+    cache_write_1h_nusd_per_mtok: None,
     input_nusd_per_mtok: 3_000_000_000,
     cached_input_nusd_per_mtok: 300_000_000,
     cache_write_nusd_per_mtok: 3_750_000_000,

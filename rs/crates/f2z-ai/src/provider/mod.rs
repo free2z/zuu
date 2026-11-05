@@ -170,9 +170,9 @@ pub struct ProviderOutcome {
     pub usage: UsageReport,
     /// Anthropic's 1-hour-TTL share of `usage.cache_write_tokens`
     /// (`cache_creation.ephemeral_1h_input_tokens`). It is priced differently
-    /// from the 5-minute share and `f2z-ai-proto` has one cache-write price
-    /// today (zuu#1059): carried here so the split is not lost on the way to
-    /// the settler. `0` for every other provider.
+    /// from the 5-minute share. Also preserved in the public usage vector;
+    /// schema-1 metering refuses positive hourly usage as unpriced.
+    /// `0` for every other provider.
     pub cache_write_1h_tokens: u64,
     /// The provider failure that ended the call, if one did.
     pub failure: Option<ProviderFailure>,

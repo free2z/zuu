@@ -72,6 +72,21 @@ paths:
             reason}; reason is one of signing_key_malformed, test_key_not_allowed,
             no_active_rate_card, future_revision, invalid_catalog. Per-model problems
             never refuse the document: the model is omitted instead.'
+  /api/ai/catalog/v2:
+    get:
+      operationId: ai_catalog_v2
+      description: Opt-in TTL pricing publication; schema-1 clients keep their endpoint.
+      tags:
+      - ai
+      security:
+      - {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SignedCatalogV2'
+          description: ''
   /api/ai/conversations/:
     get:
       operationId: ai_conversations_list
@@ -7209,11 +7224,23 @@ paths:
 
         The response carries the page's full tag list afterwards and whatever is still pending, so a client needs no follow-up read.
       parameters:
+      - in: header
+        name: If-Match
+        schema:
+          type: string
+        description: Optional strong ETag of the article, or of lang when supplied.
+          Checked atomically with the decision.
       - in: path
         name: free2zaddr
         schema:
           type: string
         required: true
+      - in: query
+        name: lang
+        schema:
+          type: string
+        description: Variant whose validator is supplied and returned; omit for canonical
+          article.
       tags:
       - tagging
       requestBody:
@@ -7232,10 +7259,21 @@ paths:
       - knoxApiToken: []
       responses:
         '200':
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: New strong validator for the selected resource.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ZPageTagDecisionResult'
+          description: ''
+        '412':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreconditionFailed'
           description: ''
   /api/token/login/:
     post:
@@ -10645,6 +10683,106 @@ components:
       - input_nusd_per_mtok
       - output_nusd_per_mtok
       - tool_call_nusd
+    CatalogModelPricesV2:
+      type: object
+      description: Schema 2 requires an explicit hourly rate, including a reviewed
+        zero.
+      properties:
+        input_nusd_per_mtok:
+          type: integer
+          minimum: 0
+        cached_input_nusd_per_mtok:
+          type: integer
+          minimum: 0
+        cache_write_nusd_per_mtok:
+          type: integer
+          minimum: 0
+          description: The 5-minute-TTL cache-write price (schema 1 has one).
+        output_nusd_per_mtok:
+          type: integer
+          minimum: 0
+        image_nusd:
+          type: integer
+          minimum: 0
+        tool_call_nusd:
+          type: integer
+          minimum: 0
+        cache_write_1h_nusd_per_mtok:
+          type: integer
+          minimum: 0
+      required:
+      - cache_write_1h_nusd_per_mtok
+      - cache_write_nusd_per_mtok
+      - cached_input_nusd_per_mtok
+      - image_nusd
+      - input_nusd_per_mtok
+      - output_nusd_per_mtok
+      - tool_call_nusd
+    CatalogModelV2:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Public model id a client names.
+        provider:
+          type: string
+        provider_model_id:
+          type: string
+          description: The provider's own model id the gateway sends upstream.
+        api_style:
+          $ref: '#/components/schemas/ApiStyleEnum'
+        prices:
+          $ref: '#/components/schemas/CatalogModelPricesV2'
+        min_charge_2z:
+          type: integer
+          minimum: 1
+          description: Whole 2Z per call.
+        safety_factor_bps:
+          type: integer
+          minimum: 10000
+        context_window:
+          type: integer
+          minimum: 0
+          description: Tokens.
+        max_output_tokens:
+          type: integer
+          minimum: 0
+          description: Tokens.
+        ttfb_timeout_ms:
+          type: integer
+          minimum: 0
+          description: Milliseconds.
+        idle_timeout_ms:
+          type: integer
+          maximum: 300000
+          minimum: 1
+          description: Maximum stream silence in milliseconds; at most the gateway's
+            300s deadline.
+        enabled:
+          type: boolean
+        capabilities:
+          allOf:
+          - $ref: '#/components/schemas/CatalogModelCapabilities'
+          description: Signed capability policy, always emitted. Absent vision/tools/reasoning
+            mean false; absent structured_output/strict_tools means undeclared.
+        controls:
+          allOf:
+          - $ref: '#/components/schemas/CatalogModelControls'
+          description: Signed per-model narrowing (zuu#1170); present only when it
+            narrows something.
+      required:
+      - api_style
+      - context_window
+      - enabled
+      - id
+      - idle_timeout_ms
+      - max_output_tokens
+      - min_charge_2z
+      - prices
+      - provider
+      - provider_model_id
+      - safety_factor_bps
+      - ttfb_timeout_ms
     CatalogSignature:
       type: object
       properties:
@@ -10659,6 +10797,47 @@ components:
       required:
       - key_id
       - signature_hex
+    CatalogV2:
+      type: object
+      description: Crate ``Catalog`` (schema 1).
+      properties:
+        schema:
+          type: integer
+          maximum: 2
+          minimum: 2
+        version:
+          type: integer
+          description: Unix microseconds of the newest change or the per-minute re-issue.
+            Increases over time, but a later response can be LOWER by up to ~7 minutes
+            (pods straddling a minute, a deleted model); see dj.apps.pricing.catalog
+            for the bound.
+        issued_at:
+          type: integer
+          description: Unix seconds.
+        expires_at:
+          type: integer
+          description: Unix seconds; issued_at + 72h.
+        rate_card_version:
+          type: integer
+        platform_margin_bps:
+          type: integer
+        disabled_providers:
+          type: array
+          items:
+            type: string
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/CatalogModelV2'
+      required:
+      - disabled_providers
+      - expires_at
+      - issued_at
+      - models
+      - platform_margin_bps
+      - rate_card_version
+      - schema
+      - version
     CategoryEnum:
       enum:
       - ART
@@ -16149,6 +16328,16 @@ components:
           allOf:
           - $ref: '#/components/schemas/Catalog'
           description: Served in canonical JSON form.
+        signature:
+          $ref: '#/components/schemas/CatalogSignature'
+      required:
+      - catalog
+      - signature
+    SignedCatalogV2:
+      type: object
+      properties:
+        catalog:
+          $ref: '#/components/schemas/CatalogV2'
         signature:
           $ref: '#/components/schemas/CatalogSignature'
       required:

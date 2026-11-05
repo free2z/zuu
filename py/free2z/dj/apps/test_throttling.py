@@ -1022,6 +1022,7 @@ ANON_SCOPE_INVENTORY = {
     # (two queries + one Ed25519 signature), so it gets a bucket rather than
     # none; 1200/minute is 600x the gateway's own rate per replica.
     "dj.apps.pricing.views.AICatalogView": {"anon-poll"},
+    "dj.apps.pricing.views.AICatalogV2View": {"anon-poll"},
     # Browser economy capability refreshes read current policy/config rows.
     "dj.apps.economy.views.CapabilitiesView": {"anon-poll"},
 

@@ -327,7 +327,7 @@ def _uint(value, name: str, bits: int) -> None:
         raise CatalogRefused("invalid_catalog", f"{name} does not fit u{bits}: {value}")
 
 
-def validate_model(model: dict, disabled_providers=()) -> None:
+def validate_model(model: dict, disabled_providers=(), *, schema=1) -> None:
     """Refuse ONE model (:class:`CatalogRefused`; the caller excludes it).
 
     ``Catalog::validate``'s per-model checks, plus the typed ranges serde
@@ -341,6 +341,10 @@ def validate_model(model: dict, disabled_providers=()) -> None:
     remedy must stay "exclude that model", never "freeze every gateway"
    .
     """
+    if "long_context_pricing" in model:
+        # The database publisher has no immutable tier storage yet (#1292).
+        # Do not sign rules this publisher cannot validate/capture.
+        raise CatalogRefused("invalid_model", "context tiers are not publishable yet")
     model_id = model.get("id")
     if not isinstance(model_id, str) or not model_id:
         raise CatalogRefused("invalid_model", "empty model id")
@@ -383,10 +387,11 @@ def validate_model(model: dict, disabled_providers=()) -> None:
                     "invalid_model",
                     f"{model_id}: controls.effort_levels without reasoning_effort")
     prices = model.get("prices") or {}
-    if set(prices) != set(_PRICE_MEMBERS):
+    price_members = _PRICE_MEMBERS + (("cache_write_1h_nusd_per_mtok",) if schema == 2 else ())
+    if set(prices) != set(price_members):
         raise CatalogRefused("invalid_model", f"{model_id}: price members {sorted(prices)}")
     try:
-        for name in _PRICE_MEMBERS:
+        for name in price_members:
             _uint(prices[name], f"{model_id}.prices.{name}", 64)
         for name in (
             "min_charge_2z", "context_window", "max_output_tokens",
@@ -412,7 +417,7 @@ def validate_model(model: dict, disabled_providers=()) -> None:
     if not 1 <= model.get("idle_timeout_ms", 60_000) <= 300_000:
         raise CatalogRefused(
             "invalid_model", f"{model_id}: idle_timeout_ms must be between 1 and 300000")
-    if all(prices[name] == 0 for name in _PRICE_MEMBERS):
+    if all(prices[name] == 0 for name in price_members):
         raise CatalogRefused("all_zero_prices", model_id)
     if model["provider"] in TOKEN_BILLED_IMAGE_PROVIDERS and prices["image_nusd"] > 0:
         raise CatalogRefused(
@@ -437,7 +442,7 @@ def validate_catalog(catalog: dict) -> None:
     An EMPTY model list is valid and is published (the crate accepts it). It
     is how "every model is off" reaches the gateway.
     """
-    if catalog.get("schema") != CATALOG_SCHEMA:
+    if type(catalog.get("schema")) is not int or catalog["schema"] not in (1, 2):
         raise CatalogRefused("invalid_catalog", "unsupported catalogue schema")
     for name in ("version", "issued_at", "expires_at", "rate_card_version"):
         _uint(catalog.get(name), name, 64)
@@ -451,7 +456,7 @@ def validate_catalog(catalog: dict) -> None:
         raise CatalogRefused("invalid_catalog", "models is not a list")
     seen = set()
     for model in models:
-        validate_model(model, catalog.get("disabled_providers", ()))
+        validate_model(model, catalog.get("disabled_providers", ()), schema=catalog["schema"])
         if model["id"] in seen:
             raise CatalogRefused("duplicate_model_id", model["id"])
         seen.add(model["id"])
@@ -570,7 +575,7 @@ def content_revision(card) -> int:
     return max((_micros(s) for s in stamps if s is not None), default=0)
 
 
-def build_catalog(now_unix: int) -> dict:
+def build_catalog(now_unix: int, *, schema: int = 1) -> dict:
     """The unsigned catalogue for ``now_unix``. Raises:class:`CatalogRefused`.
 
     Every read -- the card, the revision, the rows, the models -- comes from
@@ -584,13 +589,15 @@ def build_catalog(now_unix: int) -> dict:
     level can no longer be set, and the enclosing transaction's own
     consistency applies instead.
     """
+    if type(schema) is not int or schema not in (1, 2):
+        raise CatalogRefused("invalid_catalog", "unsupported catalogue schema")
     from django.db import connection, transaction
 
     with transaction.atomic():
         if not _in_outer_transaction():
             with connection.cursor() as cursor:
                 cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        return _build_catalog_in_snapshot(now_unix)
+        return _build_catalog_in_snapshot(now_unix, schema=schema)
 
 
 def _in_outer_transaction() -> bool:
@@ -602,7 +609,7 @@ def _in_outer_transaction() -> bool:
     return len(connection.atomic_blocks) > 1
 
 
-def _build_catalog_in_snapshot(now_unix: int) -> dict:
+def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     from f2z.ai.providers import POLICY_DISABLED_PROVIDERS
 
     card = active_rate_card()
@@ -666,6 +673,8 @@ def _build_catalog_in_snapshot(now_unix: int) -> dict:
         # ``ModelCapabilities`` is ``#[serde(default)]`` without
         # ``deny_unknown_fields``, so it ignores the new member, and the
         # signature covers the raw tree either way.
+        if schema == 2:
+            candidates[-1]["prices"]["cache_write_1h_nusd_per_mtok"] = row.cache_write_1h_nusd_per_mtok
         candidates[-1]["capabilities"] = {
             "tools": ai_model.supports_tools,
             "vision": ai_model.supports_vision,
@@ -715,7 +724,7 @@ def _build_catalog_in_snapshot(now_unix: int) -> dict:
                 f"{counts[model['id']]} enabled GA AIModel rows share this id")
             continue
         try:
-            validate_model(model, disabled)
+            validate_model(model, disabled, schema=schema)
         except CatalogRefused as exc:
             log_model_excluded(model["id"], model["provider"], exc.reason, exc.detail)
             continue
@@ -733,7 +742,7 @@ def _build_catalog_in_snapshot(now_unix: int) -> dict:
     version = max(window_start(now_unix) * VERSION_UNITS_PER_SECOND, revision)
     issued_at = version // VERSION_UNITS_PER_SECOND
     catalog = {
-        "schema": CATALOG_SCHEMA,
+        "schema": schema,
         "version": version,
         "issued_at": issued_at,
         "expires_at": issued_at + VALIDITY_SECONDS,
@@ -834,10 +843,10 @@ def sign_catalog(catalog: dict, key: SigningKey) -> SignedCatalog:
     )
 
 
-def signed_catalog(now_unix: int) -> SignedCatalog:
+def signed_catalog(now_unix: int, *, schema: int = 1) -> SignedCatalog:
     """Build, validate and sign the catalogue for ``now_unix``."""
     key = load_signing_key()
-    return sign_catalog(build_catalog(now_unix), key)
+    return sign_catalog(build_catalog(now_unix, schema=schema), key)
 
 
 # ---------------------------------------------------------------------------

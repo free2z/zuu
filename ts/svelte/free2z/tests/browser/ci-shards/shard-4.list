@@ -9,6 +9,7 @@ csp-report-only.spec.ts
 discovery-mobile-layout.spec.ts
 editor-ai-translation-delivery.spec.ts
 editor-ai-translation-open-language.spec.ts
+editor-conflict-recovery.spec.ts
 editor-create-idempotency.spec.ts
 editor-direction.spec.ts
 editor-empty-draft-save-state.spec.ts

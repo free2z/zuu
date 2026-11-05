@@ -199,3 +199,22 @@ class CatalogSignatureSerializer(serializers.Serializer):
 class SignedCatalogSerializer(serializers.Serializer):
     catalog = CatalogSerializer(help_text="Served in canonical JSON form.")
     signature = CatalogSignatureSerializer()
+
+
+class CatalogModelPricesV2Serializer(CatalogModelPricesSerializer):
+    """Schema 2 requires an explicit hourly rate, including a reviewed zero."""
+
+    cache_write_1h_nusd_per_mtok = serializers.IntegerField(min_value=0)
+
+
+class CatalogModelV2Serializer(CatalogModelSerializer):
+    prices = CatalogModelPricesV2Serializer()
+
+
+class CatalogV2Serializer(CatalogSerializer):
+    schema = serializers.IntegerField(min_value=2, max_value=2)
+    models = CatalogModelV2Serializer(many=True)
+
+
+class SignedCatalogV2Serializer(SignedCatalogSerializer):
+    catalog = CatalogV2Serializer()

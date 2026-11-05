@@ -1,5 +1,5 @@
 from django.urls import path, include
-from dj.apps.pricing.views import AICatalogView
+from dj.apps.pricing.views import AICatalogView, AICatalogV2View
 from dj.free2z.routers import Free2zRouter
 from .views import (
     AIModelViewSet, ConversationViewSet, CreatorAIOptionsView, MeteredPromptView,
@@ -35,5 +35,6 @@ urlpatterns = [
     # The signed model catalogue the f2z-ai gateway prices from. No
     # trailing slash: the path is the contract zuu docs/free2z/ai-gateway names, and
     # `v1` is the catalogue's signing-label version, not a DRF route.
+    path('catalog/v2', AICatalogV2View.as_view(), name='ai-catalog-v2'),
     path('catalog/v1', AICatalogView.as_view(), name='ai-catalog-v1'),
 ]

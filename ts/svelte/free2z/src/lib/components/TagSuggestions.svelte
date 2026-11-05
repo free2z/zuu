@@ -33,23 +33,15 @@
     free2zaddr = "",
     tags = $bindable<string[]>([]),
     disabled = false,
-    onServerWrote = undefined,
+    onDecide = undefined,
   }: {
     free2zaddr?: string;
     tags: string[];
     disabled?: boolean;
-    /**
-     * Called after the decide endpoint has written this article's tags.
-     *
-     * Accepting a suggestion is a canonical write that does not go through
-     * the editor's save path, so the editor's optimistic-concurrency
-     * validator is stale the moment it returns. Without this the very
-     * next autosave 412s and the editor latches into "somebody else saved
-     * this article" over a change the creator made in this same tab — and the
-     * only way out is a reload that discards their unsaved work.
-     * (codex adversarial review.)
-     */
-    onServerWrote?: () => void;
+    /** Editor-owned mutation: serializes saves, fences actor/route and retains ETag. */
+    onDecide?: (
+      decision: import("$lib/api/f2z.schemas").ZPageTagDecision,
+    ) => Promise<import("$lib/api/f2z.schemas").ZPageTagDecisionResult>;
   } = $props();
 
   let suggestions = $state<ZPageTagSuggestion[]>([]);
@@ -99,12 +91,19 @@
     // clicks while the network thinks about it.
     suggestions = suggestions.filter((row) => row.name !== name);
     try {
-      const result = await taggingZpageSuggestionsDecideCreate(id, {
+      const decision = {
         accept: accept ? [name] : [],
         dismiss: accept ? [] : [name],
-      });
+      };
+      // The editor handles both acceptance and dismissal through onDecide,
+      // serializing them with saves and retaining the response validator.
+      const result = onDecide
+        ? await onDecide(decision)
+        : await taggingZpageSuggestionsDecideCreate(id, decision, undefined, {
+            headers: {},
+          });
       if (loadedFor !== id) return;
-      // The server's tag list is authoritative — it has just written it — but
+      // The response carries the current server tags for either decision, but
       // merge rather than replace so a tag the creator typed in this same tick
       // and has not saved yet is not thrown away.
       if (Array.isArray(result?.tags)) {
@@ -113,13 +112,6 @@
       if (Array.isArray(result?.suggestions)) {
         suggestions = result.suggestions;
       }
-      // Only an ACCEPT writes the article. A dismissal updates the
-      // `TagSuggestion` row and leaves the zPage — and its validator —
-      // untouched, so signalling here would drop a still-valid validator and
-      // put the next autosave on the wire unconditioned. `dismissAll` does not
-      // call this at all, which is the same statement. (codex adversarial
-      // review.)
-      if (accept) onServerWrote?.();
     } catch {
       if (loadedFor === id) await load(id);
     } finally {
@@ -133,7 +125,15 @@
     if (!id || names.length === 0) return;
     suggestions = [];
     try {
-      await taggingZpageSuggestionsDecideCreate(id, { dismiss: names });
+      // Bulk dismissal uses the same editor callback and validator handling.
+      if (onDecide) await onDecide({ dismiss: names });
+      else
+        await taggingZpageSuggestionsDecideCreate(
+          id,
+          { dismiss: names },
+          undefined,
+          { headers: {} },
+        );
     } catch {
       if (loadedFor === id) await load(id);
     }

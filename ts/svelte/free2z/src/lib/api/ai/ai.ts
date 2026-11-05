@@ -49,7 +49,8 @@ import type {
   PatchedPromptResponse,
   PromptRequest,
   PromptResponse,
-  SignedCatalog
+  SignedCatalog,
+  SignedCatalogV2
 } from '../f2z.schemas.ts';
 
 import { customInstance } from '.././mutator.ts';
@@ -167,6 +168,73 @@ export function createAiCatalogV1<TData = Awaited<ReturnType<typeof aiCatalogV1>
  ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getAiCatalogV1QueryOptions(options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
+ * Opt-in TTL pricing publication; schema-1 clients keep their endpoint.
+ */
+export const aiCatalogV2 = (
+
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<SignedCatalogV2>(
+      {url: `/api/ai/catalog/v2`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+
+
+export const getAiCatalogV2QueryKey = () => {
+    return [
+    `/api/ai/catalog/v2`
+    ] as const;
+    }
+
+
+export const getAiCatalogV2QueryOptions = <TData = Awaited<ReturnType<typeof aiCatalogV2>>, TError = unknown>( options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiCatalogV2>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAiCatalogV2QueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof aiCatalogV2>>> = ({ signal }) => aiCatalogV2(requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof aiCatalogV2>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AiCatalogV2QueryResult = NonNullable<Awaited<ReturnType<typeof aiCatalogV2>>>
+export type AiCatalogV2QueryError = unknown
+
+
+
+export function createAiCatalogV2<TData = Awaited<ReturnType<typeof aiCatalogV2>>, TError = unknown>(
+  options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiCatalogV2>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAiCatalogV2QueryOptions(options)
 
   const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
