@@ -944,7 +944,7 @@ export interface CatalogModelV2 {
      */
   idle_timeout_ms: number;
   enabled: boolean;
-  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared. */
+  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared; absent forced_tool_choice preserves legacy tools/adapter admission. */
   capabilities?: CatalogModelCapabilities;
   /** Signed per-model narrowing (zuu#1170); present only when it narrows something. */
   controls?: CatalogModelControls;
