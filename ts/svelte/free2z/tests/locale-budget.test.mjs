@@ -59,3 +59,17 @@ test("measured delayed switch and SSR work fail their timing gates", async () =>
     assert.throws(() => enforceTiming(label, elapsed, 5), new RegExp(label));
   }
 });
+
+test("third-party locale packs cannot be statically imported", () => {
+  assert.throws(
+    () =>
+      enforceStaticGraph({
+        entry: {
+          isDynamicEntry: true,
+          imports: ["src/lib/locales/rtk/fr.json"],
+        },
+        "src/lib/locales/rtk/fr.json": {},
+      }),
+    /Eager catalogs/,
+  );
+});

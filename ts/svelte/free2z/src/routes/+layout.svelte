@@ -54,7 +54,7 @@
     getCurrentLocale,
     locale,
     hydrateLocale,
-    disabledLocaleStore,
+    captureLocaleNavigation,
     setLocale,
     LOCALE_STORAGE_KEY,
     tStore as t,
@@ -72,10 +72,17 @@
     hasSession?: boolean;
   };
 
-  if (browser && data.locale && data.localeCatalogs)
-    hydrateLocale(data.locale, data.localeCatalogs, data.disabledLocales);
-
-  $: if (browser) disabledLocaleStore.set(data.disabledLocales ?? []);
+  let localeNavigationOwner = captureLocaleNavigation();
+  function reconcileLayoutLocale(value: typeof data) {
+    if (browser && value.locale && value.localeCatalogs)
+      hydrateLocale(
+        value.locale,
+        value.localeCatalogs,
+        value.disabledLocales,
+        localeNavigationOwner,
+      );
+  }
+  $: reconcileLayoutLocale(data);
 
   // Hand the server's session fact to the store before anything renders
   //. No `sessionid` on the request means Django could not have
@@ -140,6 +147,7 @@
   let removeAuthListeners = () => {};
 
   beforeNavigate(({ from, to, willUnload }) => {
+    localeNavigationOwner = captureLocaleNavigation();
     // SvelteKit has detected a newer build while this tab was open. A full
     // navigation fetches HTML and assets from the same current rollout while
     // preserving the user's intended URL.

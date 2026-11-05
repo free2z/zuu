@@ -4,45 +4,17 @@ let inFlight = 0;
 export function isCatalogLoadInFlight() {
   return inFlight > 0;
 }
-const pseudoEnabled =
-  typeof __PSEUDO_LOCALES__ !== "undefined" && __PSEUDO_LOCALES__;
-const loaders = {
-  en: () => import("./locales/en.json"),
-  es: () => import("./locales/es.json"),
-  fr: () => import("./locales/fr.json"),
-  "pt-BR": () => import("./locales/pt-BR.json"),
-  ...(typeof __PILOT_LOCALES__ !== "undefined" && __PILOT_LOCALES__
-    ? {
-        ar: () => import("./locales/pilot/ar.json"),
-        pl: () => import("./locales/pilot/pl.json"),
-        ja: () => import("./locales/pilot/ja.json"),
-        hi: () => import("./locales/pilot/hi.json"),
-        de: () => import("./locales/pilot/de.json"),
-      }
-    : {}),
-  ...(pseudoEnabled
-    ? Object.fromEntries(
-        [
-          ["en-XA", "expand"],
-          ["en-XB", "accent"],
-          ["ar-XB", "rtl"],
-        ].map(([tag, mode]) => [
-          tag,
-          async () => {
-            const [{ default: english }, { pseudoCatalog }] = await Promise.all(
-              [import("./locales/en.json"), import("./pseudo-locales.js")],
-            );
-            return {
-              default: pseudoCatalog(
-                english,
-                /** @type {"expand" | "accent" | "rtl"} */ (mode),
-              ),
-            };
-          },
-        ]),
-      )
-    : {}),
-};
+import { LOCALE_REGISTRY } from "./locale.js";
+const loaders = Object.fromEntries(
+  LOCALE_REGISTRY.map(({ code, loadCatalog }) => [code, loadCatalog]),
+);
+export const rtkCatalogLoader = createCatalogLoader(
+  Object.fromEntries(
+    LOCALE_REGISTRY.flatMap(({ code, loadRtk }) =>
+      loadRtk ? [[code, loadRtk]] : [],
+    ),
+  ),
+);
 
 /** Create a cache whose failed loads can be retried.
  * @param {Record<string, () => Promise<{default: unknown}>>} sources

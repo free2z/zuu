@@ -115,7 +115,7 @@ production-ready.
 ### Difficult-language draft pilot
 
 Arabic, Polish, Japanese, Hindi and German have **37 unreviewed local-model
-translations each**, with 2,953 English source fallbacks each. They are partial
+translations each**, with 2,955 English source fallbacks each. They are partial
 review material, not approved translations or selectable production languages.
 `FREE2Z_PILOT_TEST=1` enables the five registry entries and lazy loaders only
 when running the development server for tests; builds exclude them even when
@@ -132,7 +132,7 @@ scripts/check-pilot-drafts.mjs` revalidates each recorded source hash, value,
 placeholder contract, provenance and catalog against that import path. It does
 not rewrite freshness when source text changes. `node
 scripts/pilot-work-queue.mjs > pilot-queue.json` produces a deterministic
-per-locale, per-key queue: 37 draft and 2,953 missing per locale at this commit.
+per-locale, per-key queue: 37 draft and 2,955 missing per locale at this commit.
 A conservative key-name classification marks 24 drafted and 687 missing messages
 per locale as sensitive; this classification is a review aid, not a guarantee
 that remaining copy is non-sensitive. Reviewers must check every message in
@@ -147,3 +147,41 @@ fixture exercises locale plural, select and ordinal behavior but is not a shippe
 product message or additional catalog coverage. Production readiness for more
 than 50 locales additionally requires actual translation and review capacity,
 regional language decisions and sustained ownership for each locale.
+
+### Exact amounts on browser floors
+
+[MDN browser compatibility data](https://github.com/mdn/browser-compat-data/blob/main/javascript/builtins/Intl/NumberFormat.json) records exact decimal-string formatting from Chrome 106 and Safari/iOS 15.4; the supported floors are Chrome 111 and Safari/iOS 16.4. This is compatibility evidence, not a test on those exact engines. When a runtime fails the exactness probe, the fixed-point fallback uses BigInt and locale number parts with half-expand rounding for ordinary decimal and currency options. Unsupported advanced notation or rounding returns a localized unavailable message rather than losing precision. Numeric major-unit inputs continue through native formatting. A browser test simulates the old coercing implementation and exercises the actual currency and asset callers.
+
+### Navigation, RTK resources and cache restrictions
+
+The root server load declares its `lang` dependency so client-side query
+navigation obtains the newly negotiated request locale. The browser reconciles
+that layout data once per navigation; a switch started after navigation owns
+the locale unless the newly received policy disables it. The content-language
+routes continue to keep content and UI language separate. The response hook
+adds private revalidation while retaining stricter origin directives, including
+`no-store`, and removing shared-cache directives.
+
+The registry owns the lazy application and RealtimeKit loader for each shipped
+locale. The active RTK dictionary is prepared before committing a locale and
+serialized with the active application dictionary; its English fallback is the
+library's default. A failed RTK chunk leaves the old locale active and uses the
+same localized reload recovery. The resource census rejects missing, mismatched
+and orphan shipped loaders/catalogs; pilot and pseudo catalogs remain test-only.
+The static graph budget covers route chunks and RTK packs as well as entry chunks.
+
+On this build, compact RTK JSON measures es 26,947 raw/6,746 gzip, fr
+28,389/7,023, and pt-BR 26,555/6,714. English fallback plus active application
+and RTK dictionaries measures es 374,753/109,344, fr 386,116/111,480 and pt-BR
+372,600/108,620 bytes. The corresponding structural byte gates allow roughly
+10% growth. In the production browser sample, en HTML was 206,441/59,404 and
+fr HTML was 421,445/121,556 raw/local-gzip bytes; existing HTML limits remain
+unchanged. These local gzip measurements are not wire-transfer measurements.
+
+The disposable growth check now adds both a 1.2 MB application dictionary and
+an equally large RTK pack under one disabled registry entry. On this run en/fr
+HTML raw bytes were unchanged; their local gzip changed by -3/-4 bytes. The
+initial asset aggregate grew 310 raw and 44 local-gzip bytes in both cases,
+within the unchanged 4,096-byte index allowance. Neither synthetic chunk was
+requested or serialized. A deliberate eager import exposed its sentinel and
+failed the safety assertion; the script restored both inputs and rebuilt.

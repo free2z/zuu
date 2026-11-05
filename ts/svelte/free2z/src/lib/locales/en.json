@@ -30,7 +30,8 @@
     "label": "Language",
     "loading": "Loading language…",
     "loadFailed": "Could not load that language.",
-    "retry": "Try again"
+    "retry": "Try again",
+    "beta": "Beta"
   },
   "homepage": {
     "topStories": "Top Stories",
@@ -3350,5 +3351,8 @@
     "dismiss": "Dismiss welcome message",
     "model": "2Z are platform credits for actions on Free2Z. A post starts at 1 2Z, about a US penny. This small cost discourages spam and helps keep Free2Z free of ads. Your first zPage is free; creating another requires a balance of 1 2Z and does not spend it.",
     "sources": "Eligible new accounts receive a welcome grant. You can buy 2Z, or receive gifts from members who want to hear more from you. Introduce yourself with a zPage so readers can get to know you."
+  },
+  "format": {
+    "unavailable": "Amount unavailable — try an up-to-date browser."
   }
 }

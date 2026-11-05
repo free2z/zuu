@@ -30,7 +30,8 @@
     "label": "Langue",
     "loading": "Chargement de la langue…",
     "loadFailed": "Impossible de charger cette langue.",
-    "retry": "Réessayer"
+    "retry": "Réessayer",
+    "beta": "Version bêta"
   },
   "homepage": {
     "topStories": "Histoires Populaires",
@@ -3350,5 +3351,8 @@
     "dismiss": "Fermer le message de bienvenue",
     "model": "Les 2Z sont des crédits pour les actions sur Free2Z. Publier coûte à partir de 1 2Z, environ un centime de dollar. Ce petit coût décourage le spam et aide à garder Free2Z sans publicité. Votre première zPage est gratuite ; en créer une autre nécessite un solde de 1 2Z sans le dépenser.",
     "sources": "Les nouveaux comptes éligibles reçoivent des crédits de bienvenue. Vous pouvez acheter des 2Z ou recevoir des cadeaux de membres qui souhaitent vous lire davantage. Présentez-vous dans une zPage pour que les lecteurs vous découvrent."
+  },
+  "format": {
+    "unavailable": "Montant indisponible : utilisez un navigateur à jour."
   }
 }

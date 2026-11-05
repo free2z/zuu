@@ -5,26 +5,15 @@ import {
   type RtkI18n,
 } from "@cloudflare/realtimekit-ui";
 import { getCurrentLocale, type SupportedLocale } from "$lib/i18n";
-import es from "$lib/locales/rtk/es.json";
-import fr from "$lib/locales/rtk/fr.json";
-import ptBR from "$lib/locales/rtk/pt-BR.json";
-
-const languagePacks: Partial<Record<SupportedLocale, Partial<LangDict>>> = {
-  en: defaultLanguage,
-  es,
-  fr,
-  "pt-BR": ptBR,
-};
-
-const translators: Partial<Record<SupportedLocale, RtkI18n>> = {
-  en: useLanguage(languagePacks.en),
-  es: useLanguage(languagePacks.es),
-  fr: useLanguage(languagePacks.fr),
-  "pt-BR": useLanguage(languagePacks["pt-BR"]),
-};
-
+import { getRtkCatalog } from "$lib/rtk-catalog.js";
+const translators = new Map<string, { pack: unknown; translator: RtkI18n }>();
 export function getRtkTranslator(
   locale: SupportedLocale = getCurrentLocale(),
 ): RtkI18n {
-  return translators[locale] ?? translators.en!;
+  const pack = getRtkCatalog(locale) ?? defaultLanguage;
+  const cached = translators.get(locale);
+  if (cached && cached.pack === pack) return cached.translator;
+  const translator = useLanguage(pack as Partial<LangDict>);
+  translators.set(locale, { pack, translator });
+  return translator;
 }

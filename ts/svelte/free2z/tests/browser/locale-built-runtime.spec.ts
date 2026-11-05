@@ -242,3 +242,43 @@ test("authenticated and anonymous billing responses remain isolated", async ({
   expect(anonymous.status()).not.toBe(200);
   expect(await anonymous.text()).not.toContain('data-testid="billing-stats"');
 });
+
+test("RTK pack failure keeps French and offers localized recovery", async ({
+  page,
+}) => {
+  const rtk = manifest["src/lib/locales/rtk/es.json"];
+  expect(rtk).toBeTruthy();
+  await page.route(`**/${rtk.file}`, (route) => route.abort("failed"));
+  await page.goto("/trending?lang=fr");
+  await page.getByRole("button", { name: /^Langue:/ }).click();
+  await expect(page.getByText("Version bêta").first()).toBeVisible();
+  await page.keyboard.press("Escape");
+  await choose(page, "Español");
+  await expect(page.getByRole("alert")).toContainText(
+    "Impossible de charger cette langue.",
+  );
+  await expect(page.getByRole("button", { name: "Réessayer" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+  await page.unroute(`**/${rtk.file}`);
+  await page.getByRole("button", { name: "Réessayer" }).click();
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+});
+
+test("KYC page retains route no-store with locale and session", async ({
+  page,
+}) => {
+  await page.goto("/trending?lang=en");
+  const origin = new URL(page.url());
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "billing-fixture-session",
+      url: origin.origin,
+    },
+  ]);
+  const response = await page.request.get(
+    "/fixtureowner/dashboard/kyc?lang=fr",
+  );
+  expect(response.headers()["cache-control"]).toMatch(/no-store/i);
+  expect(response.headers()["vary"]).toMatch(/cookie/i);
+});

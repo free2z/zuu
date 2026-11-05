@@ -14,6 +14,16 @@ export const PAIR_LIMITS = Object.freeze({
   fr: { raw: 394000, gzip: 116000 },
   "pt-BR": { raw: 381000, gzip: 113000 },
 });
+export const RTK_LIMITS = Object.freeze({
+  es: { raw: 29700, gzip: 7420 },
+  fr: { raw: 31300, gzip: 7730 },
+  "pt-BR": { raw: 29300, gzip: 7390 },
+});
+export const COMPLETE_PAIR_LIMITS = Object.freeze({
+  es: { raw: 412300, gzip: 120300 },
+  fr: { raw: 424700, gzip: 122700 },
+  "pt-BR": { raw: 409800, gzip: 119500 },
+});
 export const HTML_LIMITS = Object.freeze({
   en: { raw: 230000, gzip: 68000 },
   fr: { raw: 435000, gzip: 128000 },
@@ -44,7 +54,7 @@ export function enforceTiming(label, actual, limit) {
   if (!Number.isFinite(actual) || actual < 0 || actual > limit)
     throw new Error(`${label}: ${actual}ms exceeds ${limit}ms`);
 }
-/** @param {Record<string, {isEntry?: boolean, imports?: string[]}>} manifest */
+/** @param {Record<string, {isEntry?: boolean, isDynamicEntry?: boolean, imports?: string[]}>} manifest */
 export function staticCatalogs(manifest) {
   /** @type {Set<string>} */
   const seen = new Set();
@@ -55,12 +65,16 @@ export function staticCatalogs(manifest) {
     for (const dep of manifest[key].imports ?? []) visit(dep);
   }
   for (const [key, entry] of Object.entries(manifest))
-    if (entry.isEntry) visit(key);
+    if (
+      (entry.isEntry || entry.isDynamicEntry) &&
+      !/^src\/lib\/locales\/(?:rtk\/)?[^/]+\.json$/.test(key)
+    )
+      visit(key);
   return [...seen].filter((key) =>
-    /^src\/lib\/locales\/(?!rtk\/)[^/]+\.json$/.test(key),
+    /^src\/lib\/locales\/(?:rtk\/)?[^/]+\.json$/.test(key),
   );
 }
-/** @param {Record<string, {isEntry?: boolean, imports?: string[]}>} manifest */
+/** @param {Record<string, {isEntry?: boolean, isDynamicEntry?: boolean, imports?: string[]}>} manifest */
 export function enforceStaticGraph(manifest) {
   const found = staticCatalogs(manifest);
   if (found.length)

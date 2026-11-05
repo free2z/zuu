@@ -10,6 +10,7 @@ import {
   normalizeLocale,
   resolveRequestLocale,
 } from "$lib/locale.js";
+import { privateCacheControl } from "$lib/server/cache-control.js";
 import { withRequestLocale } from "$lib/server/request-locale.js";
 import { prepareLocale, getPreparedCatalogs } from "$lib/i18n";
 import { logSsrError } from "$lib/server/ssr-log";
@@ -91,11 +92,11 @@ export const handle: Handle = async ({ event, resolve }) => {
   // contain the same cookie-backed data even though they are JSON. Keep both
   // response classes private so a host/path/query-only CDN cache can never
   // leak one visitor's render to the next.
-  if (isHtml) {
-    response.headers.set("cache-control", "private, no-cache");
-  }
-  if (isPageData) {
-    response.headers.set("cache-control", "private, no-cache");
+  if (isHtml || isPageData) {
+    response.headers.set(
+      "cache-control",
+      privateCacheControl(response.headers.get("cache-control")),
+    );
   }
   if (isVersionMetadata) {
     response.headers.set("cache-control", "no-store");

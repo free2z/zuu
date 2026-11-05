@@ -88,9 +88,9 @@
         >
           <span lang={option.code}>{option.label}</span>
           {#if localeAvailability(option.code) === "beta"}<span
-              aria-label="Beta"
+              aria-label={$t("language.beta", "Beta")}
             >
-              · Beta</span
+              · {$t("language.beta", "Beta")}</span
             >{/if}
         </DropdownMenuRadioItem>
       {/each}

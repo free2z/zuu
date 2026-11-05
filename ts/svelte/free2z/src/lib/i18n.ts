@@ -15,7 +15,13 @@ import {
   normalizeLocale,
   localeAvailability,
 } from "./locale.js";
+import {
+  prepareRtkCatalog,
+  getRtkCatalog,
+  hydrateRtkCatalog,
+} from "./rtk-catalog.js";
 import { catalogLoader } from "./catalog-loader.js";
+import { formatExactDecimalFallback } from "./exact-decimal-fallback.js";
 import { formatDisplayNumber } from "./intl-display.js";
 import { formatIcuMessage, ICU_MESSAGE_KEYS } from "./icu-message.js";
 import { getRequestLocale } from "./request-locale.js";
@@ -47,6 +53,7 @@ export async function prepareLocale(next: string): Promise<void> {
   const [english, selected] = await Promise.all([
     translations[DEFAULT_LOCALE] ?? catalogLoader.load(DEFAULT_LOCALE),
     translations[normalized] ?? catalogLoader.load(normalized),
+    prepareRtkCatalog(normalized),
   ]);
   translations[DEFAULT_LOCALE] = english;
   translations[normalized] = selected;
@@ -55,20 +62,42 @@ export function getPreparedCatalogs(next: string): Record<string, unknown> {
   return {
     [DEFAULT_LOCALE]: translations[DEFAULT_LOCALE],
     [next]: translations[next],
+    __rtk: getRtkCatalog(next) ?? null,
   };
 }
 export const disabledLocaleStore = writable<readonly string[]>([]);
+let switchSequence = 0;
+export function captureLocaleNavigation(): number {
+  return switchSequence;
+}
 export function hydrateLocale(
   next: string,
   catalogs: Record<string, unknown>,
   disabled: readonly string[] = [],
+  owner = switchSequence,
 ): void {
   if (!browser) return;
   const normalized = normalizeLocale(next) as SupportedLocale | null;
-  if (!normalized || !catalogs[normalized] || !catalogs[DEFAULT_LOCALE]) return;
   disabledLocaleStore.set(disabled);
+  if (
+    !normalized ||
+    !catalogs[normalized] ||
+    !catalogs[DEFAULT_LOCALE] ||
+    localeAvailability(normalized, disabled) === "disabled"
+  )
+    return;
   Object.assign(translations, catalogs);
+  hydrateRtkCatalog(normalized, catalogs.__rtk);
+  if (
+    owner !== switchSequence &&
+    localeAvailability(get(localeStore), disabled) !== "disabled"
+  )
+    return;
+  ++switchSequence;
+  loading.set(false);
+  localeLoadError.set(null);
   localeStore.set(normalized);
+  applyDocumentLanguage();
 }
 
 function lookupTranslation(source: unknown, key: string): string | undefined {
@@ -304,7 +333,14 @@ function formatExact(
       (probe.format as (value: string) => string)("9007199254740993") !==
       "9007199254740993"
     )
-      throw new Error("Exact decimal formatting unavailable");
+      return (
+        formatExactDecimalFallback(amount, locale, options) ??
+        translate(
+          selected,
+          "format.unavailable",
+          "Amount unavailable — try an up-to-date browser.",
+        )
+      );
   }
   const formatter = new Intl.NumberFormat(locale, options);
   return (formatter.format as (value: number | bigint | string) => string)(
@@ -418,7 +454,6 @@ export function setDocumentContentLanguage(tag: string | null): void {
   applyDocumentLanguage();
 }
 
-let switchSequence = 0;
 export const localeLoadError = writable<string | null>(null);
 export async function setLocale(nextLocale: string): Promise<boolean> {
   const normalized = normalizeLocale(nextLocale) as SupportedLocale | null;

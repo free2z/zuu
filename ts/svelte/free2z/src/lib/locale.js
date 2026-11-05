@@ -1,6 +1,14 @@
+/** @param {"expand" | "accent" | "rtl"} mode */
+async function loadPseudo(mode) {
+  const [{ default: english }, { pseudoCatalog }] = await Promise.all([
+    import("./locales/en.json"),
+    import("./pseudo-locales.js"),
+  ]);
+  return { default: pseudoCatalog(english, mode) };
+}
 export const DEFAULT_LOCALE = "en";
 // Availability controls exposure; it does not itself establish review approval.
-/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB" | "ar" | "pl" | "ja" | "hi" | "de", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "stable" | "beta" | "disabled" | "test"}[]} */
+/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB" | "ar" | "pl" | "ja" | "hi" | "de", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "stable" | "beta" | "disabled" | "test", loadCatalog: () => Promise<{default: unknown}>, loadRtk?: () => Promise<{default: unknown}>}[]} */
 export const LOCALE_REGISTRY = Object.freeze([
   {
     code: "en",
@@ -10,6 +18,7 @@ export const LOCALE_REGISTRY = Object.freeze([
     formattingLocale: "en",
     fallback: null,
     availability: "stable",
+    loadCatalog: () => import("./locales/en.json"),
   },
   {
     code: "es",
@@ -19,6 +28,8 @@ export const LOCALE_REGISTRY = Object.freeze([
     formattingLocale: "es",
     fallback: "en",
     availability: "beta",
+    loadCatalog: () => import("./locales/es.json"),
+    loadRtk: () => import("./locales/rtk/es.json"),
   },
   {
     code: "fr",
@@ -28,6 +39,8 @@ export const LOCALE_REGISTRY = Object.freeze([
     formattingLocale: "fr",
     fallback: "en",
     availability: "beta",
+    loadCatalog: () => import("./locales/fr.json"),
+    loadRtk: () => import("./locales/rtk/fr.json"),
   },
   {
     code: "pt-BR",
@@ -37,6 +50,8 @@ export const LOCALE_REGISTRY = Object.freeze([
     formattingLocale: "pt-BR",
     fallback: "en",
     availability: "beta",
+    loadCatalog: () => import("./locales/pt-BR.json"),
+    loadRtk: () => import("./locales/rtk/pt-BR.json"),
   },
   ...(typeof __PILOT_LOCALES__ !== "undefined" && __PILOT_LOCALES__
     ? /** @type {const} */ ([
@@ -48,6 +63,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "ar",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => import("./locales/pilot/ar.json"),
         },
         {
           code: "pl",
@@ -57,6 +73,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "pl",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => import("./locales/pilot/pl.json"),
         },
         {
           code: "ja",
@@ -66,6 +83,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "ja",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => import("./locales/pilot/ja.json"),
         },
         {
           code: "hi",
@@ -75,6 +93,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "hi",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => import("./locales/pilot/hi.json"),
         },
         {
           code: "de",
@@ -84,6 +103,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "de",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => import("./locales/pilot/de.json"),
         },
       ])
     : []),
@@ -97,6 +117,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "en",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => loadPseudo("expand"),
         },
         {
           code: "en-XB",
@@ -106,6 +127,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "en",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => loadPseudo("accent"),
         },
         {
           code: "ar-XB",
@@ -115,6 +137,7 @@ export const LOCALE_REGISTRY = Object.freeze([
           formattingLocale: "en",
           fallback: "en",
           availability: "test",
+          loadCatalog: () => loadPseudo("rtl"),
         },
       ])
     : []),

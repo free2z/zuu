@@ -11,6 +11,7 @@ import { chromium } from "playwright";
 const loaderPath = "src/lib/catalog-loader.js";
 const registryPath = "src/lib/locale.js";
 const fixturePath = "src/lib/locales/zz-ZZ.json";
+const rtkFixturePath = "src/lib/locales/rtk/zz-ZZ.json";
 const sentinel = "GROWTH_PROOF_UNUSED_CATALOG_2026";
 const budget = 4096; // Raw AND gzip; tiny index/build noise, <0.4% of 1 MiB fixture.
 const originalLoader = await readFile(loaderPath, "utf8");
@@ -18,6 +19,12 @@ const originalRegistry = await readFile(registryPath, "utf8");
 try {
   await access(fixturePath);
   throw new Error(`Refusing to overwrite ${fixturePath}`);
+} catch (error) {
+  if (error.code !== "ENOENT") throw error;
+}
+try {
+  await access(rtkFixturePath);
+  throw new Error(`Refusing to overwrite ${rtkFixturePath}`);
 } catch (error) {
   if (error.code !== "ENOENT") throw error;
 }
@@ -96,11 +103,17 @@ async function measure() {
       for (const dependency of manifest[key].imports ?? []) visit(dependency);
     }
     for (const [key, entry] of Object.entries(manifest))
-      if (entry.isEntry) visit(key);
+      if (
+        (entry.isEntry || entry.isDynamicEntry) &&
+        !/^src\/lib\/locales\/(?:rtk\/)?[^/]+\.json$/.test(key)
+      )
+        visit(key);
     const staticCatalogs = [...seen].filter((key) =>
-      /^src\/lib\/locales\/(en|es|fr|pt-BR|zz-ZZ)\.json$/.test(key),
+      /^src\/lib\/locales\/(?:rtk\/)?(en|es|fr|pt-BR|zz-ZZ)\.json$/.test(key),
     );
     const fixtureChunk = manifest["src/lib/locales/zz-ZZ.json"]?.file ?? null;
+    const rtkFixtureChunk =
+      manifest["src/lib/locales/rtk/zz-ZZ.json"]?.file ?? null;
     browser = await chromium.launch({ headless: true });
     const results = {};
     for (const locale of ["en", "fr"]) {
@@ -156,6 +169,9 @@ async function measure() {
         fixtureRequested:
           !!fixtureChunk &&
           chunks.some(([path]) => path.endsWith(fixtureChunk)),
+        rtkFixtureRequested:
+          !!rtkFixtureChunk &&
+          chunks.some(([path]) => path.endsWith(rtkFixtureChunk)),
         sentinelHtml: html.includes(sentinel),
         sentinelAssets: joined.includes(sentinel),
         unexpectedCatalogMarkers,
@@ -172,7 +188,7 @@ async function measure() {
         "disabled synthetic locale became selectable",
       );
     }
-    return { staticCatalogs, fixtureChunk, results };
+    return { staticCatalogs, fixtureChunk, rtkFixtureChunk, results };
   } finally {
     if (browser) await browser.close();
     if (app) await stop(app);
@@ -190,6 +206,11 @@ function assertSafe(measurement) {
       result.fixtureRequested,
       false,
       `${locale}: fixture requested`,
+    );
+    assert.equal(
+      result.rtkFixtureRequested,
+      false,
+      `${locale}: RTK fixture requested`,
     );
     assert.deepEqual(
       result.unexpectedCatalogMarkers,
@@ -223,10 +244,11 @@ try {
   for (let i = 0; data.length < 1_200_000; i++)
     data += createHash("sha256").update(String(i)).digest("hex");
   await writeFile(fixturePath, JSON.stringify({ sentinel: data }));
+  await writeFile(rtkFixturePath, JSON.stringify({ sentinel: data }));
   const registry = originalRegistry
     .replace(
       "]);\nexport const SUPPORTED_LOCALES",
-      '  { code: "zz-ZZ", label: "Synthetic", script: "Latn", direction: "ltr", formattingLocale: "en", fallback: "en", availability: "disabled" },\n]);\nexport const SUPPORTED_LOCALES',
+      '  { code: "zz-ZZ", label: "Synthetic", script: "Latn", direction: "ltr", formattingLocale: "en", fallback: "en", availability: "disabled", loadCatalog: () => import("./locales/zz-ZZ.json"), loadRtk: () => import("./locales/rtk/zz-ZZ.json") },\n]);\nexport const SUPPORTED_LOCALES',
     )
     .replace(
       "LOCALE_REGISTRY.map(({ code }) => code)",
@@ -242,21 +264,17 @@ try {
     );
   assert.notEqual(registry, originalRegistry);
   await writeFile(registryPath, registry);
-  const dynamic = originalLoader.replace(
-    '  en: () => import("./locales/en.json"),',
-    '  "zz-ZZ": () => import("./locales/zz-ZZ.json"),\n  en: () => import("./locales/en.json"),',
-  );
-  assert.notEqual(dynamic, originalLoader);
-  await writeFile(loaderPath, dynamic);
+  const dynamic = originalLoader;
   console.log("building disabled synthetic locale");
   build();
   const expanded = await measure();
   assert.ok(expanded.fixtureChunk, "synthetic locale was not built");
+  assert.ok(expanded.rtkFixtureChunk, "synthetic RTK locale was not built");
   assertSafe(expanded);
   compare(baseline, expanded);
   await writeFile(
     loaderPath,
-    `import syntheticGrowthFixture from "./locales/zz-ZZ.json";\nglobalThis.__localeGrowthNegativeControl = syntheticGrowthFixture;\n${dynamic}`,
+    `import syntheticGrowthFixture from "./locales/zz-ZZ.json";\nimport syntheticRtkFixture from "./locales/rtk/zz-ZZ.json";\nglobalThis.__localeGrowthNegativeControl = [syntheticGrowthFixture, syntheticRtkFixture];\n${dynamic}`,
   );
   console.log("building eager negative control");
   build();
@@ -285,6 +303,9 @@ try {
 } finally {
   await writeFile(loaderPath, originalLoader);
   await writeFile(registryPath, originalRegistry);
+  await unlink(rtkFixturePath).catch((error) => {
+    if (error.code !== "ENOENT") throw error;
+  });
   await unlink(fixturePath).catch((error) => {
     if (error.code !== "ENOENT") throw error;
   });

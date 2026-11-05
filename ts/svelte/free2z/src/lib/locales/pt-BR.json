@@ -30,7 +30,8 @@
     "label": "Idioma",
     "loading": "Carregando idioma…",
     "loadFailed": "Não foi possível carregar esse idioma.",
-    "retry": "Tentar novamente"
+    "retry": "Tentar novamente",
+    "beta": "Versão preliminar"
   },
   "homepage": {
     "topStories": "Principais histórias",
@@ -3350,5 +3351,8 @@
     "dismiss": "Dispensar mensagem de boas-vindas",
     "model": "2Z são créditos para ações na Free2Z. Publicar custa a partir de 1 2Z, cerca de um centavo de dólar. Esse pequeno custo desestimula spam e ajuda a manter a Free2Z sem anúncios. Sua primeira zPage é grátis; criar outra exige um saldo de 1 2Z sem gastá-lo.",
     "sources": "Novas contas elegíveis recebem créditos de boas-vindas. Você pode comprar 2Z ou receber presentes de membros que querem ler mais de você. Apresente-se em uma zPage para que os leitores conheçam você."
+  },
+  "format": {
+    "unavailable": "Valor indisponível: use um navegador atualizado."
   }
 }

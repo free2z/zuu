@@ -29,3 +29,4 @@ pseudo-locales.spec.ts
 locale-disabled.spec.ts
 pilot-locales.spec.ts
 pilot-production.spec.ts
+rtk-locale.spec.ts
