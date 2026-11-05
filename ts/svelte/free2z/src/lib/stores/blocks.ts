@@ -15,7 +15,7 @@
 import { browser } from "$app/env";
 import { derived, get, writable } from "svelte/store";
 import { g12fBlocksMineList } from "$lib/api/g12f/g12f";
-import { currentUser } from "$lib/stores/auth";
+import { authStore, currentUser } from "$lib/stores/auth";
 
 /** Server maximum (Free2zPagination.max_page_size). */
 const PAGE_SIZE = 48;
@@ -26,9 +26,17 @@ const MAX_RECONCILES = 3;
 /** Retries after a failed load, with these delays (ms). */
 export const RETRY_DELAYS_MS = [2_000, 10_000, 30_000];
 
-type BlockState = { owner: string | null; usernames: ReadonlySet<string> };
+type BlockState = {
+  owner: string | null;
+  usernames: ReadonlySet<string>;
+  status: "idle" | "loading" | "ready" | "error";
+};
 
-const state = writable<BlockState>({ owner: null, usernames: new Set() });
+const state = writable<BlockState>({
+  owner: null,
+  usernames: new Set(),
+  status: "idle",
+});
 
 /**
  * Blocks/unblocks the reader made in THIS tab since the list load started.
@@ -38,6 +46,12 @@ const state = writable<BlockState>({ owner: null, usernames: new Set() });
  */
 let localChanges = new Map<string, boolean>();
 let generation = 0;
+const sessionGeneration = writable(0);
+export const blockSessionGeneration = {
+  subscribe: sessionGeneration.subscribe,
+};
+let ownsTrackedSession = authStore.captureRequestOwnership();
+let loadGeneration = 0;
 /** The owner whose last load gave up after its retries, if any. */
 let failedOwner: string | null = null;
 /** Bumped by every local block/unblock; see `blockRevision`. */
@@ -53,6 +67,7 @@ export function blockRevision(): number {
 }
 
 export const blockedUsernames = derived(state, ($state) => $state.usernames);
+export const blockListStatus = derived(state, ($state) => $state.status);
 
 function normalize(username: string): string {
   return username.trim().toLowerCase();
@@ -74,7 +89,7 @@ function publish(owner: string, found: Iterable<string>) {
       if (blocked) usernames.add(name);
       else usernames.delete(name);
     }
-    return { owner, usernames };
+    return { ...current, owner, usernames };
   });
 }
 
@@ -90,11 +105,20 @@ export async function loadBlocksFor(
   retryDelays: readonly number[] = RETRY_DELAYS_MS,
 ): Promise<void> {
   const mine = generation;
-  const current = () => mine === generation && get(state).owner === owner;
+  const loadId = ++loadGeneration;
+  const ownsRequest = authStore.captureRequestOwnership();
+  const current = () =>
+    mine === generation &&
+    loadId === loadGeneration &&
+    ownsRequest() &&
+    get(state).owner === owner;
+  if (!current()) return;
+  state.update((value) => ({ ...value, status: "loading" }));
   let reconciles = 0;
   for (let attempt = 0; ; attempt++) {
     let failed = false;
     const revisionAtStart = revision;
+    const found = new Set<string>();
     try {
       // Bounded by the server's own `count`, so a misbehaving `next` cannot
       // loop forever; there is no client-side cap on how many blocks load.
@@ -105,14 +129,22 @@ export async function loadBlocksFor(
           { timeoutMs: REQUEST_TIMEOUT_MS },
         );
         if (!current()) return;
+        if (
+          !Array.isArray(body?.results) ||
+          !Number.isSafeInteger(body?.count) ||
+          (body?.count ?? -1) < 0 ||
+          body.results.some(
+            (row) => typeof row?.username !== "string" || !row.username,
+          )
+        )
+          throw new Error("Invalid block list response");
         pages = Math.max(pages, Math.ceil((body?.count ?? 0) / PAGE_SIZE));
-        publish(
-          owner,
-          (body?.results ?? [])
-            .map((row) => row?.username)
-            .filter((name): name is string => !!name)
-            .map(normalize),
-        );
+        const pageNames = (body?.results ?? [])
+          .map((row) => row?.username)
+          .filter((name): name is string => !!name)
+          .map(normalize);
+        for (const name of pageNames) found.add(name);
+        publish(owner, pageNames);
         if (!body?.next) break;
       }
     } catch {
@@ -127,15 +159,31 @@ export async function loadBlocksFor(
         attempt -= 1;
         continue;
       }
+      if (revision !== revisionAtStart) {
+        failedOwner = owner;
+        if (current()) state.update((value) => ({ ...value, status: "error" }));
+        return;
+      }
       if (failedOwner === owner) failedOwner = null;
+      if (current())
+        state.update((value) => {
+          const usernames = new Set(found);
+          for (const [name, blocked] of localChanges) {
+            if (blocked) usernames.add(name);
+            else usernames.delete(name);
+          }
+          return { ...value, usernames, status: "ready" };
+        });
       return;
     }
     if (attempt >= retryDelays.length) {
       // Out of retries. Not final: the next auth revalidation, a return to
       // the tab, or the network coming back tries again (`retryFailedLoad`).
       failedOwner = owner;
+      if (current()) state.update((value) => ({ ...value, status: "error" }));
       return;
     }
+    if (current()) state.update((value) => ({ ...value, status: "error" }));
     await sleep(retryDelays[attempt]);
     if (!current()) return;
   }
@@ -176,14 +224,21 @@ export function trackSignedInAccount(
   retryDelays: readonly number[] = RETRY_DELAYS_MS,
 ) {
   const owner = username ? normalize(username) : null;
-  if (owner === get(state).owner) {
+  const sameSession = ownsTrackedSession();
+  if (sameSession && owner === get(state).owner) {
     if (owner && failedOwner === owner) retryFailedLoad(retryDelays);
     return;
   }
   failedOwner = null;
   generation += 1;
+  ownsTrackedSession = authStore.captureRequestOwnership();
+  sessionGeneration.set(generation);
   localChanges = new Map();
-  state.set({ owner, usernames: new Set() });
+  state.set({
+    owner,
+    usernames: new Set(),
+    status: owner ? "loading" : "idle",
+  });
   if (owner) void loadBlocksFor(owner, retryDelays);
 }
 
@@ -195,6 +250,14 @@ export function retryFailedLoad(
   if (!owner || failedOwner !== owner) return;
   failedOwner = null;
   void loadBlocksFor(owner, retryDelays);
+}
+
+/** Explicit user retry, including a load still in its automatic backoff. */
+export function retryBlocks() {
+  const owner = get(state).owner;
+  if (!owner) return;
+  failedOwner = null;
+  void loadBlocksFor(owner, []);
 }
 
 if (browser) {

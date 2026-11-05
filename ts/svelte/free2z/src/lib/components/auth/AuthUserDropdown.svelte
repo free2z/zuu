@@ -18,6 +18,7 @@
     LogOut,
     User,
     Settings,
+    Ban,
     CreditCard,
     ShieldCheck,
     SquarePen,
@@ -146,6 +147,14 @@
       >
         <Settings class="mr-2 h-4 w-4" />
         <span>{$t("common.auth.settings", "Settings")}</span>
+      </DropdownMenuItem>
+
+      <DropdownMenuItem
+        class={navItemIconClass}
+        onSelect={() => goto("/account/blocks")}
+      >
+        <Ban class="mr-2 h-4 w-4" />
+        <span>{$t("moderation.manage.title", "Blocked accounts")}</span>
       </DropdownMenuItem>
 
       <!-- Credits Link -->

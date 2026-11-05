@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import axios from "axios";
 import LogoutButton from "./LogoutButton";
+import { getGlobalState } from "../state/global";
 
 const mockClear = jest.fn();
 const mockInvalidateQueries = jest.fn();
@@ -11,10 +12,6 @@ jest.mock("react-query", () => ({
     clear: mockClear,
     invalidateQueries: mockInvalidateQueries,
   }),
-}));
-jest.mock("../state/global", () => ({
-  defaultCreator: {},
-  useGlobalState: () => [null, jest.fn()],
 }));
 jest.mock("./AvatarMenu", () => ({
   MenuItemWithIcon: ({
@@ -44,7 +41,9 @@ test("confirmed logout prunes inserted replies and preserves paid recovery keys"
   window.localStorage.setItem("unrelated:cache", "keep");
 
   render(<LogoutButton />);
+  const epochBeforeLogout = getGlobalState("authEpoch");
   fireEvent.click(screen.getByRole("button", { name: "Logout" }));
+  expect(getGlobalState("authEpoch")).toBeGreaterThan(epochBeforeLogout);
 
   await waitFor(() =>
     expect(window.localStorage.getItem(insertedKey)).toBeNull()

@@ -1,11 +1,11 @@
+import {
+  BlockedContent,
+  ModerationControls,
+} from "@/features/moderation/Moderation";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Clock, Newspaper } from "lucide-react";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -38,11 +38,7 @@ function StoredArticleTag({ tag }: { tag: string }) {
   const href = articleTagHref(tag);
   const label = <span className="min-w-0 break-words">#{tag}</span>;
   if (!href) {
-    return (
-      <span className={articleTagClassName}>
-        {label}
-      </span>
-    );
+    return <span className={articleTagClassName}>{label}</span>;
   }
   return (
     <Link
@@ -60,13 +56,10 @@ export function Reader() {
   const key = slug ?? "";
   const { data, loading, error, reload } = useAsync<
     KeyedRemoteData<string, Article>
-  >(
-    async () => {
-      if (!slug) throw new Error("The article link is missing a slug.");
-      return { key: slug, value: await articles.get(slug) };
-    },
-    [slug],
-  );
+  >(async () => {
+    if (!slug) throw new Error("The article link is missing a slug.");
+    return { key: slug, value: await articles.get(slug) };
+  }, [slug]);
   const article = currentResourceData(data, key);
 
   if (loading && article === null && !error) {
@@ -127,115 +120,126 @@ export function Reader() {
   const tags = sanitizeArticleTags(article.tags ?? []);
 
   return (
-    <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
-      <div className="mx-auto w-full min-w-0 max-w-3xl">
-        <BackLink />
+    <>
+      {article.free2zaddr ? (
+        <ModerationControls
+          username={author.username}
+          kind="zpage"
+          targetId={article.free2zaddr}
+        />
+      ) : null}
+      <BlockedContent username={author.username}>
+        <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
+          <div className="mx-auto w-full min-w-0 max-w-3xl">
+            <BackLink />
 
-        <ImagePrivacySetting className="mt-4" />
+            <ImagePrivacySetting className="mt-4" />
 
-        {error ? (
-          <SectionLoadError
-            className="mt-6"
-            title="Couldn't refresh this article"
-            description="Showing the last version loaded on this device."
-            retry={reload}
-            retrying={loading}
-            stale
-          />
-        ) : null}
+            {error ? (
+              <SectionLoadError
+                className="mt-6"
+                title="Couldn't refresh this article"
+                description="Showing the last version loaded on this device."
+                retry={reload}
+                retrying={loading}
+                stale
+              />
+            ) : null}
 
-        <header className="mt-6 min-w-0 space-y-4">
-          {article.category ? <Badge>{article.category}</Badge> : null}
-          <h1 className="break-words text-3xl font-bold leading-tight tracking-tight md:text-4xl">
-            {article.title}
-          </h1>
-          {article.subtitle ? (
-            <p className="break-words text-lg text-muted-foreground">
-              {article.subtitle}
-            </p>
-          ) : null}
-          {tags.length > 0 ? (
-            <nav className="flex flex-wrap gap-2" aria-label="Article tags">
-              {tags.map((tag) => (
-                <StoredArticleTag key={tag} tag={tag} />
-              ))}
-            </nav>
-          ) : null}
+            <header className="mt-6 min-w-0 space-y-4">
+              {article.category ? <Badge>{article.category}</Badge> : null}
+              <h1 className="break-words text-3xl font-bold leading-tight tracking-tight md:text-4xl">
+                {article.title}
+              </h1>
+              {article.subtitle ? (
+                <p className="break-words text-lg text-muted-foreground">
+                  {article.subtitle}
+                </p>
+              ) : null}
+              {tags.length > 0 ? (
+                <nav className="flex flex-wrap gap-2" aria-label="Article tags">
+                  {tags.map((tag) => (
+                    <StoredArticleTag key={tag} tag={tag} />
+                  ))}
+                </nav>
+              ) : null}
 
-          <div className="flex items-center gap-3 pt-2">
-            <Link
-              to={`/creator/${author.username}`}
-              aria-label={`View ${name}’s profile`}
-              className="min-tap inline-flex shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Avatar>
-                {author.image ? (
-                  <AvatarImage src={author.image} alt={name} />
-                ) : null}
-                <AvatarFallback>{initials(name)}</AvatarFallback>
-              </Avatar>
-            </Link>
-            <div className="text-sm">
-              <Link
-                to={`/creator/${author.username}`}
-                className="min-tap inline-flex items-center rounded-md font-medium text-foreground transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {name}
-              </Link>
-              <div className="flex items-center gap-2 text-muted-foreground">
-                {article.published_at ? (
-                  <span>{formatPublished(article.published_at)}</span>
-                ) : null}
-                {typeof article.reading_minutes === "number" ? (
-                  <>
-                    <span aria-hidden>·</span>
-                    <span className="inline-flex items-center gap-1">
-                      <Clock className="h-3.5 w-3.5" aria-hidden />
-                      {article.reading_minutes} min read
-                    </span>
-                  </>
-                ) : null}
+              <div className="flex items-center gap-3 pt-2">
+                <Link
+                  to={`/creator/${author.username}`}
+                  aria-label={`View ${name}’s profile`}
+                  className="min-tap inline-flex shrink-0 items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <Avatar>
+                    {author.image ? (
+                      <AvatarImage src={author.image} alt={name} />
+                    ) : null}
+                    <AvatarFallback>{initials(name)}</AvatarFallback>
+                  </Avatar>
+                </Link>
+                <div className="text-sm">
+                  <Link
+                    to={`/creator/${author.username}`}
+                    className="min-tap inline-flex items-center rounded-md font-medium text-foreground transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {name}
+                  </Link>
+                  <div className="flex items-center gap-2 text-muted-foreground">
+                    {article.published_at ? (
+                      <span>{formatPublished(article.published_at)}</span>
+                    ) : null}
+                    {typeof article.reading_minutes === "number" ? (
+                      <>
+                        <span aria-hidden>·</span>
+                        <span className="inline-flex items-center gap-1">
+                          <Clock className="h-3.5 w-3.5" aria-hidden />
+                          {article.reading_minutes} min read
+                        </span>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
               </div>
+            </header>
+
+            {/* Cover */}
+            <div
+              className="mt-8 aspect-[21/9] w-full overflow-hidden rounded-xl border border-border"
+              style={
+                article.image
+                  ? undefined
+                  : { backgroundImage: coverTone(article.title) }
+              }
+            >
+              {article.image ? (
+                <RemoteImage
+                  src={article.image}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  containerClassName="h-full min-h-0 rounded-none border-0 p-0"
+                />
+              ) : null}
+            </div>
+
+            <div className="mt-10 min-w-0 max-w-full break-words">
+              <Markdown>{article.content}</Markdown>
+            </div>
+
+            {article.free2zaddr ? (
+              <CommentsSection uuid={article.free2zaddr} contentType="zpage" />
+            ) : null}
+          </div>
+
+          {/* Sticky action bar */}
+          <div className="app-reader-actions fixed inset-x-0 z-30 border-t border-border bg-background/80 backdrop-blur-md">
+            <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
+              <ArticleScore score={article.votes ?? 0} />
+              <TipDialog author={author} />
             </div>
           </div>
-        </header>
-
-        {/* Cover */}
-        <div
-          className="mt-8 aspect-[21/9] w-full overflow-hidden rounded-xl border border-border"
-          style={
-            article.image
-              ? undefined
-              : { backgroundImage: coverTone(article.title) }
-          }
-        >
-          {article.image ? (
-            <RemoteImage
-              src={article.image}
-              alt=""
-              className="h-full w-full object-cover"
-              containerClassName="h-full min-h-0 rounded-none border-0 p-0"
-            />
-          ) : null}
-        </div>
-
-        <div className="mt-10 min-w-0 max-w-full break-words">
-          <Markdown>{article.content}</Markdown>
-        </div>
-
-        {article.free2zaddr ? (
-          <CommentsSection uuid={article.free2zaddr} contentType="zpage" />
-        ) : null}
-      </div>
-
-      {/* Sticky action bar */}
-      <div className="app-reader-actions fixed inset-x-0 z-30 border-t border-border bg-background/80 backdrop-blur-md">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3 px-4 py-3">
-          <ArticleScore score={article.votes ?? 0} />
-          <TipDialog author={author} />
-        </div>
-      </div>
-    </article>
+        </article>
+      </BlockedContent>
+    </>
   );
 }
 

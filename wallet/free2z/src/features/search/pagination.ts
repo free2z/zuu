@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { discover } from "@/lib/api/free2z";
 import type { Article, SearchResultPage, SimpleCreator } from "@/lib/api/types";
+import { useModeration } from "@/store/moderation";
+import { getTokenSnapshot } from "@/lib/api/http";
 
 export interface SearchSnapshot<T> {
   key: string;
@@ -17,6 +19,10 @@ interface SearchState<T> extends SearchSnapshot<T> {
 
 export class SearchSnapshotCache<T> {
   private readonly snapshots = new Map<string, SearchSnapshot<T>>();
+
+  clear() {
+    this.snapshots.clear();
+  }
 
   constructor(private readonly limit: number) {
     if (!Number.isSafeInteger(limit) || limit < 1) {
@@ -123,6 +129,21 @@ function usePaginatedSearch<T>(
   loadPage: (query: string, page: number) => Promise<SearchResultPage<T>>,
   identity: (item: T) => string,
 ) {
+  const owner = useModeration((s) => s.owner);
+  const ownerKey = owner
+    ? `${owner.username}:${owner.token.generation}`
+    : "anonymous";
+  const scopeRef = useRef(ownerKey);
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const refresh = () => {
+      cache.clear();
+      setRevision((value) => value + 1);
+    };
+    window.addEventListener("free2z-moderation-refresh", refresh);
+    return () =>
+      window.removeEventListener("free2z-moderation-refresh", refresh);
+  }, [cache]);
   const initial = () => cache.restore(query) ?? emptySnapshot<T>(query);
   const [state, setState] = useState<SearchState<T>>(() => ({
     ...initial(),
@@ -137,6 +158,14 @@ function usePaginatedSearch<T>(
     async (page: number, rebaselineCount = false) => {
       if (stateRef.current.loading || stateRef.current.key !== query) return;
       const requestId = ++requestIdRef.current;
+      const sameOwner = () => {
+        const current = useModeration.getState().owner;
+        return (
+          (current
+            ? `${current.username}:${current.token.generation}`
+            : "anonymous") === ownerKey
+        );
+      };
       const loadingState = {
         ...stateRef.current,
         count: rebaselineCount ? null : stateRef.current.count,
@@ -147,7 +176,7 @@ function usePaginatedSearch<T>(
       setState(loadingState);
       try {
         const response = await loadPage(query, page);
-        if (requestIdRef.current !== requestId) return;
+        if (requestIdRef.current !== requestId || !sameOwner()) return;
         const merged = mergeSearchPage(
           stateRef.current,
           response,
@@ -159,17 +188,22 @@ function usePaginatedSearch<T>(
         cache.remember(merged);
         setState(nextState);
       } catch (error) {
-        if (requestIdRef.current !== requestId) return;
+        if (requestIdRef.current !== requestId || !sameOwner()) return;
         const nextState = { ...stateRef.current, error, loading: false };
         stateRef.current = nextState;
         setState(nextState);
       }
     },
-    [cache, identity, loadPage, query],
+    [cache, identity, loadPage, query, ownerKey],
   );
 
   useEffect(() => {
     requestIdRef.current += 1;
+    if (scopeRef.current !== ownerKey) {
+      cache.clear();
+      scopeRef.current = ownerKey;
+    }
+    if (getTokenSnapshot().token && !owner) return;
     const snapshot = cache.restore(query) ?? emptySnapshot<T>(query);
     const nextState = { ...snapshot, error: null, loading: false };
     stateRef.current = nextState;
@@ -180,7 +214,7 @@ function usePaginatedSearch<T>(
     return () => {
       requestIdRef.current += 1;
     };
-  }, [cache, load, query]);
+  }, [cache, load, query, ownerKey, owner, revision]);
 
   const loadMore = useCallback(() => {
     const next = stateRef.current.next;
@@ -192,7 +226,11 @@ function usePaginatedSearch<T>(
     if (next !== null) void load(next, true);
   }, [load]);
 
-  if (state.key !== query) {
+  if (
+    state.key !== query ||
+    scopeRef.current !== ownerKey ||
+    (getTokenSnapshot().token && !owner)
+  ) {
     return {
       ...emptySnapshot<T>(query),
       error: null,

@@ -174,6 +174,16 @@ class SeriesEditSerializer(serializers.ModelSerializer):
             'id', 'creator', 'created_at', 'updated_at',
         ]
 
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        request = self.context.get('request')
+        if request and request.method == 'GET':
+            visible = exclude_blocked(
+                instance.pageorder_set.all(), request.user, 'page__creator',
+            )
+            data['pageorder_set'] = PageOrderSerializer(visible, many=True, context=self.context).data
+        return data
+
     def save(self, **kwargs):
         # Capture the incoming request object. The viewset already puts the
         # request into the serializer context (GenericAPIView.get_serializer_
@@ -298,6 +308,10 @@ class SeriesEditSerializer(serializers.ModelSerializer):
             if Series.objects.values_list('name', flat=True).get(pk=series.pk) != expected_name:
                 raise SeriesChanged()
         if replace:
+            all_orders = series.pageorder_set.all()
+            if exclude_blocked(all_orders, series.creator, 'page__creator').count() != all_orders.count():
+                # A filtered editor cannot safely replace an unseen membership.
+                raise SeriesChanged()
             series.pageorder_set.all().delete()
         if pages_data:
             PageOrder.objects.filter(
