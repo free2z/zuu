@@ -102,7 +102,7 @@
     },
     "zecTip": {
       "blocked": {
-        "body": "free2z preparó una solicitud de {amount} para {creator} y no tiene ninguna clave para firmarla. El enlace verificado a ZUULI todavía no existe, así que no se envió nada.",
+        "body": "free2z preparó una solicitud de {amount} para {creator} y no tiene ninguna clave para firmarla. El enlace verificado a ZUULI solo existe en las apps de iOS y Android, así que desde aquí no se envió nada.",
         "title": "Las propinas en ZEC se firman en ZUULI"
       },
       "declined": {

@@ -58,7 +58,7 @@ const SENT: CreatorTipCopy = {
   certainNothingWasSent: false,
 };
 
-/** No channel to the wallet exists at all (#461). Nothing left this process. */
+/** This runtime has no channel to the wallet. Nothing left this process. */
 const BLOCKED: CreatorTipCopy = {
   tone: "info",
   titleKey: MESSAGE_KEYS.creatorZecTipBlockedTitle,

@@ -9,6 +9,7 @@ import {
 import App from "./App";
 import { mountApplication, RootFallback } from "./app-bootstrap";
 import { ErrorBoundary } from "./components/common/ErrorBoundary";
+import { listenForAuthorityAnswers } from "./lib/bridge/appLinkTransport";
 import { diagnostics } from "./lib/diagnostics";
 import { installDocumentDirection } from "./lib/document-direction";
 import "./index.css";
@@ -23,6 +24,11 @@ installDocumentDirection();
 // observes is how #973 shipped a build that hung with nothing written down.
 installGlobalDiagnostics(diagnostics, window);
 diagnostics.breadcrumb("lifecycle", "app-start");
+
+// ZUULI's answers to a tip arrive as a link to this app. Listening from the
+// start, rather than when a tip is sent, means an answer is never missed for
+// want of a listener. A no-op outside a native mobile build.
+listenForAuthorityAnswers();
 
 void mountApplication({
   root: ReactDOM.createRoot(document.getElementById("root")!),
