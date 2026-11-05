@@ -122,6 +122,40 @@ def test_zpage_lists_hide_the_blocked_creator_from_the_blocker(trio):
     assert vanities(client_for(blocked), "?mine=true") == ["blocked-page"]
 
 
+def test_creator_directory_and_follow_list_hide_blocked_accounts(trio):
+    from dj.apps.g12f.models import CreatorFollow
+    from dj.apps.uploads.models import GenericFile
+
+    blocker, blocked, bystander = trio
+    for creator in (blocked, bystander):
+        image = GenericFile.objects.create(
+            owner=creator, file=f'uploads/{uuid.uuid4()}.png', mime_type='image/png',
+        )
+        creator.avatar_image = image
+        creator.banner_image = image
+        creator.save(update_fields=['avatar_image', 'banner_image'])
+    CreatorFollow.objects.create(follower=blocker, creator=blocked)
+    CreatorFollow.objects.create(follower=blocker, creator=bystander)
+    CreatorFollow.objects.create(follower=bystander, creator=blocked)
+
+    def names(client, url):
+        response = client.get(url)
+        assert response.status_code == 200, response.content
+        return {row['username'] for row in response.json()['results']}
+
+    directory = '/api/creator/?ordering=username'
+    assert blocked.username not in names(client_for(blocker), directory)
+    assert bystander.username in names(client_for(blocker), directory)
+    assert blocked.username in names(client_for(bystander), directory)
+    assert blocked.username in names(APIClient(), directory)
+    follows = '/api/g12f/follows/mine/'
+    assert names(client_for(blocker), follows) == {bystander.username}
+    assert names(client_for(bystander), follows) == {blocked.username}
+    assert client_for(blocker).get(f'/api/creator/{blocked.username}/').status_code == 200
+    assert client_for(blocker).delete(f'/api/creator/{blocked.username}/block/').status_code == 200
+    assert names(client_for(blocker), follows) == {blocked.username, bystander.username}
+
+
 def test_unblock_restores_every_list(trio):
     blocker, blocked, bystander = trio
     page = page_for(bystander, "restore")

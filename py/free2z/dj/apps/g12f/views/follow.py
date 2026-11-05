@@ -12,6 +12,7 @@ from rest_framework import mixins, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from dj.apps.g12f.models import CreatorBlock, CreatorFollow
+from dj.apps.g12f.blocks import exclude_blocked
 from dj.apps.g12f.serializers.follow import (
     CreatorBlockSerializer, CreatorFollowSerializer,
 )
@@ -25,8 +26,7 @@ from dj.apps.g12f.serializers.follow import (
         "`?page_size=`). This is the FREE follow graph — it is not the paid "
         "subscription list and reflects nothing about 2Z, entitlement or "
         "`member_price`. Follows of accounts that have since been deactivated "
-        "are omitted, so `count` here always matches the `following_count` "
-        "reported by `GET /api/creator/{my-own-username}/follow/`."
+        "and accounts blocked by the caller are omitted."
     ),
     responses={
         200: CreatorFollowSerializer(many=True),
@@ -54,10 +54,11 @@ class MyCreatorFollowViewSet(
         # The Meta ordering ('-created_at', '-id') is restated because page
         # numbers over an unstable order silently drop rows across a boundary,
         # and a future edit to Meta must not be able to do that here.
-        return CreatorFollow.objects.filter(
+        follows = CreatorFollow.objects.filter(
             follower=self.request.user,
             creator__is_active=True,
         ).select_related('creator').order_by('-created_at', '-id')
+        return exclude_blocked(follows, self.request.user, 'creator')
 
 
 @extend_schema(
