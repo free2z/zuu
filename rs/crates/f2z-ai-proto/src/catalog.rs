@@ -528,6 +528,7 @@ pub(crate) fn validate_signed_price_fields(
         "input_nusd_per_mtok",
         "cached_input_nusd_per_mtok",
         "cache_write_nusd_per_mtok",
+        "cache_write_1h_nusd_per_mtok",
         "output_nusd_per_mtok",
         "image_nusd",
         "tool_call_nusd",

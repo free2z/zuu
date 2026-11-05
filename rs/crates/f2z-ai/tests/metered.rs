@@ -2347,7 +2347,7 @@ async fn non_strict_estimate_refusals_report_exact_minimum_and_do_not_reserve_or
         {
             let mut state = db.0.lock().unwrap();
             state.available = available;
-            state.cap_remaining = cap;
+            state.cap_remaining_milli_2z = cap;
         }
         let (r, mock) =
             launch_catalog(db.clone(), Scenario::default(), None, catalog.clone()).await;
