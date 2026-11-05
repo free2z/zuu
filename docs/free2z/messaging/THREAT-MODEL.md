@@ -129,7 +129,8 @@ data it stores or relays.
 > set `no_reset` has foreclosed the path entirely at the cost of permanent handle
 > loss on a lost seed.
 
-> **Correction (2026-08-24) — the bullet is scoped to a handle that already has
+> **Historical correction (2026-08-24; its uncheckable-first-entry claim is
+> superseded by the unratified #649 proposal) — the bullet is scoped to a handle that already has
 > a directory entry, and that qualifier was never written down.** "Substitute an
 > identity key" presupposes a key already published for the handle; self-audit,
 > the alarm and the key-change rules all hang off the entry that key lives in.
@@ -151,13 +152,12 @@ data it stores or relays.
 > `KT.md` §4.4 states the option space and answers none of it — so this
 > correction records a limit rather than a fix.
 
-> **Correction (2026-08-24, later the same day) — the last sentence above is now
-> wrong, and the scoping it defends is still right.** The decision has been
-> taken: [`KT.md` §4.5](./KT.md#45-handleassertion--what-authorizes-a-handles-first-entry)
-> specifies a short-lived, log-pinned, single-use handle-ownership assertion from
-> a configured authority, countersigned by the identity key it names, and §4.6
-> requires a log running without one to say so. **This changes what a *third
-> party* can do and does not change this section**, which is about the server.
+> **Historical correction (2026-08-24, later the same day; its client
+> verification claim was superseded by the unratified #649 proposal).** The
+> decision was taken: [`KT.md` §4.5](./KT.md#45-handleassertion--what-authorizes-a-handles-first-entry)
+> specifies a short-lived, log-pinned, single-use handle-ownership assertion
+> from a configured authority, countersigned by the identity key it names, and
+> §4.6 requires a log running without one to say so.
 >
 > Two reasons the bullet stays scoped, and the second is the one an auditor
 > should hold on to. First, a compromised authority can still claim any
@@ -165,19 +165,16 @@ data it stores or relays.
 > countersignature because it chose the key, and nobody's self-audit fires
 > because the person whose name was taken is not a user
 > ([`KT.md` §4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do)).
-> Second, and independently of any compromise, **the assertion is not committed
-> to the tree and is never served to clients** — unlike a `RotationProof` or a
-> `ResetAuthorization`, it lives in the submission envelope, so it is admission
-> control the log performs on itself and no client, witness or auditor can check
-> that it happened. A log that skipped it entirely would publish entries
-> indistinguishable from ones that passed it.
+> At that time, the assertion was outside the tree, so a log could skip its
+> admission check and publish an indistinguishable entry.
 >
-> So `KT.md` §4.5 closes the first-entry hole **against strangers** and not
-> against this section's adversary. The bullet above remains scoped to a handle
-> that already has a directory entry, §5's row still claims nothing for
-> unregistered handles, and what would change that is a wire change filed in
-> [`KT.md` §12](./KT.md#12-what-this-document-leaves-open) rather than shipped.
-> [#594](https://github.com/free2z/zuu/issues/594).
+> The current #649 implementation proposal moves that assertion and its
+> identity and directory-auth signatures into the committed entry. A client or
+> auditor can therefore detect a missing or substituted assertion when it has
+> the authority key; a log-signed policy alone does not establish that key's
+> identity. The new encoding is not ratified or coordinated for deployment, so
+> this documents the proposed guarantee and trust limit without claiming a
+> production rollout. [#649](https://github.com/free2z/zuu/issues/649).
 
 **Not defended.**
 
@@ -884,7 +881,7 @@ section's narrower reading is the one intended.
 |---|---|---|
 | Server cannot read content | **Yes**, unconditionally | **Only if the served bundle is honest** (§3.6) |
 | Server cannot forge messages | **Yes** | Same caveat |
-| Server cannot MITM the identity **of a handle that already has a directory entry** | **Yes, and read §3.1's four corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. For a handle with **no** entry yet, [`KT.md` §4.5](./KT.md#45-handleassertion--what-authorizes-a-handles-first-entry) now says what authorizes the first entry — against a *stranger*, not against the server, because the log checks it itself and nothing is committed to the tree ([§4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do)). **This row still claims nothing for a handle with no entry.** | Same caveat |
+| Server cannot MITM the identity **of a handle that already has a directory entry** | **Yes, and read §3.1's four corrections** — KT inclusion + self-audit catch a substitution; append-only-ness is a *witness* property, not a client one, and it is not real until independent witnesses exist. The ADR 0014 reset path is a loud, delayed, recorded exception. For a handle with **no** entry yet, the proposed committed `initial_bind` lets clients and auditors verify the assertion and binding from the tree value. It does not establish the authority key's identity when learned only from the log; only an out-of-band pin can do that ([`KT.md` §4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do)). **This row still claims no protection for an unpinned authority key.** | Same caveat |
 | Server cannot deny that a handle exists | **No** (§4.11) — `akd` 0.13 cannot prove non-membership for an unregistered label, so absence is an assertion the log makes and the client is told is unproved. It cannot weaken a pin a client already holds. | Same |
 | Server cannot MITM WebRTC | **Yes** — in-band fingerprints | Same caveat |
 | Forward secrecy | **Yes** — MLS epochs, **except the first `Welcome` when it lands on a last-resort key package** (§4.12), which a hostile relay can force at will (§4.13) | Yes, same caveat |

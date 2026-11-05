@@ -90,7 +90,13 @@ test('native capture fixture permits seed-free reads and rejects identity or mut
     enrolled: false, handle: null, eligibility: { eligible: false, candidate: null, reason: 'not-signed-in' },
     directoryEntryVersion: null, submittedAt: null, mergedAtEpoch: null, blocked: null,
   });
-  assert.deepEqual(await invoke('plugin:deep-link|get_current'), []);
+  assert.deepEqual(await invoke('plugin:f2zmsg|get_engine_status'), {
+    state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1,
+    witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0,
+    lastError: null, directoryBlocked: null,
+  });
+  // No launch URL: tauri-plugin-deep-link answers Option::None, not an empty list.
+  assert.equal(await invoke('plugin:deep-link|get_current'), null);
   await assert.rejects(invoke('plugin:f2zmsg|get_device_info'), (error) => error === 'not-enrolled');
   for (const cmd of ['unexpected', 'e2e2z_dispatch_intent', 'f2zmsg_enroll', 'f2zmsg_unenroll', 'e2e2z_install_device_credential', 'plugin:f2zmsg|install_identity', 'plugin:zcash|export_seed', 'plugin:f2zmsg|send_message']) {
     await assert.rejects(invoke(cmd), /Unexpected native command/);

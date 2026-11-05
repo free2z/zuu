@@ -1106,7 +1106,31 @@
       "libraryEmpty": "You do not have any uploaded PDF documents yet.",
       "cloudImageAlt": "PDF document from your cloud",
       "imageAccessTitle": "Your readers would not see this PDF document"
-    }
+    },
+    "aiTextTitle": "Draft with AI",
+    "aiTextPrompt": "Prompt (sent to the selected provider)",
+    "aiTextPromptPlaceholder": "Describe the text you want. Draft content is never sent automatically.",
+    "aiTextModel": "Model",
+    "aiTextQuote": "Show price and destination",
+    "aiTextLoadError": "AI text models are unavailable. Try again later.",
+    "aiTextGenerateError": "Text generation failed. Review your choice and try again.",
+    "aiTextRetention": "Provider privacy and retention policy",
+    "aiTextWorking": "Generating…",
+    "aiTextSubmit": "Generate text (up to {price} 2Z)",
+    "aiTextPreview": "Preview — nothing has been inserted yet",
+    "aiTextCharged": "Charged {price} 2Z",
+    "aiTextAccept": "Insert text",
+    "aiTextDiscard": "Discard",
+    "aiTextDestination": "Your prompt will be sent to {destination}.",
+    "aiTextMaxCharge": "Maximum charge: {price} 2Z. The actual charge is metered from usage and may be lower.",
+    "aiTextAvailability": "Availability: {availability} Queue: {queue}",
+    "aiTextQuoteError": "Could not price this prompt. Check the prompt and try again.",
+    "aiTextRetryError": "The result is uncertain. Retry this exact request to safely recover it, or keep it pending before changing provider.",
+    "aiTextRetry": "Retry exact request",
+    "aiTextPending": "A prior request may have completed. Retry the exact same request to recover its result; its provider and price are locked.",
+    "aiTextEffectiveCap": "Reply cap for this prompt: {tokens} tokens (requested: {requested}).",
+    "aiTextEmpty": "No text models are currently available.",
+    "aiTextCatalogueRetry": "Retry model list"
   },
   "dashboard": {
     "pages": {
