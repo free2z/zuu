@@ -114,13 +114,12 @@ impl Bps {
 /// nano-USD per image / per tool call. `$3.00 / 1M` input is
 /// `input_nusd_per_mtok: 3_000_000_000`.
 ///
-/// Decoding refuses unknown members (`deny_unknown_fields`). This is a signed
-/// price list: a price dimension this crate does not know about would
-/// otherwise be silently priced at zero — failing open, on money. A new
-/// dimension therefore needs a catalogue schema bump
-/// ([`crate::catalog::CATALOG_SCHEMA`]), which old consumers refuse.
+/// Unknown members are ignored so additive gateway catalogue metadata does
+/// not break clients. A new price dimension still requires a catalogue schema
+/// bump ([`crate::catalog::CATALOG_SCHEMA`]); consumers must validate the
+/// supported schema before pricing because an unrecognized dimension is not
+/// represented by this type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ModelPrices {
     /// Uncached input tokens.
     pub input_nusd_per_mtok: u64,

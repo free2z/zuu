@@ -247,7 +247,7 @@ fn an_unknown_price_dimension_is_refused_not_priced_at_zero() {
     let (body, sig) = sign_tree(&tree);
     assert!(matches!(
         verify_now(&body, &sig, &[load().key]),
-        Err(CatalogError::Json(_))
+        Err(CatalogError::Invalid("model prices"))
     ));
 }
 
