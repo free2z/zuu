@@ -1048,7 +1048,11 @@ impl Harness {
         };
         let mock = MockProvider::start(scenario).await.unwrap();
         let ledger = Arc::new(MemoryLedger::default());
-        let meter = Arc::new(Metered::new(ledger.clone(), backend(&mock.base_url())));
+        let meter = Arc::new(Metered::new(
+            ledger.clone(),
+            backend(&mock.base_url()),
+            adapter_support::claim_key(),
+        ));
         let running = support::start(
             &support::config(&[]),
             Deps {

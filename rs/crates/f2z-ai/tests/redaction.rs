@@ -89,7 +89,6 @@ async fn no_prompt_reaches_a_log_line_or_an_error_body_at_trace() {
                 {"id": "t1", "name": "f", "arguments": CANARY}]},
             {"role": "tool", "tool_call_id": "t1", "content": [{"type": "text", "text": CANARY}]}
         ],
-        "metadata": {"lesson": CANARY},
         "tools": [{"name": "f", "description": CANARY, "parameters": {"type": "object"}}]
     });
     let request = Request::post("/v1/chat")
@@ -103,6 +102,14 @@ async fn no_prompt_reaches_a_log_line_or_an_error_body_at_trace() {
     let stream = streams.recv().await.unwrap();
     stream.send(delta("hello")).await.unwrap();
     assert!(next_frame(&mut streamed).await.unwrap().is_some());
+
+    // `metadata` is refused for every app (zuu#1225); the refusal names the
+    // field, never its contents.
+    let mut with_metadata = full.clone();
+    with_metadata["metadata"] = json!({"lesson": CANARY});
+    let refused = post_chat(public, &with_metadata).await;
+    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
+    bodies.push(text(refused).await);
 
     // Decode errors whose serde_json message would quote the canary.
     for bad in [

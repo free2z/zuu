@@ -21,17 +21,13 @@
 //! this in v1: *"a flag that is a constant `false` in every response this
 //! protocol can produce is a reserved field with extra steps"*.
 //!
-//! # 2. A first entry establishes nothing about who owns the handle
+//! # 2. A first entry carries checkable authorization evidence
 //!
-//! §8.1 step 6, verbatim: *"**At `entry_version == 1` there is still nothing
-//! here to verify.** … This step therefore establishes nothing about a handle
-//! being resolved for the first time, and a client MUST NOT present it as
-//! though it did."* §4.5 says what authorizes a first entry, the log checks it
-//! at submission, and it is not committed to the tree — so a client is served
-//! no artefact to check ([#649](https://github.com/free2z/zuu/issues/649)).
-//!
-//! [`Authorization::FirstEntryUnverifiable`] is that state, named so that a UI
-//! rendering it cannot mistake it for a check that passed.
+//! The proposed #649 `InitialBind` case commits its assertion, identity
+//! binding, and directory-auth signature into the tree value. This client
+//! checks those bytes. The authority key is taken from the log-signed policy;
+//! that policy does not make the key a trust root, so callers that need that
+//! assurance must pin it out of band.
 
 use f2z_codec::types::PublicKey;
 use f2z_kt_core::entry::{DeviceCredential, DirectoryEntry, EntryKind};
@@ -43,14 +39,12 @@ use crate::standing::WitnessStanding;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Authorization {
-    /// `entry_version == 1`. **Nothing was verified**, and nothing could be:
-    /// §4.5's `HandleAssertion` is checked by the log at submission and is not
-    /// committed to the tree, so there is no artefact served for a client to
-    /// check (§4.7, [#649](https://github.com/free2z/zuu/issues/649)).
-    ///
-    /// A handle resolved in this state means *"whoever the log accepted first"*,
-    /// and on an unvouched log (§4.6) it means *"whoever got there first"*.
-    FirstEntryUnverifiable,
+    /// `entry_version == 1`; the directory-auth signature, the identity
+    /// binding, and (when present) the authority assertion were checked from
+    /// bytes committed in `DirectoryEntry`. The authority key is still only
+    /// as trustworthy as the client's out-of-band pin; a log-signed policy
+    /// alone does not make that key a trust root.
+    InitialBindChecked,
     /// `entry_version > 1`, and §4.4's rules were re-run against the previous
     /// entry this client holds — by [`f2z_kt_core::submit::validate_submission`],
     /// which is the same function the log runs. There is not a second
@@ -69,10 +63,12 @@ pub enum Vouching {
     /// The log publishes a signed policy saying an authority must sign a
     /// `HandleAssertion` before a handle's first entry.
     ///
-    /// **This is not a guarantee that it did.** §8.5: a client cannot verify
-    /// *"that a log which reports itself vouched actually applied §4.5 — or
-    /// that a handle registered while it was unvouched was later re-vouched.
-    /// The policy is log-wide, not per-handle."*
+    /// **This is not a trust root or an admission receipt.** A client checks a
+    /// proposed committed `InitialBind` artifact against this current policy,
+    /// but cannot prove which historical policy was active or that the log
+    /// applied every admission-time rule (including nonce single-use). A cold
+    /// client can fail closed on old entries after authority-policy changes.
+    /// See `KT.md` §§4.7 and 8.5.
     Claimed,
     /// The log's signed policy says it does **not** vouch. Every handle on it
     /// means "whoever got there first", and §8.1 step 7 requires a client to
@@ -170,7 +166,7 @@ impl ResolvedHandle {
         self.standing
     }
 
-    /// What §8.1 step 6 established — including, at version 1, nothing.
+    /// What §8.1 step 6 established, including the committed first-entry bind.
     #[must_use]
     pub const fn authorization(&self) -> Authorization {
         self.authorization
