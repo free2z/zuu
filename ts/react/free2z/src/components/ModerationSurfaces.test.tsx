@@ -38,7 +38,9 @@ test.each(["thread", "feed"])(
     setGlobalState("authStatus", true);
     api.get.mockResolvedValue({ data: { results: [], count: 0, next: null } });
     api.post.mockResolvedValue({ data: {} });
-    (api as unknown as jest.Mock).mockResolvedValue({ data: { active: true } });
+    (api as unknown as jest.Mock).mockResolvedValue({
+      data: { username: "alice", active: true },
+    });
     render(
       <QueryClientProvider client={new QueryClient()}>
         <MemoryRouter>
@@ -89,7 +91,9 @@ test.each(["zpage", "creator"])(
     setGlobalState("authStatus", true);
     api.get.mockResolvedValue({ data: { results: [], count: 0, next: null } });
     api.post.mockResolvedValue({ data: {} });
-    (api as unknown as jest.Mock).mockResolvedValue({ data: { active: true } });
+    (api as unknown as jest.Mock).mockResolvedValue({
+      data: { username: "alice", active: true },
+    });
     const creator = {
       ...defaultCreator,
       id: 2,

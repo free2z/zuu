@@ -6,58 +6,73 @@ import { Creator } from "../Begin";
 import { FeaturedImage } from "../components/PageRenderer";
 
 export const defaultCreator = {
-    id: 0,
-    username: "",
-    full_name: "",
-    p2paddr: "",
-    description: "",
-    //
-    email: "",
-    first_name: "",
-    last_name: "",
-    total: 0,
-    tuzis: "0",
-    updateAll: false,
-    stars: [],
-    star_ids: [],
-    fans: [],
-    is_verified: false,
-    can_stream: false,
-    member_price: "1",
-    zpages: 0,
-    avatar_image: null as FeaturedImage | null,
-    banner_image: null as FeaturedImage | null,
+  id: 0,
+  username: "",
+  full_name: "",
+  p2paddr: "",
+  description: "",
+  //
+  email: "",
+  first_name: "",
+  last_name: "",
+  total: 0,
+  tuzis: "0",
+  updateAll: false,
+  stars: [],
+  star_ids: [],
+  fans: [],
+  is_verified: false,
+  can_stream: false,
+  member_price: "1",
+  zpages: 0,
+  avatar_image: null as FeaturedImage | null,
+  banner_image: null as FeaturedImage | null,
 } as Creator;
 
 // Optional action for the snackbar; all fields optional.
 export interface SnackbarAction {
-    render?: (ctx: { key: any; close: () => void }) => ReactNode;
-    onClick?: () => void | Promise<void>;
-    icon?: ReactNode;
-    ariaLabel?: string;
+  render?: (ctx: { key: any; close: () => void }) => ReactNode;
+  onClick?: () => void | Promise<void>;
+  icon?: ReactNode;
+  ariaLabel?: string;
 }
 
 export interface SnackbarState {
-    open: boolean;
-    message: string;
-    severity?: AlertColor;
-    duration?: number | null;
-    action?: SnackbarAction; // optional
+  open: boolean;
+  message: string;
+  severity?: AlertColor;
+  duration?: number | null;
+  action?: SnackbarAction; // optional
 }
 
-export const { useGlobalState, getGlobalState, setGlobalState } = createGlobalState({
-    creator: defaultCreator,
-    snackbar: {
-        open: false,
-        severity: "success" as AlertColor,
-        message: "",
-        duration: undefined as number | null | undefined,
-        // action omitted by default
-    } as SnackbarState,
-    loading: false,
-    loadingEmbed: false,
-    redirect: "",
-    loginModal: false,
-    authStatus: null as boolean | null,
-    unreadCount: null as number | null,
+const globalState = createGlobalState({
+  creator: defaultCreator,
+  snackbar: {
+    open: false,
+    severity: "success" as AlertColor,
+    message: "",
+    duration: undefined as number | null | undefined,
+    // action omitted by default
+  } as SnackbarState,
+  loading: false,
+  loadingEmbed: false,
+  redirect: "",
+  loginModal: false,
+  authStatus: null as boolean | null,
+  authEpoch: 0,
+  unreadCount: null as number | null,
 });
+export const { useGlobalState, getGlobalState, setGlobalState } = globalState;
+
+// Run synchronously when auth changes, including transitions batched into one render.
+export function retireAuthSession() {
+  setGlobalState("authEpoch", (epoch) => epoch + 1);
+}
+let lastCreatorId = getGlobalState("creator").id;
+globalState.subscribe("creator", (creator) => {
+  if (creator.id !== lastCreatorId) {
+    lastCreatorId = creator.id;
+    retireAuthSession();
+  }
+});
+globalState.subscribe("authStatus", () => retireAuthSession());

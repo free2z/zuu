@@ -1,236 +1,270 @@
-import { Swiper, SwiperSlide } from 'swiper/react';
-import { Swiper as SwiperClass } from 'swiper';
-import SwiperCore from 'swiper';
-import { Autoplay, Navigation } from 'swiper/modules';
-import { Avatar,  CardActionArea, CardContent, Typography } from '@mui/material';
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Swiper as SwiperClass } from "swiper";
+import SwiperCore from "swiper";
+import { Autoplay, Navigation } from "swiper/modules";
+import { Avatar, CardActionArea, CardContent, Typography } from "@mui/material";
 
 // Import Swiper styles
-import 'swiper/css';
-import 'swiper/css/navigation';
-import axios from 'axios';
-import { BlockedContent, ModerationControls, useUnblockRevision } from './Moderation';
-import { useGlobalState } from '../state/global';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { PageInterface } from './PageRenderer';
-import SwiperLoadingAnimation from './SwiperLoadingAnimation';
-import { HOME_CAROUSEL_BREAKPOINTS } from './HomeCarouselConstants';
-import HoverCard from './common/HoverCard';
+import "swiper/css";
+import "swiper/css/navigation";
+import axios from "axios";
+import {
+  BlockedContent,
+  ModerationControls,
+  useUnblockRevision,
+} from "./Moderation";
+import { getGlobalState, useGlobalState } from "../state/global";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { PageInterface } from "./PageRenderer";
+import SwiperLoadingAnimation from "./SwiperLoadingAnimation";
+import { HOME_CAROUSEL_BREAKPOINTS } from "./HomeCarouselConstants";
+import HoverCard from "./common/HoverCard";
 
 SwiperCore.use([Autoplay, Navigation]);
 
 type ZPageCarouselProps = {
-    sort: "score" | "updated" | "random"
-}
+  sort: "score" | "updated" | "random";
+};
 
 export default function ZPageCarousel(props: ZPageCarouselProps) {
-    const { sort } = props
-    const [zpages, setzPages] = useState<PageInterface[]>([]);
-    const [fetching, setFetching] = useState(false);
-    const [hasMore, setHasMore] = useState(true);
-    const [page, setPage] = useState(1);
-    const unblockRevision = useUnblockRevision();
-    const [creator] = useGlobalState('creator');
-    const [auth] = useGlobalState('authStatus');
-    const actor = auth ? creator.id : 0;
-    const previousActor = useRef(actor);
-    const fetchGeneration = useRef(0);
-    const lastElement = useRef<HTMLDivElement | null>(null);
-    const swiperRef = useRef<SwiperClass | null>(null);
+  const { sort } = props;
+  const [zpages, setzPages] = useState<PageInterface[]>([]);
+  const [fetching, setFetching] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
+  const unblockRevision = useUnblockRevision();
+  const [creator] = useGlobalState("creator");
+  const [auth] = useGlobalState("authStatus");
+  const [epoch] = useGlobalState("authEpoch");
+  const actor = auth ? creator.id : 0;
+  const previousActor = useRef(actor);
+  const previousEpoch = useRef(epoch);
+  const fetchGeneration = useRef(0);
+  const lastElement = useRef<HTMLDivElement | null>(null);
+  const swiperRef = useRef<SwiperClass | null>(null);
 
-    const fetchData = useCallback(async (triggeredByObserver = false) => {
-        if (fetching || !hasMore || (!triggeredByObserver && page !== 1)) return;
-        // console.log("FETCH", page)
-        setFetching(true);
-        const generation = fetchGeneration.current;
+  const fetchData = useCallback(
+    async (triggeredByObserver = false) => {
+      if (fetching || !hasMore || (!triggeredByObserver && page !== 1)) return;
+      // console.log("FETCH", page)
+      setFetching(true);
+      const generation = fetchGeneration.current;
 
-        try {
-            // TODO: filter - must have images, >100 2Zs ...
-            const response = await axios.get('/api/zpage/', {
-                params: {
-                    page,
-                    homeSort: sort,
-                },
+      try {
+        // TODO: filter - must have images, >100 2Zs ...
+        const response = await axios.get("/api/zpage/", {
+          params: {
+            page,
+            homeSort: sort,
+          },
+        });
+
+        if (
+          response.status === 200 &&
+          generation === fetchGeneration.current &&
+          getGlobalState("authEpoch") === epoch
+        ) {
+          setzPages((prevPages) => {
+            const newResults = response.data.results as PageInterface[];
+            const updatedPages = [...prevPages];
+
+            newResults.forEach((newPage) => {
+              if (
+                !updatedPages.some(
+                  (prevPage) => prevPage.vanity === newPage.vanity
+                )
+              ) {
+                updatedPages.push(newPage);
+              }
             });
 
-            if (response.status === 200 && generation === fetchGeneration.current) {
-                setzPages((prevPages) => {
-                    const newResults = response.data.results as PageInterface[];
-                    const updatedPages = [...prevPages];
-
-                    newResults.forEach((newPage) => {
-                        if (!updatedPages.some((prevPage) => prevPage.vanity === newPage.vanity)) {
-                            updatedPages.push(newPage);
-                        }
-                    });
-
-                    return updatedPages;
-                });
-                setPage((prevPage) => prevPage + 1);
-            }
-        } catch (error) {
-            console.error('Error fetching creators:', error);
-            if (generation === fetchGeneration.current) setHasMore(false);
-        } finally {
-            setFetching(false);
+            return updatedPages;
+          });
+          setPage((prevPage) => prevPage + 1);
         }
-    }, [fetching, page, sort]);
+      } catch (error) {
+        console.error("Error fetching creators:", error);
+        if (
+          generation === fetchGeneration.current &&
+          getGlobalState("authEpoch") === epoch
+        )
+          setHasMore(false);
+      } finally {
+        if (getGlobalState("authEpoch") === epoch) setFetching(false);
+      }
+    },
+    [fetching, hasMore, page, sort, epoch]
+  );
 
-    useEffect(() => {
-        fetchData();
-    }, [fetchData])
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-    useEffect(() => {
-        setPage(1);
-        setzPages([]);
-        if (swiperRef.current) {
-            swiperRef.current.slideTo(0);
+  useEffect(() => {
+    setPage(1);
+    setzPages([]);
+    if (swiperRef.current) {
+      swiperRef.current.slideTo(0);
+    }
+  }, [sort]);
+
+  useEffect(() => {
+    if (
+      !unblockRevision &&
+      previousActor.current === actor &&
+      previousEpoch.current === epoch
+    )
+      return;
+    previousActor.current = actor;
+    previousEpoch.current = epoch;
+    fetchGeneration.current += 1;
+    setzPages([]);
+    setPage(1);
+    setHasMore(true);
+    setFetching(false);
+  }, [unblockRevision, actor, epoch]);
+
+  return (
+    <Swiper
+      slidesPerView="auto"
+      // centeredSlides={true}
+      navigation
+      breakpoints={HOME_CAROUSEL_BREAKPOINTS}
+      onSwiper={(swiper) => {
+        swiperRef.current = swiper;
+      }}
+      onSlideChange={() => {
+        const slideIndex = swiperRef.current?.activeIndex;
+        if (
+          slideIndex &&
+          zpages.length - slideIndex <= 5 &&
+          !fetching &&
+          hasMore
+        ) {
+          fetchData(true);
         }
-    }, [sort]);
-
-    useEffect(() => {
-        if (!unblockRevision && previousActor.current === actor) return;
-        previousActor.current = actor;
-        fetchGeneration.current += 1;
-        setzPages([]);
-        setPage(1);
-        setHasMore(true);
-    }, [unblockRevision, actor]);
-
-    return (
-        <Swiper
-            slidesPerView="auto"
-            // centeredSlides={true}
-            navigation
-            breakpoints={HOME_CAROUSEL_BREAKPOINTS}
-            onSwiper={(swiper) => {
-                swiperRef.current = swiper;
-            }}
-            onSlideChange={() => {
-                const slideIndex = swiperRef.current?.activeIndex;
-                if (slideIndex && zpages.length - slideIndex <= 5 && !fetching && hasMore) {
-                    fetchData(true);
-                }
-            }}
+      }}
+    >
+      {zpages.length === 0 ? (
+        <SwiperSlide
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            minHeight: 320,
+            minWidth: 320,
+            position: "relative",
+            // marginLeft: 'auto',
+            // marginRight: 'auto',
+          }}
         >
-            {zpages.length === 0 ?
-                <SwiperSlide
-                    style={{
-                        display: 'flex',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        minHeight: 320,
-                        minWidth: 320,
-                        position: 'relative',
-                        // marginLeft: 'auto',
-                        // marginRight: 'auto',
-                    }}
-                >
-                    <SwiperLoadingAnimation />
-                </SwiperSlide>
-                :
-                zpages.map((zpage, index) => (
-                    <SwiperSlide
-                        key={zpage.free2zaddr}
-
+          <SwiperLoadingAnimation />
+        </SwiperSlide>
+      ) : (
+        zpages.map((zpage, index) => (
+          <SwiperSlide key={zpage.free2zaddr}>
+            <div ref={index === zpages.length - 1 ? lastElement : null}>
+              <BlockedContent username={zpage.creator.username}>
+                <HoverCard>
+                  {/* Add CardActionArea to allow the Card to function as an `<a>` tag */}
+                  <CardActionArea href={zpage.get_url}>
+                    {/* Replace `CardMedia` with an `img` HTML tag. `CardMedia` does not have all the accessibility features that `img` provides */}
+                    <img
+                      src={zpage.featured_image?.thumbnail}
+                      alt={zpage.title}
+                      style={{
+                        minHeight: 180,
+                        maxHeight: 180,
+                        objectFit: "cover",
+                        width: "100%",
+                      }}
+                    />
+                    <CardContent
+                      style={{
+                        paddingTop: "7%",
+                        paddingBottom: "5%",
+                        paddingRight: 8,
+                      }}
                     >
-                        <div
-                            ref={index === zpages.length - 1 ? lastElement : null}
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "auto 1fr",
+                          gridGap: "8px",
+                          alignItems: "center",
+                        }}
+                      >
+                        <Avatar
+                          src={zpage.creator.avatar_image?.thumbnail}
+                          alt={zpage.creator.username}
+                          style={{
+                            width: 40,
+                            height: 40,
+                            marginRight: 10,
+                            marginLeft: 5,
+                          }}
+                        />
+                        <Typography
+                          variant="h6"
+                          noWrap
+                          style={{
+                            fontSize: "1rem",
+                            fontWeight: 800,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "pre-wrap",
+                            maxHeight: "2.5em",
+                            lineHeight: "1.25em",
+                            display: "-webkit-box",
+                            WebkitBoxOrient: "vertical",
+                            WebkitLineClamp: 2,
+                            textAlign: "left",
+                          }}
                         >
-
-                            <BlockedContent username={zpage.creator.username}>
-                            <HoverCard>   
-                            {/* Add CardActionArea to allow the Card to function as an `<a>` tag */}
-                            <CardActionArea href={zpage.get_url}>
-                                {/* Replace `CardMedia` with an `img` HTML tag. `CardMedia` does not have all the accessibility features that `img` provides */}
-                                <img
-                                    src={zpage.featured_image?.thumbnail}
-                                    alt={zpage.title}
-                                    style={{
-                                    minHeight: 180,
-                                    maxHeight: 180,
-                                    objectFit: "cover",
-                                    width: "100%",
-                                    }}
-                                />
-                                <CardContent
-                                    style={{
-                                        paddingTop: '7%',
-                                        paddingBottom: '5%',
-                                        paddingRight: 8,
-                                    }}
-                                >
-                                    <div
-                                        style={{
-                                            display: 'grid',
-                                            gridTemplateColumns: 'auto 1fr',
-                                            gridGap: '8px',
-                                            alignItems: 'center',
-                                        }}
-                                    >
-                                        <Avatar
-                                            src={zpage.creator.avatar_image?.thumbnail}
-                                            alt={zpage.creator.username}
-                                            style={{
-                                                width: 40,
-                                                height: 40,
-                                                marginRight: 10,
-                                                marginLeft: 5,
-                                            }}
-                                        />
-                                        <Typography
-                                            variant="h6"
-                                            noWrap
-                                            style={{
-                                                fontSize: '1rem',
-                                                fontWeight: 800,
-                                                overflow: 'hidden',
-                                                textOverflow: 'ellipsis',
-                                                whiteSpace: 'pre-wrap',
-                                                maxHeight: '2.5em',
-                                                lineHeight: '1.25em',
-                                                display: '-webkit-box',
-                                                WebkitBoxOrient: 'vertical',
-                                                WebkitLineClamp: 2,
-                                                textAlign: 'left',
-                                            }}
-                                        >
-                                            {zpage.title}
-                                        </Typography>
-                                    </div>
-                                    <Typography
-                                        variant="body2"
-                                        style={{
-                                            display: '-webkit-box',
-                                            WebkitBoxOrient: 'vertical',
-                                            WebkitLineClamp: 2,
-                                            overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
-                                            textAlign: "left",
-                                            padding: "0.3em 0 0 0",
-                                            margin: "0.3em 0 0 0",
-                                            fontWeight: 300,
-                                        }}
-                                    >
-                                        {zpage.is_subscriber_only &&
-                                            <Typography
-                                                component="span"
-                                                sx={{
-                                                    fontSize: '0.9rem',
-                                                    color: (theme) => theme.palette.secondary.main,
-                                                }}
-                                            >Subscribers only<br /></Typography>
-                                        }
-                                        {zpage.content}
-                                    </Typography>
-                                </CardContent>
-                            </CardActionArea>
-                            <ModerationControls username={zpage.creator.username} kind="zpage" targetId={zpage.free2zaddr} />
-                            </HoverCard>
-                            </BlockedContent>
-                        </div>
-                    </SwiperSlide>
-
-                ))}
-        </Swiper>
-    );
+                          {zpage.title}
+                        </Typography>
+                      </div>
+                      <Typography
+                        variant="body2"
+                        style={{
+                          display: "-webkit-box",
+                          WebkitBoxOrient: "vertical",
+                          WebkitLineClamp: 2,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          textAlign: "left",
+                          padding: "0.3em 0 0 0",
+                          margin: "0.3em 0 0 0",
+                          fontWeight: 300,
+                        }}
+                      >
+                        {zpage.is_subscriber_only && (
+                          <Typography
+                            component="span"
+                            sx={{
+                              fontSize: "0.9rem",
+                              color: (theme) => theme.palette.secondary.main,
+                            }}
+                          >
+                            Subscribers only
+                            <br />
+                          </Typography>
+                        )}
+                        {zpage.content}
+                      </Typography>
+                    </CardContent>
+                  </CardActionArea>
+                  <ModerationControls
+                    username={zpage.creator.username}
+                    kind="zpage"
+                    targetId={zpage.free2zaddr}
+                  />
+                </HoverCard>
+              </BlockedContent>
+            </div>
+          </SwiperSlide>
+        ))
+      )}
+    </Swiper>
+  );
 }

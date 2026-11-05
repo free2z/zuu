@@ -25,7 +25,11 @@ const reasons = [
   "spam",
   "other",
 ];
-const keyFor = (actor: number) => ["moderation-blocks", actor];
+const keyFor = (actor: number, epoch: number) => [
+  "moderation-blocks",
+  actor,
+  epoch,
+];
 export function useUnblockRevision() {
   const [revision, setRevision] = useState(0);
   useEffect(() => {
@@ -38,19 +42,53 @@ export function useUnblockRevision() {
 const activeActor = () =>
   (getGlobalState("authStatus") && getGlobalState("creator").id) || 0;
 
-async function readBlocks(): Promise<string[]> {
+async function readBlocks(
+  actor: number,
+  epoch: number,
+  signal?: AbortSignal
+): Promise<string[]> {
   let page = 1;
   const names: string[] = [];
   let pages = 1;
   do {
+    if (
+      activeActor() !== actor ||
+      getGlobalState("authEpoch") !== epoch ||
+      signal?.aborted
+    )
+      throw new Error("Session changed");
     const { data } = await axios.get("/api/g12f/blocks/mine/", {
       params: { page, page_size: 48 },
+      signal,
     });
+    if (
+      activeActor() !== actor ||
+      getGlobalState("authEpoch") !== epoch ||
+      signal?.aborted
+    )
+      throw new Error("Session changed");
+    if (
+      !data ||
+      !Array.isArray(data.results) ||
+      !Number.isSafeInteger(data.count) ||
+      data.count < 0 ||
+      data.results.some(
+        (row: { username?: unknown }) =>
+          typeof row?.username !== "string" || !row.username
+      )
+    )
+      throw new Error("Invalid block list");
     names.push(
       ...data.results.map((row: { username: string }) => row.username)
     );
     pages = Math.max(pages, Math.ceil(data.count / 48));
-    if (!data.next) break;
+    if (data.next !== null && typeof data.next !== "string")
+      throw new Error("Invalid block list");
+    if (!data.next) {
+      if (names.length !== data.count) throw new Error("Incomplete block list");
+      break;
+    }
+    if (page >= pages) throw new Error("Invalid block pagination");
     page++;
   } while (page <= pages);
   return names;
@@ -59,23 +97,45 @@ async function readBlocks(): Promise<string[]> {
 export function useBlocks() {
   const [creator] = useGlobalState("creator");
   const [auth] = useGlobalState("authStatus");
+  const [epoch] = useGlobalState("authEpoch");
   const actor = auth && creator.id ? creator.id : 0;
   const client = useQueryClient();
-  const previousActor = useRef(actor);
+  const previousActor = useRef({ actor, epoch });
   useEffect(() => {
     const previous = previousActor.current;
-    previousActor.current = actor;
-    if (previous && previous !== actor) {
-      client.cancelQueries(keyFor(previous));
-      client.removeQueries(keyFor(previous));
+    previousActor.current = { actor, epoch };
+    if (
+      previous.actor &&
+      (previous.actor !== actor || previous.epoch !== epoch)
+    ) {
+      client.cancelQueries(keyFor(previous.actor, previous.epoch));
+      client.removeQueries(keyFor(previous.actor, previous.epoch));
     }
-  }, [actor, client]);
-  const query = useQuery(keyFor(actor), readBlocks, {
-    enabled: !!actor,
-    retry: false,
-    staleTime: 30000,
-  });
-  return { actor, query };
+  }, [actor, epoch, client]);
+  const query = useQuery(
+    keyFor(actor, epoch),
+    ({ signal }) => readBlocks(actor, epoch, signal),
+    {
+      enabled: !!actor,
+      retry: false,
+      staleTime: 30000,
+    }
+  );
+  return { actor, epoch, query };
+}
+
+function validateBlockResponse(
+  data: unknown,
+  username: string,
+  active: boolean
+) {
+  const value = data as { username?: unknown; active?: unknown } | null;
+  if (
+    typeof value?.username !== "string" ||
+    value.username.toLowerCase() !== username.toLowerCase() ||
+    value.active !== active
+  )
+    throw new Error("Invalid block response");
 }
 
 export function BlockedContent({
@@ -104,7 +164,7 @@ export function ModerationControls({
   kind: "comment" | "zpage" | "creator";
   targetId: string;
 }) {
-  const { actor, query } = useBlocks();
+  const { actor, epoch, query } = useBlocks();
   const client = useQueryClient();
   const copy = moderationCopy();
   const [reportOpen, setReportOpen] = useState(false);
@@ -112,15 +172,15 @@ export function ModerationControls({
   const [details, setDetails] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
-  const session = useRef({ actor, generation: 0 });
-  if (session.current.actor !== actor)
-    session.current = { actor, generation: session.current.generation + 1 };
+  const [uiEpoch, setUiEpoch] = useState(epoch);
+  const sameSession = uiEpoch === epoch;
   useEffect(() => {
+    setUiEpoch(epoch);
     setReportOpen(false);
     setPending(false);
     setMessage("");
     setDetails("");
-  }, [actor]);
+  }, [actor, epoch]);
   const blocked =
     query.data?.some((name) => name.toLowerCase() === username.toLowerCase()) ||
     false;
@@ -130,20 +190,20 @@ export function ModerationControls({
   )
     return null;
   const change = async () => {
-    const generation = session.current.generation;
     const current = () =>
-      activeActor() === actor && session.current.generation === generation;
+      activeActor() === actor && getGlobalState("authEpoch") === epoch;
     setPending(true);
     setMessage("");
     try {
-      await axios({
+      const response = await axios({
         method: blocked ? "delete" : "put",
         url: `/api/creator/${encodeURIComponent(username)}/block/`,
       });
       if (!current()) return;
-      await client.cancelQueries(keyFor(actor));
+      validateBlockResponse(response.data, username, !blocked);
+      await client.cancelQueries(keyFor(actor, epoch));
       if (!current()) return;
-      client.setQueryData<string[]>(keyFor(actor), (old) =>
+      client.setQueryData<string[]>(keyFor(actor, epoch), (old) =>
         blocked
           ? (old || []).filter(
               (name) => name.toLowerCase() !== username.toLowerCase()
@@ -161,9 +221,8 @@ export function ModerationControls({
     }
   };
   const report = async () => {
-    const generation = session.current.generation;
     const current = () =>
-      activeActor() === actor && session.current.generation === generation;
+      activeActor() === actor && getGlobalState("authEpoch") === epoch;
     setPending(true);
     setMessage("");
     try {
@@ -185,20 +244,26 @@ export function ModerationControls({
   return (
     <Stack spacing={1}>
       <Stack direction="row" spacing={1}>
-        <Button onClick={() => setReportOpen(true)} disabled={pending}>
+        <Button
+          onClick={() => setReportOpen(true)}
+          disabled={!sameSession || pending}
+        >
           {copy[0]}
         </Button>
         <Button
           onClick={change}
-          disabled={pending || query.isLoading || query.isError}
+          disabled={!sameSession || pending || query.isLoading || query.isError}
         >
           {blocked ? copy[2] : copy[1]}
         </Button>
       </Stack>
-      {message && !reportOpen && (
+      {sameSession && message && !reportOpen && (
         <Typography role="status">{message}</Typography>
       )}
-      <Dialog open={reportOpen} onClose={() => setReportOpen(false)}>
+      <Dialog
+        open={sameSession && reportOpen}
+        onClose={() => setReportOpen(false)}
+      >
         <DialogTitle>{copy[0]}</DialogTitle>
         <DialogContent>
           {message && <Alert severity="error">{message}</Alert>}
@@ -238,32 +303,34 @@ export function ModerationControls({
 }
 
 export function BlockManagement() {
-  const { actor, query } = useBlocks();
+  const { actor, epoch, query } = useBlocks();
   const client = useQueryClient();
   const copy = moderationCopy();
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState("");
   const [error, setError] = useState(false);
-  const session = useRef({ actor, generation: 0 });
-  if (session.current.actor !== actor)
-    session.current = { actor, generation: session.current.generation + 1 };
+  const [uiEpoch, setUiEpoch] = useState(epoch);
+  const sameSession = uiEpoch === epoch;
   useEffect(() => {
+    setUiEpoch(epoch);
     setOpen(false);
     setPending("");
     setError(false);
-  }, [actor]);
+  }, [actor, epoch]);
   const unblock = async (name: string) => {
-    const generation = session.current.generation;
     const current = () =>
-      activeActor() === actor && session.current.generation === generation;
+      activeActor() === actor && getGlobalState("authEpoch") === epoch;
     setPending(name);
     setError(false);
     try {
-      await axios.delete(`/api/creator/${encodeURIComponent(name)}/block/`);
+      const response = await axios.delete(
+        `/api/creator/${encodeURIComponent(name)}/block/`
+      );
       if (!current()) return;
-      await client.cancelQueries(keyFor(actor));
+      validateBlockResponse(response.data, name, false);
+      await client.cancelQueries(keyFor(actor, epoch));
       if (!current()) return;
-      client.setQueryData<string[]>(keyFor(actor), (old) =>
+      client.setQueryData<string[]>(keyFor(actor, epoch), (old) =>
         (old || []).filter((item) => item.toLowerCase() !== name.toLowerCase())
       );
       window.dispatchEvent(new Event("free2z-unblocked"));
@@ -278,7 +345,7 @@ export function BlockManagement() {
   return (
     <>
       <Button onClick={() => setOpen(true)}>{copy[3]}</Button>
-      <Dialog open={open} onClose={() => setOpen(false)}>
+      <Dialog open={sameSession && open} onClose={() => setOpen(false)}>
         <DialogTitle>{copy[3]}</DialogTitle>
         <DialogContent>
           {query.isLoading && <Typography>{copy[5]}</Typography>}

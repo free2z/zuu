@@ -206,7 +206,9 @@ export default function AvatarMenu() {
           active={isActive}
           disabled={noMoreNew}
         />
-        <div><BlockManagement /></div>
+        <div>
+          <BlockManagement />
+        </div>
         <TuziMenuItem {...creator} />
         <MenuItemWithIcon
           onBeforeNavigate={handleMenuClose}
