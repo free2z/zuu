@@ -289,3 +289,29 @@ test("the slash command still opens the same menu", async ({ page }) => {
   await expect(menu).toBeVisible();
   await expect(menu).toContainText("Heading 1");
 });
+
+for (const viewport of [MOBILE_VIEWPORT, DESKTOP_VIEWPORT]) {
+  test(`image edit action stays in the margin at ${viewport.width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize(viewport);
+    const { body, trigger } = await openEditor(page);
+    const edit = page.getByRole("button", { name: "Edit image at cursor" });
+    const [bodyBox, insertBox, editBox] = await Promise.all([
+      box(body),
+      box(trigger),
+      box(edit),
+    ]);
+    expect(editBox.x).toBeGreaterThanOrEqual(0);
+    expect(editBox.x + editBox.width).toBeLessThanOrEqual(bodyBox.x);
+    expect(editBox.y).toBeGreaterThanOrEqual(insertBox.y + insertBox.height);
+    expect(
+      await edit.evaluate((element) => getComputedStyle(element).cursor),
+    ).toBe("pointer");
+    await edit.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByText("Place the cursor on a standalone image first."),
+    ).toBeVisible();
+  });
+}

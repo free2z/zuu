@@ -3,7 +3,7 @@
   import { getCurrentLocale, tStore as t } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
   import { onMount, tick } from "svelte";
-  import { Plus } from "@lucide/svelte";
+  import { ImageIcon, Plus } from "@lucide/svelte";
   import EditorFloatingToolbar from "./EditorFloatingToolbar.svelte";
   import EditorEmbedLink from "./EditorEmbedLink.svelte";
   import type { EditorMediaKind } from "./editorMedia";
@@ -449,12 +449,28 @@
     </Button>
   </div>
 
-  <button
-    type="button"
-    class="cursor-pointer rounded-md px-2 py-1 text-sm underline"
-    onclick={editImageDetails}
-    >{$t("editor.editImageDetails", "Edit image at cursor")}</button
+  <div
+    class="pointer-events-none absolute start-0 z-10 flex w-0 items-center justify-end motion-safe:transition-[top] motion-safe:duration-150 motion-safe:ease-out"
+    style="top: {insertControlTop +
+      Math.max(
+        36,
+        insertControlLineHeight || FALLBACK_LINE_HEIGHT,
+      )}px; height: {insertControlLineHeight || FALLBACK_LINE_HEIGHT}px;"
   >
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      dir="ltr"
+      class="pointer-events-auto size-6 text-muted-foreground/80 md:me-1.5 md:size-9"
+      title={$t("editor.editImageDetails", "Edit image at cursor")}
+      aria-label={$t("editor.editImageDetails", "Edit image at cursor")}
+      onpointerdown={(event) => {
+        if (event.pointerType === "mouse") event.preventDefault();
+      }}
+      onclick={editImageDetails}><ImageIcon class="size-3.5" /></Button
+    >
+  </div>
   <textarea
     bind:this={textareaRef}
     bind:value
