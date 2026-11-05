@@ -172,11 +172,13 @@ export function getCurrentLocale(): SupportedLocale {
 }
 
 export function formatLocalizedNumber(
-  value: number,
+  value: number | bigint,
   requestedLocale: string = getCurrentLocale(),
+  options?: Intl.NumberFormatOptions,
 ): string {
   return new Intl.NumberFormat(
     resolveSupportedLocale(requestedLocale) ?? defaultLocale,
+    options,
   ).format(value);
 }
 

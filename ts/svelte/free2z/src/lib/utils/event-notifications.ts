@@ -1,6 +1,7 @@
 import type { EventNotification } from "$lib/api/events/eventNotificationsApi";
 import {
   getCurrentLocale,
+  formatLocalizedNumber,
   t,
   type SupportedLocale,
   type TranslationFunction,
@@ -138,7 +139,7 @@ function formatAmount(
   amount: number | null | undefined,
   locale: SupportedLocale,
 ) {
-  return new Intl.NumberFormat(locale).format(amount ?? 0);
+  return formatLocalizedNumber(amount ?? 0, locale);
 }
 
 function titleOf(event: EventNotification): string | undefined {

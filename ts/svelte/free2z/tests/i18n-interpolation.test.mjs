@@ -188,3 +188,29 @@ test("production adapter observes concurrent request locales", async () => {
     "2 articles",
   ]);
 });
+
+test("number formatter respects request locale and preserves integer precision", async () => {
+  const { withRequestLocale } = await vite.ssrLoadModule(
+    "/src/lib/server/request-locale.js",
+  );
+  const value = 12345678901234567890n;
+  const format = (locale) =>
+    withRequestLocale(locale, async () => {
+      await Promise.resolve();
+      return i18n.formatLocalizedNumber(value);
+    });
+  assert.deepEqual(await Promise.all([format("en"), format("fr")]), [
+    new Intl.NumberFormat("en").format(value),
+    new Intl.NumberFormat("fr").format(value),
+  ]);
+  assert.equal(
+    i18n.formatLocalizedNumber(12345, "fr", {
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }),
+    new Intl.NumberFormat("fr", {
+      notation: "compact",
+      maximumFractionDigits: 1,
+    }).format(12345),
+  );
+});

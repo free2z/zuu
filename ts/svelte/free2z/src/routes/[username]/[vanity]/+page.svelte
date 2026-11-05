@@ -24,6 +24,7 @@
   import type { ZPageDetail } from "$lib/api/f2z.schemas";
   import {
     locale,
+    formatLocalizedNumber,
     setDocumentContentLanguage,
     tStore as t,
     loading,
@@ -289,10 +290,10 @@
   function formatCompact(value: string | number) {
     const num = Number(value);
     if (!isFinite(num)) return String(value);
-    return new Intl.NumberFormat("en", {
+    return formatLocalizedNumber(num, $locale, {
       notation: "compact",
       maximumFractionDigits: 1,
-    }).format(num);
+    });
   }
 
   function buildAuthorName(page: ZPageDetail | undefined) {

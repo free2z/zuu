@@ -4,7 +4,7 @@
   import * as env from "$app/env/public";
   import { dytePublicDiscoveryList } from "$lib/api/dyte/dyte";
   import type { PublicMeetingList } from "$lib/api/f2z.schemas";
-  import { locale, tStore as t } from "$lib/i18n";
+  import { locale, formatLocalizedNumber, tStore as t } from "$lib/i18n";
   import { translateCategory } from "$lib/components/mdEditor/categoryNames";
   import { isAuthenticated } from "$lib/stores/auth";
   import { Button } from "$lib/components/ui/button";
@@ -124,9 +124,9 @@
   function livePrice(value: unknown): string {
     const amount = Number(value);
     if (!Number.isFinite(amount)) return "";
-    return new Intl.NumberFormat($locale, {
+    return formatLocalizedNumber(amount, $locale, {
       maximumFractionDigits: 2,
-    }).format(amount);
+    });
   }
 
   function liveModeLabel(stream: {
