@@ -6,6 +6,7 @@
   import { authStore, currentUser } from "$lib/stores/auth";
   import {
     blockedUsernames,
+    blockSessionGeneration,
     blockListStatus,
     retryBlocks,
     setLocallyBlocked,
@@ -16,13 +17,13 @@
   let refreshError = false;
   $: names = [...$blockedUsernames].sort((a, b) => a.localeCompare(b));
   $: account = $currentUser?.username ?? "";
-  $: if (account !== lastAccount) {
-    lastAccount = account;
+  $: if ($blockSessionGeneration !== lastSession) {
+    lastSession = $blockSessionGeneration;
     pending = "";
     error = false;
     refreshError = false;
   }
-  let lastAccount = "";
+  let lastSession = -1;
 
   async function unblock(username: string) {
     if (!account || pending) return;

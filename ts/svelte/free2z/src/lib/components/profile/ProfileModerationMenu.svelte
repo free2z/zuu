@@ -24,6 +24,7 @@
   import { readBlocked, setBlocked } from "$lib/moderation";
   import {
     blockRevision,
+    blockSessionGeneration,
     blockedUsernames,
     isBlockedIn,
     setLocallyBlocked,
@@ -36,7 +37,7 @@
   let confirmOpen = $state(false);
   let saving = $state(false);
   $effect(() => {
-    $currentUser?.username;
+    $blockSessionGeneration;
     saving = false;
     confirmOpen = false;
   });
@@ -54,7 +55,9 @@
   $effect(() => {
     const reader = $currentUser?.username;
     const target = username;
-    const key = reader ? `${reader}\u0000${target}` : "";
+    const key = reader
+      ? `${$blockSessionGeneration}\u0000${reader}\u0000${target}`
+      : "";
     if (!key) {
       checkedFor = "";
       return;

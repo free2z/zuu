@@ -156,6 +156,52 @@ test("late list and unblock responses cannot cross an account switch", async ({
   ).toHaveCount(0);
 });
 
+test("same-account login replaces a pending list with the new session list", async ({
+  page,
+}) => {
+  await signIn(page);
+  let releaseOld: (() => void) | undefined;
+  let newSession = false;
+  await page.route("**/api/auth/login/", (route) =>
+    route.fulfill({ json: {} }),
+  );
+  await page.route("**/api/g12f/blocks/mine/**", async (route) => {
+    if (!newSession) {
+      await new Promise<void>((resolve) => {
+        releaseOld = resolve;
+      });
+      return route.fulfill({
+        json: {
+          count: 1,
+          next: null,
+          results: [{ username: "stale-private" }],
+        },
+      });
+    }
+    return route.fulfill({
+      json: { count: 1, next: null, results: [{ username: "fresh-block" }] },
+    });
+  });
+  await page.goto("/account/blocks");
+  await switchUser(page, alice);
+  await expect.poll(() => !!releaseOld).toBe(true);
+  newSession = true;
+  await page.evaluate(async () => {
+    const path = "/src/lib/stores/auth.ts";
+    const { authStore } = await import(/* @vite-ignore */ path);
+    const result = await authStore.loginOnly("alice", "test-password");
+    if (!result.success) throw new Error("login failed");
+  });
+  await expect(page.getByRole("link", { name: "@fresh-block" })).toBeVisible();
+  releaseOld?.();
+  await expect(page.getByRole("link", { name: "@stale-private" })).toHaveCount(
+    0,
+  );
+  await expect(
+    page.getByRole("button", { name: "Unblock @fresh-block" }),
+  ).toBeEnabled();
+});
+
 test("homepage keeps blocked hero and popular rows as placeholders", async ({
   page,
 }) => {

@@ -46,6 +46,11 @@ const state = writable<BlockState>({
  */
 let localChanges = new Map<string, boolean>();
 let generation = 0;
+const sessionGeneration = writable(0);
+export const blockSessionGeneration = {
+  subscribe: sessionGeneration.subscribe,
+};
+let ownsTrackedSession = authStore.captureRequestOwnership();
 let loadGeneration = 0;
 /** The owner whose last load gave up after its retries, if any. */
 let failedOwner: string | null = null;
@@ -219,12 +224,15 @@ export function trackSignedInAccount(
   retryDelays: readonly number[] = RETRY_DELAYS_MS,
 ) {
   const owner = username ? normalize(username) : null;
-  if (owner === get(state).owner) {
+  const sameSession = ownsTrackedSession();
+  if (sameSession && owner === get(state).owner) {
     if (owner && failedOwner === owner) retryFailedLoad(retryDelays);
     return;
   }
   failedOwner = null;
   generation += 1;
+  ownsTrackedSession = authStore.captureRequestOwnership();
+  sessionGeneration.set(generation);
   localChanges = new Map();
   state.set({
     owner,
