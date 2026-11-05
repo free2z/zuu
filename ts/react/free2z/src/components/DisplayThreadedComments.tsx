@@ -3,6 +3,8 @@ import { useState, useEffect } from "react";
 import { FeaturedImage } from "./PageRenderer"
 import DisplayThreadedComment from "./DisplayThreadedComment"
 import { Paper } from "@mui/material";
+import { useUnblockRevision } from "./Moderation";
+import { useGlobalState } from "../state/global";
 
 
 export type CommentAuthor = {
@@ -38,8 +40,13 @@ export default function DisplayThreadedComments(props: Props) {
     // Double call because of strict mode hrmmm
     // console.log("props", reload, parent, object_type, object_uuid)
     const [comments, setComments] = useState([] as CommentData[]);
+    const unblockRevision = useUnblockRevision();
+    const [creator] = useGlobalState("creator");
+    const [auth] = useGlobalState("authStatus");
+    const actor = auth ? creator.id : 0;
 
     useEffect(() => {
+        let active = true;
         let url
         if (object_type && object_uuid) {
             url = `/api/comments/${object_type}/${object_uuid}/?parent__isnull=True`
@@ -51,6 +58,7 @@ export default function DisplayThreadedComments(props: Props) {
             // console.log("FETCH COMMENTS", reload, parent, object_type, object_uuid)
             try {
                 const res = await axios.get(url);
+                if (!active) return;
                 setComments((prevComments) => [
                     ...prevComments, ...res.data.results
                 ]);
@@ -67,7 +75,8 @@ export default function DisplayThreadedComments(props: Props) {
         setComments([]); // Clear previous comments before fetching new ones
         // console.log("GET COMMENTS");
         fetchComments(url);
-    }, [reload, parent, object_type, object_uuid]);
+        return () => { active = false; };
+    }, [reload, parent, object_type, object_uuid, unblockRevision, actor]);
 
     if (!comments.length) {
         return null

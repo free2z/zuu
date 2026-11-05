@@ -45,7 +45,7 @@ export interface SnackbarState {
     action?: SnackbarAction; // optional
 }
 
-export const { useGlobalState } = createGlobalState({
+export const { useGlobalState, getGlobalState, setGlobalState } = createGlobalState({
     creator: defaultCreator,
     snackbar: {
         open: false,

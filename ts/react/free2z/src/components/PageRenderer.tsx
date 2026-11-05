@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "./Moderation";
 
 import {
     Chip,
@@ -120,6 +121,9 @@ export default function PageDetail(props: PageDetailProps) {
 
 
     return (
+        <>
+        <ModerationControls username={page.creator.username} kind="zpage" targetId={page.free2zaddr} />
+        <BlockedContent username={page.creator.username}>
         <Grid
             container
             spacing={0}
@@ -248,5 +252,6 @@ export default function PageDetail(props: PageDetailProps) {
                 </>
             )}
         </Grid>
+        </BlockedContent></>
     )
 }

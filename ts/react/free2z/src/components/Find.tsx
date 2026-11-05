@@ -1,4 +1,5 @@
-import React, { ReactNode, useEffect, useState } from "react"
+import React, { ReactNode, useEffect, useRef, useState } from "react"
+import { useUnblockRevision } from "./Moderation";
 import {
     Badge,
     Box,
@@ -106,6 +107,11 @@ const GridContainer = ({ children, sx, isFindPage }: { children: ReactNode, sx?:
 export default function Find(props: FindProps) {
     const isFindPage = !(props.username || props.mine)
     const [loading, setLoading] = useGlobalState("loading")
+    const [creator] = useGlobalState("creator")
+    const [auth] = useGlobalState("authStatus")
+    const actor = auth ? creator.id : 0;
+    const requestGeneration = useRef(0);
+    const unblockRevision = useUnblockRevision();
     const [pages, setPages] = useState([{} as PageInterface])
     const [searchParams, setSearchParams] = useSearchParams()
     // console.log("SEARCHPARAMS", Boolean(searchParams.toString()))
@@ -154,6 +160,7 @@ export default function Find(props: FindProps) {
     function submit(
         sp: URLSearchParams
     ): Promise<PageInterface[] | [PageInterface]> {
+        const generation = ++requestGeneration.current;
         // TODO ... FOUC?
         setPages([])
         // sort of weird that we block the whole page now ... :/
@@ -180,6 +187,7 @@ export default function Find(props: FindProps) {
         }
         // console.log("ABOUT TO CALL", props, sp.toString())
         return axios.get(`/api/zpage/?${sp}`).then((res) => {
+            if (requestGeneration.current !== generation) return pages;
             // console.log("setting zpages!", res)
             setPages(res.data.results.map((r: any) => {
                 return {
@@ -194,7 +202,7 @@ export default function Find(props: FindProps) {
             // setLoading(false)
             return Promise.resolve(pages)
         }).then((res) => {
-            setLoading(false)
+            if (requestGeneration.current === generation) setLoading(false)
             return res
         })
         // TODO: catch
@@ -234,7 +242,8 @@ export default function Find(props: FindProps) {
                 // setShowAdvanced(true)
             }
         })
-    }, [searchParams, props.username])
+        return () => { requestGeneration.current += 1; };
+    }, [searchParams, props.username, unblockRevision, actor])
 
 
     // if we are already showing all of the creators' pages then we don't

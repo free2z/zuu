@@ -9,6 +9,7 @@ import CommentCard from './components/CommentCardInfinite';
 import { ConverseListFilters } from './components/ConverseListFilters';
 import { useNavigate, useLocation } from 'react-router-dom';
 import axios from 'axios';
+import { useGlobalState } from './state/global';
 import { Tag } from './components/TagFilterMultiSelect';
 import { QueryFunctionContext, useInfiniteQuery } from 'react-query';
 import { CommentData } from './components/DisplayThreadedComments';
@@ -25,6 +26,7 @@ type CommentPageData = {
 };
 
 type CommentsQueryParams = {
+    actor: number;
     searchTerm: string;
     tags: Tag[];
     sortMode: 'new' | 'hot';
@@ -62,8 +64,11 @@ const useComments = (
     sortMode: 'new' | 'hot',
     subscriptionMode: 'all' | 'subscribed'
 ) => {
+    const [creator] = useGlobalState('creator');
+    const [auth] = useGlobalState('authStatus');
+    const actor = auth ? creator.id : 0;
     return useInfiniteQuery<CommentPageData, Error, CommentPageData, CommentsQueryKey>(
-        ['comments', { searchTerm, tags, sortMode, subscriptionMode }],
+        ['comments', { actor, searchTerm, tags, sortMode, subscriptionMode }],
         fetchComments,
         {
             getNextPageParam: (lastPage) => {

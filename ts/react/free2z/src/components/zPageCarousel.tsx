@@ -8,6 +8,8 @@ import { Avatar,  CardActionArea, CardContent, Typography } from '@mui/material'
 import 'swiper/css';
 import 'swiper/css/navigation';
 import axios from 'axios';
+import { BlockedContent, ModerationControls, useUnblockRevision } from './Moderation';
+import { useGlobalState } from '../state/global';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PageInterface } from './PageRenderer';
 import SwiperLoadingAnimation from './SwiperLoadingAnimation';
@@ -26,6 +28,12 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
     const [fetching, setFetching] = useState(false);
     const [hasMore, setHasMore] = useState(true);
     const [page, setPage] = useState(1);
+    const unblockRevision = useUnblockRevision();
+    const [creator] = useGlobalState('creator');
+    const [auth] = useGlobalState('authStatus');
+    const actor = auth ? creator.id : 0;
+    const previousActor = useRef(actor);
+    const fetchGeneration = useRef(0);
     const lastElement = useRef<HTMLDivElement | null>(null);
     const swiperRef = useRef<SwiperClass | null>(null);
 
@@ -33,6 +41,7 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
         if (fetching || !hasMore || (!triggeredByObserver && page !== 1)) return;
         // console.log("FETCH", page)
         setFetching(true);
+        const generation = fetchGeneration.current;
 
         try {
             // TODO: filter - must have images, >100 2Zs ...
@@ -43,7 +52,7 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
                 },
             });
 
-            if (response.status === 200) {
+            if (response.status === 200 && generation === fetchGeneration.current) {
                 setzPages((prevPages) => {
                     const newResults = response.data.results as PageInterface[];
                     const updatedPages = [...prevPages];
@@ -60,7 +69,7 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
             }
         } catch (error) {
             console.error('Error fetching creators:', error);
-            setHasMore(false);
+            if (generation === fetchGeneration.current) setHasMore(false);
         } finally {
             setFetching(false);
         }
@@ -77,6 +86,15 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
             swiperRef.current.slideTo(0);
         }
     }, [sort]);
+
+    useEffect(() => {
+        if (!unblockRevision && previousActor.current === actor) return;
+        previousActor.current = actor;
+        fetchGeneration.current += 1;
+        setzPages([]);
+        setPage(1);
+        setHasMore(true);
+    }, [unblockRevision, actor]);
 
     return (
         <Swiper
@@ -119,6 +137,7 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
                             ref={index === zpages.length - 1 ? lastElement : null}
                         >
 
+                            <BlockedContent username={zpage.creator.username}>
                             <HoverCard>   
                             {/* Add CardActionArea to allow the Card to function as an `<a>` tag */}
                             <CardActionArea href={zpage.get_url}>
@@ -205,7 +224,9 @@ export default function ZPageCarousel(props: ZPageCarouselProps) {
                                     </Typography>
                                 </CardContent>
                             </CardActionArea>
+                            <ModerationControls username={zpage.creator.username} kind="zpage" targetId={zpage.free2zaddr} />
                             </HoverCard>
+                            </BlockedContent>
                         </div>
                     </SwiperSlide>
 

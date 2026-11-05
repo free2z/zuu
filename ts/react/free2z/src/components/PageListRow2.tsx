@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "./Moderation";
 import { Edit, MoreVert } from "@mui/icons-material";
 import {
     Grid, CardMedia, Typography, Link, Stack, Card, CardContent,
@@ -54,7 +55,7 @@ export default function PageListRow(page: PageListRowProps) {
     const isSubbed = user.stars.indexOf(page.creator.username) !== -1
 
     return (
-        <Card
+        <BlockedContent username={page.creator.username}><Card
             sx={{
                 // display: 'flex', height: '100%',
                 marginTop: "0.5em",
@@ -163,6 +164,7 @@ export default function PageListRow(page: PageListRowProps) {
                                         />
                                     </IconButton>
                                 </Stack>
+                                <ModerationControls username={page.creator.username} kind="zpage" targetId={page.free2zaddr} />
                                 <Popover
                                     // id="simple-menu"
                                     anchorEl={anchorEl}
@@ -337,6 +339,6 @@ export default function PageListRow(page: PageListRowProps) {
                     <PageTags page={page} />
                 </Grid> */}
             </Grid>
-        </Card >
+        </Card ></BlockedContent>
     );
 };

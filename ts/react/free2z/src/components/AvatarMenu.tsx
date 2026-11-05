@@ -1,3 +1,4 @@
+import { BlockManagement } from "./Moderation";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
@@ -205,6 +206,7 @@ export default function AvatarMenu() {
           active={isActive}
           disabled={noMoreNew}
         />
+        <div><BlockManagement /></div>
         <TuziMenuItem {...creator} />
         <MenuItemWithIcon
           onBeforeNavigate={handleMenuClose}

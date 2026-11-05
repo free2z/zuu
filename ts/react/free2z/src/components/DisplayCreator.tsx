@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "./Moderation";
 import { useState } from "react"
 import { Chip, Divider, Grid, Paper, Stack, Typography, styled, useTheme } from "@mui/material"
 
@@ -80,6 +81,8 @@ export default function DisplayCreator(props: PublicCreator) {
             }}
         >
             <HeroBanner {...props} />
+            <ProfileBody><ModerationControls username={props.username} kind="creator" targetId={props.username} /></ProfileBody>
+            <BlockedContent username={props.username}>
             {metadata.socials && (
                 <ProfileBody>
                     <Stack gap="16px" py="32px">
@@ -130,6 +133,7 @@ export default function DisplayCreator(props: PublicCreator) {
                     </ProfileBody>
                 </>
             }
+            </BlockedContent>
         </Box>
     )
 }

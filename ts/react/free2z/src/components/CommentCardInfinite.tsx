@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "./Moderation";
 import {
     Card, CardHeader, Tooltip, Avatar,
     CardContent, CardActions, Link, Stack,
@@ -38,7 +39,7 @@ function CommentCard(props: Props) {
     }, [comment.created_at]);
 
     return (
-        <Card
+        <BlockedContent username={comment.author.username}><Card
             style={cardStyles}
             id={`comment-${comment.uuid}`}
         >
@@ -107,6 +108,7 @@ function CommentCard(props: Props) {
                 />
             </CardContent>
             <CardActions>
+                <ModerationControls username={comment.author.username} kind="comment" targetId={comment.uuid} />
                 {/* <ThreadedCommentReplyAction
                     comment={comment}
                     object_type={object_type}
@@ -114,7 +116,7 @@ function CommentCard(props: Props) {
                     setReload={setReload}
                 /> */}
             </CardActions>
-        </Card>
+        </Card></BlockedContent>
     );
 }
 

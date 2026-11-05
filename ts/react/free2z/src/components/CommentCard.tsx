@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "./Moderation";
 import {
     Card, CardHeader, Tooltip, Avatar,
     CardContent, CardActions, Link, Stack,
@@ -40,7 +41,7 @@ export default function CommentCard(props: Props) {
     }, [])
 
     return (
-        <Card
+        <BlockedContent username={comment.author.username}><Card
             style={{
                 minWidth: "300px",
             }}
@@ -119,6 +120,7 @@ export default function CommentCard(props: Props) {
                 />
             </CardContent>
             <CardActions>
+                <ModerationControls username={comment.author.username} kind="comment" targetId={comment.uuid} />
                 <ThreadedCommentReplyAction
                     comment={comment}
                     object_type={object_type}
@@ -126,6 +128,6 @@ export default function CommentCard(props: Props) {
                     setReload={setReload}
                 />
             </CardActions>
-        </Card>
+        </Card></BlockedContent>
     )
 }
