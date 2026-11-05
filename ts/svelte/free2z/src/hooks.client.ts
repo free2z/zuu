@@ -1,3 +1,4 @@
+import { isCatalogLoadInFlight } from "$lib/catalog-loader.js";
 import { updated } from "$app/state";
 import {
   claimAssetRecovery,
@@ -77,5 +78,5 @@ window.addEventListener("error", handleAssetError, true);
 window.addEventListener("unhandledrejection", handleRejectedAsset);
 window.addEventListener("vite:preloadError", (event) => {
   event.preventDefault();
-  void recoverFromAssetFailure();
+  if (!isCatalogLoadInFlight()) void recoverFromAssetFailure();
 });

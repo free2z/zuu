@@ -250,6 +250,11 @@ jobs:
         run: '"$GITHUB_WORKSPACE/scripts/free2z/ci-browser-shard.sh"'
         env:
           BROWSER_SHARD: ${{ matrix.shard }}
+      - name: Verify built locale loading and recovery
+        if: matrix.shard == 6
+        run: |
+          npm run build
+          PLAYWRIGHT_PRODUCTION=1 npm run test:browser -- tests/browser/locale-built-runtime.spec.ts
       - name: Upload browser test diagnostics
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # reviewed immutable repository pin

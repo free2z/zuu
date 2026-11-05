@@ -41,6 +41,7 @@ export const LOCALE_REGISTRY = Object.freeze([
 ]);
 export const SUPPORTED_LOCALES = LOCALE_REGISTRY.map(({ code }) => code);
 export const LOCALE_STORAGE_KEY = "free2z-locale";
+export const LOCALE_RETRY_KEY = "free2z-locale-retry";
 export const LANGUAGE_OPTIONS = LOCALE_REGISTRY.map(({ code, label }) => ({
   code,
   label,

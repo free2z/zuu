@@ -1,5 +1,9 @@
 // Explicit import targets allow Vite to emit one content-hashed chunk per catalog.
 // This loader does not select a locale or modify request/browser state.
+let inFlight = 0;
+export function isCatalogLoadInFlight() {
+  return inFlight > 0;
+}
 const loaders = {
   en: () => import("./locales/en.json"),
   es: () => import("./locales/es.json"),
@@ -21,9 +25,13 @@ export function createCatalogLoader(sources) {
       const source = sources[locale];
       if (!source)
         return Promise.reject(new Error(`Unsupported locale: ${locale}`));
+      inFlight++;
       const result = Promise.resolve()
         .then(source)
-        .then(({ default: catalog }) => catalog);
+        .then(({ default: catalog }) => catalog)
+        .finally(() => {
+          inFlight--;
+        });
       pending.set(locale, result);
       result.catch(() => {
         if (pending.get(locale) === result) pending.delete(locale);

@@ -42,7 +42,10 @@ if (browserOutput.source === "local") {
 // before they exercise the application. `--strictPort` keeps Vite from
 // wandering to another port behind our back: the specs are told this one, so a
 // silent move is a suite that tests nothing reachable.
-const appServerCommand = `npm run dev -- --host 127.0.0.1 --port ${appPort} --strictPort`;
+const appServerCommand =
+  process.env.PLAYWRIGHT_PRODUCTION === "1"
+    ? "node build"
+    : `npm run dev -- --host 127.0.0.1 --port ${appPort} --strictPort`;
 
 export default defineConfig({
   testDir: "./tests/browser",
@@ -83,6 +86,9 @@ export default defineConfig({
       command: appServerCommand,
       url: `${appOrigin}/healthz`,
       env: {
+        HOST: "127.0.0.1",
+        PORT: String(appPort),
+        ORIGIN: appOrigin,
         PRIVATE_API_BASE_URL: mockApiOrigin,
         PRIVATE_BACKEND_TRUSTED_ORIGINS: appOrigin,
         VITE_API_PROXY_TARGET: mockApiOrigin,

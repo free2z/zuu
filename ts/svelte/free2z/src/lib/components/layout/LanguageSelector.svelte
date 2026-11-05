@@ -19,7 +19,7 @@
   } from "$lib/i18n";
   import { goto, invalidateAll } from "$app/navigation";
   import { page } from "$app/state";
-  import { isContentLanguageRoute } from "$lib/locale.js";
+  import { isContentLanguageRoute, LOCALE_RETRY_KEY } from "$lib/locale.js";
 
   let selectedLocale = $state<SupportedLocale>($locale);
   const activeLanguage = $derived(
@@ -30,6 +30,13 @@
   $effect(() => {
     selectedLocale = $locale;
   });
+
+  function retryLanguage(next: string) {
+    document.cookie = `${LOCALE_RETRY_KEY}=${encodeURIComponent(next)}; Path=/; Max-Age=60; SameSite=Lax`;
+    const url = new URL(window.location.href);
+    if (!isContentLanguageRoute(page.route.id)) url.searchParams.delete("lang");
+    window.location.assign(url.href);
+  }
 
   async function chooseLanguage(nextLocale: SupportedLocale) {
     const success = await setLocale(nextLocale);
@@ -89,9 +96,7 @@
     {$t("language.loadFailed", "Could not load that language.")}
     <button
       type="button"
-      onclick={() =>
-        $localeLoadError &&
-        void chooseLanguage($localeLoadError as SupportedLocale)}
+      onclick={() => $localeLoadError && retryLanguage($localeLoadError)}
       >{$t("language.retry", "Try again")}</button
     >
   </div>{/if}

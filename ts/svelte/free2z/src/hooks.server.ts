@@ -1,6 +1,11 @@
 import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import * as publicEnv from "$app/env/public";
-import { LOCALE_STORAGE_KEY, resolveRequestLocale } from "$lib/locale.js";
+import {
+  LOCALE_RETRY_KEY,
+  LOCALE_STORAGE_KEY,
+  normalizeLocale,
+  resolveRequestLocale,
+} from "$lib/locale.js";
 import { withRequestLocale } from "$lib/server/request-locale.js";
 import { prepareLocale, getPreparedCatalogs } from "$lib/i18n";
 import { logSsrError } from "$lib/server/ssr-log";
@@ -15,10 +20,19 @@ export const handle: Handle = async ({ event, resolve }) => {
     cookieLocale: event.cookies.get(LOCALE_STORAGE_KEY),
     acceptLanguage: event.request.headers.get("accept-language"),
   });
-  const selected = locale as App.Locals["locale"];
+  const retry = normalizeLocale(event.cookies.get(LOCALE_RETRY_KEY));
+  const selected = (retry ?? locale) as App.Locals["locale"];
   event.locals.locale = selected;
   event.locals.localePersisted = persisted;
   await prepareLocale(selected);
+  if (retry) {
+    event.cookies.set(LOCALE_STORAGE_KEY, selected, {
+      path: "/",
+      maxAge: 31536000,
+      sameSite: "lax",
+    });
+    event.cookies.delete(LOCALE_RETRY_KEY, { path: "/" });
+  }
   event.locals.localeCatalogs = getPreparedCatalogs(selected);
 
   // Bind the locale to this request's async context. `$lib/i18n` reads it from
