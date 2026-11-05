@@ -327,11 +327,11 @@ items.sort((a, b) =>
   const baseline = JSON.parse(fs.readFileSync(baselineFile, "utf8"));
   if (
     !process.env.FORMATTING_BASELINE &&
-    (baseline.length > 107 ||
-      baseline.filter((item) => item.classification === "legacy").length > 55)
+    (baseline.length > 105 ||
+      baseline.filter((item) => item.classification === "legacy").length > 53)
   ) {
     console.error(
-      "Formatting inventory may only shrink: maximum 107 sites and 55 legacy sites.",
+      "Formatting inventory may only shrink: maximum 105 sites and 53 legacy sites.",
     );
     process.exitCode = 1;
   }

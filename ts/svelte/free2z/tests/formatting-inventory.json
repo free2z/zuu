@@ -126,15 +126,6 @@
     "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
   },
   {
-    "file": "src/lib/components/SearchResultCard.svelte",
-    "kind": "Intl.NumberFormat",
-    "context": "new Intl.NumberFormat(currentLocale, { maximumFractionDigits: 0, })",
-    "fingerprint": "ea33b7b0550ad495",
-    "classification": "legacy",
-    "owner": "Free2Z UI",
-    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
-  },
-  {
     "file": "src/lib/components/SeriesEditor.svelte",
     "kind": "localeCompare",
     "context": "left.id.localeCompare(right.id)",
@@ -160,15 +151,6 @@
     "classification": "machine",
     "owner": "Free2Z UI",
     "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
-  },
-  {
-    "file": "src/lib/components/stream/StreamSelectionModal.svelte",
-    "kind": "Intl.NumberFormat",
-    "context": "new Intl.NumberFormat($locale, { maximumFractionDigits: 2 })",
-    "fingerprint": "a1ee470030a7899d",
-    "classification": "legacy",
-    "owner": "Free2Z UI",
-    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
   },
   {
     "file": "src/lib/components/zpageActions/BoostButton.svelte",

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { locale, tStore as t } from "$lib/i18n";
+  import { locale, formatLocalizedNumber, tStore as t } from "$lib/i18n";
   import { formatRelativeTime } from "$lib/utils/date";
   import * as env from "$app/env/public";
   import * as Avatar from "$lib/components/ui/avatar/index.js";
@@ -64,9 +64,9 @@
   }
 
   function formatScore(value: unknown, currentLocale: string): string {
-    return new Intl.NumberFormat(currentLocale, {
+    return formatLocalizedNumber(Number(value), currentLocale, {
       maximumFractionDigits: 0,
-    }).format(Number(value));
+    });
   }
 
   $: articleHref =

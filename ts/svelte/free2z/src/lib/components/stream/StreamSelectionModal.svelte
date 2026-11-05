@@ -46,9 +46,9 @@
   }
 
   function formatAmount(value: number | string) {
-    return new Intl.NumberFormat($locale, { maximumFractionDigits: 2 }).format(
-      Number(value),
-    );
+    return formatLocalizedNumber(Number(value), $locale, {
+      maximumFractionDigits: 2,
+    });
   }
 </script>
 
