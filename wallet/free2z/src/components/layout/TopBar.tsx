@@ -1,3 +1,4 @@
+import { BlockManagement } from "@/features/moderation/Moderation";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -141,6 +142,7 @@ export function TopBar() {
             <DropdownMenuItem onClick={() => navigate("/kyc")}>
               <ShieldCheck /> {t(MESSAGE_KEYS.navRevenueShare)}
             </DropdownMenuItem>
+            <BlockManagement />
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>
               <LogOut className="rtl:-scale-x-100" /> {t(MESSAGE_KEYS.navSignOut)}

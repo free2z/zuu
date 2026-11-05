@@ -632,10 +632,10 @@ function articleTime(a: Article): number {
  */
 export function mockArticleFeed(
   params: Required<Pick<ArticleFeedParams, "page" | "pageSize" | "sort">> &
-    Pick<ArticleFeedParams, "tags" | "search" | "category">,
+    Pick<ArticleFeedParams, "tags" | "search" | "category"> & { blockedNames?: string[] },
 ): ArticleFeedPage {
   const { page, pageSize, sort } = params;
-  let list = [...mockArticles];
+  let list = mockArticles.filter(a => !params.blockedNames?.includes(a.author.username.toLowerCase()));
 
   if (params.category) {
     list = list.filter((a) => a.category === params.category);
@@ -1013,6 +1013,9 @@ interface MockCommentPage {
 const mockCommentContent = new Map<string, string>();
 /** Flat store of every mock comment (roots + replies). */
 const mockCommentStore: Comment[] = [];
+export function mockCommentExists(uuid: string): boolean {
+  return mockCommentStore.some(comment => comment.uuid === uuid);
+}
 
 function mockAuthor(c: SimpleCreator): Comment["author"] {
   return { username: c.username, avatar_image: c.image ?? null };
@@ -1027,7 +1030,7 @@ function seedComment(
   tuzis: number,
   minutesAgo: number,
 ): Comment {
-  const uuid = `mock-comment-${mockCommentStore.length + 1}`;
+  const uuid = `00000000-0000-4000-8000-${String(mockCommentStore.length + 1).padStart(12, "0")}`;
   const ts = new Date(Date.now() - minutesAgo * 60000).toISOString();
   const comment: Comment = {
     uuid,
@@ -1104,11 +1107,12 @@ function seedComment(
 
 export function mockComments(
   contentUuid: string,
-  opts: { rootsOnly: boolean; page: number },
+  opts: { rootsOnly: boolean; page: number; blockedNames?: string[] },
 ): MockCommentPage {
   const items = mockCommentStore
     .filter(
       (c) =>
+        !opts.blockedNames?.includes(c.author.username.toLowerCase()) &&
         mockCommentContent.get(c.uuid) === contentUuid &&
         (opts.rootsOnly ? c.parent === null : true),
     )
@@ -1118,10 +1122,10 @@ export function mockComments(
 
 export function mockCommentReplies(
   parentUuid: string,
-  _opts: { page: number },
+  opts: { page: number; blockedNames?: string[] },
 ): MockCommentPage {
   const items = mockCommentStore
-    .filter((c) => c.parent === parentUuid)
+    .filter((c) => c.parent === parentUuid && !opts.blockedNames?.includes(c.author.username.toLowerCase()))
     .sort((a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at));
   return { items, next: null, count: items.length };
 }

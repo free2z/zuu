@@ -6,6 +6,7 @@
 // This module is the CONTRACT every feature imports. Keep the return types stable.
 
 import { useMock } from "../platform";
+import { mockBlockedNames } from "./moderation";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
 import { normalizeArticleTags, sanitizeArticleTags } from "../article-tags";
@@ -1431,6 +1432,7 @@ export const articles = {
     if (useMock()) {
       await delay();
       return mockArticleFeed({
+        blockedNames: await mockBlockedNames(),
         sort,
         tags,
         search,
@@ -1448,7 +1450,6 @@ export const articles = {
         search,
         category: params.category,
       },
-      anonymous: true,
     });
     return {
       items: (res.results ?? []).map(mapArticle),
@@ -1683,7 +1684,7 @@ export const comments = {
     const page = opts.page ?? 1;
     if (useMock()) {
       await delay(180);
-      return mockComments(uuid, { rootsOnly: opts.rootsOnly ?? true, page });
+      return mockComments(uuid, { rootsOnly: opts.rootsOnly ?? true, page, blockedNames: await mockBlockedNames() });
     }
     const res = await request<Paginated<RawComment>>(
       `/api/comments/${type}/${encodeURIComponent(uuid)}/`,
@@ -1692,7 +1693,6 @@ export const comments = {
           page,
           ...(opts.rootsOnly ? { parent__isnull: "True" } : {}),
         },
-        anonymous: true,
       },
     );
     return {
@@ -1710,11 +1710,11 @@ export const comments = {
     const page = opts.page ?? 1;
     if (useMock()) {
       await delay(150);
-      return mockCommentReplies(parentUuid, { page });
+      return mockCommentReplies(parentUuid, { page, blockedNames: await mockBlockedNames() });
     }
     const res = await request<Paginated<RawComment>>(
       `/api/comments/${encodeURIComponent(parentUuid)}/replies/`,
-      { query: { page }, anonymous: true },
+      { query: { page } },
     );
     return {
       items: (res.results ?? []).map(mapComment),
@@ -2322,11 +2322,11 @@ export const discover = {
   async creators(): Promise<SimpleCreator[]> {
     if (useMock()) {
       await delay(120);
-      return mockCreators;
+      const blocked = await mockBlockedNames();
+      return mockCreators.filter(creator => !blocked.includes(creator.username.toLowerCase()));
     }
     const page = await request<Paginated<RawCreator>>("/api/creator/", {
       query: { page_size: 24, homeSort: "random" },
-      anonymous: true,
     });
     return (page.results ?? []).map(mapCreator);
   },
@@ -2345,8 +2345,9 @@ export const discover = {
     const q = query.trim();
     if (useMock()) {
       await delay(200);
+      const blocked = await mockBlockedNames();
       return mockSearchResultPage(
-        mockSearchCreators(q),
+        mockSearchCreators(q).filter(creator => !blocked.includes(creator.username.toLowerCase())),
         page,
         pageSize,
         "zuuli.mock.search-creators",
@@ -2355,7 +2356,6 @@ export const discover = {
     if (!q) return { items: [], next: null, count: 0 };
     const response = await request<unknown>("/api/creator/", {
       query: { search: q, page, page_size: pageSize, ordering: "-total" },
-      anonymous: true,
     });
     return parseCreatorSearchPage(response, q, page, pageSize);
   },
@@ -2365,12 +2365,12 @@ export const discover = {
     const q = query.trim();
     if (useMock()) {
       await delay(200);
-      return mockSearchCreators(q);
+      const blocked = await mockBlockedNames();
+      return mockSearchCreators(q).filter(creator => !blocked.includes(creator.username.toLowerCase()));
     }
     if (!q) return [];
     const page = await request<Paginated<RawCreator>>("/api/creator/", {
       query: { search: q, page_size: 24, ordering: "-total" },
-      anonymous: true,
     });
     return (page.results ?? []).map(mapCreator);
   },
@@ -2411,8 +2411,9 @@ export const discover = {
         }
         throw new Error("Mock creator catalog unavailable");
       }
+      const blockedNames = await mockBlockedNames();
       const items = mockArticles.filter(
-        (a) => a.author.username.toLowerCase() === username.toLowerCase(),
+        (a) => a.author.username.toLowerCase() === username.toLowerCase() && !blockedNames.includes(a.author.username.toLowerCase()),
       );
       if (scenario === "empty-once") {
         window.sessionStorage.removeItem("zuuli.mock.creator-pages");
@@ -2427,7 +2428,6 @@ export const discover = {
     }
     const response = await request<unknown>("/api/zpage/", {
       query: { username, page, page_size: pageSize, ordering: "-created_at" },
-      anonymous: true,
     });
     return parseCreatorPagesPage(response, username, page);
   },
@@ -2446,8 +2446,9 @@ export const discover = {
     const q = query.trim();
     if (useMock()) {
       await delay(220);
+      const blocked = await mockBlockedNames();
       return mockSearchResultPage(
-        mockSearchPages(q),
+        mockSearchPages(q).filter(article => !blocked.includes(article.author.username.toLowerCase())),
         page,
         pageSize,
         "zuuli.mock.search-pages",
@@ -2456,7 +2457,6 @@ export const discover = {
     if (!q) return { items: [], next: null, count: 0 };
     const response = await request<unknown>("/api/zpage/", {
       query: { search: q, page, page_size: pageSize },
-      anonymous: true,
     });
     return parsePageSearchPage(response, q, page, pageSize);
   },

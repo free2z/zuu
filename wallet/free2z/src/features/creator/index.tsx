@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "@/features/moderation/Moderation";
 import { useLiveGate } from "./useLiveGate";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -183,7 +184,9 @@ function CreatorProfile({
   const isLive = useLiveGate(creator.username, creator.is_live);
 
   return (
-    <div
+    <>
+    <ModerationControls username={creator.username} kind="creator" targetId={creator.username} />
+    <BlockedContent username={creator.username}><div
       className="creator-profile animate-slide-up pb-6"
       data-creator-profile
     >
@@ -375,7 +378,7 @@ function CreatorProfile({
           </>
         ) : null}
       </div>
-    </div>
+    </div></BlockedContent></>
   );
 }
 
@@ -1161,7 +1164,7 @@ function TipButton({
 // ─── Page card ────────────────────────────────────────────────────────────────
 function PageCard({ article }: { article: Article }) {
   return (
-    <div
+    <BlockedContent username={article.author.username}><div
       className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 transition-colors hover:border-primary/40"
       data-creator-page-card
     >
@@ -1221,7 +1224,8 @@ function PageCard({ article }: { article: Article }) {
           ) : null}
         </div>
       </Link>
-    </div>
+      {article.free2zaddr ? <div className="p-4 pt-0"><ModerationControls username={article.author.username} kind="zpage" targetId={article.free2zaddr} /></div> : null}
+    </div></BlockedContent>
   );
 }
 

@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "@/features/moderation/Moderation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -692,7 +693,7 @@ function SearchLoadMore({
 function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
   const name = creator.display_name || creator.username;
   return (
-    <Link
+    <BlockedContent username={creator.username}><Link
       to={`/creator/${creator.username}`}
       aria-label={`View ${name}'s profile`}
       data-search-creator-result
@@ -749,7 +750,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
           ) : null}
         </div>
       </div>
-    </Link>
+    </Link></BlockedContent>
   );
 }
 
@@ -758,7 +759,7 @@ function PageResultRow({ article }: { article: Article }) {
   const name = author.display_name || author.username;
   const body = article.subtitle || excerpt(article.content);
   return (
-    <div
+    <BlockedContent username={author.username}><div
       className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40"
       data-search-page-result
     >
@@ -832,7 +833,8 @@ function PageResultRow({ article }: { article: Article }) {
           ) : null}
         </div>
       </Link>
-    </div>
+    {article.free2zaddr ? <ModerationControls username={author.username} kind="zpage" targetId={article.free2zaddr} /> : null}
+    </div></BlockedContent>
   );
 }
 

@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "@/features/moderation/Moderation";
 import { Link, useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Clock, Newspaper } from "lucide-react";
@@ -127,7 +128,9 @@ export function Reader() {
   const tags = sanitizeArticleTags(article.tags ?? []);
 
   return (
-    <article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
+    <>
+    {article.free2zaddr ? <ModerationControls username={author.username} kind="zpage" targetId={article.free2zaddr} /> : null}
+    <BlockedContent username={author.username}><article className="app-reader-content animate-slide-up w-full min-w-0 overflow-x-clip">
       <div className="mx-auto w-full min-w-0 max-w-3xl">
         <BackLink />
 
@@ -235,7 +238,7 @@ export function Reader() {
           <TipDialog author={author} />
         </div>
       </div>
-    </article>
+    </article></BlockedContent></>
   );
 }
 

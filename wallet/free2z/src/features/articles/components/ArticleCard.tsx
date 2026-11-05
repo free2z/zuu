@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "@/features/moderation/Moderation";
 import { Link } from "react-router-dom";
 import { ArrowUp, Clock } from "lucide-react";
 import {
@@ -26,7 +27,7 @@ export function ArticleCard({
   const name = author.display_name || author.username;
 
   return (
-    <Card
+    <BlockedContent username={author.username}><Card
       data-article-card
       className={cn(
         "group flex flex-col overflow-hidden rounded-xl border-border/60 bg-card/60 transition-colors hover:border-primary/40",
@@ -119,6 +120,7 @@ export function ArticleCard({
         </div>
       </Link>
 
+      {article.free2zaddr ? <div className="px-5 pb-2"><ModerationControls username={author.username} kind="zpage" targetId={article.free2zaddr} /></div> : null}
       {/* Meta footer */}
       <div className="flex items-center gap-4 border-t border-border/50 px-5 py-3 text-xs text-muted-foreground">
         {typeof article.reading_minutes === "number" ? (
@@ -133,7 +135,7 @@ export function ArticleCard({
           <span className="sr-only">votes</span>
         </span>
       </div>
-    </Card>
+    </Card></BlockedContent>
   );
 }
 

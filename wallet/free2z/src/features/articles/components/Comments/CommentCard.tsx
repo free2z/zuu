@@ -1,3 +1,4 @@
+import { BlockedContent, ModerationControls } from "@/features/moderation/Moderation";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, ChevronUp, MessageSquare, Reply } from "lucide-react";
@@ -81,7 +82,7 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
       : undefined;
 
   return (
-    <div className="min-w-0 rounded-xl border border-border bg-card/60 p-4">
+    <BlockedContent username={name}><div className="min-w-0 rounded-xl border border-border bg-card/60 p-4">
       <div className="flex items-start gap-3">
         {/* Vote rail */}
         <div className="flex shrink-0 flex-col items-center gap-0.5">
@@ -156,12 +157,13 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
           </h4>
 
           <div className="min-w-0 max-w-full overflow-x-auto break-words text-sm text-muted-foreground">
-            {/* Untrusted, unmoderated user content: comment variant degrades
+            {/* User-submitted content remains untrusted: comment variant degrades
                 remote images/embeds/QRs to links/text and is wrapped in an
                 error boundary so a malicious body can never crash the page. */}
             <Markdown variant="comment">{comment.content}</Markdown>
           </div>
 
+          <ModerationControls username={name} kind="comment" targetId={comment.uuid} />
           <div className="flex items-center gap-2 pt-1">
             <Button
               variant="ghost"
@@ -197,6 +199,6 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
           ) : null}
         </div>
       </div>
-    </div>
+    </div></BlockedContent>
   );
 }
