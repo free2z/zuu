@@ -1,22 +1,50 @@
 export const DEFAULT_LOCALE = "en";
-export const SUPPORTED_LOCALES = ["en", "es", "fr", "pt-BR"];
+// Availability describes the existing shipped UI, not translation review approval.
+/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "shipped"}[]} */
+export const LOCALE_REGISTRY = Object.freeze([
+  {
+    code: "en",
+    label: "English",
+    script: "Latn",
+    direction: "ltr",
+    formattingLocale: "en",
+    fallback: null,
+    availability: "shipped",
+  },
+  {
+    code: "es",
+    label: "Español",
+    script: "Latn",
+    direction: "ltr",
+    formattingLocale: "es",
+    fallback: "en",
+    availability: "shipped",
+  },
+  {
+    code: "fr",
+    label: "Français",
+    script: "Latn",
+    direction: "ltr",
+    formattingLocale: "fr",
+    fallback: "en",
+    availability: "shipped",
+  },
+  {
+    code: "pt-BR",
+    label: "Português (Brasil)",
+    script: "Latn",
+    direction: "ltr",
+    formattingLocale: "pt-BR",
+    fallback: "en",
+    availability: "shipped",
+  },
+]);
+export const SUPPORTED_LOCALES = LOCALE_REGISTRY.map(({ code }) => code);
 export const LOCALE_STORAGE_KEY = "free2z-locale";
-
-/**
- * The display name of every language we can name, written in that language.
- *
- * This is the ONLY place a language tag becomes user-facing prose. Anything
- * outside this table — `und`, `pt-PT`, a tag a future detector invents — has
- * no name here on purpose, so it can never be printed at a reader.
- *
- * @type {ReadonlyArray<{ code: "en" | "es" | "fr" | "pt-BR", label: string }>}
- */
-export const LANGUAGE_OPTIONS = [
-  { code: "en", label: "English" },
-  { code: "es", label: "Español" },
-  { code: "fr", label: "Français" },
-  { code: "pt-BR", label: "Português (Brasil)" },
-];
+export const LANGUAGE_OPTIONS = LOCALE_REGISTRY.map(({ code, label }) => ({
+  code,
+  label,
+}));
 
 /**
  * Routes where `?lang=` names the language of the *content* being read rather
@@ -73,15 +101,19 @@ export function languageLabel(code) {
 export function normalizeLocale(value) {
   if (typeof value !== "string" || value.trim() === "") return null;
 
-  const normalizedValue = value.trim().replace("_", "-").toLowerCase();
-  // Bare Portuguese is resolved to the one Portuguese locale we ship, but a
-  // regional tag such as pt-PT must not be relabelled as Brazilian content.
-  if (normalizedValue === "pt" || normalizedValue === "pt-br") {
-    return "pt-BR";
+  let tag;
+  try {
+    [tag] = Intl.getCanonicalLocales(value.trim().replaceAll("_", "-"));
+  } catch {
+    return null;
   }
-
-  const language = normalizedValue.split("-")[0];
-  return SUPPORTED_LOCALES.includes(language) ? language : null;
+  if (tag === "pt" || tag === "pt-BR") return "pt-BR";
+  const exact = LOCALE_REGISTRY.find((entry) => entry.code === tag);
+  if (exact) return exact.code;
+  const language = tag.split("-")[0];
+  // Only language-level catalogs may accept regional variants. In particular,
+  // pt-PT must never resolve to the regional pt-BR catalog.
+  return LOCALE_REGISTRY.find((entry) => entry.code === language)?.code ?? null;
 }
 
 /**

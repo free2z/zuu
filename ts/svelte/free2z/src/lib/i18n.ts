@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_LOCALE,
   LANGUAGE_OPTIONS,
+  LOCALE_REGISTRY,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
   normalizeLocale,
@@ -19,7 +20,7 @@ import {
 import { getRequestLocale } from "./request-locale.js";
 import { requestScopedStore } from "./request-scoped-store.js";
 
-export type SupportedLocale = "en" | "es" | "fr" | "pt-BR";
+export type SupportedLocale = (typeof LOCALE_REGISTRY)[number]["code"];
 export type TranslationParams = Record<string, string | number>;
 export type TranslationFunction = (
   key: string,

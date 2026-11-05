@@ -3,11 +3,38 @@ import test from "node:test";
 
 import {
   DEFAULT_LOCALE,
+  LOCALE_REGISTRY,
+  LANGUAGE_OPTIONS,
+  SUPPORTED_LOCALES,
   isContentLanguageRoute,
   normalizeLocale,
   resolveLocale,
   resolveRequestLocale,
 } from "../src/lib/locale.js";
+
+test("registry drives the supported locales and selector", () => {
+  assert.deepEqual(
+    SUPPORTED_LOCALES,
+    LOCALE_REGISTRY.map(({ code }) => code),
+  );
+  assert.deepEqual(
+    LANGUAGE_OPTIONS,
+    LOCALE_REGISTRY.map(({ code, label }) => ({ code, label })),
+  );
+  assert.equal(new Set(SUPPORTED_LOCALES).size, SUPPORTED_LOCALES.length);
+  for (const entry of LOCALE_REGISTRY) {
+    assert.equal(Intl.getCanonicalLocales(entry.code)[0], entry.code);
+    assert.ok(
+      entry.fallback === null || SUPPORTED_LOCALES.includes(entry.fallback),
+    );
+  }
+});
+
+test("invalid tags do not fall through to a supported language", () => {
+  assert.equal(normalizeLocale("es-!"), null);
+  assert.equal(normalizeLocale("fr--CA"), null);
+  assert.equal(normalizeLocale("pt-PT"), null);
+});
 
 test("normalizes supported regional browser locales", () => {
   assert.equal(normalizeLocale("es-VE"), "es");
