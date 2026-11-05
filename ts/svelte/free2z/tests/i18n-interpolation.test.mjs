@@ -214,3 +214,24 @@ test("number formatter respects request locale and preserves integer precision",
     }).format(12345),
   );
 });
+
+test("list and collation helpers follow concurrent request locales", async () => {
+  const { withRequestLocale } = await vite.ssrLoadModule(
+    "/src/lib/server/request-locale.js",
+  );
+  const run = (locale) =>
+    withRequestLocale(locale, async () => {
+      await Promise.resolve();
+      return [
+        i18n.formatLocalizedList(["Ada", "Bob", "Cam"]),
+        i18n.compareLocalized("é", "z"),
+      ];
+    });
+  for (const [index, locale] of ["en", "fr"].entries()) {
+    const actual = (await Promise.all([run("en"), run("fr")]))[index];
+    assert.deepEqual(actual, [
+      new Intl.ListFormat(locale).format(["Ada", "Bob", "Cam"]),
+      new Intl.Collator(locale).compare("é", "z"),
+    ]);
+  }
+});

@@ -25,7 +25,13 @@
   import type { PageData } from "./$types";
   import { toast, captureAccountToast, toastPresentation } from "$lib/toast.js";
   import { reviewTranslation } from "$lib/editor/translation-review.js";
-  import { locale, tStore as t, type SupportedLocale } from "$lib/i18n";
+  import {
+    locale,
+    formatLocalizedList,
+    compareLocalized,
+    tStore as t,
+    type SupportedLocale,
+  } from "$lib/i18n";
   import { apiFetch } from "$lib/api/config";
   import { isRequestTimeout } from "$lib/api/request-timeout.js";
   import {
@@ -870,7 +876,9 @@
     jobList
       .filter((job) => job.status === "delivered" && !job.variant?.is_published)
       .map((job) => job.language)
-      .sort((a, b) => languageLabel(a).localeCompare(languageLabel(b))),
+      .sort((a, b) =>
+        compareLocalized(languageLabel(a), languageLabel(b), $locale),
+      ),
   );
   let reviewLanguage = $state<string | null>(null);
   /** Bumped per review step: the original is read again (see the pane). */
@@ -1282,10 +1290,10 @@
   function languageList(languages: readonly string[]): string {
     const names = languages.map((language) => languageLabel(language));
     try {
-      return new Intl.ListFormat($locale, {
+      return formatLocalizedList(names, $locale, {
         style: "long",
         type: "conjunction",
-      }).format(names);
+      });
     } catch {
       return names.join(", ");
     }
@@ -5239,7 +5247,8 @@
       // its neighbour in the same alphabetical order the queue uses.
       const current = languageLabel(reviewLanguage);
       const after = queue.findIndex(
-        (language) => languageLabel(language).localeCompare(current) > 0,
+        (language) =>
+          compareLocalized(languageLabel(language), current, $locale) > 0,
       );
       index =
         delta === 1
@@ -5364,7 +5373,7 @@
     const current = languageLabel(language);
     await startReview(
       remaining.find(
-        (other) => languageLabel(other).localeCompare(current) > 0,
+        (other) => compareLocalized(languageLabel(other), current, $locale) > 0,
       ) ?? remaining[0],
     );
   }

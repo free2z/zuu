@@ -182,6 +182,29 @@ export function formatLocalizedNumber(
   ).format(value);
 }
 
+export function formatLocalizedList(
+  values: readonly string[],
+  requestedLocale: string = getCurrentLocale(),
+  options?: Intl.ListFormatOptions,
+): string {
+  return new Intl.ListFormat(
+    resolveSupportedLocale(requestedLocale) ?? defaultLocale,
+    options,
+  ).format(values);
+}
+
+export function compareLocalized(
+  left: string,
+  right: string,
+  requestedLocale: string = getCurrentLocale(),
+  options?: Intl.CollatorOptions,
+): number {
+  return new Intl.Collator(
+    resolveSupportedLocale(requestedLocale) ?? defaultLocale,
+    options,
+  ).compare(left, right);
+}
+
 export function isSingularCount(
   value: number,
   requestedLocale: string = getCurrentLocale(),
