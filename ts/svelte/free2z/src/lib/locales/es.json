@@ -3163,6 +3163,16 @@
       "hiddenPage": "Oculto porque bloqueaste a @{username}.",
       "hiddenComment": "Comentario oculto porque bloqueaste a @{username}.",
       "profileBanner": "Bloqueaste a @{username}. Sus páginas, comentarios y notificaciones están ocultos para ti. Usa el menú ⋮ para desbloquear."
+    },
+    "manage": {
+      "title": "Cuentas bloqueadas",
+      "signIn": "Inicia sesión para gestionar las cuentas bloqueadas.",
+      "loading": "Cargando cuentas bloqueadas…",
+      "loadError": "No se pudo cargar la lista completa de cuentas bloqueadas.",
+      "retry": "Reintentar",
+      "unblockError": "No se pudo desbloquear esta cuenta. Inténtalo de nuevo.",
+      "empty": "No has bloqueado ninguna cuenta.",
+      "refreshError": "La cuenta se desbloqueó, pero no se pudo actualizar la página. Recárgala para actualizar el contenido."
     }
   },
   "economy": {

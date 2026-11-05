@@ -3163,6 +3163,16 @@
       "hiddenPage": "Masqué car vous avez bloqué @{username}.",
       "hiddenComment": "Commentaire masqué car vous avez bloqué @{username}.",
       "profileBanner": "Vous avez bloqué @{username}. Ses pages, commentaires et notifications vous sont masqués. Utilisez le menu ⋮ pour le débloquer."
+    },
+    "manage": {
+      "title": "Comptes bloqués",
+      "signIn": "Connectez-vous pour gérer les comptes bloqués.",
+      "loading": "Chargement des comptes bloqués…",
+      "loadError": "Impossible de charger toute la liste des comptes bloqués.",
+      "retry": "Réessayer",
+      "unblockError": "Impossible de débloquer ce compte. Réessayez.",
+      "empty": "Vous n’avez bloqué aucun compte.",
+      "refreshError": "Le compte est débloqué, mais la page n’a pas pu être actualisée. Rechargez-la pour actualiser le contenu."
     }
   },
   "economy": {

@@ -35,6 +35,11 @@
   let reportOpen = $state(false);
   let confirmOpen = $state(false);
   let saving = $state(false);
+  $effect(() => {
+    $currentUser?.username;
+    saving = false;
+    confirmOpen = false;
+  });
 
   // The shared store is the one answer for "is this account blocked": the
   // banner, the cards and this menu all read it, so they cannot disagree --
@@ -50,13 +55,19 @@
     const reader = $currentUser?.username;
     const target = username;
     const key = reader ? `${reader}\u0000${target}` : "";
-    if (!key || key === checkedFor) return;
+    if (!key) {
+      checkedFor = "";
+      return;
+    }
+    if (key === checkedFor) return;
     checkedFor = key;
     // The store's revision, not a per-component counter: a read started by
     // a menu that has since been destroyed must not override a block a
     // newer menu (or anything else) made in the meantime.
     const revisionAtStart = blockRevision();
+    const owns = authStore.captureRequestOwnership();
     void readBlocked(target).then((state) => {
+      if (!owns()) return;
       if (state === null || blockRevision() !== revisionAtStart) return;
       if ($currentUser?.username !== reader) return;
       setLocallyBlocked(target, state, reader);
@@ -94,8 +105,10 @@
     //...and to the account that made it: a response landing after a
     // sign-in as someone else must not edit that account's block list.
     const reader = $currentUser?.username ?? null;
+    const owns = authStore.captureRequestOwnership();
     saving = true;
     const outcome = await setBlocked(target, next);
+    if (!owns() || $currentUser?.username !== reader) return;
     saving = false;
     confirmOpen = false;
     if (outcome.ok) {
