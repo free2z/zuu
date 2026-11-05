@@ -22,7 +22,7 @@
  * Must be constructed during component initialisation (it registers an
  * `$effect`), and `attach()` must be called from `onMount`.
  */
-import { marked } from "marked";
+import { Marked, marked } from "marked";
 import {
   parseCaptionedImage,
   serializeCaptionedImage,
@@ -1173,7 +1173,8 @@ export class MarkdownTextareaController {
     )
       return null;
     let offset = 0;
-    const blocks = marked.lexer(value);
+    // A private lexer is unaffected by render-time extensions registered on marked.
+    const blocks = new Marked({ breaks: true, gfm: true }).lexer(value);
     const block = blocks.find((token) => {
       const start = offset;
       offset += token.raw.length;
@@ -1192,8 +1193,23 @@ export class MarkdownTextareaController {
       apply: (alt: string, caption: string) => {
         if (this.#options.isAbandoned() || this.#value !== value) return false;
         // Keep the destination and title byte-for-byte; escape Markdown label delimiters.
-        const closing = image.indexOf("](");
-        if (closing < 0) return false;
+        let depth = 0;
+        let closing = -1;
+        for (let i = 2; i < image.length; i++) {
+          if (image[i] === "\\") {
+            i++;
+            continue;
+          }
+          if (image[i] === "[") depth++;
+          else if (image[i] === "]") {
+            if (depth > 0) depth--;
+            else {
+              closing = i;
+              break;
+            }
+          }
+        }
+        if (closing < 0 || image[closing + 1] !== "(") return false;
         const safeAlt = alt
           .replace(/\\/g, "\\\\")
           .replace(/\[/g, "\\[")

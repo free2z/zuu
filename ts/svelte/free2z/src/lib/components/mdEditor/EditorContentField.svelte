@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toast } from "$lib/toast.js";
   import { getCurrentLocale, tStore as t } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
   import { onMount, tick } from "svelte";
@@ -120,7 +121,15 @@
     null;
   function editImageDetails() {
     const captured = editor.captureImageDetails();
-    if (!captured) return;
+    if (!captured) {
+      toast.error(
+        $t(
+          "editor.selectImageFirst",
+          "Place the cursor on a standalone image first.",
+        ),
+      );
+      return;
+    }
     applyImageDetails = captured.apply;
     imageDetailsRef?.show(captured.alt, captured.caption);
   }

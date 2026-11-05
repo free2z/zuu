@@ -623,6 +623,7 @@
     "libraryImageAlt": "Image de votre bibliothèque",
     "imageLoadFailedWithStatus": "Impossible de charger l’image ({status}).",
     "imageFallback": "Image {id}",
+    "selectImageFirst": "Placez d’abord le curseur sur une image isolée.",
     "imageDetailsTitle": "Détails de l’image",
     "imageDetailsHint": "Le texte alternatif décrit l’image pour les lecteurs d’écran. La légende apparaît sous l’image pour tout le monde.",
     "imageDescription": "Texte alternatif (description de l’image)",

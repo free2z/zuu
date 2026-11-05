@@ -362,7 +362,8 @@ test("cloud image collects separate alt and caption before insertion", async ({
   ).toBeVisible();
   await page.getByLabel("Alt text (image description)").fill("A bird");
   await page.getByLabel("Visible caption").fill("雪\ncaption");
-  await page.getByRole("button", { name: "Apply" }).click();
+  await page.getByRole("button", { name: "Apply" }).focus();
+  await page.keyboard.press("Enter");
   await expect(body).toHaveValue(/!\[A bird\].*::caption\["雪\\ncaption"\]/s);
 });
 
@@ -424,4 +425,72 @@ test("upload details can be cancelled or inserted with a visible caption", async
   );
   await expect(page.locator("figcaption script")).toHaveCount(0);
   await expect(page.locator('figure img[alt="Bird"]')).toHaveCount(1);
+});
+
+for (const width of [390, 1280]) {
+  test(`caption editing preserves escaped image destination after preview at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const { body } = await setup(page, "png", "image/png");
+    const source = '![a \\]( b](/uploadz/public/example.png "keep title")';
+    await body.fill(source);
+    await page
+      .getByRole("button", { name: "Preview", exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole("button", { name: "Write", exact: true })
+      .last()
+      .click();
+    for (const caption of ["first", "second", ""]) {
+      await body.evaluate((element: HTMLTextAreaElement) => {
+        element.focus();
+        element.setSelectionRange(4, 4);
+      });
+      const edit = page.getByRole("button", { name: "Edit image at cursor" });
+      await edit.focus();
+      await page.keyboard.press("Enter");
+      await expect(
+        page.getByRole("dialog", { name: "Image details" }),
+      ).toBeVisible();
+      await page.getByLabel("Visible caption").fill(caption);
+      await page.getByRole("button", { name: "Apply" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(body).toHaveValue(
+        caption
+          ? `![a \\]( b](/uploadz/public/example.png "keep title")\n::caption["${caption}"]`
+          : source,
+      );
+    }
+    for (const source of [
+      '![slash \\\\ and \\[bracket\\]](/uploadz/public/example.png "keep title")',
+      '![nested [emphasis *inside*]](/uploadz/public/example.png "keep title")',
+    ]) {
+      await body.fill(source);
+      await body.evaluate((element: HTMLTextAreaElement) => {
+        element.focus();
+        element.setSelectionRange(3, 3);
+      });
+      await page.getByRole("button", { name: "Edit image at cursor" }).click();
+      await expect(
+        page.getByRole("dialog", { name: "Image details" }),
+      ).toBeVisible();
+      await page.getByLabel("Visible caption").fill("caption");
+      await page.getByRole("button", { name: "Apply" }).click();
+      await expect(body).toHaveValue(
+        /\]\(\/uploadz\/public\/example\.png "keep title"\)\n::caption\["caption"\]$/,
+      );
+    }
+  });
+}
+
+test("image edit reports an inapplicable caret", async ({ page }) => {
+  const { body } = await setup(page, "png", "image/png");
+  await body.focus();
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await expect(
+    page.getByText("Place the cursor on a standalone image first."),
+  ).toBeVisible();
+  await expect(body).toHaveValue(initial);
 });

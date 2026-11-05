@@ -546,7 +546,10 @@ export function createInlineUploader(
               );
               // Keep the URL relative — the markdown renderer prefixes /uploadz/
               // paths with the API base in both preview and published pages.
-              if (editorAbandoned()) return;
+              if (editorAbandoned()) {
+                resolveUploadToken(token, "");
+                return;
+              }
               resolveUploadToken(
                 token,
                 (

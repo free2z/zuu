@@ -623,6 +623,7 @@
     "libraryImageAlt": "Imagem da sua biblioteca",
     "imageLoadFailedWithStatus": "Falha ao carregar a imagem ({status}).",
     "imageFallback": "Imagem {id}",
+    "selectImageFirst": "Primeiro, posicione o cursor em uma imagem isolada.",
     "imageDetailsTitle": "Detalhes da imagem",
     "imageDetailsHint": "O texto alternativo descreve a imagem para leitores de tela. A legenda aparece abaixo da imagem para todos.",
     "imageDescription": "Texto alternativo (descrição da imagem)",
