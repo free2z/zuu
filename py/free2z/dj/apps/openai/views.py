@@ -1144,14 +1144,18 @@ class AIPersonalityViewSet(viewsets.ModelViewSet):
             if self.request.method in ['PUT', 'PATCH', 'DELETE']:
                 return Personality.objects.filter(creator=self.request.user)
 
-            return Personality.objects.filter(
+            queryset = Personality.objects.filter(
                 (Q(is_public=True) & _public_personality_q())
                 | Q(creator=self.request.user)
             )
         else:
-            return Personality.objects.filter(
+            queryset = Personality.objects.filter(
                 Q(is_public=True) & _public_personality_q()
             )
+        if self.action == 'list':
+            from dj.apps.g12f.blocks import exclude_blocked
+            queryset = exclude_blocked(queryset, self.request.user, 'creator')
+        return queryset
 
     def perform_create(self, serializer):
         serializer.save(creator=self.request.user)
@@ -1197,6 +1201,12 @@ class PublicConversationViewSet(viewsets.ReadOnlyModelViewSet):
         public_prompt_responses = PromptResponse.objects.filter(
             _public_personality_q(prefix="personality__")
         )
+        from dj.apps.g12f.blocks import exclude_blocked
+        if self.action == 'list':
+            qs = exclude_blocked(qs, self.request.user, 'user')
+        public_prompt_responses = exclude_blocked(
+            public_prompt_responses, self.request.user, 'user',
+        )
         return qs.prefetch_related(
             'tags',
             Prefetch(
@@ -1233,13 +1243,21 @@ class PublicPromptResponseViewSet(viewsets.ReadOnlyModelViewSet):
         # one, public, AND visible to this viewer -- not "some public
         # conversation with this id" plus "some conversation the viewer may
         # see".
-        return PromptResponse.objects.filter(
+        queryset = PromptResponse.objects.filter(
             Q(conversations__id=cid)
             & _public_conversation_q(
                 self.request.user, prefix="conversations__"
             )
             & _public_personality_q(prefix="personality__")
         )
+        from dj.apps.g12f.blocks import blocked_ids_subquery, exclude_blocked
+        queryset = exclude_blocked(queryset, self.request.user, 'user')
+        blocked = blocked_ids_subquery(self.request.user)
+        if blocked is not None and Conversation.objects.filter(
+            id=cid, user__in=blocked,
+        ).exists():
+            return queryset.none()
+        return queryset
 
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -1280,6 +1298,10 @@ class ConversationViewSet(viewsets.ModelViewSet):
         public_conversations = Conversation.objects.filter(
             _public_conversation_q(request.user)
             & _public_personality_q(prefix="personality__")
+        )
+        from dj.apps.g12f.blocks import exclude_blocked
+        public_conversations = exclude_blocked(
+            public_conversations, request.user, 'user',
         )
         serializer = self.get_serializer(public_conversations, many=True)
         return Response(serializer.data)
@@ -1526,10 +1548,14 @@ class PromptResponseViewSet(viewsets.ModelViewSet):
         # SINGLE related row to satisfy them together, i.e. "a conversation with
         # this id that belongs to me" -- not "some conversation with this id"
         # AND "some conversation of mine".
-        return PromptResponse.objects.filter(
+        queryset = PromptResponse.objects.filter(
             conversations__id=cid,
             conversations__user=user,
         )
+        if self.action == 'list':
+            from dj.apps.g12f.blocks import exclude_blocked
+            queryset = exclude_blocked(queryset, user, 'user')
+        return queryset
 
     @extend_schema(
         parameters=[

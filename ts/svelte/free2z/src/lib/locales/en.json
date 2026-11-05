@@ -3192,6 +3192,16 @@
       "hiddenPage": "Hidden because you blocked @{username}.",
       "hiddenComment": "Comment hidden because you blocked @{username}.",
       "profileBanner": "You blocked @{username}. Their pages, comments and notifications are hidden from you. Use the ⋮ menu to unblock."
+    },
+    "manage": {
+      "title": "Blocked accounts",
+      "signIn": "Sign in to manage blocked accounts.",
+      "loading": "Loading blocked accounts…",
+      "loadError": "Could not load the full block list.",
+      "retry": "Retry",
+      "unblockError": "Could not unblock this account. Try again.",
+      "empty": "You have not blocked any accounts.",
+      "refreshError": "Account unblocked, but the page could not refresh. Reload to update content."
     }
   },
   "economy": {

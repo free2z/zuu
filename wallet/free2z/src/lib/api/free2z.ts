@@ -6,6 +6,7 @@
 // This module is the CONTRACT every feature imports. Keep the return types stable.
 
 import { useMock } from "../platform";
+import { mockBlockedNames } from "./moderation";
 import { MOCK_OTP } from "../env";
 import { usdToTuzis } from "../format";
 import { normalizeArticleTags, sanitizeArticleTags } from "../article-tags";
@@ -21,7 +22,14 @@ import {
   type OAuthCapture,
 } from "../oauth/transport";
 import type { OAuthStartResponse } from "../oauth/protocol";
-import { ApiError, basicLogin, getToken, mediaUrl, request, setToken } from "./http";
+import {
+  ApiError,
+  basicLogin,
+  getToken,
+  mediaUrl,
+  request,
+  setToken,
+} from "./http";
 import {
   DonationContractError,
   IDEMPOTENT_DONATION_ROUTE,
@@ -288,9 +296,7 @@ function parseSubscription(value: unknown): Subscription {
 }
 
 /** Runtime validator used before trusting any paginated entitlement data. */
-export function parseSubscriptionPage(
-  value: unknown,
-): Paginated<Subscription> {
+export function parseSubscriptionPage(value: unknown): Paginated<Subscription> {
   if (!isRecord(value) || !Array.isArray(value.results)) {
     throw new Error("Malformed membership pagination response.");
   }
@@ -350,7 +356,9 @@ export async function collectSubscriptionPages(
     }
     if (!page.next) {
       if (subscriptions.length !== expectedCount) {
-        throw new Error("Membership pagination returned an incomplete snapshot.");
+        throw new Error(
+          "Membership pagination returned an incomplete snapshot.",
+        );
       }
       return subscriptions;
     }
@@ -739,12 +747,14 @@ function mapLivestream(m: RawDyteMeeting): Livestream {
 
 function inferProvider(model: string): AIModel["provider"] {
   const m = model.toLowerCase();
-  if (m.includes("gpt") || m.startsWith("o1") || m.startsWith("o3")) return "openai";
+  if (m.includes("gpt") || m.startsWith("o1") || m.startsWith("o3"))
+    return "openai";
   if (m.includes("claude")) return "anthropic";
   if (m.includes("grok")) return "xai";
   if (m.includes("kimi")) return "kimi";
   if (m.includes("gemini")) return "google";
-  if (m.includes("llama") || m.includes("mistral") || m.includes("qwen")) return "local";
+  if (m.includes("llama") || m.includes("mistral") || m.includes("qwen"))
+    return "local";
   return "other";
 }
 
@@ -929,7 +939,9 @@ export const auth = {
   async zcashChallenge(address: string): Promise<{ challenge: string }> {
     if (useMock()) {
       await delay(150);
-      return { challenge: `zuuli-login:${address}:${Math.random().toString(36).slice(2)}` };
+      return {
+        challenge: `zuuli-login:${address}:${Math.random().toString(36).slice(2)}`,
+      };
     }
     return request<{ challenge: string }>("/api/auth/zcash/challenge/", {
       method: "POST",
@@ -1027,13 +1039,10 @@ export const auth = {
     redirectUri: string,
     codeChallenge?: string,
   ): Promise<OAuthStartResponse> {
-    return request<OAuthStartResponse>(
-      `/api/auth/social/${provider}/start`,
-      {
-        query: { redirect_uri: redirectUri, code_challenge: codeChallenge },
-        anonymous: true,
-      },
-    );
+    return request<OAuthStartResponse>(`/api/auth/social/${provider}/start`, {
+      query: { redirect_uri: redirectUri, code_challenge: codeChallenge },
+      anonymous: true,
+    });
   },
 
   /**
@@ -1069,8 +1078,10 @@ export const auth = {
       );
     }
     const associate = opts.associate === true;
-    const capture = await captureOAuthCode(provider, associate, (redirect, challenge) =>
-      auth.socialStart(provider, redirect, challenge),
+    const capture = await captureOAuthCode(
+      provider,
+      associate,
+      (redirect, challenge) => auth.socialStart(provider, redirect, challenge),
     );
     return auth.completeSocialOAuth(capture);
   },
@@ -1084,7 +1095,8 @@ export const auth = {
    */
   async completeSocialOAuth(capture: OAuthCapture): Promise<SocialAuthResult> {
     return withOAuthSession<SocialAuthResult>(capture, async (lease) => {
-      const { provider, associate, code, state, redirectUri, codeVerifier } = capture;
+      const { provider, associate, code, state, redirectUri, codeVerifier } =
+        capture;
       const body = {
         code,
         state,
@@ -1111,7 +1123,10 @@ export const auth = {
           }
           throw e;
         }
-        const me = await auth.me(lease.initiatingToken ?? undefined, lease.signal);
+        const me = await auth.me(
+          lease.initiatingToken ?? undefined,
+          lease.signal,
+        );
         lease.assertCurrent();
         return {
           status: "associated",
@@ -1123,12 +1138,15 @@ export const auth = {
         };
       }
 
-      const tok = await request<{ token: string }>(`/api/auth/social/${provider}/`, {
-        method: "POST",
-        body,
-        anonymous: true,
-        signal: lease.signal,
-      });
+      const tok = await request<{ token: string }>(
+        `/api/auth/social/${provider}/`,
+        {
+          method: "POST",
+          body,
+          anonymous: true,
+          signal: lease.signal,
+        },
+      );
       lease.assertCurrent();
       const me = await auth.me(tok.token, lease.signal);
       lease.assertCurrent();
@@ -1431,6 +1449,7 @@ export const articles = {
     if (useMock()) {
       await delay();
       return mockArticleFeed({
+        blockedNames: await mockBlockedNames(),
         sort,
         tags,
         search,
@@ -1448,7 +1467,6 @@ export const articles = {
         search,
         category: params.category,
       },
-      anonymous: true,
     });
     return {
       items: (res.results ?? []).map(mapArticle),
@@ -1683,7 +1701,11 @@ export const comments = {
     const page = opts.page ?? 1;
     if (useMock()) {
       await delay(180);
-      return mockComments(uuid, { rootsOnly: opts.rootsOnly ?? true, page });
+      return mockComments(uuid, {
+        rootsOnly: opts.rootsOnly ?? true,
+        page,
+        blockedNames: await mockBlockedNames(),
+      });
     }
     const res = await request<Paginated<RawComment>>(
       `/api/comments/${type}/${encodeURIComponent(uuid)}/`,
@@ -1692,7 +1714,6 @@ export const comments = {
           page,
           ...(opts.rootsOnly ? { parent__isnull: "True" } : {}),
         },
-        anonymous: true,
       },
     );
     return {
@@ -1710,11 +1731,14 @@ export const comments = {
     const page = opts.page ?? 1;
     if (useMock()) {
       await delay(150);
-      return mockCommentReplies(parentUuid, { page });
+      return mockCommentReplies(parentUuid, {
+        page,
+        blockedNames: await mockBlockedNames(),
+      });
     }
     const res = await request<Paginated<RawComment>>(
       `/api/comments/${encodeURIComponent(parentUuid)}/replies/`,
-      { query: { page }, anonymous: true },
+      { query: { page } },
     );
     return {
       items: (res.results ?? []).map(mapComment),
@@ -2008,7 +2032,9 @@ function mockSecretUnlocks(secret?: string): boolean {
 
 export class PrivateRoomUnavailableError extends Error {
   constructor() {
-    super("This private room is unavailable. The invite may be wrong or expired.");
+    super(
+      "This private room is unavailable. The invite may be wrong or expired.",
+    );
     this.name = "PrivateRoomUnavailableError";
   }
 }
@@ -2125,8 +2151,16 @@ export const tuzi = {
         });
       }
       mockUser.tuzis -= tuzis;
-      const result = { balance: mockUser.tuzis, charged: tuzis, replayed: false };
-      mockDonationResults.set(idempotencyKey, { username, amount: tuzis, result });
+      const result = {
+        balance: mockUser.tuzis,
+        charged: tuzis,
+        replayed: false,
+      };
+      mockDonationResults.set(idempotencyKey, {
+        username,
+        amount: tuzis,
+        result,
+      });
       return result;
     }
     const response = await request(
@@ -2140,10 +2174,7 @@ export const tuzi = {
     return normalizeDonationResult(response, tuzis);
   },
 
-  async subscribe(
-    username: string,
-    idempotencyKey?: string,
-  ): Promise<void> {
+  async subscribe(username: string, idempotencyKey?: string): Promise<void> {
     if (useMock()) {
       await delay(400);
       const creator = mockCreators.find(
@@ -2237,7 +2268,8 @@ export const tuzi = {
       await delay(150);
       return mockSubscriptions.filter(
         (subscription) =>
-          !subscription.expires || Date.parse(subscription.expires) > Date.now(),
+          !subscription.expires ||
+          Date.parse(subscription.expires) > Date.now(),
       );
     }
     // This endpoint is paginated (12 rows by default). Looking at only the
@@ -2303,10 +2335,10 @@ function mockSearchResultPage<T>(
     scenario === "duplicate-page" && page > 2
       ? nominalStart - effectivePageSize
       : scenario === "overlap" && page > 1
-      ? nominalStart - 1
-      : scenario === "skip-row" && page > 1
-        ? nominalStart + 1
-        : nominalStart;
+        ? nominalStart - 1
+        : scenario === "skip-row" && page > 1
+          ? nominalStart + 1
+          : nominalStart;
   const items = allItems.slice(start, start + effectivePageSize);
   return {
     items,
@@ -2322,11 +2354,13 @@ export const discover = {
   async creators(): Promise<SimpleCreator[]> {
     if (useMock()) {
       await delay(120);
-      return mockCreators;
+      const blocked = await mockBlockedNames();
+      return mockCreators.filter(
+        (creator) => !blocked.includes(creator.username.toLowerCase()),
+      );
     }
     const page = await request<Paginated<RawCreator>>("/api/creator/", {
       query: { page_size: 24, homeSort: "random" },
-      anonymous: true,
     });
     return (page.results ?? []).map(mapCreator);
   },
@@ -2345,8 +2379,11 @@ export const discover = {
     const q = query.trim();
     if (useMock()) {
       await delay(200);
+      const blocked = await mockBlockedNames();
       return mockSearchResultPage(
-        mockSearchCreators(q),
+        mockSearchCreators(q).filter(
+          (creator) => !blocked.includes(creator.username.toLowerCase()),
+        ),
         page,
         pageSize,
         "zuuli.mock.search-creators",
@@ -2355,7 +2392,6 @@ export const discover = {
     if (!q) return { items: [], next: null, count: 0 };
     const response = await request<unknown>("/api/creator/", {
       query: { search: q, page, page_size: pageSize, ordering: "-total" },
-      anonymous: true,
     });
     return parseCreatorSearchPage(response, q, page, pageSize);
   },
@@ -2365,12 +2401,14 @@ export const discover = {
     const q = query.trim();
     if (useMock()) {
       await delay(200);
-      return mockSearchCreators(q);
+      const blocked = await mockBlockedNames();
+      return mockSearchCreators(q).filter(
+        (creator) => !blocked.includes(creator.username.toLowerCase()),
+      );
     }
     if (!q) return [];
     const page = await request<Paginated<RawCreator>>("/api/creator/", {
       query: { search: q, page_size: 24, ordering: "-total" },
-      anonymous: true,
     });
     return (page.results ?? []).map(mapCreator);
   },
@@ -2411,8 +2449,11 @@ export const discover = {
         }
         throw new Error("Mock creator catalog unavailable");
       }
+      const blockedNames = await mockBlockedNames();
       const items = mockArticles.filter(
-        (a) => a.author.username.toLowerCase() === username.toLowerCase(),
+        (a) =>
+          a.author.username.toLowerCase() === username.toLowerCase() &&
+          !blockedNames.includes(a.author.username.toLowerCase()),
       );
       if (scenario === "empty-once") {
         window.sessionStorage.removeItem("zuuli.mock.creator-pages");
@@ -2427,7 +2468,6 @@ export const discover = {
     }
     const response = await request<unknown>("/api/zpage/", {
       query: { username, page, page_size: pageSize, ordering: "-created_at" },
-      anonymous: true,
     });
     return parseCreatorPagesPage(response, username, page);
   },
@@ -2446,8 +2486,11 @@ export const discover = {
     const q = query.trim();
     if (useMock()) {
       await delay(220);
+      const blocked = await mockBlockedNames();
       return mockSearchResultPage(
-        mockSearchPages(q),
+        mockSearchPages(q).filter(
+          (article) => !blocked.includes(article.author.username.toLowerCase()),
+        ),
         page,
         pageSize,
         "zuuli.mock.search-pages",
@@ -2456,7 +2499,6 @@ export const discover = {
     if (!q) return { items: [], next: null, count: 0 };
     const response = await request<unknown>("/api/zpage/", {
       query: { search: q, page, page_size: pageSize },
-      anonymous: true,
     });
     return parsePageSearchPage(response, q, page, pageSize);
   },

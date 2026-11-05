@@ -5,6 +5,7 @@ public-stream-video-geometry.spec.ts
 publication-export-dialog.spec.ts
 raw-write-timeout.spec.ts
 report-block.spec.ts
+block-management.spec.ts
 reset-password-errors.spec.ts
 rtk-audio-health.spec.ts
 series-editor.spec.ts

@@ -141,7 +141,7 @@ export function createG12fBlocksMineList<TData = Awaited<ReturnType<typeof g12fB
 
 
 /**
- * Every creator the authenticated caller follows, newest first, with the project's standard page-number pagination (`?page=`, `?page_size=`). This is the FREE follow graph — it is not the paid subscription list and reflects nothing about 2Z, entitlement or `member_price`. Follows of accounts that have since been deactivated are omitted, so `count` here always matches the `following_count` reported by `GET /api/creator/{my-own-username}/follow/`.
+ * Every creator the authenticated caller follows, newest first, with the project's standard page-number pagination (`?page=`, `?page_size=`). This is the FREE follow graph — it is not the paid subscription list and reflects nothing about 2Z, entitlement or `member_price`. Follows of accounts that have since been deactivated and accounts blocked by the caller are omitted.
  * @summary Creators I follow
  */
 export const g12fFollowsMineList = (

@@ -1,3 +1,7 @@
+import {
+  BlockedContent,
+  ModerationControls,
+} from "@/features/moderation/Moderation";
 import { useLiveGate } from "./useLiveGate";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -183,199 +187,214 @@ function CreatorProfile({
   const isLive = useLiveGate(creator.username, creator.is_live);
 
   return (
-    <div
-      className="creator-profile animate-slide-up pb-6"
-      data-creator-profile
-    >
-      <BackLink />
+    <>
+      <ModerationControls
+        username={creator.username}
+        kind="creator"
+        targetId={creator.username}
+      />
+      <BlockedContent username={creator.username}>
+        <div
+          className="creator-profile animate-slide-up pb-6"
+          data-creator-profile
+        >
+          <BackLink />
 
-      {refreshError ? (
-        <SectionLoadError
-          className="mt-4"
-          title="Couldn't refresh this profile"
-          description="Showing the last version loaded on this device."
-          retry={refresh}
-          retrying={refreshing}
-          stale
-        />
-      ) : null}
+          {refreshError ? (
+            <SectionLoadError
+              className="mt-4"
+              title="Couldn't refresh this profile"
+              description="Showing the last version loaded on this device."
+              retry={refresh}
+              retrying={refreshing}
+              stale
+            />
+          ) : null}
 
-      {/* Banner */}
-      <div
-        className="creator-profile-banner relative mt-4 h-40 w-full overflow-hidden rounded-xl border border-border"
-        style={
-          creator.banner
-            ? undefined
-            : { backgroundImage: coverTone(creator.username) }
-        }
-      >
-        {creator.banner ? (
-          <img
-            src={creator.banner}
-            alt=""
-            className="h-full w-full object-cover"
-          />
-        ) : null}
-        <div className="absolute inset-0 bg-gradient-to-t from-background/70 to-transparent" />
-      </div>
-
-      {/* Header */}
-      <div
-        className="creator-profile-header relative -mt-12 flex flex-col gap-4 px-1"
-        data-creator-profile-header
-      >
-        <div className="flex min-w-0 items-end gap-4" data-creator-identity>
-          <Avatar className="h-24 w-24 border-4 border-background shadow-md">
-            {creator.image ? (
-              <AvatarImage src={creator.image} alt={name} />
+          {/* Banner */}
+          <div
+            className="creator-profile-banner relative mt-4 h-40 w-full overflow-hidden rounded-xl border border-border"
+            style={
+              creator.banner
+                ? undefined
+                : { backgroundImage: coverTone(creator.username) }
+            }
+          >
+            {creator.banner ? (
+              <img
+                src={creator.banner}
+                alt=""
+                className="h-full w-full object-cover"
+              />
             ) : null}
-            <AvatarFallback className="bg-secondary text-2xl text-muted-foreground">
-              {initials(name)}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 pb-1">
-            <div className="flex items-center gap-2">
-              <h1 className="creator-profile-name min-w-0 break-words text-2xl font-bold tracking-tight">
-                {name}
-              </h1>
-              {creator.is_verified ? (
-                <BadgeCheck
-                  className="h-6 w-6 shrink-0 text-primary"
-                  aria-label="Verified creator"
-                />
-              ) : null}
-            </div>
-            <div className="text-sm text-muted-foreground">
-              @{creator.username}
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-              <span className="bidi-number tabular-nums">
-                <span className="font-semibold text-foreground">
-                  {pageCount}
-                </span>{" "}
-                {pageCount === 1 ? "page" : "pages"}
-              </span>
-              <span className="bidi-number tabular-nums">
-                <span className="font-semibold text-foreground">
-                  {creator.total.toLocaleString()}
-                </span>{" "}
-                score
-              </span>
-              {/* `can_stream` is an INTERNAL streaming-eligibility flag we track
+            <div className="absolute inset-0 bg-gradient-to-t from-background/70 to-transparent" />
+          </div>
+
+          {/* Header */}
+          <div
+            className="creator-profile-header relative -mt-12 flex flex-col gap-4 px-1"
+            data-creator-profile-header
+          >
+            <div className="flex min-w-0 items-end gap-4" data-creator-identity>
+              <Avatar className="h-24 w-24 border-4 border-background shadow-md">
+                {creator.image ? (
+                  <AvatarImage src={creator.image} alt={name} />
+                ) : null}
+                <AvatarFallback className="bg-secondary text-2xl text-muted-foreground">
+                  {initials(name)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0 pb-1">
+                <div className="flex items-center gap-2">
+                  <h1 className="creator-profile-name min-w-0 break-words text-2xl font-bold tracking-tight">
+                    {name}
+                  </h1>
+                  {creator.is_verified ? (
+                    <BadgeCheck
+                      className="h-6 w-6 shrink-0 text-primary"
+                      aria-label="Verified creator"
+                    />
+                  ) : null}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  @{creator.username}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                  <span className="bidi-number tabular-nums">
+                    <span className="font-semibold text-foreground">
+                      {pageCount}
+                    </span>{" "}
+                    {pageCount === 1 ? "page" : "pages"}
+                  </span>
+                  <span className="bidi-number tabular-nums">
+                    <span className="font-semibold text-foreground">
+                      {creator.total.toLocaleString()}
+                    </span>{" "}
+                    score
+                  </span>
+                  {/* `can_stream` is an INTERNAL streaming-eligibility flag we track
                   server-side — it is deliberately NOT surfaced to fans. Whether
                   a creator is *currently* live is a separate signal, handled by
                   the live-status probe on the live marker below. */}
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
 
-        {/* Actions */}
-        <div
-          className="creator-profile-actions flex min-w-0 flex-wrap items-center gap-2 pb-1"
-          data-creator-actions
-        >
-          {/* ZUULI links this straight to `/live/{username}`. `features/live`
+            {/* Actions */}
+            <div
+              className="creator-profile-actions flex min-w-0 flex-wrap items-center gap-2 pb-1"
+              data-creator-actions
+            >
+              {/* ZUULI links this straight to `/live/{username}`. `features/live`
               has not moved to this surface yet (#904), so there is no room to
               send a fan to and a 404 is worse than no destination. The
               live-status probe is unchanged and still tells the reader the
               creator is on air right now; only the navigation waits for the
               feature. */}
-          {isLive ? (
-            <Badge variant="live" data-creator-live>
-              <Radio className="me-1.5 h-3.5 w-3.5" aria-hidden />
-              Live now
-            </Badge>
-          ) : null}
-          <TipButton creator={creator} restored={restoredPaidIntent} />
-          <SubscribeButton creator={creator} restored={restoredPaidIntent} />
-          <StartChatButton creator={creator} restored={restoredPaidIntent} />
-        </div>
-      </div>
-
-      {/* Bio */}
-      {bio ? (
-        <div className="creator-profile-inset mt-8">
-          <div className="rounded-xl border border-border/60 bg-card/40 p-5">
-            <Markdown>{bio}</Markdown>
-          </div>
-        </div>
-      ) : null}
-
-      {/* Links / socials — parsed from a frontmatter block at the top of the
-          bio (e.g. `---\nsocials:\n  twitter: handle\n---`). */}
-      <CreatorSocialLinks creatorName={name} socials={socials} />
-
-      {/* Pages */}
-      <div className="creator-profile-inset mt-10" data-creator-pages>
-        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Pages by {name}
-          </h2>
-          <span
-            className="text-sm bidi-number tabular-nums text-muted-foreground"
-            aria-live="polite"
-          >
-            {pages.items.length} of {pageCount}
-          </span>
-        </div>
-        {pages.error ? (
-          <SectionLoadError
-            className="mb-4"
-            title={
-              pages.items.length === 0
-                ? "Couldn't load this creator's pages"
-                : "Couldn't load more of this creator's pages"
-            }
-            description={
-              pages.items.length === 0
-                ? "The published pages are temporarily unavailable."
-                : "The pages already loaded are still available."
-            }
-            retry={pages.retry}
-            retrying={pages.loading}
-            stale={pages.items.length > 0}
-          />
-        ) : null}
-        {pages.loading && !pages.initialized && pages.items.length === 0 ? (
-          <div className="creator-pages-grid grid grid-cols-1 gap-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <PageCardSkeleton key={i} />
-            ))}
-          </div>
-        ) : pages.error &&
-          pages.items.length === 0 ? null : pages.initialized &&
-          pages.count === 0 ? (
-          <EmptyState
-            icon={FileText}
-            title="No pages yet"
-            description={`${name} hasn't published any pages yet.`}
-          />
-        ) : pages.items.length > 0 ? (
-          <>
-            <div className="creator-pages-grid grid grid-cols-1 gap-4">
-              {pages.items.map((p) => (
-                <PageCard key={String(p.id)} article={p} />
-              ))}
+              {isLive ? (
+                <Badge variant="live" data-creator-live>
+                  <Radio className="me-1.5 h-3.5 w-3.5" aria-hidden />
+                  Live now
+                </Badge>
+              ) : null}
+              <TipButton creator={creator} restored={restoredPaidIntent} />
+              <SubscribeButton
+                creator={creator}
+                restored={restoredPaidIntent}
+              />
+              <StartChatButton
+                creator={creator}
+                restored={restoredPaidIntent}
+              />
             </div>
-            {pages.next !== null && !pages.error ? (
-              <div className="mt-5 flex justify-center">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={pages.loadMore}
-                  disabled={pages.loading}
-                >
-                  {pages.loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                  ) : null}
-                  {pages.loading ? "Loading pages" : "Load more pages"}
-                </Button>
+          </div>
+
+          {/* Bio */}
+          {bio ? (
+            <div className="creator-profile-inset mt-8">
+              <div className="rounded-xl border border-border/60 bg-card/40 p-5">
+                <Markdown>{bio}</Markdown>
               </div>
+            </div>
+          ) : null}
+
+          {/* Links / socials — parsed from a frontmatter block at the top of the
+          bio (e.g. `---\nsocials:\n  twitter: handle\n---`). */}
+          <CreatorSocialLinks creatorName={name} socials={socials} />
+
+          {/* Pages */}
+          <div className="creator-profile-inset mt-10" data-creator-pages>
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-lg font-semibold tracking-tight">
+                Pages by {name}
+              </h2>
+              <span
+                className="text-sm bidi-number tabular-nums text-muted-foreground"
+                aria-live="polite"
+              >
+                {pages.items.length} of {pageCount}
+              </span>
+            </div>
+            {pages.error ? (
+              <SectionLoadError
+                className="mb-4"
+                title={
+                  pages.items.length === 0
+                    ? "Couldn't load this creator's pages"
+                    : "Couldn't load more of this creator's pages"
+                }
+                description={
+                  pages.items.length === 0
+                    ? "The published pages are temporarily unavailable."
+                    : "The pages already loaded are still available."
+                }
+                retry={pages.retry}
+                retrying={pages.loading}
+                stale={pages.items.length > 0}
+              />
             ) : null}
-          </>
-        ) : null}
-      </div>
-    </div>
+            {pages.loading && !pages.initialized && pages.items.length === 0 ? (
+              <div className="creator-pages-grid grid grid-cols-1 gap-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <PageCardSkeleton key={i} />
+                ))}
+              </div>
+            ) : pages.error &&
+              pages.items.length === 0 ? null : pages.initialized &&
+              pages.count === 0 ? (
+              <EmptyState
+                icon={FileText}
+                title="No pages yet"
+                description={`${name} hasn't published any pages yet.`}
+              />
+            ) : pages.items.length > 0 ? (
+              <>
+                <div className="creator-pages-grid grid grid-cols-1 gap-4">
+                  {pages.items.map((p) => (
+                    <PageCard key={String(p.id)} article={p} />
+                  ))}
+                </div>
+                {pages.next !== null && !pages.error ? (
+                  <div className="mt-5 flex justify-center">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={pages.loadMore}
+                      disabled={pages.loading}
+                    >
+                      {pages.loading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      ) : null}
+                      {pages.loading ? "Loading pages" : "Load more pages"}
+                    </Button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+          </div>
+        </div>
+      </BlockedContent>
+    </>
   );
 }
 
@@ -1161,67 +1180,81 @@ function TipButton({
 // ─── Page card ────────────────────────────────────────────────────────────────
 function PageCard({ article }: { article: Article }) {
   return (
-    <div
-      className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 transition-colors hover:border-primary/40"
-      data-creator-page-card
-    >
-      <div className="aspect-[16/9] w-full overflow-hidden bg-secondary">
-        {article.image ? (
-          <RemoteMedia
-            source={article.image}
-            kind="image"
-            className="h-full min-h-0 rounded-none border-0 p-0"
-          >
-            {({ url }) => (
-              <Link
-                to={`/articles/${article.slug ?? article.id}`}
-                aria-label={`Read “${article.title}”`}
-                className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <img
-                  src={url}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                />
-              </Link>
-            )}
-          </RemoteMedia>
-        ) : (
-          <div className="grid h-full w-full place-items-center text-muted-foreground">
-            <FileText className="h-6 w-6" aria-hidden />
-          </div>
-        )}
-      </div>
-      <Link
-        to={`/articles/${article.slug ?? article.id}`}
-        aria-label={`Read “${article.title}”`}
-        className="flex flex-1 flex-col gap-2 rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    <BlockedContent username={article.author.username}>
+      <div
+        className="group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/60 transition-colors hover:border-primary/40"
+        data-creator-page-card
       >
-        <h3
-          className="line-clamp-2 font-semibold leading-snug group-hover:text-primary"
-          data-user-content
-        >
-          {article.title}
-        </h3>
-        {article.subtitle ? (
-          <p className="line-clamp-2 text-sm text-muted-foreground" data-user-content>
-            {article.subtitle}
-          </p>
-        ) : null}
-        <div className="mt-auto flex items-center gap-3 pt-2 text-xs text-muted-foreground">
-          {typeof article.reading_minutes === "number" ? (
-            <span className="inline-flex items-center gap-1">
-              <Clock className="h-3 w-3" aria-hidden />
-              {article.reading_minutes} min
-            </span>
-          ) : null}
-          {article.published_at ? (
-            <span>{timeAgo(article.published_at)}</span>
-          ) : null}
+        <div className="aspect-[16/9] w-full overflow-hidden bg-secondary">
+          {article.image ? (
+            <RemoteMedia
+              source={article.image}
+              kind="image"
+              className="h-full min-h-0 rounded-none border-0 p-0"
+            >
+              {({ url }) => (
+                <Link
+                  to={`/articles/${article.slug ?? article.id}`}
+                  aria-label={`Read “${article.title}”`}
+                  className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <img
+                    src={url}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                </Link>
+              )}
+            </RemoteMedia>
+          ) : (
+            <div className="grid h-full w-full place-items-center text-muted-foreground">
+              <FileText className="h-6 w-6" aria-hidden />
+            </div>
+          )}
         </div>
-      </Link>
-    </div>
+        <Link
+          to={`/articles/${article.slug ?? article.id}`}
+          aria-label={`Read “${article.title}”`}
+          className="flex flex-1 flex-col gap-2 rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <h3
+            className="line-clamp-2 font-semibold leading-snug group-hover:text-primary"
+            data-user-content
+          >
+            {article.title}
+          </h3>
+          {article.subtitle ? (
+            <p
+              className="line-clamp-2 text-sm text-muted-foreground"
+              data-user-content
+            >
+              {article.subtitle}
+            </p>
+          ) : null}
+          <div className="mt-auto flex items-center gap-3 pt-2 text-xs text-muted-foreground">
+            {typeof article.reading_minutes === "number" ? (
+              <span className="inline-flex items-center gap-1">
+                <Clock className="h-3 w-3" aria-hidden />
+                {article.reading_minutes} min
+              </span>
+            ) : null}
+            {article.published_at ? (
+              <span>{timeAgo(article.published_at)}</span>
+            ) : null}
+          </div>
+        </Link>
+        {article.free2zaddr ? (
+          <div className="p-4 pt-0">
+            <ModerationControls
+              username={article.author.username}
+              kind="zpage"
+              targetId={article.free2zaddr}
+            />
+          </div>
+        ) : null}
+      </div>
+    </BlockedContent>
   );
 }
 

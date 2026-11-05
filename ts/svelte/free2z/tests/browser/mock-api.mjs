@@ -3444,6 +3444,35 @@ const server = createServer(async (request, response) => {
 
   if (
     url.pathname === "/api/zpage/" &&
+    cookie.includes("sessionid=block-home-fixture") &&
+    ["score", "popular"].includes(url.searchParams.get("homeSort") || "")
+  ) {
+    const author =
+      url.searchParams.get("homeSort") === "score"
+        ? "hero-blocked"
+        : "popular-blocked";
+    response.end(
+      JSON.stringify({
+        count: 1,
+        next: null,
+        results: [
+          {
+            free2zaddr: author,
+            vanity: author,
+            title: `Visible ${author}`,
+            created_at: new Date().toISOString(),
+            is_published: true,
+            featured_image: { url: "/uploadz/fixture.png" },
+            creator: { username: author },
+          },
+        ],
+      }),
+    );
+    return;
+  }
+
+  if (
+    url.pathname === "/api/zpage/" &&
     url.searchParams.get("homeSort") === "updated"
   ) {
     response.end(

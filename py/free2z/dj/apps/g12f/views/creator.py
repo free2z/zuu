@@ -43,6 +43,7 @@ from dj.apps.g12f.models import (
     Creator, CreatorBlock, CreatorFollow, CreatorMute, active_fans_count, zPage,
 )
 from dj.apps.g12f.identifiers import resolve_zpage_pk
+from dj.apps.g12f.blocks import exclude_blocked
 from dj.apps.g12f.serializers.creator import (
     RegistrationSerializer,
     CreatorDetailSerializer,
@@ -824,6 +825,12 @@ class CreatorView(
         # --- Default: the weighted "Creators to watch" discovery ranking -
         return self._watch_list_queryset().order_by(
             '-watch_score', '-total', 'pk')
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if self.action == 'list':
+            queryset = exclude_blocked(queryset, self.request.user, 'pk')
+        return queryset
 
     # ---- Free creator follow  -----------------------------------
     #

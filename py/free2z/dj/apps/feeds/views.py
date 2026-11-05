@@ -1,4 +1,8 @@
+from contextvars import ContextVar
+
 from django.contrib.syndication.views import Feed
+from django.utils.cache import patch_vary_headers
+from dj.apps.g12f.blocks import exclude_blocked
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -13,6 +17,27 @@ from dj.apps.comments.visibility import scope_comments_to_visible_parents
 User = get_user_model()
 
 
+_feed_viewer = ContextVar('feed_viewer', default=None)
+
+
+class BlockAwareFeed(Feed):
+    # Feed instances are URLconf singletons. Request state belongs in a
+    # ContextVar, never on self, and is reset even when rendering fails.
+    def __call__(self, request, *args, **kwargs):
+        token = _feed_viewer.set(getattr(request, 'user', None))
+        try:
+            response = super().__call__(request, *args, **kwargs)
+            response['Cache-Control'] = 'private, no-store'
+            patch_vary_headers(response, ('Cookie', 'Authorization'))
+            return response
+        finally:
+            _feed_viewer.reset(token)
+
+
+def _visible(queryset, field):
+    return exclude_blocked(queryset, _feed_viewer.get(), field)
+
+
 PODCAST_MIME_TYPES = ['audio/mpeg', 'audio/mp4', 'video/mp4']
 
 
@@ -23,7 +48,7 @@ def _chronological_zpages(queryset):
     ).order_by('-publication_order', '-id')[:100]
 
 
-class ConverseFeed(Feed):
+class ConverseFeed(BlockAwareFeed):
     title = "Latest Converse Comments"
     link = "/feeds/converse/recent.xml"
     description = "Recently added Converse Comments"
@@ -34,9 +59,9 @@ class ConverseFeed(Feed):
         # Previously Comment.objects.all() republished every comment on the
         # platform, including threads on unpublished/subscriber-only pages and
         # private conversations.
-        return scope_comments_to_visible_parents(
+        return _visible(scope_comments_to_visible_parents(
             Comment.objects.all(), None
-        ).order_by('-updated_at')[:100]
+        ), 'author').order_by('-updated_at')[:100]
 
     def item_title(self, item):
         # NOT `item.headline`: comments have no headline any more, so
@@ -62,7 +87,7 @@ class ConverseFeed(Feed):
         return 60
 
 
-class AIFeed(Feed):
+class AIFeed(BlockAwareFeed):
     title = "Latest Public AI Conversations"
     link = "/feeds/ai/recent.xml"
     description = "Recently updated AI Conversations"
@@ -73,10 +98,10 @@ class AIFeed(Feed):
         # deactivated creators must never appear here -- `is_public=True`
         # alone would leak the paywalled transcript's first message (see
         # item_description) to every RSS reader.
-        return Conversation.objects.filter(
+        return _visible(Conversation.objects.filter(
             public_conversation_q(None),
             is_subscriber_only=False,
-        ).order_by('-updated_at')[:100]
+        ), 'user').order_by('-updated_at')[:100]
 
     def item_title(self, item):
         return item.display_name
@@ -84,7 +109,7 @@ class AIFeed(Feed):
     def item_description(self, item):
         # A public conversation can exist with no prompt-responses yet;
         # `.first()` is then None and dereferencing it 500s the whole feed.
-        first = item.prompt_response_set.first()
+        first = _visible(item.prompt_response_set.all(), 'user').first()
         return first.user_input if first is not None else item.display_name
 
     def item_link(self, item):
@@ -100,7 +125,7 @@ class AIFeed(Feed):
         return 60
 
 
-class zPageFeed(Feed):
+class zPageFeed(BlockAwareFeed):
     title = "Latest zPages"
     link = "/feeds/zpages/recent.xml"
     description = "Recently updated zPages"
@@ -111,7 +136,7 @@ class zPageFeed(Feed):
         # subscribed reader and aggregator, so a deactivated creator's article
         # kept being syndicated after the takedown, to caches we do not
         # control.
-        return _chronological_zpages(zPage.objects.published_and_active())
+        return _chronological_zpages(_visible(zPage.objects.published_and_active(), 'creator'))
 
     def item_title(self, item):
         return item.title
@@ -165,9 +190,9 @@ class PodcastFeed(zPageFeed):
     description = "Recently updated Podcasts"
 
     def items(self):
-        return _chronological_zpages(zPage.objects.published_and_active().filter(
+        return _chronological_zpages(_visible(zPage.objects.published_and_active().filter(
             enclosure__mime_type__in=PODCAST_MIME_TYPES,
-        ))
+        ), 'creator'))
 
 
 class UserZpagesFeed(zPageFeed):
@@ -186,9 +211,9 @@ class UserZpagesFeed(zPageFeed):
 
     def items(self, obj):
         # Override items method to filter zPages by user
-        return _chronological_zpages(zPage.objects.published_and_active().filter(
+        return _chronological_zpages(_visible(zPage.objects.published_and_active().filter(
             creator=obj,
-        ))
+        ), 'creator'))
 
     def title(self, obj):
         # Optionally customize the feed title for the user
@@ -206,10 +231,10 @@ class UserZpagesFeed(zPageFeed):
 class UserPodcastsFeed(UserZpagesFeed):
     def items(self, obj):
         # Override items method to filter zPages by user
-        return _chronological_zpages(zPage.objects.published_and_active().filter(
+        return _chronological_zpages(_visible(zPage.objects.published_and_active().filter(
             creator=obj,
             enclosure__mime_type__in=PODCAST_MIME_TYPES,
-        ))
+        ), 'creator'))
 
     def title(self, obj):
         # Optionally customize the feed title for the user
@@ -244,12 +269,12 @@ class UserAIFeed(AIFeed):
         # Override items method to filter zPages by user
         # Security: as with AIFeed, a per-user feed is still an
         # anonymous public feed -- exclude subscriber-only conversations.
-        return Conversation.objects.filter(
+        return _visible(Conversation.objects.filter(
             user=obj,
             is_public=True,
             user__is_active=True,
             is_subscriber_only=False,
-        ).order_by('-updated_at')[:100]
+        ), 'user').order_by('-updated_at')[:100]
 
     def title(self, obj):
         # Optionally customize the feed title for the user
@@ -283,9 +308,9 @@ class UserConverseFeed(ConverseFeed):
     def items(self, obj):
         # Public RSS of one user's converse posts — same parent-visibility gate
         # as ConverseFeed so a user's replies on hidden threads don't leak.
-        return scope_comments_to_visible_parents(
+        return _visible(scope_comments_to_visible_parents(
             Comment.objects.filter(author=obj), None
-        ).order_by('-updated_at')[:100]
+        ), 'author').order_by('-updated_at')[:100]
 
     def title(self, obj):
         # Optionally customize the feed title for the user
