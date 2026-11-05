@@ -6,6 +6,7 @@ declare global {
     interface Locals {
       locale: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB";
       localePersisted: boolean;
+      disabledLocales: string[];
       localeCatalogs: Record<string, unknown>;
       /**
        * The CONTENT language of the document this request is rendering, when
@@ -29,6 +30,7 @@ declare global {
        * it is present on every page.
        */
       hasSession?: boolean;
+      disabledLocales?: string[];
     }
   }
 

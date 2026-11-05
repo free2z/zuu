@@ -40,3 +40,74 @@ The production browser gate limits `/trending` HTML to 230,000/68,000 bytes for 
 The timing gate is a regression smoke test, not an SLA: the cold switch must complete within 2,500 ms after subtracting a deliberately injected 150 ms catalog response delay, the cached switch within 1,500 ms, and p95 across 12 concurrent en/fr SSR requests within 2,000 ms. One local run measured 534.5 ms, 560.8 ms, and 137 ms respectively. These elapsed times include scheduling, rendering and remaining local network work; subtracting the controlled delay does not isolate CPU. The limits leave headroom for shared runners while the byte and graph checks give more deterministic evidence. Negative controls exercise oversized data, eager imports and exceeded timing limits. `scripts/check-locale-growth.mjs` is the separate multi-build unused-locale/eager-import control, run deliberately rather than on every test; its current rerun showed 244 raw / 35 gzip bytes of index growth and rejected the eager sentinel.
 
 HTML and page data are `private, no-cache` and vary on Cookie and Accept-Language; version metadata remains no-store. Production tests interleave locale cookies with and without the fixture session and check that an anonymous billing response does not contain the authenticated billing surface. These checks do not establish a CDN configuration outside this application.
+
+### Translation operations and availability
+
+A catalog entry is **present** when it has a nonempty value; presence is not
+translation quality, freshness, or review. English is the source language.
+Spanish, French and Brazilian Portuguese remain available as **beta** with no
+recorded human reviews. `tests/catalog-review-metadata.json` is the per-message
+ledger; absent records are unverified. Current source and translation SHA-256
+hashes bind a review to exact text. Only a current record with a named human
+reviewer, UTC review time and provenance is counted as reviewed. This is an
+accountable record, not cryptographic proof of a person's identity; the Free2Z
+localization owner must authenticate reviewers and retain review evidence.
+Never mark machine output or English fallback as reviewed. Stable promotion
+requires every message reviewed and no unresolved identical-text baseline. An identical entry may be approved
+only with an explicit brand, code or acronym category, a named reviewer, UTC
+review timestamp and reason, alongside current per-message review metadata.
+This includes auth, payment, privacy and destructive copy; a machine draft alone
+is never approval. The baseline's 160 English-identical messages are unresolved,
+not approved brand exceptions, and must be translated or individually justified
+by the localization owner before promotion.
+
+Run `node scripts/catalog-governance.mjs` to validate and report presence,
+review coverage and queue size. `node scripts/catalog-governance.mjs export >
+work.json` exports the deterministic source-hash work queue. Add a pilot code,
+for example `export ar`, to produce a source-only pilot worklist; these entries
+contain no translations. `pilot-import ar work.json > ar-draft.json` validates
+a partial pilot batch and emits a separate reviewable draft with provenance; it
+does not register or ship the locale. A shipping catalog requires deliberate
+registration and a missing-message policy. Import a JSON
+array with `node scripts/catalog-governance.mjs import work.json`; each row has
+`locale`, `key`, current `sourceHash`, `translation`, and `metadata` containing
+`status` (`draft` or `reviewed`) and `provenance`. A reviewed row additionally
+requires `reviewType: "human"`, a named `reviewer` and `reviewedAt` UTC timestamp.
+Export rows are a work list and must be edited to add metadata before import;
+review claims must reflect actual external review. Imports reject stale source,
+unknown keys, invalid ICU, placeholder mismatch, and newly identical English.
+Source changes invalidate matching reviews and generate stale queue items without
+editing every translated catalog. The CI unit suite runs the validation and
+mutation controls. Existing legacy interpolation retains its original syntax;
+ICU parsing applies only to keys explicitly migrated to ICU.
+
+Localization ownership: Free2Z product localization owns keys, translation
+context, glossary, provenance, approvals and the unresolved baseline. Use stable
+feature-scoped dotted keys, describe action/context and placeholders in the
+work item, preserve placeholders, product names and identifiers, and use
+locale-appropriate tone without changing meaning or financial units. Reviewers
+must independently review authentication, payment, privacy and destructive
+copy in context before approving it. User-authored content is out of scope.
+
+`PRIVATE_DISABLED_UI_LOCALES` is a comma-separated deployment environment list
+(e.g. `fr,pt-BR`), read by the Node server without rebuilding. Redeploy or
+restart with the new environment and reload clients to apply it. English may be disabled as a selectable UI locale; its source catalog remains
+internal fallback data. If every production UI locale is disabled the server
+returns 503 with `no-store`. Disabled tags are ignored in URL,
+cookie, retry and Accept-Language negotiation and omitted from the selector;
+the next enabled preference or first enabled registry locale wins. HTML remains private and varies
+by cookie and Accept-Language. This is deployment configuration, not an account
+preference or a translation approval. The selector labels the three current
+translations beta; test pseudo locales remain test-only.
+
+The following candidate matrix is a planning queue, not a claim that catalogs
+or reviewers exist. Pilot first: **ar** (RTL and plural categories), **pl**
+(Slavic plurals), **ja** (CJK), **hi** (Indic), **de** (compound expansion).
+The remaining candidates, in alphabetical groups, are af, am, az, be, bg, bn,
+bs, ca, cs, cy, da, el, et, eu, fa, fi, fil, gu, he, hr, hu, hy, id, is, it,
+ka, kk, km, kn, ko, lo, lt, lv, mk, ml, mn, mr, ms, my, nb, ne, nl, pa, ro,
+ru, si, sk, sl, sq, sr, sv, sw, ta, te, th, tr, uk, ur, uz, vi, zh-Hans and
+zh-Hant. None is currently available or reviewed. Prioritization beyond the
+pilot requires actual translator/reviewer capacity, glossary, regional demand,
+and sensitive-copy approval; no machine-generated catalog is represented as
+production-ready.

@@ -2,6 +2,9 @@ import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import * as publicEnv from "$app/env/public";
 import {
   LOCALE_REGISTRY,
+  LANGUAGE_OPTIONS,
+  disabledLocales,
+  localeAvailability,
   LOCALE_RETRY_KEY,
   LOCALE_STORAGE_KEY,
   normalizeLocale,
@@ -15,18 +18,30 @@ export const handle: Handle = async ({ event, resolve }) => {
   // `?lang=` is a UI-locale override everywhere except the article routes,
   // where it selects which language variant of the *content* to render and
   // must leave the product UI alone. See `resolveRequestLocale` ( P9).
+  const disabled = disabledLocales(process.env.PRIVATE_DISABLED_UI_LOCALES);
+  if (LANGUAGE_OPTIONS.every(({ code }) => disabled.includes(code)))
+    return new Response("No UI locale available", {
+      status: 503,
+      headers: { "cache-control": "no-store" },
+    });
+  event.locals.disabledLocales = disabled;
   const { locale, persisted } = resolveRequestLocale({
+    disabled,
     routeId: event.route.id,
     queryLocale: event.url.searchParams.get("lang"),
     cookieLocale: event.cookies.get(LOCALE_STORAGE_KEY),
     acceptLanguage: event.request.headers.get("accept-language"),
   });
   const retry = normalizeLocale(event.cookies.get(LOCALE_RETRY_KEY));
-  const selected = (retry ?? locale) as App.Locals["locale"];
+  const selected = ((retry && localeAvailability(retry, disabled) !== "disabled"
+    ? retry
+    : null) ?? locale) as App.Locals["locale"];
   event.locals.locale = selected;
   event.locals.localePersisted = persisted;
   await prepareLocale(selected);
-  if (retry) {
+  if (retry && localeAvailability(retry, disabled) === "disabled")
+    event.cookies.delete(LOCALE_RETRY_KEY, { path: "/" });
+  if (retry && localeAvailability(retry, disabled) !== "disabled") {
     event.cookies.set(LOCALE_STORAGE_KEY, selected, {
       path: "/",
       maxAge: 31536000,

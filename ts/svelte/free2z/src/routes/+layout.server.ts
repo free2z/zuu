@@ -3,6 +3,7 @@ import { getSessionCookie } from "$lib/server/backend";
 
 export const load: LayoutServerLoad = ({ locals, cookies }) => ({
   locale: locals.locale,
+  disabledLocales: locals.disabledLocales,
   localePersisted: locals.localePersisted,
   localeCatalogs: locals.localeCatalogs,
   // The only auth fact the server hands to the client.

@@ -19,7 +19,11 @@
   } from "$lib/i18n";
   import { goto, invalidateAll } from "$app/navigation";
   import { page } from "$app/state";
-  import { isContentLanguageRoute, LOCALE_RETRY_KEY } from "$lib/locale.js";
+  import {
+    isContentLanguageRoute,
+    LOCALE_RETRY_KEY,
+    localeAvailability,
+  } from "$lib/locale.js";
 
   let selectedLocale = $state<SupportedLocale>($locale);
   const activeLanguage = $derived(
@@ -77,12 +81,17 @@
   </DropdownMenuTrigger>
   <DropdownMenuContent align="start" side="top" sideOffset={8}>
     <DropdownMenuRadioGroup bind:value={selectedLocale}>
-      {#each languageOptions as option}
+      {#each languageOptions.filter((option) => localeAvailability(option.code, page.data.disabledLocales ?? []) !== "disabled") as option}
         <DropdownMenuRadioItem
           value={option.code}
           onclick={() => void chooseLanguage(option.code)}
         >
           <span lang={option.code}>{option.label}</span>
+          {#if localeAvailability(option.code) === "beta"}<span
+              aria-label="Beta"
+            >
+              · Beta</span
+            >{/if}
         </DropdownMenuRadioItem>
       {/each}
     </DropdownMenuRadioGroup>

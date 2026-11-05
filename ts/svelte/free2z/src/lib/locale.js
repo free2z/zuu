@@ -1,6 +1,6 @@
 export const DEFAULT_LOCALE = "en";
 // Availability describes the existing shipped UI, not translation review approval.
-/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "shipped" | "test"}[]} */
+/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "stable" | "beta" | "disabled" | "test"}[]} */
 export const LOCALE_REGISTRY = Object.freeze([
   {
     code: "en",
@@ -9,7 +9,7 @@ export const LOCALE_REGISTRY = Object.freeze([
     direction: "ltr",
     formattingLocale: "en",
     fallback: null,
-    availability: "shipped",
+    availability: "stable",
   },
   {
     code: "es",
@@ -18,7 +18,7 @@ export const LOCALE_REGISTRY = Object.freeze([
     direction: "ltr",
     formattingLocale: "es",
     fallback: "en",
-    availability: "shipped",
+    availability: "beta",
   },
   {
     code: "fr",
@@ -27,7 +27,7 @@ export const LOCALE_REGISTRY = Object.freeze([
     direction: "ltr",
     formattingLocale: "fr",
     fallback: "en",
-    availability: "shipped",
+    availability: "beta",
   },
   {
     code: "pt-BR",
@@ -36,7 +36,7 @@ export const LOCALE_REGISTRY = Object.freeze([
     direction: "ltr",
     formattingLocale: "pt-BR",
     fallback: "en",
-    availability: "shipped",
+    availability: "beta",
   },
   ...(typeof __PSEUDO_LOCALES__ !== "undefined" && __PSEUDO_LOCALES__
     ? /** @type {const} */ ([
@@ -74,11 +74,24 @@ export const SUPPORTED_LOCALES = LOCALE_REGISTRY.map(({ code }) => code);
 export const LOCALE_STORAGE_KEY = "free2z-locale";
 export const LOCALE_RETRY_KEY = "free2z-locale-retry";
 export const LANGUAGE_OPTIONS = LOCALE_REGISTRY.filter(
-  ({ availability }) => availability === "shipped",
+  ({ availability }) => availability === "stable" || availability === "beta",
 ).map(({ code, label }) => ({
   code,
   label,
 }));
+
+/** Effective availability combines the registry with deployment policy.
+ * @param {string} code
+ * @param {readonly string[]} disabled
+ * @returns {"stable" | "beta" | "disabled" | "test"}
+ */
+export function localeAvailability(code, disabled = []) {
+  if (disabled.includes(code)) return "disabled";
+  return (
+    LOCALE_REGISTRY.find((entry) => entry.code === code)?.availability ??
+    "disabled"
+  );
+}
 
 /**
  * Routes where `?lang=` names the language of the *content* being read rather
@@ -197,11 +210,14 @@ export function parseAcceptLanguage(header) {
     .map(({ tag }) => tag);
 }
 
-/** @param {readonly unknown[]} values */
-export function firstSupportedLocale(values) {
+/** @param {readonly unknown[]} values
+ * @param {readonly string[]} disabled
+ */
+export function firstSupportedLocale(values, disabled = []) {
   for (const value of values) {
     const locale = normalizeLocale(value);
-    if (locale) return locale;
+    if (locale && localeAvailability(locale, disabled) !== "disabled")
+      return locale;
   }
   return null;
 }
@@ -232,6 +248,7 @@ export function resolveLocale({ savedLocale, browserLocale }) {
  *   queryLocale?: unknown,
  *   cookieLocale?: unknown,
  *   acceptLanguage?: unknown,
+ *   disabled?: readonly string[],
  * }} request
  * @returns {{ locale: string, persisted: boolean }}
  */
@@ -240,19 +257,28 @@ export function resolveRequestLocale({
   queryLocale,
   cookieLocale,
   acceptLanguage,
+  disabled = [],
 }) {
-  const cookie = normalizeLocale(cookieLocale);
+  const allowed = (/** @type {unknown} */ value) => {
+    const locale = normalizeLocale(value);
+    return locale && localeAvailability(locale, disabled) !== "disabled"
+      ? locale
+      : null;
+  };
+  const cookie = allowed(cookieLocale);
   // On an article or editor route `?lang=` selects the content variant, not
   // the product UI. The editor's language picker deep-links to `/edit?lang=`.
-  const query = isContentLanguageRoute(routeId)
-    ? null
-    : normalizeLocale(queryLocale);
+  const query = isContentLanguageRoute(routeId) ? null : allowed(queryLocale);
 
   return {
     locale:
       query ??
       cookie ??
-      firstSupportedLocale(parseAcceptLanguage(acceptLanguage)) ??
+      firstSupportedLocale(parseAcceptLanguage(acceptLanguage), disabled) ??
+      firstSupportedLocale(
+        LANGUAGE_OPTIONS.map(({ code }) => code),
+        disabled,
+      ) ??
       DEFAULT_LOCALE,
     persisted: Boolean(query || cookie),
   };
@@ -272,3 +298,20 @@ export function resolveRequestLocale({
 // for an article. This module answers exactly one question: which of the four
 // locales the product UI is translated into is this visitor using?
 // ---------------------------------------------------------------------------
+
+/** Deployment may disable translated locales without rebuilding. English is the
+ * source fallback remains available internally even if English UI is disabled.
+ * Unknown tags are ignored.
+ * @param {unknown} value
+ * @returns {string[]}
+ */
+export function disabledLocales(value) {
+  if (typeof value !== "string") return [];
+  /** @type {Set<string>} */
+  const result = new Set();
+  for (const item of value.split(",")) {
+    const locale = normalizeLocale(item);
+    if (locale) result.add(locale);
+  }
+  return [...result];
+}

@@ -1,0 +1,1282 @@
+[
+  {
+    "locale": "es",
+    "key": "navigation.logo",
+    "sourceHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "translationHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "homepage.liveModePpv",
+    "sourceHash": "bd9e3879bc60e57a640bfb5d0b2a83db9026e12242e3fc0d41d98d41847c1010",
+    "translationHash": "bd9e3879bc60e57a640bfb5d0b2a83db9026e12242e3fc0d41d98d41847c1010",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "trending.sortPopular",
+    "sourceHash": "76327dec9ae3a06a8c3c283e6a81d3710ae736021b583875c13e4e8fb2ad83c0",
+    "translationHash": "76327dec9ae3a06a8c3c283e6a81d3710ae736021b583875c13e4e8fb2ad83c0",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "article.premium",
+    "sourceHash": "de88c121a82a06352bf1aaceba20578356408a334ba046a1084d4e50da923c5e",
+    "translationHash": "de88c121a82a06352bf1aaceba20578356408a334ba046a1084d4e50da923c5e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "search.zpages",
+    "sourceHash": "4f3853921864047eedbf14f710462258b072a853e0ff8c933d4d33cbee1feefe",
+    "translationHash": "4f3853921864047eedbf14f710462258b072a853e0ff8c933d4d33cbee1feefe",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "search.zpageCountOne",
+    "sourceHash": "2fd6c077a4aab2e8eb6e0d3463943050d7d3e95f9b98b7def89962e1e6c36cb4",
+    "translationHash": "2fd6c077a4aab2e8eb6e0d3463943050d7d3e95f9b98b7def89962e1e6c36cb4",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "search.zpageCount",
+    "sourceHash": "2691d763eb9851ae6a8caae68836863dee9baf9fe8a149207e190ad60b16b3c8",
+    "translationHash": "2691d763eb9851ae6a8caae68836863dee9baf9fe8a149207e190ad60b16b3c8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "creators.filters.sortOptions.alphabetical_asc",
+    "sourceHash": "2d8f7bc890ed7c7c1d3372fa7525681ae9b11f26453e763c8156b25ae8af337b",
+    "translationHash": "2d8f7bc890ed7c7c1d3372fa7525681ae9b11f26453e763c8156b25ae8af337b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "creators.filters.sortOptions.alphabetical_desc",
+    "sourceHash": "2d4cf32407574cf40a923ed7878b6a530535ec9de714d0df0a59b3d472a45d5a",
+    "translationHash": "2d4cf32407574cf40a923ed7878b6a530535ec9de714d0df0a59b3d472a45d5a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.keyboard.tab",
+    "sourceHash": "90ddf1963abb36c9921ce7f1ac9cbd94c9176d13e57c418d3d3c20ce44291c1c",
+    "translationHash": "90ddf1963abb36c9921ce7f1ac9cbd94c9176d13e57c418d3d3c20ce44291c1c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.categoryNames.free2z",
+    "sourceHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "translationHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.categoryNames.zcash",
+    "sourceHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "translationHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.commandNames.iframe",
+    "sourceHash": "17e57de1daf58d0657837cc260196bbd57da94051c2b73ab1f071ad6719461ef",
+    "translationHash": "17e57de1daf58d0657837cc260196bbd57da94051c2b73ab1f071ad6719461ef",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.commandNames.audio",
+    "sourceHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "translationHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.toolbar.actionWithShortcut",
+    "sourceHash": "49e258fd2522440e56cc45889eb1350b7d2ef40a65262abf9831dd7819a6862c",
+    "translationHash": "49e258fd2522440e56cc45889eb1350b7d2ef40a65262abf9831dd7819a6862c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.translateAiPrice",
+    "sourceHash": "7157d2f3c0b0a44c2a7a1e59ee408778db88a9d8968dd1c4337240f098c8b6dc",
+    "translationHash": "7157d2f3c0b0a44c2a7a1e59ee408778db88a9d8968dd1c4337240f098c8b6dc",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.coverRatioOriginal",
+    "sourceHash": "88d759ea02cef4b82885c6c620473162757c75522805707c20e2be76a40a2825",
+    "translationHash": "88d759ea02cef4b82885c6c620473162757c75522805707c20e2be76a40a2825",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.coverRatioWide",
+    "sourceHash": "cb140f95f8a88c27fc464e08c2e4627de234c89cfbec1feb903e8733ff04f073",
+    "translationHash": "cb140f95f8a88c27fc464e08c2e4627de234c89cfbec1feb903e8733ff04f073",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.originalLanguage",
+    "sourceHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "translationHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.videoPicker.imageFileHint",
+    "sourceHash": "24e7e3b55c8167ec3dfd8e6bcc7a9b17614f0a912c8897892f065138f1b696cd",
+    "translationHash": "24e7e3b55c8167ec3dfd8e6bcc7a9b17614f0a912c8897892f065138f1b696cd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "editor.embedUrl",
+    "sourceHash": "e7a241debad56609ee660a5d2ef258a1aceb7357ff210ac66d7280b3add02a9a",
+    "translationHash": "e7a241debad56609ee660a5d2ef258a1aceb7357ff210ac66d7280b3add02a9a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.billing.topUp.zcashTab",
+    "sourceHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "translationHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.media.videos",
+    "sourceHash": "c9a9639463c21952df7b8b15ebd3f526a3d49a3c2c5fdc32b0d8405263b6322f",
+    "translationHash": "c9a9639463c21952df7b8b15ebd3f526a3d49a3c2c5fdc32b0d8405263b6322f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.media.audio",
+    "sourceHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "translationHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.notifications.amount2Z",
+    "sourceHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "translationHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.notifications.amount2ZOne",
+    "sourceHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "translationHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.notifications.social",
+    "sourceHash": "f1b7505afa5c9e2bd6d68ae814b3582cf38632d56a67913e75e7d8cb10b5a8a3",
+    "translationHash": "f1b7505afa5c9e2bd6d68ae814b3582cf38632d56a67913e75e7d8cb10b5a8a3",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.stream.quality.fullHd",
+    "sourceHash": "3020ca0499cfc7357704f10ed7b86d0270291d4d9571ba797d363b4669bab1e1",
+    "translationHash": "3020ca0499cfc7357704f10ed7b86d0270291d4d9571ba797d363b4669bab1e1",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "dashboard.stream.quality.hd",
+    "sourceHash": "2745f1c3d5e5dfc6174cf4d4aaa3ba648a3f8ec24e59f7dba8b811e63d45414e",
+    "translationHash": "2745f1c3d5e5dfc6174cf4d4aaa3ba648a3f8ec24e59f7dba8b811e63d45414e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "privacy.outboundLinkDomainLabel",
+    "sourceHash": "4a823118b9ba8baa2f47489c0716f52755368e3e3c2c26d60736ccfa1bb21b5e",
+    "translationHash": "4a823118b9ba8baa2f47489c0716f52755368e3e3c2c26d60736ccfa1bb21b5e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "pageActions.donate.tuzisTab",
+    "sourceHash": "95038ae237eb88f8ca39f3147a66a6868b4b54fdffd10d0f9ff3fd70952b7498",
+    "translationHash": "95038ae237eb88f8ca39f3147a66a6868b4b54fdffd10d0f9ff3fd70952b7498",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "pageActions.donate.zcashTab",
+    "sourceHash": "b36bd9eee8421b0620beac7b2bbb4b31948801aceefaed5b508e73822ddc921f",
+    "translationHash": "b36bd9eee8421b0620beac7b2bbb4b31948801aceefaed5b508e73822ddc921f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "converse.zpage",
+    "sourceHash": "dd901cb405c7a61680b88919d455aa6f998c624e20da74e7707d3b512d49e6d7",
+    "translationHash": "dd901cb405c7a61680b88919d455aa6f998c624e20da74e7707d3b512d49e6d7",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "converse.metaTitle",
+    "sourceHash": "b40a1848a912634f5e4ee77dcb41282386a1c9e6d56159d761de5ac92287e97c",
+    "translationHash": "b40a1848a912634f5e4ee77dcb41282386a1c9e6d56159d761de5ac92287e97c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "converse.rssTitle",
+    "sourceHash": "ddbd203aa0f712f93a3686dccc7085dc2fb806360fdc0497b41b97623312e381",
+    "translationHash": "ddbd203aa0f712f93a3686dccc7085dc2fb806360fdc0497b41b97623312e381",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "converse.tagPlaceholder",
+    "sourceHash": "243a1f33cc266a3e75e362afcedccd2f52a517514174fc9f195bc9fd28556084",
+    "translationHash": "243a1f33cc266a3e75e362afcedccd2f52a517514174fc9f195bc9fd28556084",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "footer.legal",
+    "sourceHash": "4787eaf7c938045fd5285fe6a2cd72558caf7bd5faeb93fd1ad490a502e0e37b",
+    "translationHash": "4787eaf7c938045fd5285fe6a2cd72558caf7bd5faeb93fd1ad490a502e0e37b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "media.uploadFailedNamed",
+    "sourceHash": "050e9350e89f756cb1ba021b07825d7174e9d5abbe86d30777a75ce26aa6637e",
+    "translationHash": "050e9350e89f756cb1ba021b07825d7174e9d5abbe86d30777a75ce26aa6637e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "stream.pricePerMinuteShort",
+    "sourceHash": "961391e0fce3555211c16c053a769ed4c2616cbcbb7657cba7442b4200e5764d",
+    "translationHash": "961391e0fce3555211c16c053a769ed4c2616cbcbb7657cba7442b4200e5764d",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "seriesEditor.title",
+    "sourceHash": "a8295e08ff7a961c8983c52226d29cb036dbdb21e110a5988f6a461db5bdf366",
+    "translationHash": "a8295e08ff7a961c8983c52226d29cb036dbdb21e110a5988f6a461db5bdf366",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "oauth.cap.amountPerPeriod",
+    "sourceHash": "fb3cec720e504a43f5685afa4141f19a83bcf2f59159595676b3312e36dbd07f",
+    "translationHash": "fb3cec720e504a43f5685afa4141f19a83bcf2f59159595676b3312e36dbd07f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "translationJobs.originalLabel",
+    "sourceHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "translationHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "es",
+    "key": "translationJobs.total",
+    "sourceHash": "c9b3c38247f744e17dd26fda097d6a9ba9332586b6bdaa038bf8f313a863f2b8",
+    "translationHash": "c9b3c38247f744e17dd26fda097d6a9ba9332586b6bdaa038bf8f313a863f2b8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "navigation.logo",
+    "sourceHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "translationHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "navigation.documentation",
+    "sourceHash": "c205924de0fe636ccdde4ed616fef66f75b78e98b03620637965c033fd161141",
+    "translationHash": "c205924de0fe636ccdde4ed616fef66f75b78e98b03620637965c033fd161141",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "navigation.notifications",
+    "sourceHash": "788011833a5a0f22db90c91e8eb7bd8e9f5cd423354ff5ef8c338e7895f44ba9",
+    "translationHash": "788011833a5a0f22db90c91e8eb7bd8e9f5cd423354ff5ef8c338e7895f44ba9",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "navigation.menu",
+    "sourceHash": "99af6606ff9d6cd5154d4d4e9c21e325086d3e904677cdb41d363c8a3480f862",
+    "translationHash": "99af6606ff9d6cd5154d4d4e9c21e325086d3e904677cdb41d363c8a3480f862",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "homepage.liveModePpv",
+    "sourceHash": "bd9e3879bc60e57a640bfb5d0b2a83db9026e12242e3fc0d41d98d41847c1010",
+    "translationHash": "bd9e3879bc60e57a640bfb5d0b2a83db9026e12242e3fc0d41d98d41847c1010",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "tag.pageCount",
+    "sourceHash": "d46e57d6ac42cf6a898f19ce4dc7e165cc4b536a335deec667fcde2d9dc0f151",
+    "translationHash": "d46e57d6ac42cf6a898f19ce4dc7e165cc4b536a335deec667fcde2d9dc0f151",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "article.premium",
+    "sourceHash": "de88c121a82a06352bf1aaceba20578356408a334ba046a1084d4e50da923c5e",
+    "translationHash": "de88c121a82a06352bf1aaceba20578356408a334ba046a1084d4e50da923c5e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "article.voteCountMany",
+    "sourceHash": "1fbb990c5597ee19396a2a960aed2547f2c54b55c6884ab7f2ea8192383b206e",
+    "translationHash": "1fbb990c5597ee19396a2a960aed2547f2c54b55c6884ab7f2ea8192383b206e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "article.voteCountOne",
+    "sourceHash": "d950a58c028ec7b377f45c3a539757843ae4fdb6a6992b99d464225f1f38a0a8",
+    "translationHash": "d950a58c028ec7b377f45c3a539757843ae4fdb6a6992b99d464225f1f38a0a8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "search.zpages",
+    "sourceHash": "4f3853921864047eedbf14f710462258b072a853e0ff8c933d4d33cbee1feefe",
+    "translationHash": "4f3853921864047eedbf14f710462258b072a853e0ff8c933d4d33cbee1feefe",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "search.zpageCountOne",
+    "sourceHash": "2fd6c077a4aab2e8eb6e0d3463943050d7d3e95f9b98b7def89962e1e6c36cb4",
+    "translationHash": "2fd6c077a4aab2e8eb6e0d3463943050d7d3e95f9b98b7def89962e1e6c36cb4",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "search.zpageCount",
+    "sourceHash": "2691d763eb9851ae6a8caae68836863dee9baf9fe8a149207e190ad60b16b3c8",
+    "translationHash": "2691d763eb9851ae6a8caae68836863dee9baf9fe8a149207e190ad60b16b3c8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "creators.filters.sortOptions.alphabetical_asc",
+    "sourceHash": "2d8f7bc890ed7c7c1d3372fa7525681ae9b11f26453e763c8156b25ae8af337b",
+    "translationHash": "2d8f7bc890ed7c7c1d3372fa7525681ae9b11f26453e763c8156b25ae8af337b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "creators.filters.sortOptions.alphabetical_desc",
+    "sourceHash": "2d4cf32407574cf40a923ed7878b6a530535ec9de714d0df0a59b3d472a45d5a",
+    "translationHash": "2d4cf32407574cf40a923ed7878b6a530535ec9de714d0df0a59b3d472a45d5a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.keyboard.tab",
+    "sourceHash": "90ddf1963abb36c9921ce7f1ac9cbd94c9176d13e57c418d3d3c20ce44291c1c",
+    "translationHash": "90ddf1963abb36c9921ce7f1ac9cbd94c9176d13e57c418d3d3c20ce44291c1c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.imageFallback",
+    "sourceHash": "efab067ec937a10a1bdf52de027cd6325c0538f82773d8922e23b7e255642647",
+    "translationHash": "efab067ec937a10a1bdf52de027cd6325c0538f82773d8922e23b7e255642647",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.imageName",
+    "sourceHash": "1aa4cb0bcca76e92e30677e809bb3d4b5c066715ef4d558184e319496bcc5125",
+    "translationHash": "1aa4cb0bcca76e92e30677e809bb3d4b5c066715ef4d558184e319496bcc5125",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.categoryNames.art",
+    "sourceHash": "75df3579c73089e317e5bf917f6b6cf1cb8d19f21ad70c15e70e431c3aa2a62a",
+    "translationHash": "75df3579c73089e317e5bf917f6b6cf1cb8d19f21ad70c15e70e431c3aa2a62a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.categoryNames.fiction",
+    "sourceHash": "efa9a3729d47c5c47c0c763107f82dbeb8ba63e479274b2661edf418850791fb",
+    "translationHash": "efa9a3729d47c5c47c0c763107f82dbeb8ba63e479274b2661edf418850791fb",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.categoryNames.free2z",
+    "sourceHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "translationHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.categoryNames.podcast",
+    "sourceHash": "27a723d62938b46828aa98bd1216d9a729c71fa0fcd0ae2c5b4f4d57d624c634",
+    "translationHash": "27a723d62938b46828aa98bd1216d9a729c71fa0fcd0ae2c5b4f4d57d624c634",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.categoryNames.science",
+    "sourceHash": "9d948c73e0ad7a5a213a5e7e00b962531ca6b07992a06bd8c2fc2ac5ae23c51b",
+    "translationHash": "9d948c73e0ad7a5a213a5e7e00b962531ca6b07992a06bd8c2fc2ac5ae23c51b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.categoryNames.sports",
+    "sourceHash": "9b1f5daf0a3d610e5a819b6c7664ffde2ea2f299fb1cacedfc6d1b68bed5e351",
+    "translationHash": "9b1f5daf0a3d610e5a819b6c7664ffde2ea2f299fb1cacedfc6d1b68bed5e351",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.categoryNames.zcash",
+    "sourceHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "translationHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.commandNames.code",
+    "sourceHash": "340f463033e0fd5ddeabb922df4d4f1b5747494d0f5ed9894f13b6e13ca831f5",
+    "translationHash": "340f463033e0fd5ddeabb922df4d4f1b5747494d0f5ed9894f13b6e13ca831f5",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.commandNames.image",
+    "sourceHash": "1aa4cb0bcca76e92e30677e809bb3d4b5c066715ef4d558184e319496bcc5125",
+    "translationHash": "1aa4cb0bcca76e92e30677e809bb3d4b5c066715ef4d558184e319496bcc5125",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.commandNames.iframe",
+    "sourceHash": "17e57de1daf58d0657837cc260196bbd57da94051c2b73ab1f071ad6719461ef",
+    "translationHash": "17e57de1daf58d0657837cc260196bbd57da94051c2b73ab1f071ad6719461ef",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.commandNames.audio",
+    "sourceHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "translationHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.commandNames.document",
+    "sourceHash": "d6bd8c0aeee80fedb2dbf05c973100c3db04be90c072a88572533f2684131a36",
+    "translationHash": "d6bd8c0aeee80fedb2dbf05c973100c3db04be90c072a88572533f2684131a36",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.toolbar.actionWithShortcut",
+    "sourceHash": "49e258fd2522440e56cc45889eb1350b7d2ef40a65262abf9831dd7819a6862c",
+    "translationHash": "49e258fd2522440e56cc45889eb1350b7d2ef40a65262abf9831dd7819a6862c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.insertTemplates.code",
+    "sourceHash": "5694d08a2e53ffcae0c3103e5ad6f6076abd960eb1f8a56577040bc1028f702b",
+    "translationHash": "5694d08a2e53ffcae0c3103e5ad6f6076abd960eb1f8a56577040bc1028f702b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.translateAiPrice",
+    "sourceHash": "7157d2f3c0b0a44c2a7a1e59ee408778db88a9d8968dd1c4337240f098c8b6dc",
+    "translationHash": "7157d2f3c0b0a44c2a7a1e59ee408778db88a9d8968dd1c4337240f098c8b6dc",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.coverRatioWide",
+    "sourceHash": "cb140f95f8a88c27fc464e08c2e4627de234c89cfbec1feb903e8733ff04f073",
+    "translationHash": "cb140f95f8a88c27fc464e08c2e4627de234c89cfbec1feb903e8733ff04f073",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.videoPicker.imageFileHint",
+    "sourceHash": "24e7e3b55c8167ec3dfd8e6bcc7a9b17614f0a912c8897892f065138f1b696cd",
+    "translationHash": "24e7e3b55c8167ec3dfd8e6bcc7a9b17614f0a912c8897892f065138f1b696cd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "editor.embedUrl",
+    "sourceHash": "e7a241debad56609ee660a5d2ef258a1aceb7357ff210ac66d7280b3add02a9a",
+    "translationHash": "e7a241debad56609ee660a5d2ef258a1aceb7357ff210ac66d7280b3add02a9a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.billing.topUp.zcashTab",
+    "sourceHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "translationHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.media.images",
+    "sourceHash": "be7e2f20129365c2899b2c11bfc465541e61b1858f45bf0248cf99b9271bc707",
+    "translationHash": "be7e2f20129365c2899b2c11bfc465541e61b1858f45bf0248cf99b9271bc707",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.media.audio",
+    "sourceHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "translationHash": "bc1b88907d3b748af99cb9d4ffc07a0118dad5dab21a9dbdcc5a17a09641364a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.media.documents",
+    "sourceHash": "b4e929d8bcfe04189801a8ed61496d177d9e30d1b2826f4c9c4d00b3e705fa8b",
+    "translationHash": "b4e929d8bcfe04189801a8ed61496d177d9e30d1b2826f4c9c4d00b3e705fa8b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.media.accessPublic",
+    "sourceHash": "591935b15b1c88e2d5f6be0a054604fcf36f0585a6f51098fa3803826fff278c",
+    "translationHash": "591935b15b1c88e2d5f6be0a054604fcf36f0585a6f51098fa3803826fff278c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.media.descriptionLabel",
+    "sourceHash": "526e0087cc3f254d9f86f6c7d8e23d954c4dfda2b312efc29194ae8a860106ba",
+    "translationHash": "526e0087cc3f254d9f86f6c7d8e23d954c4dfda2b312efc29194ae8a860106ba",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.notifications.amount2Z",
+    "sourceHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "translationHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.notifications.metaTitle",
+    "sourceHash": "e4101cd006e96f46e8c49234a0203ca05639f1f76a018fde88036f16e7871108",
+    "translationHash": "e4101cd006e96f46e8c49234a0203ca05639f1f76a018fde88036f16e7871108",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.notifications.amount2ZOne",
+    "sourceHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "translationHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.notifications.social",
+    "sourceHash": "f1b7505afa5c9e2bd6d68ae814b3582cf38632d56a67913e75e7d8cb10b5a8a3",
+    "translationHash": "f1b7505afa5c9e2bd6d68ae814b3582cf38632d56a67913e75e7d8cb10b5a8a3",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.profile.fans",
+    "sourceHash": "91a76248c08500216483cf4090979effad7b4b1f2d2b42d7dbd8e1695832c289",
+    "translationHash": "91a76248c08500216483cf4090979effad7b4b1f2d2b42d7dbd8e1695832c289",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.stream.quality.fullHd",
+    "sourceHash": "3020ca0499cfc7357704f10ed7b86d0270291d4d9571ba797d363b4669bab1e1",
+    "translationHash": "3020ca0499cfc7357704f10ed7b86d0270291d4d9571ba797d363b4669bab1e1",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.stream.quality.hd",
+    "sourceHash": "2745f1c3d5e5dfc6174cf4d4aaa3ba648a3f8ec24e59f7dba8b811e63d45414e",
+    "translationHash": "2745f1c3d5e5dfc6174cf4d4aaa3ba648a3f8ec24e59f7dba8b811e63d45414e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "dashboard.stream.quality.standard",
+    "sourceHash": "e2e79f786def70b6881268ae8cb06266314b562e8545471adc45377b085740da",
+    "translationHash": "e2e79f786def70b6881268ae8cb06266314b562e8545471adc45377b085740da",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "common.qrCodeAlt",
+    "sourceHash": "2c24d35a117c162de53d300e235a26c5c06ad613bd3c1d02b8388b28b7126775",
+    "translationHash": "2c24d35a117c162de53d300e235a26c5c06ad613bd3c1d02b8388b28b7126775",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "privacy.outboundLinkDestinationLabel",
+    "sourceHash": "293d404a500f5f9a149916d810ff4f4231bd5d6ecd25eb0f55a867e2095eca48",
+    "translationHash": "293d404a500f5f9a149916d810ff4f4231bd5d6ecd25eb0f55a867e2095eca48",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "pageActions.boost.score",
+    "sourceHash": "38e5a46cbc5ad32842ac60a4f1425ac9b31c06bac685f446a06ab72b87de31ed",
+    "translationHash": "38e5a46cbc5ad32842ac60a4f1425ac9b31c06bac685f446a06ab72b87de31ed",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "pageActions.donate.tuzisTab",
+    "sourceHash": "95038ae237eb88f8ca39f3147a66a6868b4b54fdffd10d0f9ff3fd70952b7498",
+    "translationHash": "95038ae237eb88f8ca39f3147a66a6868b4b54fdffd10d0f9ff3fd70952b7498",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "pageActions.donate.zcashTab",
+    "sourceHash": "b36bd9eee8421b0620beac7b2bbb4b31948801aceefaed5b508e73822ddc921f",
+    "translationHash": "b36bd9eee8421b0620beac7b2bbb4b31948801aceefaed5b508e73822ddc921f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "comments.discussion",
+    "sourceHash": "5eb6cf647d2c5d14a044e2d103dcef4cf0cdc872434c374debc1043092bc4746",
+    "translationHash": "5eb6cf647d2c5d14a044e2d103dcef4cf0cdc872434c374debc1043092bc4746",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "converse.conversation",
+    "sourceHash": "ccca1817575365871461752f3229dd59ede742ae69e350e20fd00a6ce3d149e3",
+    "translationHash": "ccca1817575365871461752f3229dd59ede742ae69e350e20fd00a6ce3d149e3",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "converse.zpage",
+    "sourceHash": "dd901cb405c7a61680b88919d455aa6f998c624e20da74e7707d3b512d49e6d7",
+    "translationHash": "dd901cb405c7a61680b88919d455aa6f998c624e20da74e7707d3b512d49e6d7",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "converse.metaTitle",
+    "sourceHash": "b40a1848a912634f5e4ee77dcb41282386a1c9e6d56159d761de5ac92287e97c",
+    "translationHash": "b40a1848a912634f5e4ee77dcb41282386a1c9e6d56159d761de5ac92287e97c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "converse.rssTitle",
+    "sourceHash": "ddbd203aa0f712f93a3686dccc7085dc2fb806360fdc0497b41b97623312e381",
+    "translationHash": "ddbd203aa0f712f93a3686dccc7085dc2fb806360fdc0497b41b97623312e381",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "converse.tagPlaceholder",
+    "sourceHash": "243a1f33cc266a3e75e362afcedccd2f52a517514174fc9f195bc9fd28556084",
+    "translationHash": "243a1f33cc266a3e75e362afcedccd2f52a517514174fc9f195bc9fd28556084",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "footer.documentation",
+    "sourceHash": "c205924de0fe636ccdde4ed616fef66f75b78e98b03620637965c033fd161141",
+    "translationHash": "c205924de0fe636ccdde4ed616fef66f75b78e98b03620637965c033fd161141",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "media.accessPublic",
+    "sourceHash": "591935b15b1c88e2d5f6be0a054604fcf36f0585a6f51098fa3803826fff278c",
+    "translationHash": "591935b15b1c88e2d5f6be0a054604fcf36f0585a6f51098fa3803826fff278c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "pagination.label",
+    "sourceHash": "7b3f674b625e7226021fc07d6f2aaf437f44f1fd6afaf5d885ad8d63210c0b46",
+    "translationHash": "7b3f674b625e7226021fc07d6f2aaf437f44f1fd6afaf5d885ad8d63210c0b46",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "profile.articleCountMany",
+    "sourceHash": "2fa4c15bfd885b258cb2c4fedbb0ac8ef946be2cbbe3237b29f77a2eeb8baf38",
+    "translationHash": "2fa4c15bfd885b258cb2c4fedbb0ac8ef946be2cbbe3237b29f77a2eeb8baf38",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "profile.articleCountOne",
+    "sourceHash": "b0cacc9256f29b838742afbe9a24d221927a732483551e34d6094ce0f5c810ec",
+    "translationHash": "b0cacc9256f29b838742afbe9a24d221927a732483551e34d6094ce0f5c810ec",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "stream.pricePerMinuteShort",
+    "sourceHash": "961391e0fce3555211c16c053a769ed4c2616cbcbb7657cba7442b4200e5764d",
+    "translationHash": "961391e0fce3555211c16c053a769ed4c2616cbcbb7657cba7442b4200e5764d",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "seriesEditor.article",
+    "sourceHash": "84393add8c489d33569360efd1bcb5f70ed5a22408127d241c751e5ea345eb7c",
+    "translationHash": "84393add8c489d33569360efd1bcb5f70ed5a22408127d241c751e5ea345eb7c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "oauth.cap.amountPerPeriod",
+    "sourceHash": "fb3cec720e504a43f5685afa4141f19a83bcf2f59159595676b3312e36dbd07f",
+    "translationHash": "fb3cec720e504a43f5685afa4141f19a83bcf2f59159595676b3312e36dbd07f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "translationJobs.total",
+    "sourceHash": "c9b3c38247f744e17dd26fda097d6a9ba9332586b6bdaa038bf8f313a863f2b8",
+    "translationHash": "c9b3c38247f744e17dd26fda097d6a9ba9332586b6bdaa038bf8f313a863f2b8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "moderation.report.reasons.violence",
+    "sourceHash": "16d186a180375a70cd1bceb8d13e6d27569883c6d2b0f0a722c62951a86f324e",
+    "translationHash": "16d186a180375a70cd1bceb8d13e6d27569883c6d2b0f0a722c62951a86f324e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "fr",
+    "key": "economy.transaction",
+    "sourceHash": "eec26ddd9a408449f8e06c622c11d61b94341b04fae5eac8d755c477b8294624",
+    "translationHash": "eec26ddd9a408449f8e06c622c11d61b94341b04fae5eac8d755c477b8294624",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "navigation.logo",
+    "sourceHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "translationHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "navigation.menu",
+    "sourceHash": "99af6606ff9d6cd5154d4d4e9c21e325086d3e904677cdb41d363c8a3480f862",
+    "translationHash": "99af6606ff9d6cd5154d4d4e9c21e325086d3e904677cdb41d363c8a3480f862",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "homepage.liveModePpv",
+    "sourceHash": "bd9e3879bc60e57a640bfb5d0b2a83db9026e12242e3fc0d41d98d41847c1010",
+    "translationHash": "bd9e3879bc60e57a640bfb5d0b2a83db9026e12242e3fc0d41d98d41847c1010",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "trending.sortPopular",
+    "sourceHash": "76327dec9ae3a06a8c3c283e6a81d3710ae736021b583875c13e4e8fb2ad83c0",
+    "translationHash": "76327dec9ae3a06a8c3c283e6a81d3710ae736021b583875c13e4e8fb2ad83c0",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "article.tags",
+    "sourceHash": "1331275bc537b4c2bf1e46f7275677967515342e30b572e6852fa6f51b831fe8",
+    "translationHash": "1331275bc537b4c2bf1e46f7275677967515342e30b572e6852fa6f51b831fe8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "article.premium",
+    "sourceHash": "de88c121a82a06352bf1aaceba20578356408a334ba046a1084d4e50da923c5e",
+    "translationHash": "de88c121a82a06352bf1aaceba20578356408a334ba046a1084d4e50da923c5e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "search.zpages",
+    "sourceHash": "4f3853921864047eedbf14f710462258b072a853e0ff8c933d4d33cbee1feefe",
+    "translationHash": "4f3853921864047eedbf14f710462258b072a853e0ff8c933d4d33cbee1feefe",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "search.zpageCountOne",
+    "sourceHash": "2fd6c077a4aab2e8eb6e0d3463943050d7d3e95f9b98b7def89962e1e6c36cb4",
+    "translationHash": "2fd6c077a4aab2e8eb6e0d3463943050d7d3e95f9b98b7def89962e1e6c36cb4",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "search.zpageCount",
+    "sourceHash": "2691d763eb9851ae6a8caae68836863dee9baf9fe8a149207e190ad60b16b3c8",
+    "translationHash": "2691d763eb9851ae6a8caae68836863dee9baf9fe8a149207e190ad60b16b3c8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "creators.filters.sortOptions.alphabetical_asc",
+    "sourceHash": "2d8f7bc890ed7c7c1d3372fa7525681ae9b11f26453e763c8156b25ae8af337b",
+    "translationHash": "2d8f7bc890ed7c7c1d3372fa7525681ae9b11f26453e763c8156b25ae8af337b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "creators.filters.sortOptions.alphabetical_desc",
+    "sourceHash": "2d4cf32407574cf40a923ed7878b6a530535ec9de714d0df0a59b3d472a45d5a",
+    "translationHash": "2d4cf32407574cf40a923ed7878b6a530535ec9de714d0df0a59b3d472a45d5a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.keyboard.tab",
+    "sourceHash": "90ddf1963abb36c9921ce7f1ac9cbd94c9176d13e57c418d3d3c20ce44291c1c",
+    "translationHash": "90ddf1963abb36c9921ce7f1ac9cbd94c9176d13e57c418d3d3c20ce44291c1c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.categoryNames.free2z",
+    "sourceHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "translationHash": "d504c143047a23fa56cae0f4fce9d74173dfe1cee49fea27ca7a6edcbc3d9626",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.categoryNames.podcast",
+    "sourceHash": "27a723d62938b46828aa98bd1216d9a729c71fa0fcd0ae2c5b4f4d57d624c634",
+    "translationHash": "27a723d62938b46828aa98bd1216d9a729c71fa0fcd0ae2c5b4f4d57d624c634",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.categoryNames.zcash",
+    "sourceHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "translationHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.commandNames.link",
+    "sourceHash": "a6a32dbc5618ea39f6df5b0f9808e3588b19e00d5f6f96c69492e40386e5aeab",
+    "translationHash": "a6a32dbc5618ea39f6df5b0f9808e3588b19e00d5f6f96c69492e40386e5aeab",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.commandNames.iframe",
+    "sourceHash": "17e57de1daf58d0657837cc260196bbd57da94051c2b73ab1f071ad6719461ef",
+    "translationHash": "17e57de1daf58d0657837cc260196bbd57da94051c2b73ab1f071ad6719461ef",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.toolbar.actionWithShortcut",
+    "sourceHash": "49e258fd2522440e56cc45889eb1350b7d2ef40a65262abf9831dd7819a6862c",
+    "translationHash": "49e258fd2522440e56cc45889eb1350b7d2ef40a65262abf9831dd7819a6862c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.translateAiPrice",
+    "sourceHash": "7157d2f3c0b0a44c2a7a1e59ee408778db88a9d8968dd1c4337240f098c8b6dc",
+    "translationHash": "7157d2f3c0b0a44c2a7a1e59ee408778db88a9d8968dd1c4337240f098c8b6dc",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.coverRatioOriginal",
+    "sourceHash": "88d759ea02cef4b82885c6c620473162757c75522805707c20e2be76a40a2825",
+    "translationHash": "88d759ea02cef4b82885c6c620473162757c75522805707c20e2be76a40a2825",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.coverRatioWide",
+    "sourceHash": "cb140f95f8a88c27fc464e08c2e4627de234c89cfbec1feb903e8733ff04f073",
+    "translationHash": "cb140f95f8a88c27fc464e08c2e4627de234c89cfbec1feb903e8733ff04f073",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.tags",
+    "sourceHash": "1331275bc537b4c2bf1e46f7275677967515342e30b572e6852fa6f51b831fe8",
+    "translationHash": "1331275bc537b4c2bf1e46f7275677967515342e30b572e6852fa6f51b831fe8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.originalLanguage",
+    "sourceHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "translationHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.videoPicker.imageFileHint",
+    "sourceHash": "24e7e3b55c8167ec3dfd8e6bcc7a9b17614f0a912c8897892f065138f1b696cd",
+    "translationHash": "24e7e3b55c8167ec3dfd8e6bcc7a9b17614f0a912c8897892f065138f1b696cd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "editor.embedUrl",
+    "sourceHash": "e7a241debad56609ee660a5d2ef258a1aceb7357ff210ac66d7280b3add02a9a",
+    "translationHash": "e7a241debad56609ee660a5d2ef258a1aceb7357ff210ac66d7280b3add02a9a",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "dashboard.billing.topUp.zcashTab",
+    "sourceHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "translationHash": "f17707cb8e24b55f79587fc39daf23f35cc7d048b5d55d8e45512ee9409bf13f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "dashboard.notifications.amount2Z",
+    "sourceHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "translationHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "dashboard.notifications.amount2ZOne",
+    "sourceHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "translationHash": "93a72550dcc4f03430c5c66e2a620d8aa30f7f20031f9aff8498f69a49b170fd",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "dashboard.notifications.social",
+    "sourceHash": "f1b7505afa5c9e2bd6d68ae814b3582cf38632d56a67913e75e7d8cb10b5a8a3",
+    "translationHash": "f1b7505afa5c9e2bd6d68ae814b3582cf38632d56a67913e75e7d8cb10b5a8a3",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "dashboard.stream.quality.fullHd",
+    "sourceHash": "3020ca0499cfc7357704f10ed7b86d0270291d4d9571ba797d363b4669bab1e1",
+    "translationHash": "3020ca0499cfc7357704f10ed7b86d0270291d4d9571ba797d363b4669bab1e1",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "dashboard.stream.quality.hd",
+    "sourceHash": "2745f1c3d5e5dfc6174cf4d4aaa3ba648a3f8ec24e59f7dba8b811e63d45414e",
+    "translationHash": "2745f1c3d5e5dfc6174cf4d4aaa3ba648a3f8ec24e59f7dba8b811e63d45414e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "privacy.outboundLinkDomainLabel",
+    "sourceHash": "4a823118b9ba8baa2f47489c0716f52755368e3e3c2c26d60736ccfa1bb21b5e",
+    "translationHash": "4a823118b9ba8baa2f47489c0716f52755368e3e3c2c26d60736ccfa1bb21b5e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "pageActions.donate.tuzisTab",
+    "sourceHash": "95038ae237eb88f8ca39f3147a66a6868b4b54fdffd10d0f9ff3fd70952b7498",
+    "translationHash": "95038ae237eb88f8ca39f3147a66a6868b4b54fdffd10d0f9ff3fd70952b7498",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "pageActions.donate.zcashTab",
+    "sourceHash": "b36bd9eee8421b0620beac7b2bbb4b31948801aceefaed5b508e73822ddc921f",
+    "translationHash": "b36bd9eee8421b0620beac7b2bbb4b31948801aceefaed5b508e73822ddc921f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "converse.title",
+    "sourceHash": "f918545a8adb22cdfe935c51583d41ebc69d816762e44315df5cd7256b7037e3",
+    "translationHash": "f918545a8adb22cdfe935c51583d41ebc69d816762e44315df5cd7256b7037e3",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "converse.zpage",
+    "sourceHash": "dd901cb405c7a61680b88919d455aa6f998c624e20da74e7707d3b512d49e6d7",
+    "translationHash": "dd901cb405c7a61680b88919d455aa6f998c624e20da74e7707d3b512d49e6d7",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "converse.metaTitle",
+    "sourceHash": "b40a1848a912634f5e4ee77dcb41282386a1c9e6d56159d761de5ac92287e97c",
+    "translationHash": "b40a1848a912634f5e4ee77dcb41282386a1c9e6d56159d761de5ac92287e97c",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "converse.rssTitle",
+    "sourceHash": "ddbd203aa0f712f93a3686dccc7085dc2fb806360fdc0497b41b97623312e381",
+    "translationHash": "ddbd203aa0f712f93a3686dccc7085dc2fb806360fdc0497b41b97623312e381",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "converse.tagPlaceholder",
+    "sourceHash": "243a1f33cc266a3e75e362afcedccd2f52a517514174fc9f195bc9fd28556084",
+    "translationHash": "243a1f33cc266a3e75e362afcedccd2f52a517514174fc9f195bc9fd28556084",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "media.uploadFailedNamed",
+    "sourceHash": "050e9350e89f756cb1ba021b07825d7174e9d5abbe86d30777a75ce26aa6637e",
+    "translationHash": "050e9350e89f756cb1ba021b07825d7174e9d5abbe86d30777a75ce26aa6637e",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "carousel.slide",
+    "sourceHash": "b8a7e24e95497806eafbe1b4a897b70ecf6e57f4bfca8c770091e1f075304006",
+    "translationHash": "b8a7e24e95497806eafbe1b4a897b70ecf6e57f4bfca8c770091e1f075304006",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "stream.pricePerMinuteShort",
+    "sourceHash": "961391e0fce3555211c16c053a769ed4c2616cbcbb7657cba7442b4200e5764d",
+    "translationHash": "961391e0fce3555211c16c053a769ed4c2616cbcbb7657cba7442b4200e5764d",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "tags.label",
+    "sourceHash": "1503916a2ab2b0fd6768d3455fd8f2d9aa3b31333a8507dadcad983704a975d7",
+    "translationHash": "1503916a2ab2b0fd6768d3455fd8f2d9aa3b31333a8507dadcad983704a975d7",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "oauth.cap.amountPerPeriod",
+    "sourceHash": "fb3cec720e504a43f5685afa4141f19a83bcf2f59159595676b3312e36dbd07f",
+    "translationHash": "fb3cec720e504a43f5685afa4141f19a83bcf2f59159595676b3312e36dbd07f",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "translationJobs.originalLabel",
+    "sourceHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "translationHash": "ef0b12e8f1977b5a6dfa642efb03ada3a0681d9d30fcae97d9d365db4864507b",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  },
+  {
+    "locale": "pt-BR",
+    "key": "translationJobs.total",
+    "sourceHash": "c9b3c38247f744e17dd26fda097d6a9ba9332586b6bdaa038bf8f313a863f2b8",
+    "translationHash": "c9b3c38247f744e17dd26fda097d6a9ba9332586b6bdaa038bf8f313a863f2b8",
+    "owner": "Free2Z localization",
+    "reason": "Legacy identical text is unreviewed; translate or document an approved brand, code, or acronym exception."
+  }
+]

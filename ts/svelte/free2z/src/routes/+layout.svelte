@@ -54,6 +54,7 @@
     getCurrentLocale,
     locale,
     hydrateLocale,
+    disabledLocaleStore,
     setLocale,
     LOCALE_STORAGE_KEY,
     tStore as t,
@@ -67,11 +68,14 @@
     locale?: string;
     localePersisted?: boolean;
     localeCatalogs?: Record<string, unknown>;
+    disabledLocales?: string[];
     hasSession?: boolean;
   };
 
   if (browser && data.locale && data.localeCatalogs)
-    hydrateLocale(data.locale, data.localeCatalogs);
+    hydrateLocale(data.locale, data.localeCatalogs, data.disabledLocales);
+
+  $: if (browser) disabledLocaleStore.set(data.disabledLocales ?? []);
 
   // Hand the server's session fact to the store before anything renders
   //. No `sessionid` on the request means Django could not have

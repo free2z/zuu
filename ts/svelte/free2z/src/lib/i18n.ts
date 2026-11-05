@@ -13,6 +13,7 @@ import {
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
   normalizeLocale,
+  localeAvailability,
 } from "./locale.js";
 import { catalogLoader } from "./catalog-loader.js";
 import { formatDisplayNumber } from "./intl-display.js";
@@ -41,7 +42,8 @@ export const languageOptions: ReadonlyArray<{
 const translations: Record<string, unknown> = {};
 export async function prepareLocale(next: string): Promise<void> {
   const normalized = normalizeLocale(next);
-  if (!normalized) throw new Error(`Unsupported locale: ${next}`);
+  if (!normalized || localeAvailability(normalized) === "disabled")
+    throw new Error(`Unsupported locale: ${next}`);
   const [english, selected] = await Promise.all([
     translations[DEFAULT_LOCALE] ?? catalogLoader.load(DEFAULT_LOCALE),
     translations[normalized] ?? catalogLoader.load(normalized),
@@ -55,13 +57,16 @@ export function getPreparedCatalogs(next: string): Record<string, unknown> {
     [next]: translations[next],
   };
 }
+export const disabledLocaleStore = writable<readonly string[]>([]);
 export function hydrateLocale(
   next: string,
   catalogs: Record<string, unknown>,
+  disabled: readonly string[] = [],
 ): void {
   if (!browser) return;
   const normalized = normalizeLocale(next) as SupportedLocale | null;
   if (!normalized || !catalogs[normalized] || !catalogs[DEFAULT_LOCALE]) return;
+  disabledLocaleStore.set(disabled);
   Object.assign(translations, catalogs);
   localeStore.set(normalized);
 }
@@ -419,12 +424,18 @@ export async function setLocale(nextLocale: string): Promise<boolean> {
   const normalized = normalizeLocale(nextLocale) as SupportedLocale | null;
   if (!normalized) return false;
   if (!browser) return false;
+  if (localeAvailability(normalized, get(disabledLocaleStore)) === "disabled")
+    return false;
   const sequence = ++switchSequence;
   loading.set(true);
   localeLoadError.set(null);
   try {
     await prepareLocale(normalized);
-    if (sequence !== switchSequence) return false;
+    if (
+      sequence !== switchSequence ||
+      localeAvailability(normalized, get(disabledLocaleStore)) === "disabled"
+    )
+      return false;
     localeStore.set(normalized);
     applyDocumentLanguage();
     try {
