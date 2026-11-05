@@ -10,6 +10,7 @@ import {
 } from "./src/lib/csp-policy.js";
 import { sveltekit } from "@sveltejs/kit/vite";
 import { defineConfig } from "vite";
+import { testViteOutput } from "./scripts/test-vite-output.mjs";
 import { buildRecorder } from "./scripts/build-recorder.mjs";
 
 /**
@@ -105,13 +106,19 @@ const devApiProxyTarget =
 
 // Each Node test process owns its generated environment modules. Remove only
 // this invocation's directory after all Vite servers and tests have exited.
-const testOutput = process.env.NODE_TEST_CONTEXT
-  ? fileURLToPath(new URL(`.svelte-kit-test-${process.pid}`, import.meta.url))
+const testOutputName = testViteOutput(process.env, process.pid);
+const testOutput = testOutputName
+  ? fileURLToPath(new URL(testOutputName, import.meta.url))
   : undefined;
-if (testOutput)
+if (testOutput) {
   process.once("exit", () =>
     rmSync(testOutput, { recursive: true, force: true }),
   );
+  // Playwright terminates its web server with a signal; Node does not run exit
+  // handlers for the default signal action, so explicitly exit after receiving it.
+  process.once("SIGTERM", () => process.exit(0));
+  process.once("SIGINT", () => process.exit(130));
+}
 
 export default defineConfig(({ command }) => ({
   define: {
@@ -146,6 +153,42 @@ export default defineConfig(({ command }) => ({
         },
       },
     }),
+    {
+      name: "browser-ssr-boundary-control",
+      configureServer(server) {
+        if (process.env.FREE2Z_SSR_BOUNDARY_CONTROL !== "1" || !process.send)
+          return;
+        server.watcher.on("change", (path) => {
+          if (path.endsWith("/src/lib/i18n.ts"))
+            process.send?.({ type: "source-invalidated" });
+        });
+        server.httpServer?.once("listening", () =>
+          process.send?.({ type: "boundary-ready" }),
+        );
+        process.on("message", (message: { type?: string }) => {
+          if (message?.type === "stop")
+            void server.close().then(() => process.exit(0));
+        });
+      },
+      async transform(_code, id, options) {
+        if (
+          process.env.FREE2Z_SSR_BOUNDARY_CONTROL !== "1" ||
+          !process.send ||
+          !options?.ssr ||
+          !id.endsWith("/src/lib/query-client.ts")
+        )
+          return;
+        process.send({ type: "boundary-held" });
+        await new Promise<void>((resolve) => {
+          const release = (message: { type?: string }) => {
+            if (message?.type !== "release") return;
+            process.off("message", release);
+            resolve();
+          };
+          process.on("message", release);
+        });
+      },
+    },
     {
       name: "standalone-recorder-development-assets",
       async configureServer() {
@@ -186,7 +229,14 @@ export default defineConfig(({ command }) => ({
     external: ["@resvg/resvg-js"],
   },
   server: {
-    hmr: process.env.NODE_TEST_CONTEXT ? false : undefined,
+    hmr:
+      process.env.NODE_TEST_CONTEXT || process.env.FREE2Z_BROWSER_TEST === "1"
+        ? false
+        : undefined,
+    // Prevent watcher-driven invalidation from editor or build writes during
+    // a browser test render. Source files should remain fixed during the run.
+    watch:
+      process.env.FREE2Z_BROWSER_TEST === "1" ? { ignored: ["**"] } : undefined,
     // Browser regression fixtures are imported through Vite at runtime. Keep
     // the app and test module trees available to the dev server without
     // changing the production bundle or exposing them through SvelteKit

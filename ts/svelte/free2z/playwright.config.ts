@@ -17,6 +17,9 @@ import { resolveBrowserOutputPaths } from "./tests/browser/output";
 const { appPort, mockApiPort, appOrigin, mockApiOrigin, source } =
   resolveBrowserPorts();
 const browserOutput = resolveBrowserOutputPaths();
+// Worker config reloads inherit the same unique generated-tree name.
+const browserGeneratedOutput =
+  (process.env.FREE2Z_BROWSER_OUTPUT_NAME ??= `.svelte-kit-test-browser-${process.pid}`);
 
 // One line, on stderr, once per run: when a spec does fail, the log says which
 // ports it was talking to and whether they were derived or asked for. Skipped
@@ -63,8 +66,13 @@ export default defineConfig({
         ["github"],
         ["html", { open: "never", outputFolder: browserOutput.reportDir }],
         ["./tests/browser/first-failure-artifacts-reporter.mjs"],
+        ["./tests/browser/generated-output-cleanup-reporter.ts"],
       ]
-    : [["list"], ["./tests/browser/local-output-cleanup-reporter.ts"]],
+    : [
+        ["list"],
+        ["./tests/browser/local-output-cleanup-reporter.ts"],
+        ["./tests/browser/generated-output-cleanup-reporter.ts"],
+      ],
   use: {
     baseURL: appOrigin,
     browserName: "chromium",
@@ -86,6 +94,8 @@ export default defineConfig({
       command: appServerCommand,
       url: `${appOrigin}/healthz`,
       env: {
+        FREE2Z_BROWSER_TEST: "1",
+        FREE2Z_BROWSER_OUTPUT_NAME: browserGeneratedOutput,
         HOST: "127.0.0.1",
         PORT: String(appPort),
         ORIGIN: appOrigin,

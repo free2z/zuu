@@ -185,3 +185,19 @@ initial asset aggregate grew 310 raw and 44 local-gzip bytes in both cases,
 within the unchanged 4,096-byte index allowance. Neither synthetic chunk was
 requested or serialized. A deliberate eager import exposed its sentinel and
 failed the safety assertion; the script restored both inputs and rebuilt.
+
+### Browser-test SSR isolation
+
+The browser test server uses a process-owned generated SvelteKit directory and
+disables file-watch invalidation for the duration of that test server. This
+prevents production-tree regeneration and editor writes from causing watcher-
+driven invalidation of the test server's module graph during a cold request;
+source files are still expected to remain fixed during the rest of a run. The IPC-controlled regression pauses
+server-side initialization of `query-client.ts`, modifies and restores the i18n
+source, runs production-tree `svelte-kit sync`, and then verifies Arabic SSR and
+cleanup. A negative control with shared generated output and the old watcher
+observed the source invalidation and failed the isolation assertion. It still
+returned HTTP 200: it did **not** reproduce the earlier first-request 500, so
+that failure's precise cause remains unconfirmed. The retained first-failure
+trace shows a 500 before the login form assertion, and the recorded server error
+reported Svelte server context unavailable; it was not merely a slow form.

@@ -30,3 +30,5 @@ locale-disabled.spec.ts
 pilot-locales.spec.ts
 pilot-production.spec.ts
 rtk-locale.spec.ts
+locale-policy-navigation.spec.ts
+ssr-cold-build-isolation.spec.ts

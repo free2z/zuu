@@ -84,7 +84,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
   const contentType = response.headers.get("content-type") || "";
   const isHtml = contentType.includes("text/html");
-  const isPageData = event.url.pathname.endsWith("/__data.json");
+  const isPageData = event.isDataRequest;
   const isVersionMetadata = event.url.pathname === "/_app/version.json";
 
   // The rendered HTML depends on the locale cookie, and ?lang is already part
