@@ -15,7 +15,7 @@ creator block toggle are scoped to the authenticated caller.
 | `/api/events/` and unread counts | Filter blocked contributors for contact events; retain money receipts. |
 | `/api/g12f/follows/mine/` | Filter followed creator without deleting the relationship. |
 | `/api/g12f/blocks/mine/` | Own block-management list, including blocked creators. |
-| Series | Own series list; nested page members filter page creators. |
+| Series | Own series list and public series members filter page creators. An editor cannot replace a series while it has hidden members, preserving their memberships. |
 | Public AI conversations and public action | Filter conversation owner. |
 | Public AI prompt responses | Filter response author and the requested conversation owner. |
 | AI personalities | Filter creator on lists; system personalities have no creator. |
@@ -29,6 +29,9 @@ creator block toggle are scoped to the authenticated caller.
 
 The route census in `test_block_policy_inventory.py` discovers DRF list views,
 custom GET actions and Django syndication feed handlers from the URLconf and
-requires an explicit decision for each. Behavioural tests in
-`test_block_filtering.py` and `feeds/test_block_visibility.py` exercise the
-filters with real database rows.
+requires an explicit decision for each. Each content policy is bound to a
+database-backed behavioral probe which must actually request its registered
+route; owner, financial, system and direct-object exemptions are explicit.
+Negative controls cover a classified but unfiltered route and removal of an
+existing filter. The census does not discover arbitrary non-DRF handlers that
+are not Django `Feed` instances.
