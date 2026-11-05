@@ -194,8 +194,10 @@ test("confirming promotes the file and inserts the SERVER's new URL", async ({
 
   await dialog.getByRole("button", { name: /Sunset/ }).click();
   await dialog.locator('[data-media-access-gate-action="promote"]').click();
-
-  await expect(dialog).toHaveCount(0);
+  const details = page.getByRole("dialog", { name: "Image details" });
+  await expect(details).toBeVisible();
+  await details.getByRole("button", { name: "Apply" }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
 
   // Two reads and exactly one write, in that order. The reads are what keep a
   // picker holding a stale snapshot from downgrading a file somebody already

@@ -13,6 +13,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
 import {
   allowedAccessForSlot,
@@ -892,10 +893,53 @@ test("local image insertion refreshes its media policy before uploading", async 
     assert.notEqual(preflight, -1, `${handler} must run a fresh preflight`);
     assert.ok(preflight < upload, `${handler} must preflight BEFORE uploading`);
   }
-  assert.match(
+  // Extract the actual class field with TypeScript's parser, rather than
+  // searching an arbitrary number of characters into neighbouring methods.
+  const parsed = ts.createSourceFile(
+    "controller.ts",
     textareaControllerSource,
-    /insertLocalImages = async[\s\S]{0,350}await this\.#prepareLocalUpload\(\)[\s\S]{0,300}startInlineUploads\(/,
-    "picker uploads must use the same refreshed policy",
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const controller = parsed.statements.find(
+    (node) =>
+      ts.isClassDeclaration(node) &&
+      node.name?.text === "MarkdownTextareaController",
+  );
+  const field = controller?.members.find(
+    (node) =>
+      ts.isPropertyDeclaration(node) &&
+      node.name.getText(parsed) === "insertLocalImages",
+  );
+  assert.ok(
+    field &&
+      ts.isArrowFunction(field.initializer) &&
+      ts.isBlock(field.initializer.body),
+    "picker handler must be a class arrow function",
+  );
+  const statements = field.initializer.body.statements;
+  const guard = statements.findIndex(
+    (node) =>
+      ts.isIfStatement(node) &&
+      /!\s*\(\s*await\s+this\.#prepareLocalUpload\(\)\s*\)/.test(
+        node.expression.getText(parsed),
+      ) &&
+      /return\s+false/.test(node.thenStatement.getText(parsed)),
+  );
+  const upload = statements.findIndex(
+    (node) =>
+      ts.isExpressionStatement(node) &&
+      /this\.#uploader\.startInlineUploads\(/.test(node.getText(parsed)),
+  );
+  const details = statements.findIndex(
+    (node) =>
+      ts.isIfStatement(node) &&
+      node.getText(parsed).includes("requestImageDetails"),
+  );
+  assert.ok(
+    details >= 0 && guard > details && upload > guard,
+    "picker must refresh and fail closed after details and before upload",
   );
   assert.match(
     textareaControllerSource,
