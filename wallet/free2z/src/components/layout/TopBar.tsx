@@ -145,7 +145,8 @@ export function TopBar() {
             <BlockManagement />
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => logout()}>
-              <LogOut className="rtl:-scale-x-100" /> {t(MESSAGE_KEYS.navSignOut)}
+              <LogOut className="rtl:-scale-x-100" />{" "}
+              {t(MESSAGE_KEYS.navSignOut)}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

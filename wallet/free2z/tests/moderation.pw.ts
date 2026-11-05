@@ -2,13 +2,13 @@ import { expect, test } from "@playwright/test";
 
 async function signIn(page: import("@playwright/test").Page) {
   await page.addInitScript(() =>
-    localStorage.setItem("zuuli.knox.token", "mock-knox-token")
+    localStorage.setItem("zuuli.knox.token", "mock-knox-token"),
   );
 }
 
 async function report(
   page: import("@playwright/test").Page,
-  button: import("@playwright/test").Locator
+  button: import("@playwright/test").Locator,
 ) {
   await expect(button).toHaveCSS("cursor", "pointer");
   await button.focus();
@@ -29,12 +29,12 @@ test("article card, reader, comment and creator expose report and block", async 
   await report(page, card.getByRole("button", { name: "Report" }));
   await page.goto("/articles/why-shielded-by-default");
   await expect(
-    page.getByRole("heading", { name: /shielded/i }).first()
+    page.getByRole("heading", { name: /shielded/i }).first(),
   ).toBeVisible();
   await report(page, page.getByRole("button", { name: "Report" }).first());
   const comments = page.locator("section[aria-labelledby='comments-heading']");
   await expect(
-    comments.getByRole("button", { name: "Report" }).first()
+    comments.getByRole("button", { name: "Report" }).first(),
   ).toBeVisible();
   await report(page, comments.getByRole("button", { name: "Report" }).first());
   await page.goto("/creator/zooko");
@@ -45,7 +45,7 @@ test("article card, reader, comment and creator expose report and block", async 
   await expect(block).toBeEnabled();
   await block.click();
   await expect(
-    page.getByText("Content hidden from a blocked account.")
+    page.getByText("Content hidden from a blocked account."),
   ).toBeVisible();
   await page.getByRole("button", { name: "Account menu" }).click();
   await page.getByRole("button", { name: "Blocked accounts" }).click();

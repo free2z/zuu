@@ -8,13 +8,7 @@ import {
 
 export type ReportKind = "comment" | "zpage" | "creator";
 export type ReportReason =
-  | "csae"
-  | "harassment"
-  | "hate"
-  | "sexual"
-  | "violence"
-  | "spam"
-  | "other";
+  "csae" | "harassment" | "hate" | "sexual" | "violence" | "spam" | "other";
 const mockBlocks = new Map<string, Set<string>>();
 const mockReports = new Set<string>();
 
@@ -46,7 +40,7 @@ function assertSession(snapshot: TokenSnapshot) {
 export const moderation = {
   async list(
     snapshot: TokenSnapshot,
-    expectedActor?: string
+    expectedActor?: string,
   ): Promise<string[]> {
     assertSession(snapshot);
     if (useMock()) {
@@ -75,7 +69,7 @@ export const moderation = {
         !Number.isSafeInteger(response.count) ||
         response.count < 0 ||
         response.results.some(
-          (row) => typeof row?.username !== "string" || !row.username
+          (row) => typeof row?.username !== "string" || !row.username,
         )
       )
         throw new Error("Invalid block list");
@@ -90,7 +84,7 @@ export const moderation = {
     username: string,
     blocked: boolean,
     snapshot: TokenSnapshot,
-    expectedActor?: string
+    expectedActor?: string,
   ): Promise<void> {
     assertSession(snapshot);
     if (useMock()) {
@@ -106,7 +100,8 @@ export const moderation = {
         throw new ApiError(401, "Session changed");
       if (
         !mockCreators.some(
-          (creator) => creator.username.toLowerCase() === username.toLowerCase()
+          (creator) =>
+            creator.username.toLowerCase() === username.toLowerCase(),
         )
       )
         throw new ApiError(404, "Account not found");
@@ -116,11 +111,20 @@ export const moderation = {
       mockBlocks.set(actor, names);
       return;
     }
-    await request(`/api/creator/${encodeURIComponent(username)}/block/`, {
-      method: blocked ? "PUT" : "DELETE",
-      authToken: snapshot.token!,
-    });
+    const response = await request<{ username?: unknown; active?: unknown }>(
+      `/api/creator/${encodeURIComponent(username)}/block/`,
+      {
+        method: blocked ? "PUT" : "DELETE",
+        authToken: snapshot.token!,
+      },
+    );
     assertSession(snapshot);
+    if (
+      typeof response?.username !== "string" ||
+      response.username.toLowerCase() !== username.toLowerCase() ||
+      response.active !== blocked
+    )
+      throw new Error("Invalid block response");
   },
   async report(
     kind: ReportKind,
@@ -128,7 +132,7 @@ export const moderation = {
     reason: ReportReason,
     details: string,
     snapshot: TokenSnapshot,
-    expectedActor?: string
+    expectedActor?: string,
   ): Promise<void> {
     assertSession(snapshot);
     if (useMock()) {
@@ -138,9 +142,8 @@ export const moderation = {
         throw new ApiError(401, "Session changed");
       if (!targetId || !reason || details.length > 2000)
         throw new ApiError(400, "Invalid report");
-      const { mockArticles, mockCommentExists, mockCreators } = await import(
-        "./mock-data"
-      );
+      const { mockArticles, mockCommentExists, mockCreators } =
+        await import("./mock-data");
       assertSession(snapshot);
       if (actor !== (await mockActor()))
         throw new ApiError(401, "Session changed");
@@ -148,8 +151,8 @@ export const moderation = {
         kind === "creator"
           ? mockCreators.some((creator) => creator.username === targetId)
           : kind === "zpage"
-          ? mockArticles.some((article) => article.free2zaddr === targetId)
-          : mockCommentExists(targetId);
+            ? mockArticles.some((article) => article.free2zaddr === targetId)
+            : mockCommentExists(targetId);
       if (!exists) throw new ApiError(404, "Target not found");
       mockReports.add(`${actor}:${kind}:${targetId}:${reason}`);
       return;

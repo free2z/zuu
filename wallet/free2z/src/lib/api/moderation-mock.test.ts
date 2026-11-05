@@ -21,7 +21,7 @@ it("keeps mock blocks owned, idempotent and rejects missing targets", async () =
   await moderation.setBlocked("zooko", true, snapshot, "mock-reader-a");
   expect(await moderation.list(snapshot, "mock-reader-a")).toEqual(["zooko"]);
   await expect(
-    moderation.setBlocked("nonexistent", true, snapshot, "mock-reader-a")
+    moderation.setBlocked("nonexistent", true, snapshot, "mock-reader-a"),
   ).rejects.toMatchObject({ status: 404 });
   await expect(
     moderation.report(
@@ -30,13 +30,13 @@ it("keeps mock blocks owned, idempotent and rejects missing targets", async () =
       "spam",
       "",
       snapshot,
-      "mock-reader-a"
-    )
+      "mock-reader-a",
+    ),
   ).rejects.toMatchObject({ status: 404 });
   useSession.getState().setUser({ username: "mock-reader-b", tuzis: 0 });
   expect(await moderation.list(snapshot, "mock-reader-b")).toEqual([]);
   await expect(
-    moderation.setBlocked("zooko", false, snapshot, "mock-reader-a")
+    moderation.setBlocked("zooko", false, snapshot, "mock-reader-a"),
   ).rejects.toMatchObject({ status: 401 });
   useSession.getState().setUser({ username: "mock-reader-a", tuzis: 0 });
   await moderation.setBlocked("zooko", false, snapshot, "mock-reader-a");

@@ -97,7 +97,7 @@ onTokenChange(() =>
     names: [],
     status: "idle",
     revision: state.revision + 1,
-  }))
+  })),
 );
 useSession.subscribe(() => useModeration.getState().sync());
 useModeration.getState().sync();

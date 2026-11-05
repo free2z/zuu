@@ -26,7 +26,7 @@ const click = async (element: Element | null) => {
 };
 const button = (label: string) =>
   [...document.querySelectorAll("button")].find(
-    (x) => x.textContent?.trim() === label
+    (x) => x.textContent?.trim() === label,
   ) ?? null;
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -67,8 +67,8 @@ it.each([
           <ModerationControls username="bob" kind={kind} targetId={targetId} />
         </BlockedContent>
         <BlockManagement />
-      </TestI18nProvider>
-    )
+      </TestI18nProvider>,
+    ),
   );
   await click(button("Report"));
   await click(button("Send report"));
@@ -78,11 +78,11 @@ it.each([
     "csae",
     "",
     expect.objectContaining({ token: "token-a" }),
-    "alice"
+    "alice",
   );
   await click(button("Block"));
   expect(document.body.textContent).toContain(
-    "Content hidden from a blocked account."
+    "Content hidden from a blocked account.",
   );
   await click(button("Blocked accounts"));
   expect(document.body.textContent).toContain("@bob");
@@ -99,12 +99,12 @@ it("shows a retry when loading fails", async () => {
     root.render(
       <TestI18nProvider>
         <BlockManagement />
-      </TestI18nProvider>
-    )
+      </TestI18nProvider>,
+    ),
   );
   await click(button("Blocked accounts"));
   expect(document.body.textContent).toContain(
-    "Could not load blocked accounts."
+    "Could not load blocked accounts.",
   );
   await click(button("Retry"));
   expect(document.body.textContent).toContain("No blocked accounts.");
@@ -119,8 +119,8 @@ it("shows a mutation failure without hiding the content", async () => {
           <span>content</span>
           <ModerationControls username="bob" kind="comment" targetId="id" />
         </BlockedContent>
-      </TestI18nProvider>
-    )
+      </TestI18nProvider>,
+    ),
   );
   await click(button("Block"));
   expect(document.body.textContent).toContain("Request failed. Try again.");
@@ -134,14 +134,14 @@ it("drops a late mutation when the token and actor change", async () => {
     () =>
       new Promise((resolve) => {
         finish = resolve;
-      })
+      }),
   );
   await act(async () =>
     root.render(
       <TestI18nProvider>
         <ModerationControls username="bob" kind="creator" targetId="bob" />
-      </TestI18nProvider>
-    )
+      </TestI18nProvider>,
+    ),
   );
   await click(button("Block"));
   await act(async () => {
@@ -160,7 +160,7 @@ it("drops a late block-list result from the previous account", async () => {
     () =>
       new Promise((resolve) => {
         finish = resolve;
-      })
+      }),
   );
   let pending!: Promise<void>;
   await act(async () => {
@@ -184,7 +184,7 @@ it("rejects an old request after the same token returns in a new epoch", async (
     () =>
       new Promise((resolve) => {
         finish = resolve;
-      })
+      }),
   );
   let pending!: Promise<void>;
   await act(async () => {
@@ -209,16 +209,16 @@ describe("localized controls", () => {
       root.render(
         <TestI18nProvider locale="es">
           <ModerationControls username="bob" kind="creator" targetId="bob" />
-        </TestI18nProvider>
-      )
+        </TestI18nProvider>,
+      ),
     );
     expect(document.body.textContent).toContain("Denunciar");
     await act(async () =>
       root.render(
         <TestI18nProvider locale="fr">
           <ModerationControls username="bob" kind="creator" targetId="bob" />
-        </TestI18nProvider>
-      )
+        </TestI18nProvider>,
+      ),
     );
     expect(document.body.textContent).toContain("Signaler");
   });

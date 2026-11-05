@@ -5,7 +5,11 @@ import { MessagesSquare } from "lucide-react";
 import { EmptyState } from "@/components/common/EmptyState";
 import { Skeleton } from "@/components/ui/skeleton";
 import { comments as commentsApi } from "@/lib/api/free2z";
-import type { Comment, CommentContentType, CommentInput } from "@/lib/api/types";
+import type {
+  Comment,
+  CommentContentType,
+  CommentInput,
+} from "@/lib/api/types";
 import { CommentForm } from "./CommentForm";
 import { CommentThread } from "./CommentThread";
 
@@ -30,22 +34,29 @@ export function CommentsSection({
   const [roots, setRoots] = useState<Comment[]>([]);
   const [count, setCount] = useState(0);
   const [status, setStatus] = useState<Status>("loading");
-  const owner = useModeration(s => s.owner);
-  const ownerKey = owner ? `${owner.username}:${owner.token.generation}` : "anonymous";
+  const owner = useModeration((s) => s.owner);
+  const ownerKey = owner
+    ? `${owner.username}:${owner.token.generation}`
+    : "anonymous";
   const loadedOwner = useRef(ownerKey);
   const generation = useRef(0);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
-    const reload = () => setRefresh(n => n + 1);
+    const reload = () => setRefresh((n) => n + 1);
     window.addEventListener("free2z-moderation-refresh", reload);
-    return () => window.removeEventListener("free2z-moderation-refresh", reload);
+    return () =>
+      window.removeEventListener("free2z-moderation-refresh", reload);
   }, []);
 
   const load = useCallback(async () => {
     const current = ++generation.current;
     const sameOwner = () => {
       const owner = useModeration.getState().owner;
-      return (owner ? `${owner.username}:${owner.token.generation}` : "anonymous") === ownerKey;
+      return (
+        (owner
+          ? `${owner.username}:${owner.token.generation}`
+          : "anonymous") === ownerKey
+      );
     };
     setStatus("loading");
     const acc: Comment[] = [];
@@ -72,12 +83,18 @@ export function CommentsSection({
     setRoots([]);
     if (getTokenSnapshot().token && !owner) {
       setStatus("loading");
-      return () => { generation.current += 1; };
+      return () => {
+        generation.current += 1;
+      };
     }
     const pending = load();
     const current = generation.current;
-    void pending.catch(() => { if (generation.current === current) setStatus("error"); });
-    return () => { generation.current += 1; };
+    void pending.catch(() => {
+      if (generation.current === current) setStatus("error");
+    });
+    return () => {
+      generation.current += 1;
+    };
   }, [load, ownerKey, refresh, owner]);
 
   async function submitRoot(body: CommentInput) {
@@ -90,7 +107,10 @@ export function CommentsSection({
         <MessagesSquare className="h-5 w-5 text-muted-foreground" aria-hidden />
         <h2 id="comments-heading" className="text-xl font-bold tracking-tight">
           Comments
-          {status === "ready" && loadedOwner.current === ownerKey && !(getTokenSnapshot().token && !owner) && count > 0 ? (
+          {status === "ready" &&
+          loadedOwner.current === ownerKey &&
+          !(getTokenSnapshot().token && !owner) &&
+          count > 0 ? (
             <span className="ms-2 text-base font-normal bidi-number tabular-nums text-muted-foreground">
               {count}
             </span>
@@ -108,10 +128,15 @@ export function CommentsSection({
         />
       </div>
 
-    {status === "loading" || loadedOwner.current !== ownerKey || (getTokenSnapshot().token && !owner) ? (
+      {status === "loading" ||
+      loadedOwner.current !== ownerKey ||
+      (getTokenSnapshot().token && !owner) ? (
         <div className="space-y-4">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-border bg-card/60 p-4">
+            <div
+              key={i}
+              className="rounded-xl border border-border bg-card/60 p-4"
+            >
               <div className="flex gap-3">
                 <Skeleton className="h-7 w-7 rounded-md" />
                 <div className="flex-1 space-y-2">

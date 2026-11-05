@@ -87,7 +87,7 @@ export function ModerationControls({
   if (!user || user.username.toLowerCase() === username.toLowerCase())
     return null;
   const blocked = names.some(
-    (name) => name.toLowerCase() === username.toLowerCase()
+    (name) => name.toLowerCase() === username.toLowerCase(),
   );
   const current = () => {
     const now = getTokenSnapshot();
@@ -145,7 +145,7 @@ export function ModerationControls({
           {t(
             blocked
               ? MESSAGE_KEYS.moderationUnblock
-              : MESSAGE_KEYS.moderationBlock
+              : MESSAGE_KEYS.moderationBlock,
           )}
         </Button>
       </div>

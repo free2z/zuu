@@ -24,7 +24,11 @@ function cacheKey(username: string, ownerKey = "anonymous"): string {
   return `${ownerKey}:${username.toLowerCase()}`;
 }
 
-function remember(username: string, snapshot: CreatorCatalogSnapshot, ownerKey: string) {
+function remember(
+  username: string,
+  snapshot: CreatorCatalogSnapshot,
+  ownerKey: string,
+) {
   const key = cacheKey(username, ownerKey);
   catalogCache.delete(key);
   catalogCache.set(key, snapshot);
@@ -33,7 +37,10 @@ function remember(username: string, snapshot: CreatorCatalogSnapshot, ownerKey: 
   }
 }
 
-function initialCatalog(username: string, ownerKey = "anonymous"): CreatorCatalogSnapshot {
+function initialCatalog(
+  username: string,
+  ownerKey = "anonymous",
+): CreatorCatalogSnapshot {
   const cached = catalogCache.get(cacheKey(username, ownerKey));
   if (cached) return cached;
   return {
@@ -95,16 +102,19 @@ export function mergeCreatorCatalogPage(
 }
 
 export function useCreatorCatalog(username: string) {
-  const owner = useModeration(s => s.owner);
-  const ownerKey = owner ? `${owner.username}:${owner.token.generation}` : "anonymous";
+  const owner = useModeration((s) => s.owner);
+  const ownerKey = owner
+    ? `${owner.username}:${owner.token.generation}`
+    : "anonymous";
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     const reload = () => {
       catalogCache.delete(cacheKey(username, ownerKey));
-      setRefresh(value => value + 1);
+      setRefresh((value) => value + 1);
     };
     window.addEventListener("free2z-moderation-refresh", reload);
-    return () => window.removeEventListener("free2z-moderation-refresh", reload);
+    return () =>
+      window.removeEventListener("free2z-moderation-refresh", reload);
   }, [username, ownerKey]);
   const [state, setState] = useState<CreatorCatalogState>(() => ({
     ...initialCatalog(username, ownerKey),
@@ -122,7 +132,11 @@ export function useCreatorCatalog(username: string) {
       const requestId = ++requestIdRef.current;
       const sameOwner = () => {
         const owner = useModeration.getState().owner;
-        return (owner ? `${owner.username}:${owner.token.generation}` : "anonymous") === ownerKey;
+        return (
+          (owner
+            ? `${owner.username}:${owner.token.generation}`
+            : "anonymous") === ownerKey
+        );
       };
       stateRef.current = { ...stateRef.current, error: null, loading: true };
       setState((current) => ({ ...current, error: null, loading: true }));
@@ -174,7 +188,10 @@ export function useCreatorCatalog(username: string) {
     if (next !== null) void load(next);
   }, [load]);
 
-  const visible = !(getTokenSnapshot().token && !owner) && resourceRef.current === `${cacheKey(username, ownerKey)}:${refresh}`
-    ? state : { ...initialCatalog(username, ownerKey), error: null, loading: true };
+  const visible =
+    !(getTokenSnapshot().token && !owner) &&
+    resourceRef.current === `${cacheKey(username, ownerKey)}:${refresh}`
+      ? state
+      : { ...initialCatalog(username, ownerKey), error: null, loading: true };
   return { ...visible, loadMore, retry };
 }

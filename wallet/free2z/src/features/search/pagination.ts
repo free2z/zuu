@@ -20,7 +20,9 @@ interface SearchState<T> extends SearchSnapshot<T> {
 export class SearchSnapshotCache<T> {
   private readonly snapshots = new Map<string, SearchSnapshot<T>>();
 
-  clear() { this.snapshots.clear(); }
+  clear() {
+    this.snapshots.clear();
+  }
 
   constructor(private readonly limit: number) {
     if (!Number.isSafeInteger(limit) || limit < 1) {
@@ -127,14 +129,20 @@ function usePaginatedSearch<T>(
   loadPage: (query: string, page: number) => Promise<SearchResultPage<T>>,
   identity: (item: T) => string,
 ) {
-  const owner = useModeration(s => s.owner);
-  const ownerKey = owner ? `${owner.username}:${owner.token.generation}` : "anonymous";
+  const owner = useModeration((s) => s.owner);
+  const ownerKey = owner
+    ? `${owner.username}:${owner.token.generation}`
+    : "anonymous";
   const scopeRef = useRef(ownerKey);
   const [revision, setRevision] = useState(0);
   useEffect(() => {
-    const refresh = () => { cache.clear(); setRevision(value => value + 1); };
+    const refresh = () => {
+      cache.clear();
+      setRevision((value) => value + 1);
+    };
     window.addEventListener("free2z-moderation-refresh", refresh);
-    return () => window.removeEventListener("free2z-moderation-refresh", refresh);
+    return () =>
+      window.removeEventListener("free2z-moderation-refresh", refresh);
   }, [cache]);
   const initial = () => cache.restore(query) ?? emptySnapshot<T>(query);
   const [state, setState] = useState<SearchState<T>>(() => ({
@@ -152,7 +160,11 @@ function usePaginatedSearch<T>(
       const requestId = ++requestIdRef.current;
       const sameOwner = () => {
         const current = useModeration.getState().owner;
-        return (current ? `${current.username}:${current.token.generation}` : "anonymous") === ownerKey;
+        return (
+          (current
+            ? `${current.username}:${current.token.generation}`
+            : "anonymous") === ownerKey
+        );
       };
       const loadingState = {
         ...stateRef.current,
@@ -214,7 +226,11 @@ function usePaginatedSearch<T>(
     if (next !== null) void load(next, true);
   }, [load]);
 
-  if (state.key !== query || scopeRef.current !== ownerKey || (getTokenSnapshot().token && !owner)) {
+  if (
+    state.key !== query ||
+    scopeRef.current !== ownerKey ||
+    (getTokenSnapshot().token && !owner)
+  ) {
     return {
       ...emptySnapshot<T>(query),
       error: null,

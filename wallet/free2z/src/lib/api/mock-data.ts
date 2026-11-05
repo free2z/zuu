@@ -108,12 +108,17 @@ export const mockCreators: SimpleCreator[] = [
       is_live: true, // PPV stream live now.
     },
   ),
-  creator("f2z", "Free2Z", "The zero-knowledge creator platform, metered end to end in 2Zs.", {
-    is_verified: true,
-    zpages: 24,
-    member_price: null,
-    is_live: false, // Offline — demos is_live:false (button hidden).
-  }),
+  creator(
+    "f2z",
+    "Free2Z",
+    "The zero-knowledge creator platform, metered end to end in 2Zs.",
+    {
+      is_verified: true,
+      zpages: 24,
+      member_price: null,
+      is_live: false, // Offline — demos is_live:false (button hidden).
+    },
+  ),
   creator(
     "nine",
     "Nine Anonymous-Broadcaster",
@@ -618,7 +623,10 @@ function genArticles(n: number): Article[] {
 
 // Keep at least one creator above the production-shaped 12-row catalog page so
 // the creator screen's pagination path is exercised in local/demo mode.
-export const mockArticles: Article[] = [...featuredArticles, ...genArticles(63)];
+export const mockArticles: Article[] = [
+  ...featuredArticles,
+  ...genArticles(63),
+];
 
 function articleTime(a: Article): number {
   const t = a.published_at ? new Date(a.published_at).getTime() : 0;
@@ -632,10 +640,14 @@ function articleTime(a: Article): number {
  */
 export function mockArticleFeed(
   params: Required<Pick<ArticleFeedParams, "page" | "pageSize" | "sort">> &
-    Pick<ArticleFeedParams, "tags" | "search" | "category"> & { blockedNames?: string[] },
+    Pick<ArticleFeedParams, "tags" | "search" | "category"> & {
+      blockedNames?: string[];
+    },
 ): ArticleFeedPage {
   const { page, pageSize, sort } = params;
-  let list = mockArticles.filter(a => !params.blockedNames?.includes(a.author.username.toLowerCase()));
+  let list = mockArticles.filter(
+    (a) => !params.blockedNames?.includes(a.author.username.toLowerCase()),
+  );
 
   if (params.category) {
     list = list.filter((a) => a.category === params.category);
@@ -666,7 +678,10 @@ export function mockArticleFeed(
     } else if (sort === "score") {
       list.sort((a, b) => (b.votes ?? 0) - (a.votes ?? 0));
     } else if (sort === "random") {
-      list.sort((a, b) => (hashString(a.slug ?? "") % 97) - (hashString(b.slug ?? "") % 97));
+      list.sort(
+        (a, b) =>
+          (hashString(a.slug ?? "") % 97) - (hashString(b.slug ?? "") % 97),
+      );
     }
   }
 
@@ -774,9 +789,9 @@ export function mockSubscribe(
     return { ...replay.result, replayed: true };
   }
 
-  const star: SimpleCreator =
-    mockCreators.find((c) => c.username.toLowerCase() === username.toLowerCase()) ??
-    { username, free2zaddr: username, display_name: username };
+  const star: SimpleCreator = mockCreators.find(
+    (c) => c.username.toLowerCase() === username.toLowerCase(),
+  ) ?? { username, free2zaddr: username, display_name: username };
   const price = star.member_price ?? 0;
   if (price <= 0) throw new Error("Creator did not set member price");
   if (price !== expectedPrice) throw new Error("Membership price changed");
@@ -803,7 +818,12 @@ export function mockSubscribe(
     // max_price that the fan previously set to zero.
   } else {
     expires = new Date(now + thirtyDays).toISOString();
-    const sub: Subscription = { fan: mockFan(), star, expires, max_price: maxPrice };
+    const sub: Subscription = {
+      fan: mockFan(),
+      star,
+      expires,
+      max_price: maxPrice,
+    };
     mockSubscriptions.push(sub);
   }
   const subscription =
@@ -965,12 +985,12 @@ export function mockCreatorDetail(username: string): CreatorDetail {
       uname === "transparent_creator"
         ? "t1mocktransparentcreatoraddressxxxxxxxx"
         : uname === "transparent_unified_creator"
-          // Encoded by the native validator regression from a P2PKH receiver
-          // plus an unknown receiver: valid Unified Address, no memo receiver.
-          ? "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr"
-        : uname === "testnet_creator"
-          ? "tmocktestnetcreatoraddressxxxxxxxxxxx"
-          : `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
+          ? // Encoded by the native validator regression from a P2PKH receiver
+            // plus an unknown receiver: valid Unified Address, no memo receiver.
+            "u1nuyhyzu03pj30mmnehelkll26s0cxp8etqv2x29zfpjj6rfp4gdmm8wfas5hutkxprlerlv0d4yv87eqrh5nahdlaz2vj5tlxy676p7gzkpen6fy97vqk2kujr"
+          : uname === "testnet_creator"
+            ? "tmocktestnetcreatoraddressxxxxxxxxxxx"
+            : `u1mock${uname}zcashaddressplaceholderxxxxxxxxxxxxxxxxxxxxxxxx`,
   };
 }
 
@@ -1014,7 +1034,7 @@ const mockCommentContent = new Map<string, string>();
 /** Flat store of every mock comment (roots + replies). */
 const mockCommentStore: Comment[] = [];
 export function mockCommentExists(uuid: string): boolean {
-  return mockCommentStore.some(comment => comment.uuid === uuid);
+  return mockCommentStore.some((comment) => comment.uuid === uuid);
 }
 
 function mockAuthor(c: SimpleCreator): Comment["author"] {
@@ -1116,7 +1136,9 @@ export function mockComments(
         mockCommentContent.get(c.uuid) === contentUuid &&
         (opts.rootsOnly ? c.parent === null : true),
     )
-    .sort((a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at));
+    .sort(
+      (a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at),
+    );
   return { items, next: null, count: items.length };
 }
 
@@ -1125,8 +1147,14 @@ export function mockCommentReplies(
   opts: { page: number; blockedNames?: string[] },
 ): MockCommentPage {
   const items = mockCommentStore
-    .filter((c) => c.parent === parentUuid && !opts.blockedNames?.includes(c.author.username.toLowerCase()))
-    .sort((a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at));
+    .filter(
+      (c) =>
+        c.parent === parentUuid &&
+        !opts.blockedNames?.includes(c.author.username.toLowerCase()),
+    )
+    .sort(
+      (a, b) => b.tuzis - a.tuzis || b.created_at.localeCompare(a.created_at),
+    );
   return { items, next: null, count: items.length };
 }
 

@@ -17,9 +17,9 @@ it("uses authenticated authoritative routes for list, block, unblock and report"
       JSON.stringify(
         list
           ? { count: 1, next: null, results: [{ username: "bob" }] }
-          : { active: true }
+          : { username: "bob", active: init?.method === "PUT" },
       ),
-      { status: 200 }
+      { status: 200 },
     );
   });
   vi.stubGlobal("fetch", fetch);
@@ -46,8 +46,8 @@ it("uses authenticated authoritative routes for list, block, unblock and report"
     calls.every(
       (c) =>
         (c.init.headers as Record<string, string>).Authorization ===
-        "Token alice-token"
-    )
+        "Token alice-token",
+    ),
   ).toBe(true);
   expect(JSON.parse(calls[3].init.body as string)).toEqual({
     target_kind: "comment",
@@ -55,4 +55,74 @@ it("uses authenticated authoritative routes for list, block, unblock and report"
     reason: "spam",
     details: "details",
   });
+});
+
+it.each([
+  [{ username: "eve", active: true }, true],
+  [{ username: "bob", active: false }, true],
+  [{}, true],
+  [{ username: "bob", active: true }, false],
+])(
+  "rejects contradictory or malformed block responses",
+  async (body, blocked) => {
+    vi.resetModules();
+    const { setToken, getTokenSnapshot } = await import("./http");
+    const { moderation } = await import("./moderation");
+    const fetch = vi.fn(
+      async () => new Response(JSON.stringify(body), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    window.fetch = fetch as typeof window.fetch;
+    setToken("alice-token");
+    await expect(
+      moderation.setBlocked("bob", blocked, getTokenSnapshot()),
+    ).rejects.toThrow("Invalid block response");
+  },
+);
+
+it("propagates an HTTP failure", async () => {
+  vi.resetModules();
+  const { setToken, getTokenSnapshot } = await import("./http");
+  const { moderation } = await import("./moderation");
+  const fetch = vi.fn(async () => new Response("failure", { status: 500 }));
+  vi.stubGlobal("fetch", fetch);
+  window.fetch = fetch as typeof window.fetch;
+  setToken("alice-token");
+  await expect(
+    moderation.setBlocked("bob", false, getTokenSnapshot()),
+  ).rejects.toThrow();
+  await expect(
+    moderation.report("comment", "comment-id", "spam", "", getTokenSnapshot()),
+  ).rejects.toThrow();
+});
+
+it("discards an old page and never continues it with a renewed token", async () => {
+  vi.resetModules();
+  const { setToken, getTokenSnapshot } = await import("./http");
+  const { moderation } = await import("./moderation");
+  let finish!: (response: Response) => void;
+  const fetch = vi.fn(
+    async () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  vi.stubGlobal("fetch", fetch);
+  window.fetch = fetch as typeof window.fetch;
+  setToken("alice-token");
+  const pending = moderation.list(getTokenSnapshot());
+  await vi.waitFor(() => expect(finish).toBeDefined());
+  setToken(null);
+  setToken("alice-token");
+  finish(
+    new Response(
+      JSON.stringify({
+        count: 49,
+        next: "next",
+        results: [{ username: "private-old" }],
+      }),
+    ),
+  );
+  await expect(pending).rejects.toThrow("Session changed");
+  expect(fetch).toHaveBeenCalledTimes(1);
 });

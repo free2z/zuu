@@ -60,18 +60,22 @@ export const MESSAGE_KEYS = {
   creatorChatConfirmPriceLoading: "creator.chat.confirm.priceLoading",
   creatorChatConfirmTitle: "creator.chat.confirm.title",
   creatorChatInstallHint: "creator.chat.installHint",
-  creatorChatOutcomeAwaitingHandleBody: "creator.chat.outcome.awaitingHandle.body",
-  creatorChatOutcomeAwaitingHandleTitle: "creator.chat.outcome.awaitingHandle.title",
+  creatorChatOutcomeAwaitingHandleBody:
+    "creator.chat.outcome.awaitingHandle.body",
+  creatorChatOutcomeAwaitingHandleTitle:
+    "creator.chat.outcome.awaitingHandle.title",
   creatorChatOutcomeConnectedBody: "creator.chat.outcome.connected.body",
   creatorChatOutcomeConnectedTitle: "creator.chat.outcome.connected.title",
   creatorChatOutcomeInsufficientBody: "creator.chat.outcome.insufficient.body",
-  creatorChatOutcomeInsufficientTitle: "creator.chat.outcome.insufficient.title",
+  creatorChatOutcomeInsufficientTitle:
+    "creator.chat.outcome.insufficient.title",
   creatorChatOutcomeMismatchBody: "creator.chat.outcome.mismatch.body",
   creatorChatOutcomeMismatchTitle: "creator.chat.outcome.mismatch.title",
   creatorChatOutcomeNotFoundBody: "creator.chat.outcome.notFound.body",
   creatorChatOutcomeNotFoundTitle: "creator.chat.outcome.notFound.title",
   creatorChatOutcomePriceChangedBody: "creator.chat.outcome.priceChanged.body",
-  creatorChatOutcomePriceChangedTitle: "creator.chat.outcome.priceChanged.title",
+  creatorChatOutcomePriceChangedTitle:
+    "creator.chat.outcome.priceChanged.title",
   creatorChatOutcomeRateLimitedBody: "creator.chat.outcome.rateLimited.body",
   creatorChatOutcomeRateLimitedTitle: "creator.chat.outcome.rateLimited.title",
   creatorChatOutcomeRefusedBody: "creator.chat.outcome.refused.body",
@@ -79,7 +83,8 @@ export const MESSAGE_KEYS = {
   creatorChatOutcomeSelfBody: "creator.chat.outcome.self.body",
   creatorChatOutcomeSelfTitle: "creator.chat.outcome.self.title",
   creatorChatOutcomeSenderHandleBody: "creator.chat.outcome.senderHandle.body",
-  creatorChatOutcomeSenderHandleTitle: "creator.chat.outcome.senderHandle.title",
+  creatorChatOutcomeSenderHandleTitle:
+    "creator.chat.outcome.senderHandle.title",
   creatorChatOutcomeSignedOutBody: "creator.chat.outcome.signedOut.body",
   creatorChatOutcomeSignedOutTitle: "creator.chat.outcome.signedOut.title",
   creatorChatOutcomeUncertainBody: "creator.chat.outcome.uncertain.body",

@@ -41,17 +41,24 @@ export function useArticleFeed({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
-  const owner = useModeration(s => s.owner);
-  const ownerKey = owner ? `${owner.username}:${owner.token.generation}` : "anonymous";
+  const owner = useModeration((s) => s.owner);
+  const ownerKey = owner
+    ? `${owner.username}:${owner.token.generation}`
+    : "anonymous";
   const isCurrentOwner = () => {
     const current = useModeration.getState().owner;
-    return (current ? `${current.username}:${current.token.generation}` : "anonymous") === ownerKey;
+    return (
+      (current
+        ? `${current.username}:${current.token.generation}`
+        : "anonymous") === ownerKey
+    );
   };
   const loadedOwner = useRef(ownerKey);
   useEffect(() => {
-    const refresh = () => setReloadNonce(n => n + 1);
+    const refresh = () => setReloadNonce((n) => n + 1);
     window.addEventListener("free2z-moderation-refresh", refresh);
-    return () => window.removeEventListener("free2z-moderation-refresh", refresh);
+    return () =>
+      window.removeEventListener("free2z-moderation-refresh", refresh);
   }, []);
 
   // Monotonic generation id: bumped on every filter change so results from a
@@ -67,7 +74,9 @@ export function useArticleFeed({
     if (getTokenSnapshot().token && !owner) {
       setItems([]);
       setLoading(true);
-      return () => { genRef.current += 1; };
+      return () => {
+        genRef.current += 1;
+      };
     }
     busyRef.current = true;
     setLoading(true);
@@ -94,7 +103,9 @@ export function useArticleFeed({
         busyRef.current = false;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    return () => { genRef.current += 1; };
+    return () => {
+      genRef.current += 1;
+    };
   }, [sort, tagsKey, search, pageSize, reloadNonce, ownerKey]);
 
   const loadMore = useCallback(() => {
@@ -128,8 +139,14 @@ export function useArticleFeed({
   const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
   return {
-    items: loadedOwner.current === ownerKey && !(getTokenSnapshot().token && !owner) ? items : [],
-    count: loadedOwner.current === ownerKey && !(getTokenSnapshot().token && !owner) ? count : 0,
+    items:
+      loadedOwner.current === ownerKey && !(getTokenSnapshot().token && !owner)
+        ? items
+        : [],
+    count:
+      loadedOwner.current === ownerKey && !(getTokenSnapshot().token && !owner)
+        ? count
+        : 0,
     loading,
     loadingMore,
     error,
