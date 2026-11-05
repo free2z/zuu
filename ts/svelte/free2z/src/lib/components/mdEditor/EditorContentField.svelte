@@ -114,6 +114,7 @@
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
   let imageDetailsRef = $state<{
     show: (alt: string, caption: string) => void;
+    request: (name: string) => Promise<{ alt: string; caption: string } | null>;
   } | null>(null);
   let applyImageDetails: ((alt: string, caption: string) => boolean) | null =
     null;
@@ -157,6 +158,8 @@
     mediaSlot: () => ({ slot: "body", subscriberOnly }),
     isAbandoned: editorAbandoned,
     openImagePicker: () => imagePickerRef?.openPicker("device"),
+    requestImageDetails: (name) =>
+      imageDetailsRef?.request(name) ?? Promise.resolve(null),
     openMediaPicker,
     resize: resizeTextarea,
     onSelectionSettled: scheduleInsertControlUpdate,

@@ -15,6 +15,30 @@
   let alt = $state("");
   let caption = $state("");
   let error = $state(false);
+  let pending:
+    ((value: { alt: string; caption: string } | null) => void) | null = null;
+  export function request(
+    description: string,
+  ): Promise<{ alt: string; caption: string } | null> {
+    if (pending) return Promise.resolve(null);
+    show(description, "");
+    return new Promise((resolve) => {
+      pending = resolve;
+    });
+  }
+  function cancel() {
+    const resolve = pending;
+    pending = null;
+    open = false;
+    resolve?.(null);
+  }
+  function changed(next: boolean) {
+    if (!next) cancel();
+  }
+  $effect(() => () => {
+    pending?.(null);
+    pending = null;
+  });
   export function show(description: string, visibleCaption: string) {
     alt = description;
     caption = visibleCaption;
@@ -23,12 +47,17 @@
   }
   function save(event: SubmitEvent) {
     event.preventDefault();
-    if (onSave(alt, caption)) open = false;
+    if (pending) {
+      const resolve = pending;
+      pending = null;
+      open = false;
+      resolve({ alt, caption });
+    } else if (onSave(alt, caption)) open = false;
     else error = true;
   }
 </script>
 
-<Dialog.Root bind:open>
+<Dialog.Root bind:open onOpenChange={changed}>
   <Dialog.Content class="max-w-lg">
     <Dialog.Header>
       <Dialog.Title
@@ -69,7 +98,7 @@
           )}
         </p>{/if}
       <div class="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onclick={() => (open = false)}
+        <Button type="button" variant="ghost" onclick={cancel}
           >{$t("common.cancel", "Cancel")}</Button
         >
         <Button type="submit">{$t("editor.imageDetailsSave", "Apply")}</Button>

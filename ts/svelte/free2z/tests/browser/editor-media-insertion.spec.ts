@@ -323,3 +323,19 @@ test("image details edit alt and caption, cancel and remove", async ({
     '![A bird](/uploadz/public/media-owner/fixture.png "title")',
   );
 });
+
+test("cloud image collects separate alt and caption before insertion", async ({
+  page,
+}) => {
+  const { body } = await setup(page, "png", "image/png");
+  await chooseAction(page, "Image");
+  await page.getByRole("tab", { name: "Your Cloud" }).click();
+  await page.getByRole("button", { name: /fixture.png/ }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Image details" }),
+  ).toBeVisible();
+  await page.getByLabel("Alt text (image description)").fill("A bird");
+  await page.getByLabel("Visible caption").fill("雪\ncaption");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(/!\[A bird\].*::caption\["雪\\ncaption"\]/s);
+});

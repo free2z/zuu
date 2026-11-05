@@ -1,3 +1,4 @@
+import { serializeCaptionedImage } from "../../utils/image-caption.ts";
 /**
  * The inline image upload pipeline, shared by every markdown textarea that
  * takes a pasted, dropped or picked image: the zPage body
@@ -85,6 +86,20 @@ export function buildImageMarkdown(
       .trim() || t("editor.imageName", "Image");
 
   return `![${alt}](${url})`;
+}
+
+/** Serialize author-supplied alt independently of the visible caption. */
+export function buildDescribedImageMarkdown(
+  url: string,
+  alt: string,
+  caption: string,
+) {
+  const escaped = alt
+    .replace(/\\/g, "\\\\")
+    .replace(/\[/g, "\\[")
+    .replace(/\]/g, "\\]")
+    .replace(/[\r\n]+/g, " ");
+  return serializeCaptionedImage(`![${escaped}](${url})`, caption);
 }
 
 /** Video uses the renderer's existing native-media directive. */
@@ -211,6 +226,7 @@ export interface InlineUploader {
     files: File[],
     offset: number,
     mediaKind?: "video",
+    details?: readonly { alt: string; caption: string }[],
   ): Promise<void>;
   /** Files whose upload has not settled yet. */
   readonly pending: number;
@@ -444,12 +460,17 @@ export function createInlineUploader(
     files: File[],
     offset: number,
     mediaKind?: "video",
+    details?: readonly { alt: string; caption: string }[],
   ) {
     if (!files.length) {
       return;
     }
 
-    const jobs = files.map((file) => ({ file, token: createUploadToken() }));
+    const jobs = files.map((file, index) => ({
+      file,
+      token: createUploadToken(),
+      details: details?.[index],
+    }));
     const label = tr("editor.uploadingImage", "Uploading image…");
     const placeholderBlock = jobs
       .map((job) =>
@@ -494,7 +515,7 @@ export function createInlineUploader(
       (freshLimit ??= refreshUploadLimit({ request }));
 
     await Promise.all(
-      jobs.map(async ({ file, token }) => {
+      jobs.map(async ({ file, token, details }) => {
         try {
           const oversize = checkUploadSize(file, limit);
 
@@ -525,6 +546,7 @@ export function createInlineUploader(
               );
               // Keep the URL relative — the markdown renderer prefixes /uploadz/
               // paths with the API base in both preview and published pages.
+              if (editorAbandoned()) return;
               resolveUploadToken(
                 token,
                 (
@@ -533,7 +555,9 @@ export function createInlineUploader(
                     : mediaKind === "video" || file.type.startsWith("video/")
                 )
                   ? buildVideoMarkdown(uploaded.url)
-                  : buildImageMarkdown(file.name, uploaded.url, tr),
+                  : details
+                    ? `\n\n${buildDescribedImageMarkdown(uploaded.url, details.alt, details.caption)}\n\n`
+                    : buildImageMarkdown(file.name, uploaded.url, tr),
               );
             } catch (error: any) {
               resolveUploadToken(token, "");

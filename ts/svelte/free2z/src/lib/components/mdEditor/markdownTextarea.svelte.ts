@@ -50,6 +50,7 @@ import type { TranslationFunction } from "$lib/i18n";
 import type { CoverLibraryImage } from "./coverTypes";
 import {
   buildImageMarkdown,
+  buildDescribedImageMarkdown,
   buildVideoMarkdown,
   createInlineUploader,
 } from "./inlineUploads";
@@ -114,6 +115,9 @@ export interface MarkdownTextareaOptions {
   /** "The page this document belongs to is gone." Read live. */
   isAbandoned: () => boolean;
   openImagePicker: (defaultTab?: "device" | "cloud") => void;
+  requestImageDetails?: (
+    name: string,
+  ) => Promise<{ alt: string; caption: string } | null>;
   openMediaPicker?: (kind: "video" | "audio" | "document" | "link") => void;
   openVideoPicker?: (defaultTab?: "device" | "cloud") => void;
   /** Re-measure the host's layout after a programmatic edit. */
@@ -1243,13 +1247,26 @@ export class MarkdownTextareaController {
       return true;
     }
 
+    const original = this.#value;
+    const start = this.#textarea?.selectionStart ?? original.length;
+    const details: { alt: string; caption: string }[] = [];
+    if (!mediaKind && this.#options.requestImageDetails) {
+      for (const file of files) {
+        const entry = await this.#options.requestImageDetails(file.name);
+        if (!entry || this.#options.isAbandoned() || this.#value !== original)
+          return false;
+        details.push(entry);
+      }
+    }
     if (!(await this.#prepareLocalUpload())) return false;
+    if (this.#options.isAbandoned() || this.#value !== original) return false;
 
     this.#textarea?.focus();
     void this.#uploader.startInlineUploads(
       files,
-      this.#textarea?.selectionStart ?? this.#value.length,
+      start,
       mediaKind,
+      details.length ? details : undefined,
     );
     return true;
   };
@@ -1270,6 +1287,9 @@ export class MarkdownTextareaController {
    */
   insertCloudImage = async (item: CoverLibraryImage) => {
     const t = this.#t;
+    const original = this.#value;
+    const start = this.#textarea?.selectionStart ?? original.length;
+    const end = this.#textarea?.selectionEnd ?? start;
     const title =
       item.title ||
       item.name ||
@@ -1302,12 +1322,31 @@ export class MarkdownTextareaController {
       );
     }
 
-    // Keep the URL relative — the markdown renderer prefixes /uploadz/ paths
-    // with the API base in both preview and published pages.
+    const details =
+      !item.mime_type?.startsWith("video/") && this.#options.requestImageDetails
+        ? await this.#options.requestImageDetails(title)
+        : undefined;
+    if (details === null) return;
+    if (
+      this.#options.isAbandoned() ||
+      this.#value !== original ||
+      !this.#options.mediaSlot() ||
+      !satisfiesSlot(item.access, this.#options.mediaSlot()!)
+    )
+      throw new Error(
+        t(
+          "editor.documentChanged",
+          "The document changed. Choose the insertion point again.",
+        ),
+      );
+    this.#textarea?.setSelectionRange(start, end);
+    // Keep the existing access check and original URL.
     this.#insertImageMarkdownAtCursor(
       item.mime_type?.startsWith("video/")
         ? buildVideoMarkdown(item.url)
-        : buildImageMarkdown(title, item.url, t),
+        : details
+          ? `\n\n${buildDescribedImageMarkdown(item.url, details.alt, details.caption)}\n\n`
+          : buildImageMarkdown(title, item.url, t),
     );
   };
 
