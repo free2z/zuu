@@ -509,8 +509,8 @@ pub const CONTACT_QUOTA: AppendQuota = AppendQuota {
     max_bytes: 256 * 1024,
 };
 
-/// One relay's coordinates for one queue, as they travel inside a
-/// `queue_advert` (§7.2).
+/// One relay's coordinates in the design-only multi-endpoint `QueueAdvert`
+/// model from WIRE §7.2. This is not the shipping plugin's JSON payload.
 ///
 /// `relay_id` travels with the address because §5.2 needs it: it is what lets
 /// the sender detect that it is talking to a different relay than the one the
@@ -526,27 +526,26 @@ pub struct QueueEndpoint {
     pub send_addr: QueueAddress,
 }
 
-/// The in-band advert of §7.2, as a value.
+/// The proposed multi-endpoint in-band advert of WIRE §7.2, as a design value.
 ///
-/// **This type has no wire encoding, and that is deliberate.** §7.2 shows the
-/// advert as an object with named fields and never gives it a `tls_codec`
-/// structure, because a relay never sees one: it travels as an MLS
-/// `PrivateMessage` inside the group, indistinguishable to the relay from any
-/// other payload. Inventing an encoding here would be inventing protocol.
-/// What the type is for is the *check* — carrying `(relay_url, relay_id,
-/// send_addr)` from the group to [`crate::hello::verify_hello_response`], which
-/// is where §5.2's substitution attack is actually caught.
+/// **This type has no wire encoding, and that is deliberate.** It retains the
+/// proposed endpoints/replaces shape for design-level checks; the shipping
+/// plugin instead serializes its separate single-endpoint `QueueAdvert` as
+/// JSON inside an MLS `PrivateMessage`. A relay never sees either object.
+/// What this helper type is for is the standalone *check* — carrying
+/// `(relay_url, relay_id, send_addr)` from the group to
+/// [`crate::hello::verify_hello_response`], which is where §5.2's substitution
+/// attack is actually caught.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueueAdvert {
     /// One entry per relay, for ADR 0005's redundancy factor *k*.
     pub endpoints: Vec<QueueEndpoint>,
-    /// The epoch from which the sender should use these addresses.
-    pub valid_from_epoch: u64,
     /// The addresses this advert retires.
     pub replaces: Vec<QueueAddress>,
 }
 
-/// Where a rotation (§7.5) has got to.
+/// Where a design-level full rotation (§7.5) has got to. The shipping engine
+/// does not call this helper or automate these stages.
 ///
 /// There is no `ROTATE` command and there should not be one: rotation is
 /// create, advertise, bind, drain, delete. The stages exist so the one ordering
@@ -557,16 +556,15 @@ pub enum RotationStage {
     Created,
     /// Step 2: the replacement was advertised in-band.
     Advertised,
-    /// Steps 3-4: the peer has bound the new send address and switched to it at
-    /// `valid_from_epoch`. The old queue is still readable and still being
-    /// drained — a message in flight during the switch lands in the old queue
-    /// and is read from it.
+    /// Steps 3-4: the peer has bound and started using the advertised send
+    /// address. The old queue is still readable and still being drained.
     Switched,
     /// Step 5: the old queue was deleted.
     Retired,
 }
 
-/// A queue rotation in progress (§7.5).
+/// A proposed full queue rotation in progress (§7.5), independent of the
+/// shipping engine's advert-driven replacement receiver path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rotation {
     stage: RotationStage,
@@ -597,7 +595,7 @@ impl Rotation {
     /// Whether the old queue may now be deleted.
     ///
     /// §7.5: "the old queue MUST remain readable until the recipient has
-    /// drained it. The sender switches at `valid_from_epoch`; the recipient
+    /// drained it. The sender moves to the advertised endpoint; the recipient
     /// deletes only after the old queue is empty and acknowledged." Both halves
     /// are required — deleting a drained queue before the peer has switched
     /// destroys whatever it appends next, and deleting after the switch but
@@ -855,7 +853,6 @@ mod tests {
                 relay_id: RelayId::new([9u8; 32]),
                 send_addr: QueueAddress::new([8u8; 32]),
             }],
-            valid_from_epoch: 42,
             replaces: vec![QueueAddress::new([7u8; 32])],
         };
         assert_eq!(advert.endpoints.len(), 1);
