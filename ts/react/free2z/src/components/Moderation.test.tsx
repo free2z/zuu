@@ -233,11 +233,12 @@ test.each([false, true])(
     expect(
       await screen.findByText(/Could not complete the request/)
     ).toBeInTheDocument();
-    if (alreadyBlocked)
-      expect(
-        screen.getByText("Content hidden from a blocked account.")
-      ).toBeInTheDocument();
-    else expect(screen.getByText("Visible content")).toBeInTheDocument();
+    expect(
+      Boolean(screen.queryByText("Content hidden from a blocked account."))
+    ).toBe(alreadyBlocked);
+    expect(Boolean(screen.queryByText("Visible content"))).toBe(
+      !alreadyBlocked
+    );
   }
 );
 
