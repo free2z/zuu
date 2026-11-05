@@ -5979,7 +5979,6 @@ mod tests {
     use f2z_msg_store::{Durability, MemoryBackend, Op, SqliteBackend, StorageBackend, StoreError};
     use f2z_relay_testkit::fake::FakeRelay;
     use f2z_relay_testkit::faults::{Effect, Fault, Trigger};
-    use openmls::prelude::MlsGroup;
     use rand::TryRng;
 
     use super::*;
@@ -6571,12 +6570,12 @@ mod tests {
             br#"{"relay_url":"wss://replacement.example/relay/v1","relay_id":"2222222222222222222222222222222222222222222222222222222222222222","send_addr":"7272727272727272727272727272727272727272727272727272727272727272"}"#,
             "the shipping JSON body is exactly the three fields specified in WIRE §7.2",
         );
-        let send_advert = |group: &mut MlsGroup| {
+        let send_advert = |group: &mut GroupHandle| {
             let framed = envelope::seal(
                 MessageType::QUEUE_ADVERT,
                 &[],
-                group.epoch().as_u64(),
-                group.own_leaf_index().u32(),
+                group.epoch(),
+                group.own_leaf_index(),
                 1,
                 RetentionClass::Chat,
                 &advert_body,
