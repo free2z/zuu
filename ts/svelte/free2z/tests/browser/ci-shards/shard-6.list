@@ -25,3 +25,4 @@ icu-render.spec.ts
 locale-runtime.spec.ts
 locale-built-runtime.spec.ts
 formatting-runtime.spec.ts
+pseudo-locales.spec.ts

@@ -114,6 +114,9 @@ if (testOutput)
   );
 
 export default defineConfig({
+  define: {
+    __PSEUDO_LOCALES__: JSON.stringify(process.env.FREE2Z_PSEUDO_TEST === "1"),
+  },
   cacheDir: testOutput ? `${testOutput}/vite-cache` : undefined,
   resolve: {
     alias: { $lib: fileURLToPath(new URL("./src/lib", import.meta.url)) },

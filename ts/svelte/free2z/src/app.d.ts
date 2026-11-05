@@ -1,9 +1,10 @@
 // See https://kit.svelte.dev/docs/types#app
 // for information about these interfaces
 declare global {
+  const __PSEUDO_LOCALES__: boolean;
   namespace App {
     interface Locals {
-      locale: "en" | "es" | "fr" | "pt-BR";
+      locale: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB";
       localePersisted: boolean;
       localeCatalogs: Record<string, unknown>;
       /**

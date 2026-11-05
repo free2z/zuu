@@ -112,7 +112,12 @@ function getTranslation(
       if (result !== undefined) {
         if (icuKeys.includes(candidateKey)) {
           try {
-            return formatIcuMessage(result, sourceLocale, params);
+            return formatIcuMessage(
+              result,
+              LOCALE_REGISTRY.find((entry) => entry.code === sourceLocale)
+                ?.formattingLocale ?? defaultLocale,
+              params,
+            );
           } catch (error) {
             console.error(
               `Invalid ICU message ${candidateKey} (${sourceLocale})`,
@@ -165,7 +170,8 @@ export const defaultLocale = DEFAULT_LOCALE as SupportedLocale;
 export const supportedLocales = SUPPORTED_LOCALES as readonly SupportedLocale[];
 
 export function resolveSupportedLocale(value: unknown): SupportedLocale | null {
-  return normalizeLocale(value) as SupportedLocale | null;
+  const normalized = normalizeLocale(value) as SupportedLocale | null;
+  return normalized;
 }
 
 export function getCurrentLocale(): SupportedLocale {
@@ -179,7 +185,9 @@ export function formatLocalizedNumber(
 ): string {
   return formatDisplayNumber(
     value,
-    resolveSupportedLocale(requestedLocale) ?? defaultLocale,
+    LOCALE_REGISTRY.find(
+      (entry) => entry.code === resolveSupportedLocale(requestedLocale),
+    )?.formattingLocale ?? defaultLocale,
     options,
   );
 }
@@ -270,8 +278,11 @@ function formatExact(
   requestedLocale: string,
   options: Intl.NumberFormatOptions,
 ): string {
-  const locale = resolveSupportedLocale(requestedLocale);
-  if (!locale) throw new RangeError("Unsupported locale");
+  const selected = resolveSupportedLocale(requestedLocale);
+  if (!selected) throw new RangeError("Unsupported locale");
+  const locale =
+    LOCALE_REGISTRY.find((entry) => entry.code === selected)
+      ?.formattingLocale ?? defaultLocale;
   if (!["number", "bigint", "string"].includes(typeof amount))
     throw new TypeError("Invalid amount");
   if (typeof amount === "number" && !Number.isFinite(amount))
@@ -302,7 +313,9 @@ export function formatLocalizedList(
   options?: Intl.ListFormatOptions,
 ): string {
   return new Intl.ListFormat(
-    resolveSupportedLocale(requestedLocale) ?? defaultLocale,
+    LOCALE_REGISTRY.find(
+      (entry) => entry.code === resolveSupportedLocale(requestedLocale),
+    )?.formattingLocale ?? defaultLocale,
     options,
   ).format(values);
 }
@@ -314,7 +327,9 @@ export function compareLocalized(
   options?: Intl.CollatorOptions,
 ): number {
   return new Intl.Collator(
-    resolveSupportedLocale(requestedLocale) ?? defaultLocale,
+    LOCALE_REGISTRY.find(
+      (entry) => entry.code === resolveSupportedLocale(requestedLocale),
+    )?.formattingLocale ?? defaultLocale,
     options,
   ).compare(left, right);
 }
@@ -325,7 +340,9 @@ export function isSingularCount(
 ): boolean {
   return (
     new Intl.PluralRules(
-      resolveSupportedLocale(requestedLocale) ?? defaultLocale,
+      LOCALE_REGISTRY.find(
+        (entry) => entry.code === resolveSupportedLocale(requestedLocale),
+      )?.formattingLocale ?? defaultLocale,
     ).select(value) === "one"
   );
 }

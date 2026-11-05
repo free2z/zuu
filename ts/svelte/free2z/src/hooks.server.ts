@@ -1,6 +1,7 @@
 import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import * as publicEnv from "$app/env/public";
 import {
+  LOCALE_REGISTRY,
   LOCALE_RETRY_KEY,
   LOCALE_STORAGE_KEY,
   normalizeLocale,
@@ -60,7 +61,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       transformPageChunk: ({ html }) =>
         html.replace(
           '<html lang="en">',
-          `<html lang="${event.locals.contentLanguage || selected}" dir="ltr">`,
+          `<html lang="${event.locals.contentLanguage || selected}" dir="${LOCALE_REGISTRY.find((entry) => entry.code === selected)?.direction || "ltr"}">`,
         ),
     }),
   );

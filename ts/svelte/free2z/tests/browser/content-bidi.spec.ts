@@ -239,7 +239,7 @@ test.describe("the served variant is laid out in its own direction", () => {
       await expect(
         page.locator("html"),
         `${route}: the chrome's direction is not the article's`,
-      ).not.toHaveAttribute("dir", /.*/);
+      ).toHaveAttribute("dir", "ltr");
       await expect(
         page.locator("article").first(),
         `${route}: the article body is right-to-left`,
@@ -360,7 +360,7 @@ test.describe("the served variant is laid out in its own direction", () => {
     await page.goto(`${ARTICLE}?lang=ar`);
 
     await expect(page.locator("html")).toHaveAttribute("lang", "ar");
-    await expect(page.locator("html")).not.toHaveAttribute("dir", /.*/);
+    await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
 
     const chrome = await page.evaluate(() => ({
       html: getComputedStyle(document.documentElement).direction,

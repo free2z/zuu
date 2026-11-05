@@ -1,6 +1,6 @@
 export const DEFAULT_LOCALE = "en";
 // Availability describes the existing shipped UI, not translation review approval.
-/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "shipped"}[]} */
+/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "shipped" | "test"}[]} */
 export const LOCALE_REGISTRY = Object.freeze([
   {
     code: "en",
@@ -38,11 +38,44 @@ export const LOCALE_REGISTRY = Object.freeze([
     fallback: "en",
     availability: "shipped",
   },
+  ...(typeof __PSEUDO_LOCALES__ !== "undefined" && __PSEUDO_LOCALES__
+    ? /** @type {const} */ ([
+        {
+          code: "en-XA",
+          label: "Expansion test",
+          script: "Latn",
+          direction: "ltr",
+          formattingLocale: "en",
+          fallback: "en",
+          availability: "test",
+        },
+        {
+          code: "en-XB",
+          label: "Accent test",
+          script: "Latn",
+          direction: "ltr",
+          formattingLocale: "en",
+          fallback: "en",
+          availability: "test",
+        },
+        {
+          code: "ar-XB",
+          label: "RTL test",
+          script: "Arab",
+          direction: "rtl",
+          formattingLocale: "en",
+          fallback: "en",
+          availability: "test",
+        },
+      ])
+    : []),
 ]);
 export const SUPPORTED_LOCALES = LOCALE_REGISTRY.map(({ code }) => code);
 export const LOCALE_STORAGE_KEY = "free2z-locale";
 export const LOCALE_RETRY_KEY = "free2z-locale-retry";
-export const LANGUAGE_OPTIONS = LOCALE_REGISTRY.map(({ code, label }) => ({
+export const LANGUAGE_OPTIONS = LOCALE_REGISTRY.filter(
+  ({ availability }) => availability === "shipped",
+).map(({ code, label }) => ({
   code,
   label,
 }));
@@ -115,6 +148,26 @@ export function normalizeLocale(value) {
   // Only language-level catalogs may accept regional variants. In particular,
   // pt-PT must never resolve to the regional pt-BR catalog.
   return LOCALE_REGISTRY.find((entry) => entry.code === language)?.code ?? null;
+}
+
+/** Preserve arbitrary content locales while mapping test pseudo tags to English.
+ * @param {string | string[] | undefined} locales
+ * @returns {string | string[] | undefined}
+ */
+export function formattingLocales(locales) {
+  const map = (/** @type {string} */ value) => {
+    const testLocale = LOCALE_REGISTRY.find(
+      (entry) =>
+        entry.availability === "test" &&
+        entry.code.toLowerCase() === value.toLowerCase(),
+    );
+    return testLocale?.formattingLocale ?? value;
+  };
+  return Array.isArray(locales)
+    ? locales.map(map)
+    : typeof locales === "string"
+      ? map(locales)
+      : undefined;
 }
 
 /** Parse ordered HTTP language preferences; invalid and zero-quality entries are ignored.

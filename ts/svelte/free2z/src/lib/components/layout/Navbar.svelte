@@ -155,7 +155,7 @@
         href="/"
         size="sm"
         variant="link"
-        class="static ml-1 translate-x-0 px-0 text-xl font-bold tracking-tight text-(--f2z-accent-secondary) no-underline transition-colors hover:text-(--f2z-accent-primary) hover:no-underline sm:text-2xl md:ml-0 md:text-3xl"
+        class="static ms-1 translate-x-0 px-0 text-xl font-bold tracking-tight text-(--f2z-accent-secondary) no-underline transition-colors hover:text-(--f2z-accent-primary) hover:no-underline sm:text-2xl md:ms-0 md:text-3xl"
         aria-label={$t("common.navigation.homeAria", "Go to homepage")}
         data-testid="navbar-brand"
       >
@@ -168,13 +168,13 @@
       <button
         type="button"
         onclick={() => (searchOpen = true)}
-        class="group hidden h-9 max-w-md min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md border border-(--f2z-border-primary) bg-(--f2z-bg-secondary) pr-2 pl-3 text-sm text-(--f2z-text-muted) shadow-xs transition-colors hover:border-(--f2z-accent-primary) focus-visible:border-(--f2z-accent-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none md:flex"
+        class="group hidden h-9 max-w-md min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md border border-(--f2z-border-primary) bg-(--f2z-bg-secondary) ps-3 pe-2 text-sm text-(--f2z-text-muted) shadow-xs transition-colors hover:border-(--f2z-accent-primary) focus-visible:border-(--f2z-accent-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none md:flex"
         aria-label={$t("common.search.title", "Search")}
       >
         <Search
           class="size-4 shrink-0 transition-colors group-hover:text-(--f2z-accent-primary)"
         />
-        <span class="flex-1 truncate text-left"
+        <span class="flex-1 truncate text-start"
           >{$t(
             "common.navigation.searchPlaceholder",
             "Search creators and pages…",
@@ -262,7 +262,7 @@
       {/if}
 
       {#if $isAuthenticated && $currentUser?.username}
-        <div class="ml-1 hidden sm:block">
+        <div class="ms-1 hidden sm:block">
           <LiveIndicator
             username={$currentUser.username}
             size="sm"
@@ -271,7 +271,7 @@
         </div>
       {/if}
 
-      <div class="ml-3 flex shrink-0 items-center">
+      <div class="ms-3 flex shrink-0 items-center">
         {#if $isAuthenticated}
           <AuthUserDropdown bind:open={profileOpen} />
         {:else if isAuthUnresolved}

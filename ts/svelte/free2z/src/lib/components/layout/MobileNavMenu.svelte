@@ -54,7 +54,7 @@
   }
 
   function navIconClass(href: string): string {
-    return `mr-2.5 size-4 transition-colors ${
+    return `me-2.5 size-4 transition-colors ${
       isActivePath(href)
         ? "text-(--f2z-accent-primary)"
         : "text-(--f2z-text-tertiary) group-hover:text-(--f2z-accent-primary)"

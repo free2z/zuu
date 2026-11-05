@@ -96,7 +96,7 @@
               class="relative inline-flex size-1.5 rounded-full bg-(--f2z-accent-primary)"
             ></span>
           </span>
-          <span class="flex-1 text-left text-xs font-medium">
+          <span class="flex-1 text-start text-xs font-medium">
             {$t("footer.status", "Status & updates")}
           </span>
           <ArrowUpRight class="size-2.5 text-(--f2z-text-muted)" />
@@ -244,7 +244,7 @@
         aria-label={$t("footer.preferences", "Display preferences")}
       >
         <span
-          class="mr-1 hidden text-xs font-medium text-(--f2z-text-muted) sm:inline"
+          class="me-1 hidden text-xs font-medium text-(--f2z-text-muted) sm:inline"
         >
           {$t("footer.preferences", "Display preferences")}
         </span>

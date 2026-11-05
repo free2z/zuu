@@ -4,11 +4,35 @@ let inFlight = 0;
 export function isCatalogLoadInFlight() {
   return inFlight > 0;
 }
+const pseudoEnabled =
+  typeof __PSEUDO_LOCALES__ !== "undefined" && __PSEUDO_LOCALES__;
 const loaders = {
   en: () => import("./locales/en.json"),
   es: () => import("./locales/es.json"),
   fr: () => import("./locales/fr.json"),
   "pt-BR": () => import("./locales/pt-BR.json"),
+  ...(pseudoEnabled
+    ? Object.fromEntries(
+        [
+          ["en-XA", "expand"],
+          ["en-XB", "accent"],
+          ["ar-XB", "rtl"],
+        ].map(([tag, mode]) => [
+          tag,
+          async () => {
+            const [{ default: english }, { pseudoCatalog }] = await Promise.all(
+              [import("./locales/en.json"), import("./pseudo-locales.js")],
+            );
+            return {
+              default: pseudoCatalog(
+                english,
+                /** @type {"expand" | "accent" | "rtl"} */ (mode),
+              ),
+            };
+          },
+        ]),
+      )
+    : {}),
 };
 
 /** Create a cache whose failed loads can be retried.

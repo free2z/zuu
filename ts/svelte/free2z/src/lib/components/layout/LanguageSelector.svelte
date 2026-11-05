@@ -68,7 +68,7 @@
         title={$t("language.choose", "Choose language")}
       >
         <Languages class="size-3 text-(--f2z-accent-primary)" />
-        <span class="flex-1 text-left text-xs font-medium">
+        <span class="flex-1 text-start text-xs font-medium">
           {activeLanguage.label}
         </span>
         <ChevronDown class="size-2.5 text-(--f2z-text-muted)" />

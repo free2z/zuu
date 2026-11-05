@@ -209,8 +209,8 @@
   {
     "file": "src/lib/i18n.ts",
     "kind": "Intl.Collator",
-    "context": "new Intl.Collator( resolveSupportedLocale(requestedLocale) ?? defaultLocale, options, )",
-    "fingerprint": "d31e1b785fc1cd89",
+    "context": "new Intl.Collator( LOCALE_REGISTRY.find( (entry) => entry.code === resolveSupportedLocale(requestedLocale), )?.formattingLocale ?? defaultLocale, options, )",
+    "fingerprint": "4a99c88d00eccb88",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
@@ -218,8 +218,8 @@
   {
     "file": "src/lib/i18n.ts",
     "kind": "Intl.ListFormat",
-    "context": "new Intl.ListFormat( resolveSupportedLocale(requestedLocale) ?? defaultLocale, options, )",
-    "fingerprint": "31b7df22bd27999b",
+    "context": "new Intl.ListFormat( LOCALE_REGISTRY.find( (entry) => entry.code === resolveSupportedLocale(requestedLocale), )?.formattingLocale ?? defaultLocale, options, )",
+    "fingerprint": "b047873ccbc0ad49",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
@@ -245,8 +245,8 @@
   {
     "file": "src/lib/i18n.ts",
     "kind": "Intl.PluralRules",
-    "context": "new Intl.PluralRules( resolveSupportedLocale(requestedLocale) ?? defaultLocale, )",
-    "fingerprint": "19f7f7d867cc15de",
+    "context": "new Intl.PluralRules( LOCALE_REGISTRY.find( (entry) => entry.code === resolveSupportedLocale(requestedLocale), )?.formattingLocale ?? defaultLocale, )",
+    "fingerprint": "847119b30dd46976",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
@@ -272,8 +272,8 @@
   {
     "file": "src/lib/intl-display.js",
     "kind": "Intl.Collator",
-    "context": "new Intl.Collator(locales, options)",
-    "fingerprint": "18b8761de143f6b9",
+    "context": "new Intl.Collator(formattingLocales(locales), options)",
+    "fingerprint": "7d1de6bbf879ce5d",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
@@ -281,8 +281,8 @@
   {
     "file": "src/lib/intl-display.js",
     "kind": "Intl.DateTimeFormat",
-    "context": "new Intl.DateTimeFormat(locales, options)",
-    "fingerprint": "1b94a99862223392",
+    "context": "new Intl.DateTimeFormat(formattingLocales(locales), options)",
+    "fingerprint": "c01afa0683b34552",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
@@ -290,8 +290,8 @@
   {
     "file": "src/lib/intl-display.js",
     "kind": "Intl.DisplayNames",
-    "context": "new Intl.DisplayNames(locales, options)",
-    "fingerprint": "80f54bfda5e6217c",
+    "context": "new Intl.DisplayNames(formattingLocales(locales), options)",
+    "fingerprint": "07094d83955fb395",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
@@ -299,8 +299,8 @@
   {
     "file": "src/lib/intl-display.js",
     "kind": "Intl.NumberFormat",
-    "context": "new Intl.NumberFormat(locales, options)",
-    "fingerprint": "dcdd67067af6f8cd",
+    "context": "new Intl.NumberFormat(formattingLocales(locales), options)",
+    "fingerprint": "f690dafdb30f3823",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."

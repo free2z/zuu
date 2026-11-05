@@ -1,3 +1,4 @@
+import { formattingLocales } from "$lib/locale.js";
 import {
   getCurrentLocale,
   resolveSupportedLocale,
@@ -76,7 +77,9 @@ export function toTimestamp(value: DateInput): number {
 }
 
 function resolveLocale(requestedLocale?: string): SupportedLocale | string {
-  return resolveSupportedLocale(requestedLocale) ?? getCurrentLocale();
+  return formattingLocales(
+    resolveSupportedLocale(requestedLocale) ?? getCurrentLocale(),
+  ) as string;
 }
 
 function fallbackText(value: DateInput): string {
