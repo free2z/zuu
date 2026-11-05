@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Deprecated
+
+- Request `metadata`: the gateway refuses a non-empty `metadata` for every
+  app since zuu#1225 (`400 invalid_request`, `field: "metadata"`,
+  `reason: "privacy_baseline"`). Call records keep no caller-chosen text;
+  receipts of later calls carry `"metadata": {}`. Send none. `ChatRequest.metadata` is marked `@deprecated`.
+
 ## 0.4.0 — 2026-10-16
 
 Apps don't sell 2Z. Tagged `sdk-v0.4.0` with the other Free2Z SDK packages.

@@ -55,7 +55,7 @@ const RUST_REQUIRED_JOB_IDS = new Set([
 ]);
 // This package job intentionally runs on every PR, independently of the wallet
 // selectors. Its success must never be mistaken for an illegitimate selected skip.
-const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript"]);
+const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript", "svelte_advisory"]);
 const POLICED_RUST_ROOTS = ["wallet", "rs"];
 const RUST_ROOT_CONTRACTS = [
   {
@@ -81,6 +81,7 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/shared/src/diagnostics/record.ts",
           "wallet/zuuli/scripts/status-freshness.mjs",
           "wallet/zuuli/src-tauri/unknown-input.bin",
+          "z/openmls/openmls",
         ],
       },
       {
@@ -92,6 +93,7 @@ const RUST_ROOT_CONTRACTS = [
           "wallet/nested/future/Cargo.toml",
           "docs/free2z/messaging/CLIENT-CONTRACT.md",
           "docs/free2z/messaging/WIRE.md",
+          "z/openmls/openmls",
           // The markdown-only guard must exclude prose and nothing else: source
           // under the same two prefixes still selects the full gate.
           "wallet/free2z/src/App.tsx",
@@ -122,6 +124,7 @@ const RUST_ROOT_CONTRACTS = [
         additionalProbePaths: [
           "wallet/free2z/src/App.tsx",
           "wallet/e2e2z/src/App.tsx",
+          "z/openmls/openmls",
           ".github/workflows/e2e2z-release.yml",
           ".github/workflows/free2z-release.yml",
         ],
@@ -268,6 +271,7 @@ const RUST_ROOT_CONTRACTS = [
           "scripts/free2z/check-kt-sth-repeat-agreement.mjs",
           "scripts/check-crypto-kat-locks.mjs",
           "scripts/check-crypto-kats.sh",
+          "scripts/check-crypto-kat-arm.mjs",
           "wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml",
           "wallet/plugins/tauri-plugin-f2zmsg/Cargo.lock",
           "wallet/zuuli/src-tauri/Cargo.toml",
@@ -392,6 +396,39 @@ const REQUIRED_NATIVE_TESTS_JOB_LINES = [
   "          --all-targets",
   "          --features production-route-probe",
   "          --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml",
+];
+const REQUIRED_CRYPTO_KAT_ARM_JOB_LINES = [
+  "  rs_crypto_kat_arm:",
+  "    name: rs / crypto KATs (native ARM64)",
+  "    needs: changes",
+  "    if: needs.changes.outputs.rs == 'true'",
+  "    runs-on: ubuntu-24.04-arm",
+  "    timeout-minutes: 30",
+  "    steps:",
+  ...bootstrapStep.trimEnd().split("\n"),
+  `      - uses: ${GATE_CHECKOUT_REFERENCE} # v7.0.1`,
+  "      - name: Resolve the pinned Rust toolchain",
+  "        id: rust_toolchain",
+  "        shell: bash",
+  "        run: |",
+  "          set -euo pipefail",
+  "          version=$(scripts/check-rust-toolchain.sh --print-channel)",
+  '          echo "version=$version" >> "$GITHUB_OUTPUT"',
+  "      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable",
+  "        with:",
+  "          toolchain: ${{ steps.rust_toolchain.outputs.version }}",
+  "      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+  "        with:",
+  "          workspaces: rs",
+  "          key: rs-crypto-kat-arm64",
+  "      - name: Prove native ARM64 and NEON backend selection",
+  "        run: scripts/check-crypto-kats.sh --verify-aarch64-neon",
+  "      - name: Test ARM backend evidence verifier controls",
+  "        run: node scripts/check-crypto-kat-arm.mjs --self-test",
+  "      - name: Prove the crypto KAT suite rejects a corrupted standard vector",
+  "        run: scripts/check-crypto-kats.sh --self-test",
+  "      - name: Run the permanent crypto known-answer suite on NEON",
+  "        run: scripts/check-crypto-kats.sh --arm-native",
 ];
 const REQUIRED_CRYPTO_TARGET_JOB_LINES = [
   "  rust_crypto_targets:",
@@ -2779,6 +2816,31 @@ function rustRootWorkflowFailures(relativeFile, lines, contract, embeddedInputs 
   }
 
   if (contract.root === "rs") {
+    const armKat = jobs.get("rs_crypto_kat_arm");
+    if (!armKat) {
+      failures.push(`${relativeFile}: rs owner is missing required job rs_crypto_kat_arm`);
+    } else {
+      const actualArmKatJobLines = lines
+        .slice(armKat.start, armKat.end)
+        .filter((line) => line.trim() && !line.trimStart().startsWith("#"))
+        .map((line) => line.trimEnd());
+      if (JSON.stringify(actualArmKatJobLines) !== JSON.stringify(REQUIRED_CRYPTO_KAT_ARM_JOB_LINES)) {
+        failures.push(
+          `${relativeFile}:${armKat.start + 1}: rs_crypto_kat_arm must match the required native ARM64/NEON KAT contract`,
+        );
+      }
+    }
+    const gate = jobs.get("gate");
+    const gateNeeds = gate?.properties.get("needs");
+    if (!gate || !gateNeeds) {
+      failures.push(`${relativeFile}: rs gate must declare needs`);
+    } else {
+      const parsedGateNeeds = parseGateNeeds(lines, gateNeeds.index, 4);
+      if (!parsedGateNeeds.error && !parsedGateNeeds.values.includes("rs_crypto_kat_arm")) {
+        failures.push(`${relativeFile}:${gateNeeds.index + 1}: gate must await rs_crypto_kat_arm`);
+      }
+    }
+
     const job = jobs.get("rs_test");
     const steps = job
       ? policyJobSteps(relativeFile, lines, job, failures, "rs AKD evidence owner")
@@ -4575,6 +4637,50 @@ function runRustRootWorkflowMutationTests(repoRoot) {
           needle,
         );
       }
+
+      const armKatNeedle = "rs_crypto_kat_arm must match the required native ARM64/NEON KAT contract";
+      assertWorkflowFailure(
+        contract,
+        source,
+        "rs workflow rejects replacing the native ARM64 runner",
+        (value) => mutateJob(value, "rs_crypto_kat_arm", "    runs-on: ubuntu-24.04-arm", "    runs-on: ubuntu-latest"),
+        armKatNeedle,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "rs workflow rejects detaching ARM KATs from the shared rs graph selector",
+        (value) => mutateJob(value, "rs_crypto_kat_arm", "    if: needs.changes.outputs.rs == 'true'", "    if: false"),
+        armKatNeedle,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "rs workflow rejects deleting the ARM KAT vector mutation control",
+        (value) => mutateJob(value, "rs_crypto_kat_arm", "        run: scripts/check-crypto-kats.sh --self-test", "        run: echo skipped"),
+        armKatNeedle,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "rs workflow rejects deleting the ARM artifact verifier self-test",
+        (value) => mutateJob(value, "rs_crypto_kat_arm", "        run: node scripts/check-crypto-kat-arm.mjs --self-test", "        run: echo skipped"),
+        armKatNeedle,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "rs workflow rejects deleting the libcrux NEON build evidence check",
+        (value) => mutateJob(value, "rs_crypto_kat_arm", "        run: scripts/check-crypto-kats.sh --arm-native", "        run: echo skipped"),
+        armKatNeedle,
+      );
+      assertWorkflowFailure(
+        contract,
+        source,
+        "rs workflow rejects a gate that does not await the ARM KAT lane",
+        (value) => mutateJob(value, "gate", "rs_crypto_kat_arm, rs_wasm", "rs_wasm"),
+        "gate must await rs_crypto_kat_arm",
+      );
     }
   }
   return cases;
@@ -7108,6 +7214,33 @@ function runSelfTest(repoRoot) {
       needle: "required job free2z_sdk_typescript must be success, got failure",
       needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
         free2z_sdk_typescript: { result: "failure" } },
+    },
+    {
+      name: "unconditional Svelte advisory audit succeeds when wallet selectors are false",
+      policyOutcome: "success",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        svelte_advisory: { result: "success" } },
+    },
+    {
+      name: "unconditional Svelte advisory audit cannot disappear",
+      policyOutcome: "success",
+      omitJob: "svelte_advisory",
+      needle: "always-required job svelte_advisory is missing",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } } },
+    },
+    {
+      name: "unconditional Svelte advisory audit cannot be skipped",
+      policyOutcome: "success",
+      needle: "required job svelte_advisory must be success, got skipped",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        svelte_advisory: { result: "skipped" } },
+    },
+    {
+      name: "Svelte advisory audit failure blocks every change",
+      policyOutcome: "success",
+      needle: "required job svelte_advisory must be success, got failure",
+      needs: { changes: { result: "success", outputs: { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "false" } },
+        svelte_advisory: { result: "failure" } },
     },
     {
       name: "frontend source succeeds with native jobs skipped",

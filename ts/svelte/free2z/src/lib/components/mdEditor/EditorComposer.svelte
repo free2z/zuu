@@ -4,6 +4,7 @@
   import { contentDirectionAttribute } from "$lib/zpage-language.js";
   import EditorCoverField from "./EditorCoverField.svelte";
   import EditorContentField from "./EditorContentField.svelte";
+  import EditorAITextCompletion from "./EditorAITextCompletion.svelte";
   import EditorTitleField from "./EditorTitleField.svelte";
   import type { EditorValidationErrors } from "./types";
 
@@ -136,6 +137,14 @@
       language={writingLanguage}
       {subscriberOnly}
       {isAbandoned}
+    />
+    <EditorAITextCompletion
+      draft={content}
+      {isAbandoned}
+      onInsert={(text) => {
+        content = `${content}${content ? "\n\n" : ""}${text}`;
+        onContentChange?.();
+      }}
     />
   </div>
 </div>

@@ -4,6 +4,13 @@
 
 - Signed tri-state `ModelCapabilities::forced_tool_choice` (zuu#1144): explicit false refuses required/named function choice before holds; absent preserves legacy tool-control admission.
 
+### Deprecated
+
+- Request `metadata`: the gateway refuses a non-empty `metadata` for every
+  app since zuu#1225 (`400 invalid_request`, `field: "metadata"`,
+  `reason: "privacy_baseline"`). Call records keep no caller-chosen text;
+  receipts of later calls carry `"metadata": {}`. Send none. `ChatRequest::with_metadata` is `#[deprecated]`.
+
 ## 0.3.0 — 2026-10-15
 
 Tagged `sdk-v0.3.0` with the other Free2Z SDK packages. Not on a registry:

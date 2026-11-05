@@ -1106,7 +1106,31 @@
       "libraryEmpty": "Vous n’avez pas encore importé de documents PDF.",
       "cloudImageAlt": "Document PDF de votre cloud",
       "imageAccessTitle": "Vos lecteurs ne pourraient pas voir ce document PDF"
-    }
+    },
+    "aiTextTitle": "Rédiger avec l’IA",
+    "aiTextPrompt": "Consigne (envoyée au fournisseur sélectionné)",
+    "aiTextPromptPlaceholder": "Décrivez le texte souhaité. Le brouillon n’est jamais envoyé automatiquement.",
+    "aiTextModel": "Modèle",
+    "aiTextQuote": "Afficher le prix et la destination",
+    "aiTextLoadError": "Les modèles d’IA sont indisponibles. Réessayez plus tard.",
+    "aiTextGenerateError": "La génération a échoué. Vérifiez votre choix et réessayez.",
+    "aiTextRetention": "Politique de confidentialité et de conservation du fournisseur",
+    "aiTextWorking": "Génération…",
+    "aiTextSubmit": "Générer le texte (jusqu’à {price} 2Z)",
+    "aiTextPreview": "Aperçu — rien n’a encore été inséré",
+    "aiTextCharged": "{price} 2Z facturés",
+    "aiTextAccept": "Insérer le texte",
+    "aiTextDiscard": "Ignorer",
+    "aiTextDestination": "Votre consigne sera envoyée à {destination}.",
+    "aiTextMaxCharge": "Frais maximum : {price} 2Z. Les frais réels sont calculés selon l’usage et peuvent être inférieurs.",
+    "aiTextAvailability": "Disponibilité : {availability}. File d’attente : {queue}.",
+    "aiTextQuoteError": "Impossible de chiffrer cette consigne. Vérifiez-la et réessayez.",
+    "aiTextRetryError": "Le résultat est incertain. Réessayez exactement la même demande pour le récupérer sans risque.",
+    "aiTextRetry": "Réessayer la demande exacte",
+    "aiTextPending": "Une demande précédente a peut-être abouti. Réessayez exactement la même demande pour récupérer son résultat ; fournisseur et prix sont verrouillés.",
+    "aiTextEffectiveCap": "Limite de réponse : {tokens} jetons (demandés : {requested}).",
+    "aiTextEmpty": "Aucun modèle de texte n’est disponible pour le moment.",
+    "aiTextCatalogueRetry": "Recharger la liste des modèles"
   },
   "dashboard": {
     "pages": {
