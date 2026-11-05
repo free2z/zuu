@@ -1,90 +1,31 @@
 # Integrating a tutor app with Free2Z
 
-**Implementation snapshot: 2026-09-28 UTC.** The reviewed Rust core is merged, and
-reviewed native/TypeScript source previews can be used for real SDK integration.
-Start with [the pinned source-preview installation and Tauri adapter guide](./SOURCE-PREVIEW.md).
-Registry publication and live end-to-end acceptance are still pending; building
-the real SDK does not establish availability of every service or payment rail.
-
-The Rust examples below target the tagged release `sdk-v0.4.0`
-([release notes](./RELEASES.md#sdk-v040--2026-10-16)), which includes the reviewed grant API alongside login, balance and
-AI operations. The `billing_url()` / `billingUrl()` / `openBilling()`
-snippets below need **SDK 0.4.0**, not `sdk-v0.3.0`: the billing link and the
-deprecation of the app-facing purchase API land there. Local fake-service regressions and native builds are not live
-service acceptance evidence.
-
-## What can run today
-
-| Surface | Verified implementation status | App work that can proceed |
-|---|---|---|
-| Rust core | Merged core and grant API; account and AI regression tests use local HTTP fakes | Build against the preview API in an isolated experiment; use the fake full-flow example |
-| Desktop, iOS and Android Tauri integration | Reviewed source preview [#1081](https://github.com/free2z/zuu/pull/1081) | Register the real native plugin and local capabilities using the source-preview guide |
-| TypeScript facade and reference app | Merged facade plus reviewed grant API [#1106](https://github.com/free2z/zuu/pull/1106); reference app remains under #1073 | Use Client + NativeTransport through an app-owned adapter; retain mocks for unavailable services |
-| Live metered AI | Deployment and ledger integration are still prerequisites in [#1047](https://github.com/free2z/zuu/issues/1047) | Model streams, failures and settlement in mocks; do not promise live charges or receipts |
-
-The gateway source implements authenticated models/estimate, durable streamed and nonstreamed
-paid text chat and scoped receipts with the PostgreSQL function adapter. Restricted
-PostgreSQL tests cover settlement recovery and revocation after admission. This
-is implementation evidence, not proof that a particular deployment, provider
-configuration or registered application has passed live acceptance. This guide does not certify availability of the public issuer,
-balance, checkout or AI endpoints. Before a live acceptance test, obtain the
-platform's readiness confirmation, an app registration and approved test
-accounts. Do not substitute production credentials for missing mocks.
-
-## Installation and source evaluation
-
-The package names in the [SDK contract](./README.md#the-namespace) are the
-intended distribution names. On 2026-09-27, the official crates.io metadata
-endpoints for `f2z-sdk`, `f2z-ai-proto` and `tauri-plugin-f2z`, and the npm
-metadata endpoints for `@free2z/sdk` and `@free2z/tauri-plugin-f2z-api`, each
-returned HTTP 404. The Rust workspace currently disables publishing.
-The Tauri plugin and TypeScript facade have reviewed source previews; their package
-interfaces are not released yet. Do not add an invented npm version or assume
-an in-progress plugin command is a supported release API. Supported third-party integration will use published
-packages when the release is announced. The intended commands below are
-**not available yet**; run them only after the platform announces and verifies
-an actual release:
-
-```text
-cargo add f2z-sdk
-cargo add tauri-plugin-f2z
-npm install @free2z/sdk @free2z/tauri-plugin-f2z-api
-```
-
-Plugin registration, capabilities and mobile setup still require the released
-plugin's own installation instructions; adding dependencies alone is insufficient.
-
-Until registry publication, Cargo can identify the public release by its Git
-tag, without a private repository or a path into this workspace:
-
-```toml
-[dependencies]
-f2z-sdk = { git = "https://github.com/free2z/zuu", tag = "sdk-v0.4.0" }
-```
-
-This is not the supported published-package installation and does not establish
-release readiness. The preview requires Rust 1.97.1, the repository's pinned
-toolchain. Git dependencies may fetch the repository's submodules; for the
-smallest local experiment, check out the public source without recursively
-initializing them and run the SDK's own fake example:
-
-```sh
-git clone --filter=blob:none https://github.com/free2z/zuu.git zuu-sdk-preview
-cd zuu-sdk-preview
-git checkout sdk-v0.4.0
-cd rs
-cargo +1.97.1 run --locked -p f2z-sdk --example full_flow
-cargo +1.97.1 test --locked -p f2z-sdk --all-targets
-```
-
-`full_flow` starts local fakes of the issuer, account API and gateway. It needs
-no real account, payment or provider key, and performs no purchase: apps don't
-sell 2Z, so from 0.4.0 on it prints the Free2Z billing URL instead. Passing it proves the client flow against those
-fakes, not a live platform deployment.
+Start with the [first-app quickstart](./QUICKSTART.md), then use this guide
+for registration, the native boundary, budget recovery and settlement.
+Use the coordinated `sdk-v0.4.0` source tag for all five packages; the
+[installation guide and historical implementation snapshot](./SOURCE-PREVIEW.md)
+separate source integration from registry publication and live acceptance.
+Local fakes prove SDK behavior, not deployed service or payment readiness.
 
 ## Registration and the native boundary
 
-Register a **public native client**; a Tauri app cannot protect a client secret.
+Open [Your apps](https://free2z.cash/developers/apps), sign in, and create an app:
+
+1. Enter the app name and select **Native, mobile or browser app (public)**.
+   A Tauri or browser app cannot protect a client secret.
+2. Register the exact redirect URIs your build uses. For Tauri use the
+   [platform setup](../../../wallet/plugins/tauri-plugin-f2z/README.md#platform-registration)
+   and [redirect rules](./spec/oidc.md#3-redirect-uris); for web register your
+   HTTPS callback. Do not copy a different app's scheme or callback.
+3. Allow the default scopes listed below. Optionally suggest a default budget
+   and period; the user's consent and the authoritative `grant()` govern it.
+4. Save, copy the public `client_id`, and configure it with the same redirect
+   URI in your SDK setup. Public registrations have no client secret to embed.
+   Keep separate registrations/configuration where build callbacks differ.
+
+This walkthrough follows the repository's
+[registration page](../../../ts/svelte/free2z/src/routes/developers/apps/+page.svelte)
+and its `/api/oauth/apps/` client. It is source evidence, not a live registration test.
 Request `openid profile offline_access balance:read ai:invoke` (the SDK's
 defaults since 0.4.0). Apps don't sell 2Z, so no app requests
 `purchase:create`: a user who needs 2Z gets them on their Free2Z billing page

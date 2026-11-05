@@ -201,5 +201,26 @@
   "search": {
     "all": "Rechercher dans tout free2z",
     "clear": "Effacer la recherche"
+  },
+  "moderation": {
+    "report": "Signaler",
+    "block": "Bloquer",
+    "unblock": "Débloquer",
+    "blocks": "Comptes bloqués",
+    "hidden": "Contenu masqué d’un compte bloqué.",
+    "loadError": "Impossible de charger les comptes bloqués.",
+    "empty": "Aucun compte bloqué.",
+    "requestError": "La demande a échoué. Réessayez.",
+    "sent": "Signalement envoyé.",
+    "reason": "Motif",
+    "details": "Détails (facultatif)",
+    "send": "Envoyer le signalement",
+    "csae": "Abus ou exploitation sexuelle d’enfant",
+    "harassment": "Harcèlement ou menaces",
+    "hate": "Contenu haineux",
+    "sexual": "Contenu sexuel",
+    "violence": "Violence",
+    "spam": "Spam ou escroquerie",
+    "other": "Autre"
   }
 }

@@ -131,6 +131,15 @@
         </a>
       {/if}
 
+      {#if $isAuthenticated && $currentUser?.username}
+        <a
+          href="/account/blocks"
+          onclick={() => (open = false)}
+          class={navLinkClass("/account/blocks")}
+        >
+          {$t("moderation.manage.title", "Blocked accounts")}
+        </a>
+      {/if}
       {#each sections as section (section.key)}
         <div>
           <h3

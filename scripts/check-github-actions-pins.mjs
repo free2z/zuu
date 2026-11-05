@@ -263,6 +263,9 @@ const RUST_ROOT_CONTRACTS = [
         probeRoot: "rs",
         additionalProbePaths: [
           "docs/free2z/sdk/spec/chat-api.md",
+          "docs/free2z/sdk/RELEASES.md",
+          "scripts/free2z/check-released-sdk-compat.sh",
+          "scripts/free2z/released-sdk-register.mjs",
           "docs/free2z/messaging/KT.md",
           "docs/free2z/messaging/decisions/0013-key-transparency-log.md",
           "docs/free2z/messaging/evidence/akd-benchmark.json",
@@ -608,7 +611,7 @@ const REQUIRED_SURFACES_JOB_LINES = [
   "    name: zuuli / surfaces (${{ matrix.app }})",
   "    needs: changes",
   `    if: ${REQUIRED_SURFACE_SELECTOR_CONDITION}`,
-  "    runs-on: ubuntu-latest",
+  "    runs-on: ubuntu-24.04",
   "    timeout-minutes: 25",
   "    strategy:",
   "      fail-fast: false",
@@ -650,7 +653,7 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "    name: zuuli / frontend",
   "    needs: changes",
   `    if: ${REQUIRED_SURFACE_SELECTOR_CONDITION}`,
-  "    runs-on: ubuntu-latest",
+  "    runs-on: ubuntu-24.04",
   "    timeout-minutes: 35",
   "    defaults:",
   "      run:",
@@ -1027,6 +1030,29 @@ function workflowLine(line) {
     indent: prefix.length,
     text: withoutComment.slice(prefix.length),
   };
+}
+
+// Source-wide label literals include runs-on scalars, label arrays, matrix
+// dimensions/include rows and expression fallbacks, including new workflows.
+// Match complete runner-label tokens, not paths such as ubuntu-ci-packages.sh
+// or cache keys such as ubuntu-24.04-gtk. Comments are documentation, not policy.
+// This is an OS/architecture policy, not a promise of immutable VM contents.
+function ubuntuRunnerLabelFailures(relativeFile, lines) {
+  const supported = new Set(["ubuntu-24.04", "ubuntu-24.04-arm"]);
+  const failures = [];
+  for (const [index, line] of lines.entries()) {
+    const labels = stripYamlComment(line).matchAll(
+      /(?<![\w.-])ubuntu-(?:latest(?:-arm)?|slim|\d{2}\.\d{2}(?:-arm)?)(?![\w.-])/g,
+    );
+    for (const [label] of labels) {
+      if (!supported.has(label)) {
+        failures.push(
+          `${relativeFile}:${index + 1}: Ubuntu runner label ${label} is not reviewed; use ubuntu-24.04 (x64) or ubuntu-24.04-arm (ARM64); see docs/ci/ubuntu-runner-policy.md`,
+        );
+      }
+    }
+  }
+  return failures;
 }
 
 function decodeRestrictedYamlScalar(raw, kind) {
@@ -3717,6 +3743,7 @@ function scanRepository(
       ? workflowSourceOverrides.get(normalizedRelativeFile)
       : fs.readFileSync(file, "utf8");
     const lines = workflowSource.split(/\r?\n/);
+    failures.push(...ubuntuRunnerLabelFailures(relativeFile, lines));
     if (normalizedRelativeFile === REQUIRED_WORKFLOW_PATH) {
       failures.push(...gatePolicyFailures(repoRoot, relativeFile, lines));
     }
@@ -6301,7 +6328,7 @@ function runSelfTest(repoRoot) {
     "  RUST_BACKTRACE: 1",
     "jobs:",
     "  changes:",
-    "    runs-on: ubuntu-latest",
+    "    runs-on: ubuntu-24.04",
     "    steps:",
     ...bootstrapStep.trimEnd().split("\n"),
     "      - name: Verify immutable actions and fail-closed required jobs",
@@ -6322,12 +6349,12 @@ function runSelfTest(repoRoot) {
     `          ${WASM_POLICY_COMMAND}`,
     "  advisory:",
     "    continue-on-error: true",
-    "    runs-on: ubuntu-latest",
+    "    runs-on: ubuntu-24.04",
     "    steps:",
     ...bootstrapStep.trimEnd().split("\n"),
     "      - run: exit 1",
     "  build:",
-    "    runs-on: ubuntu-latest",
+    "    runs-on: ubuntu-24.04",
     "    steps:",
     ...bootstrapStep.trimEnd().split("\n"),
     "      - name: a legitimate best-effort step",
@@ -6336,7 +6363,7 @@ function runSelfTest(repoRoot) {
     "  gate:",
     "    needs: [changes, build]",
     "    if: always()",
-    "    runs-on: ubuntu-latest",
+    "    runs-on: ubuntu-24.04",
     "    steps:",
     ...bootstrapStep.trimEnd().split("\n"),
     ...gateCheckoutLines,
@@ -6353,7 +6380,7 @@ function runSelfTest(repoRoot) {
   const reusableGateWorkflow = validGateWorkflow.replace(
     [
       "  build:",
-      "    runs-on: ubuntu-latest",
+      "    runs-on: ubuntu-24.04",
       "    steps:",
       ...bootstrapStep.trimEnd().split("\n"),
       "      - name: a legitimate best-effort step",
@@ -6368,13 +6395,46 @@ function runSelfTest(repoRoot) {
     "  workflow_call:",
     "jobs:",
     "  build:",
-    "    runs-on: ubuntu-latest",
+    "    runs-on: ubuntu-24.04",
     "    steps:",
     ...bootstrapStep.trimEnd().split("\n"),
     "      - run: npm test",
     "",
   ].join("\n");
+  const runnerFixtures = [
+    ["plain scalar", "runs-on: ubuntu-latest"],
+    ["quoted scalar", "runs-on: 'ubuntu-latest'"],
+    ["label array", 'runs-on: ["ubuntu-latest", x64]'],
+    ["matrix dimension", "strategy: {matrix: {os: [ubuntu-latest, macos-latest]}}"],
+    ["matrix include row", "strategy: {matrix: {include: [{os: ubuntu-latest}]}}"],
+    ["expression fallback", "runs-on: ${{ matrix.os || 'ubuntu-latest' }}"],
+    ["ARM alias", "runs-on: ubuntu-latest-arm"],
+    ["unreviewed OS", "runs-on: ubuntu-26.04"],
+    ["retired baseline", "runs-on: ubuntu-22.04"],
+    ["different environment", "runs-on: ubuntu-slim"],
+  ];
   const cases = [
+    ...runnerFixtures.map(([name, selector]) => ({
+      name: `new workflow rejects unreviewed Ubuntu runner: ${name}`,
+      needle: "Ubuntu runner label",
+      files: {".github/workflows/new.yaml": `jobs:\n  build:\n    ${selector}\n`},
+    })),
+    {
+      name: "explicit Ubuntu architecture labels and native platforms remain valid",
+      valid: true,
+      files: {".github/workflows/new.yaml": `# ubuntu-latest is forbidden as a selector
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-26, windows-2025]
+    runs-on: \${{ matrix.os }}
+    # Cache keys and installer paths are not runner labels.
+    env: {KEY: ubuntu-24.04-gtk}
+    steps:
+      - run: scripts/free2z/install-ubuntu-ci-packages.sh
+`},
+    },
     {
       name: "valid pinned, quoted, reusable, and nested-local references",
       valid: true,
@@ -6441,7 +6501,7 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: npm test`,
+          `    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - run: npm test`,
           "    uses: ./.github/workflows/nested-build.yml",
         ),
         ".github/workflows/nested-build.yml": [
@@ -6451,7 +6511,7 @@ function runSelfTest(repoRoot) {
           "  nested:",
           "    env:",
           '      NODE_OPTIONS: "--import=data:text/javascript,process.exit(0)"',
-          "    runs-on: ubuntu-latest",
+          "    runs-on: ubuntu-24.04",
           "    steps:",
           ...bootstrapStep.trimEnd().split("\n"),
           "      - run: cargo test",
@@ -6498,8 +6558,8 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          "    runs-on: ubuntu-latest\n",
-          "    runs-on: ubuntu-latest\n    defaults:\n      run:\n        working-directory: bypass\n",
+          "    runs-on: ubuntu-24.04\n",
+          "    runs-on: ubuntu-24.04\n    defaults:\n      run:\n        working-directory: bypass\n",
         ),
       },
     },
@@ -6531,8 +6591,8 @@ function runSelfTest(repoRoot) {
       needle: "required job build defaults must use a canonical block mapping",
       files: gateFixture(
         validGateWorkflow.replace(
-          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
-          `    runs-on: ubuntu-latest\n    defaults: { run: { working-directory: bypass } }\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
+          `    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
+          `    runs-on: ubuntu-24.04\n    defaults: { run: { working-directory: bypass } }\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
         ),
       ),
     },
@@ -6541,8 +6601,8 @@ function runSelfTest(repoRoot) {
       needle: "defaults.run contains an unsupported or duplicate property",
       files: gateFixture(
         validGateWorkflow.replace(
-          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
-          `    runs-on: ubuntu-latest\n    defaults:\n      run:\n        <<: *redirected-defaults\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
+          `    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
+          `    runs-on: ubuntu-24.04\n    defaults:\n      run:\n        <<: *redirected-defaults\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n`,
         ),
       ),
     },
@@ -6552,9 +6612,9 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          "    runs-on: ubuntu-latest\n",
+          "    runs-on: ubuntu-24.04\n",
           [
-            "    runs-on: ubuntu-latest",
+            "    runs-on: ubuntu-24.04",
             "    defaults:",
             "      run:",
             "        shell: bash -n {0}",
@@ -6631,7 +6691,7 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: npm test`,
+          `    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - run: npm test`,
           "    uses: ./.github/workflows/nested-build.yml",
         ),
         ".github/workflows/nested-build.yml": [
@@ -6640,7 +6700,7 @@ function runSelfTest(repoRoot) {
           "jobs:",
           "  nested:",
           "    continue-on-error: true",
-          "    runs-on: ubuntu-latest",
+          "    runs-on: ubuntu-24.04",
           "    steps:",
           ...bootstrapStep.trimEnd().split("\n"),
           "      - run: cargo test",
@@ -6666,7 +6726,7 @@ function runSelfTest(repoRoot) {
       files: {
         ...gateFixture(reusableGateWorkflow),
         ".github/workflows/required-build.yml": reusableBuildWorkflow.replace(
-          `    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: npm test`,
+          `    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - run: npm test`,
           `    uses: owner/repo/.github/workflows/build.yml@${fullSha} # reviewed`,
         ),
       },
@@ -6680,7 +6740,7 @@ function runSelfTest(repoRoot) {
           "on: pull_request",
           "jobs:",
           "   formatted:",
-          "      runs-on: ubuntu-latest",
+          "      runs-on: ubuntu-24.04",
           "      steps:",
           "      - run: true",
           "",
@@ -6787,8 +6847,8 @@ function runSelfTest(repoRoot) {
       needle: "must use a block mapping",
       files: gateFixture(
         validGateWorkflow.replace(
-          `  build:\n    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n`,
-          "  build: { runs-on: ubuntu-latest, continue-on-error: true }\n",
+          `  build:\n    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n`,
+          "  build: { runs-on: ubuntu-24.04, continue-on-error: true }\n",
         ),
       ),
     },
@@ -6797,8 +6857,8 @@ function runSelfTest(repoRoot) {
       needle: "job build must use canonical four-space property indentation",
       files: gateFixture(
         validGateWorkflow.replace(
-          `  build:\n    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n`,
-          "  build:\n      continue-on-error: true\n      runs-on: ubuntu-latest\n      steps:\n        - run: exit 1\n",
+          `  build:\n    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - name: a legitimate best-effort step\n        continue-on-error: true\n        run: echo 'step-level continue-on-error: true is allowed'\n`,
+          "  build:\n      continue-on-error: true\n      runs-on: ubuntu-24.04\n      steps:\n        - run: exit 1\n",
         ),
       ),
     },
@@ -6830,7 +6890,7 @@ function runSelfTest(repoRoot) {
         validGateWorkflow
           .replace(
             "  gate:\n",
-            `  rust_android_32:\n    runs-on: ubuntu-latest\n    steps:\n${bootstrapStep}      - run: cargo check\n  gate:\n`,
+            `  rust_android_32:\n    runs-on: ubuntu-24.04\n    steps:\n${bootstrapStep}      - run: cargo check\n  gate:\n`,
           )
           .replace(
             "    needs: [changes, build]\n",

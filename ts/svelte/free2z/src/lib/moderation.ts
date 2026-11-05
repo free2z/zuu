@@ -120,7 +120,15 @@ export async function setBlocked(
     const state = blocked
       ? await creatorBlockUpdate(username)
       : await creatorBlockDestroy(username);
-    return { ok: true, blocked: Boolean(state?.active) };
+    if (
+      typeof state?.active !== "boolean" ||
+      typeof state?.username !== "string" ||
+      state.username.toLowerCase() !== username.toLowerCase() ||
+      state.active !== blocked
+    ) {
+      return { ok: false, reason: "failed" };
+    }
+    return { ok: true, blocked: state.active };
   } catch (error) {
     return blockFailure(error);
   }
@@ -130,7 +138,13 @@ export async function setBlocked(
 export async function readBlocked(username: string): Promise<boolean | null> {
   try {
     const state = await creatorBlockRetrieve(username, { timeoutMs: 15_000 });
-    return Boolean(state?.active);
+    if (
+      typeof state?.active !== "boolean" ||
+      typeof state?.username !== "string" ||
+      state.username.toLowerCase() !== username.toLowerCase()
+    )
+      return null;
+    return state.active;
   } catch {
     return null;
   }

@@ -6,6 +6,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { articles } from "@/lib/api/free2z";
 import type { Article, ArticleSort } from "@/lib/api/types";
+import { useModeration } from "@/store/moderation";
+import { getTokenSnapshot } from "@/lib/api/http";
 
 export interface UseArticleFeedArgs {
   sort: ArticleSort;
@@ -39,6 +41,25 @@ export function useArticleFeed({
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(false);
   const [reloadNonce, setReloadNonce] = useState(0);
+  const owner = useModeration((s) => s.owner);
+  const ownerKey = owner
+    ? `${owner.username}:${owner.token.generation}`
+    : "anonymous";
+  const isCurrentOwner = () => {
+    const current = useModeration.getState().owner;
+    return (
+      (current
+        ? `${current.username}:${current.token.generation}`
+        : "anonymous") === ownerKey
+    );
+  };
+  const loadedOwner = useRef(ownerKey);
+  useEffect(() => {
+    const refresh = () => setReloadNonce((n) => n + 1);
+    window.addEventListener("free2z-moderation-refresh", refresh);
+    return () =>
+      window.removeEventListener("free2z-moderation-refresh", refresh);
+  }, []);
 
   // Monotonic generation id: bumped on every filter change so results from a
   // superseded query are dropped. `busy` blocks overlapping fetches.
@@ -49,6 +70,14 @@ export function useArticleFeed({
   // Reset + load the first page whenever the filters (or a manual reload) change.
   useEffect(() => {
     const gen = ++genRef.current;
+    loadedOwner.current = ownerKey;
+    if (getTokenSnapshot().token && !owner) {
+      setItems([]);
+      setLoading(true);
+      return () => {
+        genRef.current += 1;
+      };
+    }
     busyRef.current = true;
     setLoading(true);
     setError(false);
@@ -59,7 +88,7 @@ export function useArticleFeed({
     articles
       .feed({ sort, tags, search, page: 1, pageSize })
       .then((res) => {
-        if (genRef.current !== gen) return;
+        if (genRef.current !== gen || !isCurrentOwner()) return;
         setItems(res.items);
         setCount(res.count);
         setHasMore(res.next !== null);
@@ -67,14 +96,17 @@ export function useArticleFeed({
         busyRef.current = false;
       })
       .catch(() => {
-        if (genRef.current !== gen) return;
+        if (genRef.current !== gen || !isCurrentOwner()) return;
         setError(true);
         setHasMore(false);
         setLoading(false);
         busyRef.current = false;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sort, tagsKey, search, pageSize, reloadNonce]);
+    return () => {
+      genRef.current += 1;
+    };
+  }, [sort, tagsKey, search, pageSize, reloadNonce, ownerKey]);
 
   const loadMore = useCallback(() => {
     if (busyRef.current || !hasMore) return;
@@ -86,7 +118,7 @@ export function useArticleFeed({
     articles
       .feed({ sort, tags, search, page: nextPage, pageSize })
       .then((res) => {
-        if (genRef.current !== gen) return; // filters changed mid-flight
+        if (genRef.current !== gen || !isCurrentOwner()) return; // filters or session changed
         setItems((prev) => {
           const seen = new Set(prev.map((a) => String(a.id)));
           return [...prev, ...res.items.filter((a) => !seen.has(String(a.id)))];
@@ -97,18 +129,24 @@ export function useArticleFeed({
         busyRef.current = false;
       })
       .catch(() => {
-        if (genRef.current !== gen) return;
+        if (genRef.current !== gen || !isCurrentOwner()) return;
         setLoadingMore(false);
         busyRef.current = false;
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasMore, page, sort, tagsKey, search, pageSize]);
+  }, [hasMore, page, sort, tagsKey, search, pageSize, ownerKey]);
 
   const reload = useCallback(() => setReloadNonce((n) => n + 1), []);
 
   return {
-    items,
-    count,
+    items:
+      loadedOwner.current === ownerKey && !(getTokenSnapshot().token && !owner)
+        ? items
+        : [],
+    count:
+      loadedOwner.current === ownerKey && !(getTokenSnapshot().token && !owner)
+        ? count
+        : 0,
     loading,
     loadingMore,
     error,

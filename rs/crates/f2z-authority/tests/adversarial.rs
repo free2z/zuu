@@ -1580,36 +1580,40 @@ fn two_reset_assertions_from_one_ownership_event_cannot_both_be_spent() {
 }
 
 #[test]
-fn a_clock_coarse_enough_to_clear_the_ceiling_is_caught_by_the_step_bound() {
-    // Days since the Unix epoch is about 20,700 — comfortably under the
-    // ceiling, so rule 18a cannot see it. It is still a clock, and it still
-    // makes every instant a distinct ownership event.
+fn a_per_account_counter_recovers_a_handle_after_more_than_sixteen_other_events() {
+    // The issuer's durable counter is shared by every handle for the account;
+    // the log remembers only the last admitted value for this handle. Account
+    // events submitted through another handle therefore legitimately widen the
+    // gap. A15 still rejects stale/equal values, but must not strand this one.
+    assert_eq!(spend_reset(5, 30, NOW_MS), Ok(30));
+
+    // Same issuer value, with a handle that advanced more recently: this is a
+    // positive control demonstrating the verdict is based on strict increase
+    // and the absolute ceiling, not an arbitrary handle-local distance.
+    assert_eq!(spend_reset(20, 30, NOW_MS), Ok(30));
+    assert_eq!(spend_reset(5, 31, NOW_MS), Ok(31));
+
+    // The intended refusal remains: the account counter cannot be reused for
+    // a handle that already retained it, and the absolute ceiling is unchanged.
+    assert_eq!(
+        spend_reset(30, 30, NOW_MS).unwrap_err(),
+        AuthorityError::AccountEpochRegression
+    );
+    assert_eq!(
+        spend_reset(5, f2z_authority::ACCOUNT_EPOCH_CEILING, NOW_MS).unwrap_err(),
+        AuthorityError::AccountEpochNotACounter
+    );
+}
+
+#[test]
+fn a_low_clock_shaped_epoch_is_indistinguishable_from_a_counter_to_the_log() {
+    // Days since the Unix epoch (~20,700) are below the absolute ceiling. The
+    // log cannot infer from one value whether it came from a clock or the
+    // issuer's required durable per-account counter. In particular, comparing
+    // it to a per-handle value cannot safely restore the removed step cap.
     let day = 20_700u32;
     assert!(day < f2z_authority::ACCOUNT_EPOCH_CEILING);
-    assert_eq!(
-        spend_reset(day, day + 30, NOW_MS).unwrap_err(),
-        AuthorityError::AccountEpochStepTooLarge,
-        "a month between two resets is not thirty account-ownership events",
-    );
-
-    // And the residue, stated rather than hidden. Inside the step bound a clock
-    // is indistinguishable from a counter *in the value alone*, which is why
-    // §4.5.4 states the issuer's obligation as a normative MUST instead of
-    // leaving the log to infer it: what a log can check is necessary, not
-    // sufficient.
-    assert_eq!(
-        spend_reset(day, day + 1, NOW_MS),
-        Ok(day + 1),
-        "no check on a single u32 can prove the value came from durable storage",
-    );
-    assert_eq!(
-        spend_reset(day, day + f2z_authority::MAX_ACCOUNT_EPOCH_STEP, NOW_MS),
-        Ok(day + f2z_authority::MAX_ACCOUNT_EPOCH_STEP),
-    );
-    assert_eq!(
-        spend_reset(day, day + f2z_authority::MAX_ACCOUNT_EPOCH_STEP + 1, NOW_MS).unwrap_err(),
-        AuthorityError::AccountEpochStepTooLarge,
-    );
+    assert_eq!(spend_reset(5, day + 30, NOW_MS), Ok(day + 30));
 }
 
 #[test]

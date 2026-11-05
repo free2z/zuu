@@ -13,6 +13,7 @@ import { createServer } from "vite";
 let server;
 let moderation;
 let blocks;
+let auth;
 
 before(async () => {
   server = await createServer({
@@ -22,6 +23,7 @@ before(async () => {
   });
   moderation = await server.ssrLoadModule("/src/lib/moderation.ts");
   blocks = await server.ssrLoadModule("/src/lib/stores/blocks.ts");
+  auth = await server.ssrLoadModule("/src/lib/stores/auth.ts");
 });
 
 after(async () => {
@@ -187,6 +189,33 @@ test("a refused block says why", async () => {
         ok: false,
         reason: "invalid",
       });
+    },
+  );
+});
+
+test("a malformed or contradictory mutation response is not success", async () => {
+  for (const body of [
+    {},
+    { username: "other", active: false },
+    { username: "Alice", active: true },
+  ]) {
+    await withFetch(
+      () => json(200, body),
+      async () => {
+        assert.deepEqual(await moderation.setBlocked("Alice", false), {
+          ok: false,
+          reason: "failed",
+        });
+      },
+    );
+  }
+});
+
+test("a malformed block-state read is unknown", async () => {
+  await withFetch(
+    () => json(200, {}),
+    async () => {
+      assert.equal(await moderation.readBlocked("Alice"), null);
     },
   );
 });
@@ -428,6 +457,70 @@ test("an unblock that shifts the server's pages mid-load does not skip a row", a
       assert.equal(blocks.isBlockedIn(usernames, "u49"), true);
       assert.equal(blocks.isBlockedIn(usernames, "u1"), false);
       blocks.trackSignedInAccount(null);
+    },
+  );
+});
+
+test("block-list status reports failure, retries, and clears with the owner", async () => {
+  await withFetch(
+    (call) =>
+      callsFail
+        ? json(503, { detail: "offline" })
+        : json(200, {
+            count: 1,
+            next: null,
+            results: [{ username: "blocked" }],
+          }),
+    async () => {
+      callsFail = true;
+      blocks.trackSignedInAccount(null);
+      blocks.trackSignedInAccount("status-reader", []);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(get(blocks.blockListStatus), "error");
+      callsFail = false;
+      blocks.retryBlocks();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(get(blocks.blockListStatus), "ready");
+      assert.equal(
+        blocks.isBlockedIn(get(blocks.blockedUsernames), "blocked"),
+        true,
+      );
+      blocks.trackSignedInAccount(null);
+      assert.equal(get(blocks.blockListStatus), "idle");
+    },
+  );
+});
+let callsFail = false;
+
+test("an old list cannot publish after the same account returns in a new auth epoch", async () => {
+  let release;
+  await withFetch(
+    () =>
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    async () => {
+      auth.authStore.hydrateFromSession({ id: 1, username: "epoch-reader" });
+      blocks.trackSignedInAccount(null);
+      blocks.trackSignedInAccount("epoch-reader", []);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const oldRelease = release;
+      auth.authStore.hydrateFromSession(null);
+      blocks.trackSignedInAccount(null);
+      auth.authStore.hydrateFromSession({ id: 1, username: "epoch-reader" });
+      // Preserve the pending old response while refusing to start another load.
+      blocks.trackSignedInAccount("epoch-reader", []);
+      oldRelease(
+        json(200, { count: 1, next: null, results: [{ username: "stale" }] }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      assert.equal(
+        blocks.isBlockedIn(get(blocks.blockedUsernames), "stale"),
+        false,
+      );
+      release(json(200, { count: 0, next: null, results: [] }));
+      blocks.trackSignedInAccount(null);
+      auth.authStore.hydrateFromSession(null);
     },
   );
 });

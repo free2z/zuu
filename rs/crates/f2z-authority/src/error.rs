@@ -113,15 +113,6 @@ pub enum AuthorityError {
     ///
     /// [`ACCOUNT_EPOCH_CEILING`]: crate::authority::ACCOUNT_EPOCH_CEILING
     AccountEpochNotACounter,
-    /// `account_epoch` advanced past the predecessor's by more than one
-    /// assertion can account for.
-    ///
-    /// A counter increments once per account-ownership event, so the gap
-    /// between two admitted assertions for one handle is small. A clock's gap
-    /// is however much time passed. See [`MAX_ACCOUNT_EPOCH_STEP`].
-    ///
-    /// [`MAX_ACCOUNT_EPOCH_STEP`]: crate::authority::MAX_ACCOUNT_EPOCH_STEP
-    AccountEpochStepTooLarge,
     /// An initial bind or platform reset on a vouched log arrived without its
     /// platform assertion.
     MissingAssertion,
@@ -193,7 +184,6 @@ impl AuthorityError {
             | Self::IdentityUnchanged
             | Self::AccountEpochRegression
             | Self::AccountEpochNotACounter
-            | Self::AccountEpochStepTooLarge
             | Self::MissingAssertion
             | Self::UnexpectedAssertion => ERR_BAD_AUTHORIZATION,
         }
@@ -240,8 +230,7 @@ impl AuthorityError {
             }
             Self::IdentityUnchanged => "a reset assertion was spent on an unchanged identity key",
             Self::AccountEpochRegression => "account_epoch did not advance",
-            Self::AccountEpochNotACounter => "account_epoch is a clock, not a counter",
-            Self::AccountEpochStepTooLarge => "account_epoch advanced by more than a counter can",
+            Self::AccountEpochNotACounter => "account_epoch exceeds the plausible counter ceiling",
             Self::MissingAssertion => "this log requires an assertion and none was presented",
             Self::UnexpectedAssertion => "this entry kind must not carry a platform assertion",
             Self::EmptyAuthoritySet => "an authority set needs at least one key",

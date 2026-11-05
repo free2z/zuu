@@ -1,10 +1,12 @@
 //! The two signed structures: what an authority says, and what the identity
 //! key it names says back.
 //!
-//! `HandleAssertion` and `AssertionBindingTBS` are the existing ratified v1
-//! Contract C. `InitialBindBindingTBS` is the additional #649 future-wire
-//! proposal, kept separate so this change does not alter the v1 binding or its
-//! `AkdValue` meaning.
+//! `HandleAssertion` and `AssertionBindingTBS` are the ratified `KT.md` v1
+//! wire format (§4.5) and Contract C: their fields, encoding, and signing
+//! transcripts are frozen. The vectors in this module pin that encoding.
+//! `InitialBindBindingTBS` is the additional #649 future-wire proposal, kept
+//! separate so it does not alter the v1 binding or its `AkdValue` meaning.
+//! That proposal is not ratified.
 //!
 //! ```text
 //! struct {
@@ -132,18 +134,18 @@ impl HandleAssertionTBS {
     /// being indexed under another.
     ///
     /// It also refuses to *mint* what the log would refuse to admit: an
-    /// `account_epoch` at or above [`ACCOUNT_EPOCH_CEILING`] is a clock rather
-    /// than the durable counter `KT.md` §4.5.4 requires, and the failure this
-    /// crate exists to prevent is an issuer that reaches for `now / 1000`
-    /// because a counter was inconvenient. Refusing here means the issuer finds
-    /// out at its own keyboard rather than at somebody else's log.
+    /// `account_epoch` at or above [`ACCOUNT_EPOCH_CEILING`] is too large to be
+    /// a plausible counter. The constructor cannot detect lower clock-derived
+    /// values; those remain the issuer's responsibility under `KT.md` §4.5.4.
+    /// Refusing a value here means the issuer finds out at its own keyboard
+    /// rather than at somebody else's log.
     ///
     /// # Errors
     ///
     /// [`AuthorityError::Malformed`] if the label does not fit `<0..255>`,
     /// which it always does — the check is there so the constructor has no
     /// unwrap in it. [`AuthorityError::AccountEpochNotACounter`] for a
-    /// clock-shaped `account_epoch`.
+    /// `account_epoch` at or above the absolute ceiling.
     ///
     /// [`ACCOUNT_EPOCH_CEILING`]: crate::authority::ACCOUNT_EPOCH_CEILING
     // Nine arguments, and deliberately not a builder. Every one of them is a
