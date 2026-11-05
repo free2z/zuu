@@ -1,4 +1,5 @@
 import { Marked, marked, type TokenizerExtension } from "marked";
+import { parseCaptionedImage } from "./image-caption";
 import hljs from "highlight.js";
 import katex from "katex";
 import markedFootnote from "marked-footnote";
@@ -812,6 +813,35 @@ function configureMarkdown() {
 
   marked.use({
     extensions: [
+      {
+        name: "captionedImage",
+        level: "block",
+        tokenizer(src) {
+          const parsed = parseCaptionedImage(src);
+          if (!parsed) return undefined;
+          const tokens = marked.Lexer.lexInline(parsed.image);
+          if (
+            tokens.length !== 1 ||
+            tokens[0].type !== "image" ||
+            tokens[0].raw !== parsed.image
+          )
+            return undefined;
+          const raw = /^(?:[^\n]+\n)[^\n]*(?:\n|$)/.exec(src)![0];
+          return {
+            type: "captionedImage",
+            raw,
+            tokens,
+            caption: parsed.caption,
+          };
+        },
+        renderer(token) {
+          const caption = escapeHtml(String(token.caption)).replaceAll(
+            "\n",
+            "<br>",
+          );
+          return `<figure>${this.parser.parseInline(token.tokens ?? [])}<figcaption>${caption}</figcaption></figure>\n`;
+        },
+      },
       {
         ...blockDirectiveTokenizer,
         renderer(token) {
