@@ -1,3 +1,4 @@
+import { formatDisplayNumber } from "../../intl-display.js";
 /**
  * The inline image upload pipeline, shared by every markdown textarea that
  * takes a pasted, dropped or picked image: the zPage body
@@ -434,7 +435,7 @@ export function createInlineUploader(
       "media.uploadLimitUpgrade",
       "Hold {tuzis} 2Z to raise the upload request cap to {limit}.",
       {
-        tuzis: tier.min_tuzis.toLocaleString(locale),
+        tuzis: formatDisplayNumber(tier.min_tuzis, locale),
         limit: formatByteLimit(tier.max_bytes, locale),
       },
     )}`;

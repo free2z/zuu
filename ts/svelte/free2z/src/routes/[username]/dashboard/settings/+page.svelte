@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../../../lib/intl-display.js";
+
   import type { PageData } from "./$types";
   import * as env from "$app/env/public";
   import { apiFetch } from "$lib/api/config";
@@ -776,10 +778,12 @@
                       "dashboard.settings.membershipPriceHint",
                       "A whole number of 2Z credits, from {min} to {max}, charged to each member every 30 days. Set it to 0 to make membership a free follow: followers get your members-only posts and streams at no cost.",
                       {
-                        min: MEMBER_PRICE_MIN.toLocaleString(
+                        min: formatDisplayNumber(
+                          MEMBER_PRICE_MIN,
                           getCurrentLocale(),
                         ),
-                        max: MEMBER_PRICE_MAX.toLocaleString(
+                        max: formatDisplayNumber(
+                          MEMBER_PRICE_MAX,
                           getCurrentLocale(),
                         ),
                       },

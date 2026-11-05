@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../../../lib/intl-display.js";
+
   import type { PageData } from "./$types";
   import { goto } from "$app/navigation";
   import { onMount, onDestroy } from "svelte";
@@ -143,7 +145,7 @@
   }
 
   function amountLabel(amount: number): string {
-    const formatted = amount.toLocaleString($locale);
+    const formatted = formatDisplayNumber(amount, $locale);
     return isSingularCount(amount, $locale)
       ? $t("dashboard.notifications.amount2ZOne", "{amount} 2Z", {
           amount: formatted,
@@ -276,13 +278,13 @@
             {$t(
               "dashboard.notifications.unreadCountOne",
               "{count} unread notification",
-              { count: unreadCount.toLocaleString($locale) },
+              { count: formatDisplayNumber(unreadCount, $locale) },
             )}
           {:else}
             {$t(
               "dashboard.notifications.unreadCountMany",
               "{count} unread notifications",
-              { count: unreadCount.toLocaleString($locale) },
+              { count: formatDisplayNumber(unreadCount, $locale) },
             )}
           {/if}
         </p>

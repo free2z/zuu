@@ -1,3 +1,4 @@
+import { createCollator, createDisplayNames } from "./intl-display.js";
 import { DEFAULT_LOCALE, LANGUAGE_OPTIONS, normalizeLocale } from "./locale.js";
 import { contentDirection, contentScript } from "./content-direction.js";
 
@@ -107,7 +108,7 @@ export function languageDisplayName(code, viewerLocale = DEFAULT_LOCALE) {
   if (!tag) return null;
 
   try {
-    const name = new Intl.DisplayNames(
+    const name = createDisplayNames(
       [viewerLocale || DEFAULT_LOCALE, DEFAULT_LOCALE],
       { type: "language", fallback: "none" },
     ).of(tag);
@@ -1192,9 +1193,10 @@ export function buildVariantRows({
     });
   }
 
+  const collator = createCollator(undefined);
   return [...rows.values()].sort((a, b) => {
     if (a.isSource !== b.isSource) return a.isSource ? -1 : 1;
-    return a.language.localeCompare(b.language);
+    return collator.compare(a.language, b.language);
   });
 }
 

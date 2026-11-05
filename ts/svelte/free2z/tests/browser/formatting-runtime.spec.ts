@@ -46,6 +46,30 @@ test("currency, units and exact assets follow browser locale switching", async (
         maximumFractionDigits: 1,
       }).format(1.5),
     );
+    await expect(page.getByTestId("activity-date")).toHaveText(
+      new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        timeStyle: "short",
+        timeZone: "UTC",
+      }).format(new Date("2026-10-11T18:55:00Z")),
+    );
+    await expect(page.getByTestId("notification-count")).toHaveText(
+      new Intl.NumberFormat(locale).format(1234),
+    );
+    await expect(page.getByTestId("language-name")).toHaveText(
+      new Intl.DisplayNames([locale, "en"], {
+        type: "language",
+        fallback: "none",
+      }).of("ja")!,
+    );
+    await expect(page.getByTestId("media-size")).toHaveText(
+      new Intl.NumberFormat(locale, {
+        style: "unit",
+        unit: "megabyte",
+        unitDisplay: "short",
+        maximumFractionDigits: 1,
+      }).format(1.5),
+    );
     await expect(page.getByTestId("asset")).toHaveText(
       `${new Intl.NumberFormat(locale, { maximumFractionDigits: 8 }).format(0.00000001)} ZEC`,
     );

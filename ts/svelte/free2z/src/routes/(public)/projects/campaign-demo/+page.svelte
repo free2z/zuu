@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { locale } from "$lib/i18n";
+  import { formatDisplayNumber } from "../../../../lib/intl-display.js";
+
   import { onMount } from "svelte";
   import {
     CheckCircle2,
@@ -86,9 +89,9 @@
   // double precision, and the display must match the value that was proved.
   // Engines without exact string formatting fall back to Number coercion.
   const money = (value: string) =>
-    new Intl.NumberFormat("es", { maximumFractionDigits: 8 }).format(
-      value as Intl.StringNumericLiteral,
-    );
+    formatDisplayNumber(value as Intl.StringNumericLiteral, $locale, {
+      maximumFractionDigits: 8,
+    });
   const fieldClass =
     "w-full min-w-0 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring";
 

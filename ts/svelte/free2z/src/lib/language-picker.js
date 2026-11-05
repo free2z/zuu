@@ -34,6 +34,7 @@
 // and only then tries its own folded keys, so any rule added to the catalog
 // matcher keeps working here without this file being touched.
 
+import { createCollator, createDisplayNames } from "./intl-display.js";
 import { contentDirection, contentScript } from "./content-direction.js";
 import {
   describeLanguage,
@@ -146,7 +147,7 @@ export function languageQualifier(tag, viewerLocale) {
           : null;
     if (!type) continue;
     try {
-      const name = new Intl.DisplayNames(locales, {
+      const name = createDisplayNames(locales, {
         type,
         fallback: "none",
       }).of(part);
@@ -178,7 +179,7 @@ export function languageQualifier(tag, viewerLocale) {
  */
 export function primaryLanguageName(primary, viewerLocale) {
   try {
-    const name = new Intl.DisplayNames([viewerLocale || "en", "en"], {
+    const name = createDisplayNames([viewerLocale || "en", "en"], {
       type: "language",
       fallback: "none",
     }).of(primary);
@@ -509,7 +510,7 @@ export function buildLanguageSections({
     else groups.set(entry.primary, [entry]);
   }
 
-  const collator = new Intl.Collator(viewerLocale || "en", {
+  const collator = createCollator(viewerLocale || "en", {
     sensitivity: "base",
   });
 

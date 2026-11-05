@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../../../lib/intl-display.js";
+
   import type { PageData } from "./$types";
   import * as env from "$app/env/public";
   import { Button } from "$lib/components/ui/button";
@@ -140,10 +142,10 @@
   function formatCount(value: string | number | null | undefined) {
     const parsed = toFiniteNumber(value);
     if (parsed === null) return "—";
-    return new Intl.NumberFormat($locale, {
+    return formatDisplayNumber(parsed, $locale, {
       useGrouping: true,
       maximumFractionDigits: 0,
-    }).format(parsed);
+    });
   }
 
   function draftsInProgressLabel(value: number) {
@@ -792,7 +794,8 @@
                 <span class="text-sm font-semibold">
                   {Number(creator.member_price) > 0
                     ? $t("dashboard.profile.monthlyPrice", "{price} 2Z/month", {
-                        price: Number(creator.member_price).toLocaleString(
+                        price: formatDisplayNumber(
+                          Number(creator.member_price),
                           $locale,
                         ),
                       })

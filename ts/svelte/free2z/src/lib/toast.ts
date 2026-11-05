@@ -1,3 +1,4 @@
+import { formatDisplayNumber } from "./intl-display.js";
 import { toast as sonnerToast } from "svelte-sonner";
 import { get, writable } from "svelte/store";
 import { goto } from "$app/navigation";
@@ -187,7 +188,7 @@ function pump() {
         message: get(t)(
           "notifications.noticeOverflow",
           "{count} additional notices could not be displayed.",
-          { count: omitted.toLocaleString(get(locale)) },
+          { count: formatDisplayNumber(omitted, get(locale)) },
         ),
         options: {
           duration: Infinity,

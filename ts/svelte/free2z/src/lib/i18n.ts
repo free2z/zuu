@@ -15,6 +15,7 @@ import {
   normalizeLocale,
 } from "./locale.js";
 import { catalogLoader } from "./catalog-loader.js";
+import { formatDisplayNumber } from "./intl-display.js";
 import { formatIcuMessage, ICU_MESSAGE_KEYS } from "./icu-message.js";
 import { getRequestLocale } from "./request-locale.js";
 import { requestScopedStore } from "./request-scoped-store.js";
@@ -176,10 +177,11 @@ export function formatLocalizedNumber(
   requestedLocale: string = getCurrentLocale(),
   options?: Intl.NumberFormatOptions,
 ): string {
-  return new Intl.NumberFormat(
+  return formatDisplayNumber(
+    value,
     resolveSupportedLocale(requestedLocale) ?? defaultLocale,
     options,
-  ).format(value);
+  );
 }
 
 /** Finite numeric major units. Decimal strings must be plain decimal and are

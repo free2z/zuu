@@ -20,6 +20,7 @@
    */
   import { untrack } from "svelte";
   import { tStore as t } from "$lib/i18n";
+  import { createCollator } from "$lib/intl-display.js";
   import { currentUser, authStore } from "$lib/stores/auth";
   import {
     createQuotedBalanceDisplay,
@@ -221,6 +222,7 @@
     ),
   );
 
+  const viewerCollator = $derived(createCollator(viewerLocale));
   const entries = $derived(
     languages
       .map((language) =>
@@ -231,7 +233,7 @@
         ),
       )
       .filter((entry) => entry !== null)
-      .sort((a, b) => a.name.localeCompare(b.name, viewerLocale)),
+      .sort((a, b) => viewerCollator.compare(a.name, b.name)),
   );
   const visible = $derived(
     entries.filter((entry) => entryMatchesQuery(entry, query, viewerLocale)),

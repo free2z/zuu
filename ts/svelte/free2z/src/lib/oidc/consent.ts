@@ -1,3 +1,4 @@
+import { formatDisplayNumber } from "../intl-display.js";
 /**
  * The consent screen's decisions, as pure functions (zuu
  * docs/free2z/sdk/spec/oidc.md §5).
@@ -273,9 +274,9 @@ export function buildConsentDecision(
 export function markupPercent(bps: number, locale?: string): string {
   const value = Math.max(0, Number(bps) || 0) / 100;
   try {
-    return new Intl.NumberFormat(locale || "en", {
+    return formatDisplayNumber(value, locale || "en", {
       maximumFractionDigits: 2,
-    }).format(value);
+    });
   } catch {
     return String(value);
   }

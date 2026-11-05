@@ -10,7 +10,7 @@
    * rotation — and is never readable again.
    */
   import { onMount, tick } from "svelte";
-  import { tStore as t, getCurrentLocale } from "$lib/i18n";
+  import { tStore as t, locale as uiLocale } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import {
@@ -70,7 +70,7 @@
   let rotating = false;
   let rotateError = "";
 
-  $: locale = getCurrentLocale();
+  $: locale = $uiLocale;
   $: uriLines = validateRedirectUris(lines(form.redirectUris), form.clientType);
   $: uriProblems = uriLines.filter((line) => !line.verdict.ok);
   //an origin is judged line by line before a round trip, the way

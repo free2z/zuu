@@ -231,12 +231,11 @@ test("translation saves carry the source-language compatibility precondition", (
   );
 });
 
-test("SSR sets the request locale before rendering child components", () => {
+test("SSR binds the request locale and hydration uses its prepared catalog", () => {
+  const hooks = source("src/hooks.server.ts");
   const layout = source("src/routes/+layout.svelte");
-  assert.match(
-    layout,
-    /if \(data\.locale && \(!browser \|\| data\.localePersisted\)\)[\s\S]*?setLocale\(data\.locale\)/,
-  );
+  assert.match(hooks, /withRequestLocale\(selected/);
+  assert.match(layout, /hydrateLocale\(data\.locale, data\.localeCatalogs\)/);
 });
 
 test("URL language drives SSR html language before the locale cookie", () => {

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../../../lib/intl-display.js";
+
   import { LocalizedError } from "$lib/i18n-message";
   import type { PageData } from "./$types";
   import { onMount, onDestroy } from "svelte";
@@ -84,10 +86,10 @@
   $: connectionError = $liveStreamStore.error;
 
   function formatDecimal(value: number) {
-    return new Intl.NumberFormat($locale, {
+    return formatDisplayNumber(value, $locale, {
       minimumFractionDigits: 1,
       maximumFractionDigits: 1,
-    }).format(value);
+    });
   }
 
   let streamType: StreamType = "broadcast";

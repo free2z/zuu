@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../lib/intl-display.js";
+
   import type { PageData } from "./$types";
   import * as env from "$app/env/public";
   import { Button } from "$lib/components/ui/button";
@@ -176,7 +178,7 @@
   };
 
   function formatCount(value: number) {
-    return value.toLocaleString($locale);
+    return formatDisplayNumber(value, $locale);
   }
 
   function articleCountLabel(value: number) {

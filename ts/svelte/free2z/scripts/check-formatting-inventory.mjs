@@ -80,7 +80,11 @@ function category(file, kind, context) {
       "specialized",
       "Canonicalizes or inspects a language tag rather than formatting product copy.",
     ];
-  if (file === "src/lib/i18n.ts" || file === "src/lib/utils/date.ts")
+  if (
+    file === "src/lib/i18n.ts" ||
+    file === "src/lib/utils/date.ts" ||
+    file === "src/lib/intl-display.js"
+  )
     return [
       "shared",
       "Shared request-aware formatting implementation; changes require review of all callers.",
@@ -327,11 +331,11 @@ items.sort((a, b) =>
   const baseline = JSON.parse(fs.readFileSync(baselineFile, "utf8"));
   if (
     !process.env.FORMATTING_BASELINE &&
-    (baseline.length > 84 ||
-      baseline.filter((item) => item.classification === "legacy").length > 30)
+    (baseline.length > 57 ||
+      baseline.filter((item) => item.classification === "legacy").length > 0)
   ) {
     console.error(
-      "Formatting inventory may only shrink: maximum 84 sites and 30 legacy sites.",
+      "Formatting inventory may only shrink: maximum 57 sites and 0 legacy sites.",
     );
     process.exitCode = 1;
   }

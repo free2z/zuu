@@ -364,3 +364,33 @@ test("billing number, percent and date display preserves prior Intl behavior", a
     );
   }
 });
+
+test("shared display formatters use each concurrent request's locale", async () => {
+  const { withRequestLocale } = await vite.ssrLoadModule(
+    "/src/lib/server/request-locale.js",
+  );
+  const { formatDisplayNumber, formatDisplayDate, createDisplayNames } =
+    await vite.ssrLoadModule("/src/lib/intl-display.js");
+  const run = (locale) =>
+    withRequestLocale(locale, async () => {
+      await Promise.resolve();
+      const current = i18n.getCurrentLocale();
+      return [
+        formatDisplayNumber(1234.5, current),
+        formatDisplayDate(new Date("2026-10-11T18:55:00Z"), current, {
+          dateStyle: "medium",
+          timeZone: "UTC",
+        }),
+        createDisplayNames([current, "en"], { type: "language" }).of("ja"),
+      ];
+    });
+  const expected = ["en", "fr"].map((locale) => [
+    new Intl.NumberFormat(locale).format(1234.5),
+    new Intl.DateTimeFormat(locale, {
+      dateStyle: "medium",
+      timeZone: "UTC",
+    }).format(new Date("2026-10-11T18:55:00Z")),
+    new Intl.DisplayNames([locale, "en"], { type: "language" }).of("ja"),
+  ]);
+  assert.deepEqual(await Promise.all([run("en"), run("fr")]), expected);
+});

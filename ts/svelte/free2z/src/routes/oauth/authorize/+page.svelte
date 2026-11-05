@@ -19,7 +19,7 @@
    */
   import { onMount } from "svelte";
   import { page } from "$lib/kit-stores";
-  import { tStore as t, getCurrentLocale } from "$lib/i18n";
+  import { tStore as t, locale as uiLocale } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
   import {
     oidcAuthorizeDecide,
@@ -82,7 +82,7 @@
   let noCapConfirmed = false;
   let submitError = "";
 
-  $: locale = getCurrentLocale();
+  $: locale = $uiLocale;
   $: app = prompt?.application;
   $: capRequired = Boolean(prompt?.cap_required);
   $: markupBps = app?.markup_bps ?? 0;

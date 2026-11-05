@@ -1,3 +1,4 @@
+import { formatDisplayNumber } from "../intl-display.js";
 /**
  * The membership price a creator types on Settings, checked against the rules
  * the server enforces — so the page refuses what the server would refuse, and
@@ -103,8 +104,8 @@ export function memberPriceProblemMessage(
   locale = "en",
 ): string {
   const params = {
-    min: MEMBER_PRICE_MIN.toLocaleString(locale),
-    max: MEMBER_PRICE_MAX.toLocaleString(locale),
+    min: formatDisplayNumber(MEMBER_PRICE_MIN, locale),
+    max: formatDisplayNumber(MEMBER_PRICE_MAX, locale),
   };
   switch (problem) {
     case "empty":

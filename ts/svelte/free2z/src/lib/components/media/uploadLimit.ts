@@ -1,3 +1,4 @@
+import { formatDisplayNumber } from "../../intl-display.js";
 /**
  * How large a file this creator may upload — asked of the SERVER, never
  * restated here.
@@ -175,7 +176,7 @@ export function formatByteLimit(bytes: number, locale = "en"): string {
     unitIndex += 1;
   }
   const fractionDigits = unitIndex === 0 || Math.abs(value) >= 10 ? 0 : 1;
-  return new Intl.NumberFormat(locale, {
+  return formatDisplayNumber(value, locale, {
     style: "unit",
     unit: units[unitIndex],
     // `short` renders raw bytes as the word "byte" ("900 byte"); `narrow` is
@@ -183,7 +184,7 @@ export function formatByteLimit(bytes: number, locale = "en"): string {
     // and both stay localized — `narrow` is "900o" in French, not "900B".
     unitDisplay: unitIndex === 0 ? "narrow" : "short",
     maximumFractionDigits: fractionDigits,
-  }).format(value);
+  });
 }
 
 /**

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../lib/intl-display.js";
+
   import "../styles/globals.css";
   import "katex/dist/katex.min.css";
   import "highlight.js/styles/github-dark-dimmed.css";
@@ -213,7 +215,7 @@
                 "notifications.purchaseCredited",
                 "Payment received — {amount} 2Z credited.",
                 {
-                  amount: event.amount.toLocaleString($locale, {
+                  amount: formatDisplayNumber(event.amount, $locale, {
                     maximumFractionDigits: 3,
                   }),
                 },

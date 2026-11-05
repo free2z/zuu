@@ -26,7 +26,7 @@
   import { currentUser } from "$lib/stores/auth";
   import { page } from "$lib/kit-stores";
   import { replaceState } from "$app/navigation";
-  import { tStore as t, getCurrentLocale } from "$lib/i18n";
+  import { tStore as t, locale as uiLocale } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
   import * as Dialog from "$lib/components/ui/dialog";
   import {
@@ -78,7 +78,7 @@
   let revokeError = "";
   let notice = "";
 
-  $: locale = getCurrentLocale();
+  $: locale = $uiLocale;
   // The SDK landing page: one app, and nothing to buy.
   $: focus = manageAppFocus($page.url);
   $: focused = focus !== null;

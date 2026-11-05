@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../../lib/intl-display.js";
+
   import { formatDate as formatApiDate } from "$lib/utils/date";
   import { goto } from "$app/navigation";
   import * as env from "$app/env/public";
@@ -100,7 +102,7 @@
   }
 
   function formatCount(value: number) {
-    return value.toLocaleString($locale);
+    return formatDisplayNumber(value, $locale);
   }
 
   function goBack() {

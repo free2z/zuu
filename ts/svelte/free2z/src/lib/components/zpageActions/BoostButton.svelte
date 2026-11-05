@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../intl-display.js";
+
   import { onDestroy, untrack } from "svelte";
   import { Zap } from "@lucide/svelte";
   import { toast, captureAccountToast, toastPresentation } from "$lib/toast.js";
@@ -8,7 +10,7 @@
   import UnifiedAuthModal from "$lib/components/auth/UnifiedAuthModal.svelte";
   import { Button } from "$lib/components/ui/button";
   import type { ButtonVariant } from "$lib/components/ui/button";
-  import { tStore as t } from "$lib/i18n";
+  import { locale, tStore as t } from "$lib/i18n";
   import InsufficientFunds from "$lib/components/InsufficientFunds.svelte";
   import {
     insufficientFundsFromError,
@@ -72,10 +74,10 @@
     // used by the page hero while retaining the raw decimal text in state.
     const number = Number(value);
     if (!Number.isFinite(number)) return String(value);
-    return new Intl.NumberFormat("en", {
+    return formatDisplayNumber(number, $locale, {
       notation: "compact",
       maximumFractionDigits: 1,
-    }).format(number);
+    });
   }
 
   let localScore = $state(scoreText(score) ?? "0");

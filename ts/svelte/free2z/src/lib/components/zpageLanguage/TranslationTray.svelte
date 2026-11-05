@@ -14,7 +14,7 @@
    */
   import { onDestroy } from "svelte";
   import { Ellipsis } from "@lucide/svelte";
-  import { tStore as t } from "$lib/i18n";
+  import { locale, compareLocalized, tStore as t } from "$lib/i18n";
   import { focusTrap } from "$lib/focus-trap";
   import {
     formatElapsed,
@@ -115,7 +115,7 @@
     trayRows({ jobs, variants, drafts, now }).sort(
       (a, b) =>
         ORDER[a.kind] - ORDER[b.kind] ||
-        label(a.language).localeCompare(label(b.language)),
+        compareLocalized(label(a.language), label(b.language), $locale),
     ),
   );
   const summary = $derived(summarizeTray(rows));

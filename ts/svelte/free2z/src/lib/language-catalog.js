@@ -1,3 +1,4 @@
+import { createCollator } from "./intl-display.js";
 /**
  * The language catalog, fetched from `GET /api/languages/` and cached.
  *
@@ -245,9 +246,8 @@ export function seedLanguageCatalog(locale = DEFAULT_LOCALE) {
   }
   // Ordered by the name the viewer reads, like the server's. `localeCompare`
   // with the viewer's locale, because alphabetical order is itself localized.
-  languages.sort((a, b) =>
-    (a.name ?? a.tag).localeCompare(b.name ?? b.tag, viewer),
-  );
+  const collator = createCollator(viewer);
+  languages.sort((a, b) => collator.compare(a.name ?? a.tag, b.name ?? b.tag));
   return { locale: viewer, languages, fromApi: false };
 }
 

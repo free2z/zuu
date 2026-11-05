@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { formatDisplayNumber } from "../../intl-display.js";
+
   import * as env from "$app/env/public";
   import { onDestroy, onMount, createEventDispatcher } from "svelte";
   import { fade, fly, slide, scale } from "svelte/transition";
@@ -145,7 +147,7 @@
       "media.uploadLimitUpgrade",
       "Hold {tuzis} 2Z to raise the upload request cap to {limit}.",
       {
-        tuzis: tier.min_tuzis.toLocaleString(locale),
+        tuzis: formatDisplayNumber(tier.min_tuzis, locale),
         limit: formatByteLimit(tier.max_bytes, locale),
       },
     );

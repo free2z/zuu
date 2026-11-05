@@ -1,3 +1,4 @@
+import { formatDisplayNumber } from "../../intl-display.js";
 /**
  * The one way the browser sends an upload: pre-checked, bounded, and loud
  * when it fails (RCA ).
@@ -501,7 +502,7 @@ export function uploadErrorMessage(
       "media.uploadLimitUpgrade",
       "Hold {tuzis} 2Z and you can upload files up to {limit}.",
       {
-        tuzis: tier.min_tuzis.toLocaleString(locale),
+        tuzis: formatDisplayNumber(tier.min_tuzis, locale),
         limit: formatByteLimit(tier.max_bytes, locale),
       },
     )}`;

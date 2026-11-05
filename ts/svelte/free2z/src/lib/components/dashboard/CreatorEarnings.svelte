@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDisplayDate } from "$lib/intl-display.js";
   import { onMount } from "svelte";
   import { ApiError } from "$lib/api/mutator";
   import {
@@ -391,10 +392,14 @@
                     )}
                   </p>
                   <time datetime={activity.created_at}
-                    >{new Intl.DateTimeFormat($locale, {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    }).format(new Date(activity.created_at))}</time
+                    >{formatDisplayDate(
+                      new Date(activity.created_at),
+                      $locale,
+                      {
+                        dateStyle: "medium",
+                        timeStyle: "short",
+                      },
+                    )}</time
                   >
                   <p class="break-all text-muted-foreground">
                     {$t("economy.reference")}: {activity.id}
