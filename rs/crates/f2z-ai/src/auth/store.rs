@@ -7,7 +7,7 @@
 //! | [`Store::counters`] | `<ns>:aep:<sub>`, `<ns>:agen:<client_id>:<sub>` (`MGET`) | Revocation. Written by the IdP (`dj.apps.oidc.epoch_publish`): plain decimal strings, raised only by compare-and-set, 300 s TTL |
 //! | [`Store::admit`] | `<ns>:ai:rl:u:<client_id>:<sub>`, `<ns>:ai:rl:a:<client_id>`, `<ns>:ai:cc:<sub>` (one Lua script) | The per-(app, user) and per-app token buckets and the per-user concurrency lease |
 //! | [`Store::release`] | `<ns>:ai:cc:<sub>` (`ZREM`) | Ending a lease |
-//! | [`FormStore`](crate::idempotency::FormStore) | `<ns>:ai:idem:<sub>:<app>:<hmac>` (`MGET`, `SET … PX`) | The form a keyed call was claimed in (`crate::idempotency`), a 24 h 10 m TTL ([`RECORD_TTL`](crate::idempotency::RECORD_TTL): the ledger key's 24 h plus a margin) |
+//! | [`FormStore`](crate::idempotency::FormStore) | `<ns>:ai:idem:<sub>:<app>:<hmac>` (`MGET`, `SET … PX`, and an atomic check-all-then-set-all Lua reservation) | The form a keyed call was claimed in (`crate::idempotency`), a 24 h 10 m TTL ([`RECORD_TTL`](crate::idempotency::RECORD_TTL): the ledger key's 24 h plus a margin) |
 //!
 //! [`RedisStore`] is the implementation. Every call is bounded by a short
 //! timeout, and after a failure the store is skipped for [`BACKOFF`] so that
@@ -180,11 +180,30 @@ end
 return {0, 0, math.floor(ut / 1000)}
 ";
 
+/// [`FormStore::reserve`](crate::idempotency::FormStore::reserve), in one
+/// round trip so it is atomic: the first `KEYS[i]` holding a value is
+/// returned untouched; otherwise every key is set to `ARGV[1]` with
+/// `PX ARGV[2]` and the answer is nil. Every key is checked before any is
+/// written, so two racing reservations over overlapping keys — two pods
+/// holding the same server keys in different order, either side of a
+/// rotation — see each other.
+const RESERVE_LUA: &str = "
+for _, key in ipairs(KEYS) do
+  local value = redis.call('GET', key)
+  if value then return value end
+end
+for _, key in ipairs(KEYS) do
+  redis.call('SET', key, ARGV[1], 'PX', ARGV[2])
+end
+return false
+";
+
 /// The platform's Redis.
 pub struct RedisStore {
     connection: ConnectionManager,
     admit: redis::Script,
     renew: redis::Script,
+    reserve: redis::Script,
     timeout: Duration,
     skip_until: Mutex<Option<Instant>>,
 }
@@ -218,6 +237,7 @@ impl RedisStore {
             connection,
             admit: redis::Script::new(ADMIT_LUA),
             renew: redis::Script::new(RENEW_LUA),
+            reserve: redis::Script::new(RESERVE_LUA),
             timeout,
             skip_until: Mutex::new(None),
         })
@@ -377,6 +397,27 @@ impl crate::idempotency::FormStore for RedisStore {
         } else {
             Err(StoreError)
         }
+    }
+
+    async fn reserve(
+        &self,
+        keys: &[String],
+        value: &str,
+        ttl: Duration,
+    ) -> Result<Option<String>, StoreError> {
+        if keys.is_empty() {
+            return Ok(None);
+        }
+        let mut connection = self.connection.clone();
+        let mut invocation = self.reserve.prepare_invoke();
+        for key in keys {
+            invocation.key(key);
+        }
+        invocation
+            .arg(value)
+            .arg(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX));
+        self.run(async move { invocation.invoke_async(&mut connection).await })
+            .await
     }
 
     async fn put(&self, key: &str, value: &str, ttl: Duration) -> Result<(), StoreError> {
