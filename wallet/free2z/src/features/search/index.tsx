@@ -1,3 +1,7 @@
+import {
+  BlockedContent,
+  ModerationControls,
+} from "@/features/moderation/Moderation";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
@@ -692,64 +696,70 @@ function SearchLoadMore({
 function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
   const name = creator.display_name || creator.username;
   return (
-    <Link
-      to={`/creator/${creator.username}`}
-      aria-label={`View ${name}'s profile`}
-      data-search-creator-result
-      className="group flex w-full min-w-0 items-center gap-3 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <Avatar className="h-12 w-12 shrink-0">
-        {creator.image ? <AvatarImage src={creator.image} alt={name} /> : null}
-        <AvatarFallback className="bg-secondary text-muted-foreground">
-          {initials(name)}
-        </AvatarFallback>
-      </Avatar>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5">
-          <span className="min-w-0 break-words font-semibold group-hover:text-primary">
-            {name}
-          </span>
-          {creator.is_verified ? (
-            <BadgeCheck
-              className="h-4 w-4 shrink-0 text-primary"
-              aria-label="Verified"
-            />
+    <BlockedContent username={creator.username}>
+      <Link
+        to={`/creator/${creator.username}`}
+        aria-label={`View ${name}'s profile`}
+        data-search-creator-result
+        className="group flex w-full min-w-0 items-center gap-3 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Avatar className="h-12 w-12 shrink-0">
+          {creator.image ? (
+            <AvatarImage src={creator.image} alt={name} />
           ) : null}
-          {/* Server-computed live flag on the creator list payload — renders
+          <AvatarFallback className="bg-secondary text-muted-foreground">
+            {initials(name)}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5">
+            <span className="min-w-0 break-words font-semibold group-hover:text-primary">
+              {name}
+            </span>
+            {creator.is_verified ? (
+              <BadgeCheck
+                className="h-4 w-4 shrink-0 text-primary"
+                aria-label="Verified"
+              />
+            ) : null}
+            {/* Server-computed live flag on the creator list payload — renders
               only when the creator is actually broadcasting right now. Absent
               on older backends (`undefined`), so the badge just doesn't show. */}
-          {creator.is_live ? (
-            <span
-              className="inline-flex shrink-0 items-center gap-1 rounded-full bg-live/10 px-1.5 py-0.5 eyebrow text-live"
-              aria-label="Live now"
-            >
-              <Radio className="h-3 w-3" aria-hidden />
-              Live
-            </span>
-          ) : null}
+            {creator.is_live ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full bg-live/10 px-1.5 py-0.5 eyebrow text-live"
+                aria-label="Live now"
+              >
+                <Radio className="h-3 w-3" aria-hidden />
+                Live
+              </span>
+            ) : null}
+          </div>
+          <div className="break-words text-xs text-muted-foreground">
+            @{creator.username}
+          </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            {typeof creator.zpages === "number" ? (
+              <span className="bidi-number tabular-nums">
+                {creator.zpages} pages
+              </span>
+            ) : null}
+            {creator.member_price ? (
+              // "Membership": this is what it costs to SUBSCRIBE to this
+              // creator, not the viewer's own spend — make that unmistakable
+              // rather than showing a bare, ambiguous "200 2Z/mo".
+              <Badge
+                variant="sub"
+                className="max-w-full bidi-number tabular-nums"
+                aria-label={`Membership price: ${formatTuzis(creator.member_price)} per month`}
+              >
+                Membership · {formatTuzis(creator.member_price)}/mo
+              </Badge>
+            ) : null}
+          </div>
         </div>
-        <div className="break-words text-xs text-muted-foreground">
-          @{creator.username}
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          {typeof creator.zpages === "number" ? (
-            <span className="bidi-number tabular-nums">{creator.zpages} pages</span>
-          ) : null}
-          {creator.member_price ? (
-            // "Membership": this is what it costs to SUBSCRIBE to this
-            // creator, not the viewer's own spend — make that unmistakable
-            // rather than showing a bare, ambiguous "200 2Z/mo".
-            <Badge
-              variant="sub"
-              className="max-w-full bidi-number tabular-nums"
-              aria-label={`Membership price: ${formatTuzis(creator.member_price)} per month`}
-            >
-              Membership · {formatTuzis(creator.member_price)}/mo
-            </Badge>
-          ) : null}
-        </div>
-      </div>
-    </Link>
+      </Link>
+    </BlockedContent>
   );
 }
 
@@ -758,81 +768,90 @@ function PageResultRow({ article }: { article: Article }) {
   const name = author.display_name || author.username;
   const body = article.subtitle || excerpt(article.content);
   return (
-    <div
-      className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40"
-      data-search-page-result
-    >
-      <div className="hidden h-28 w-32 shrink-0 overflow-hidden rounded-lg bg-secondary sm:block">
-        {article.image ? (
-          <RemoteMedia
-            source={article.image}
-            kind="image"
-            className="h-full min-h-0 rounded-none border-0 px-2 py-1"
-          >
-            {({ url }) => (
-              <Link
-                to={`/articles/${article.slug ?? article.id}`}
-                aria-label={`Read “${article.title}”`}
-                className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                <img
-                  src={url}
-                  alt=""
-                  referrerPolicy="no-referrer"
-                  className="h-full w-full object-cover"
-                />
-              </Link>
-            )}
-          </RemoteMedia>
-        ) : (
-          <div className="grid h-full w-full place-items-center text-muted-foreground">
-            <FileText className="h-5 w-5" aria-hidden />
-          </div>
-        )}
-      </div>
-      <Link
-        to={`/articles/${article.slug ?? article.id}`}
-        aria-label={`Read “${article.title}”`}
-        className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    <BlockedContent username={author.username}>
+      <div
+        className="group flex w-full min-w-0 gap-4 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40"
+        data-search-page-result
       >
-        <div className="flex items-start justify-between gap-3">
-          <h3
-            className="min-w-0 flex-1 line-clamp-2 font-semibold leading-snug group-hover:text-primary"
-            data-user-content
-          >
-            {article.title}
-          </h3>
-          {/* Category is UI copy from a small controlled vocabulary, so it
+        <div className="hidden h-28 w-32 shrink-0 overflow-hidden rounded-lg bg-secondary sm:block">
+          {article.image ? (
+            <RemoteMedia
+              source={article.image}
+              kind="image"
+              className="h-full min-h-0 rounded-none border-0 px-2 py-1"
+            >
+              {({ url }) => (
+                <Link
+                  to={`/articles/${article.slug ?? article.id}`}
+                  aria-label={`Read “${article.title}”`}
+                  className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  <img
+                    src={url}
+                    alt=""
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
+                  />
+                </Link>
+              )}
+            </RemoteMedia>
+          ) : (
+            <div className="grid h-full w-full place-items-center text-muted-foreground">
+              <FileText className="h-5 w-5" aria-hidden />
+            </div>
+          )}
+        </div>
+        <Link
+          to={`/articles/${article.slug ?? article.id}`}
+          aria-label={`Read “${article.title}”`}
+          className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h3
+              className="min-w-0 flex-1 line-clamp-2 font-semibold leading-snug group-hover:text-primary"
+              data-user-content
+            >
+              {article.title}
+            </h3>
+            {/* Category is UI copy from a small controlled vocabulary, so it
               keeps its own words intact and the title — user-authored, and
               already clamped — absorbs the width instead. */}
-          {article.category ? (
-            <Badge variant="secondary" className="shrink-0 whitespace-nowrap">
-              {article.category}
-            </Badge>
+            {article.category ? (
+              <Badge variant="secondary" className="shrink-0 whitespace-nowrap">
+                {article.category}
+              </Badge>
+            ) : null}
+          </div>
+          {body ? (
+            <p
+              className="mt-1 line-clamp-2 text-sm text-muted-foreground"
+              data-user-content
+            >
+              {body}
+            </p>
           ) : null}
-        </div>
-        {body ? (
-          <p
-            className="mt-1 line-clamp-2 text-sm text-muted-foreground"
-            data-user-content
-          >
-            {body}
-          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+            <span className="min-w-0 max-w-full break-words">by {name}</span>
+            {article.published_at ? (
+              <>
+                <span aria-hidden>·</span>
+                <span className="inline-flex shrink-0 items-center gap-1">
+                  <Clock className="h-3 w-3" aria-hidden />
+                  {timeAgo(article.published_at)}
+                </span>
+              </>
+            ) : null}
+          </div>
+        </Link>
+        {article.free2zaddr ? (
+          <ModerationControls
+            username={author.username}
+            kind="zpage"
+            targetId={article.free2zaddr}
+          />
         ) : null}
-        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          <span className="min-w-0 max-w-full break-words">by {name}</span>
-          {article.published_at ? (
-            <>
-              <span aria-hidden>·</span>
-              <span className="inline-flex shrink-0 items-center gap-1">
-                <Clock className="h-3 w-3" aria-hidden />
-                {timeAgo(article.published_at)}
-              </span>
-            </>
-          ) : null}
-        </div>
-      </Link>
-    </div>
+      </div>
+    </BlockedContent>
   );
 }
 

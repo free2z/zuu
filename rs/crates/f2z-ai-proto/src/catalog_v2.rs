@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::amount::Nusd;
 use crate::catalog::{
-    Catalog, CatalogError, CatalogModel, DetachedSignature, TrustedKey, verify_catalog_tree,
+    Catalog, CatalogError, CatalogModel, DetachedSignature, TrustedKey,
+    validate_signed_price_fields, verify_catalog_tree,
 };
 use crate::chat::Usage;
 use crate::pricing::{Bps, ModelPrices, PricingError, metered_cost_nusd};
@@ -24,8 +25,10 @@ pub const CATALOG_SCHEMA_V2: u32 = 2;
 
 /// The complete table applies when total actual input is strictly above the
 /// threshold, including ALL output, not just the input above the threshold.
+/// Unknown metadata is ignored for response compatibility. Changes to pricing
+/// semantics require a schema revision, which consumers must validate before
+/// using these values to quote a call.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ContextPriceTier {
     /// Ordinary + cache-read + cache-write input tokens; output is excluded.
     pub input_tokens_gt: u64,
@@ -89,9 +92,19 @@ impl CatalogV2 {
             disabled_providers: self.disabled_providers.clone(),
             models: self.models.iter().map(|m| m.base.clone()).collect(),
         }
-        .validate()?;
+        .validate_with_hourly(true)?;
         for model in &self.models {
+            if model.base.prices.cache_write_1h_nusd_per_mtok.is_none() {
+                return Err(CatalogError::Invalid(
+                    "schema 2 requires hourly write price",
+                ));
+            }
             if let Some(tier) = &model.long_context_pricing {
+                if tier.prices.cache_write_1h_nusd_per_mtok.is_none() {
+                    return Err(CatalogError::Invalid(
+                        "schema 2 requires hourly write price",
+                    ));
+                }
                 if tier.input_tokens_gt == 0 || tier.input_tokens_gt >= model.base.context_window {
                     return Err(CatalogError::Invalid(
                         "context threshold outside model context",
@@ -112,11 +125,12 @@ impl CatalogV2 {
     }
 }
 
-fn dimensions(p: &ModelPrices) -> [u64; 6] {
+fn dimensions(p: &ModelPrices) -> [u64; 7] {
     [
         p.input_nusd_per_mtok,
         p.cached_input_nusd_per_mtok,
         p.cache_write_nusd_per_mtok,
+        p.cache_write_1h_nusd_per_mtok.unwrap_or(0),
         p.output_nusd_per_mtok,
         p.image_nusd,
         p.tool_call_nusd,
@@ -131,7 +145,8 @@ impl CatalogModelV2 {
         }
     }
 
-    /// Price validated, exclusive usage buckets at the actual context tier.
+    /// Price validated usage at the actual context tier. The hourly write count
+    /// is a subset of total writes, not an additional exclusive bucket.
     /// Output/reasoning tokens do not affect tier selection.
     ///
     /// # Errors
@@ -151,7 +166,8 @@ impl CatalogModelV2 {
     /// prompt tokens. If no tighter provider bound is proven, use the entire
     /// model context for input. Context admission/output ceilings are separate
     /// obligations. This does not authorize image or tool-unit usage.
-    /// The maximum of all three input rates covers any cache composition;
+    /// The maximum of all four input rates (ordinary, cached, 5m write,
+    /// and hourly write) covers any cache composition;
     /// output uses the whole-request tier selected by the input bound.
     ///
     /// # Errors
@@ -165,7 +181,8 @@ impl CatalogModelV2 {
         prices.input_nusd_per_mtok = prices
             .input_nusd_per_mtok
             .max(prices.cached_input_nusd_per_mtok)
-            .max(prices.cache_write_nusd_per_mtok);
+            .max(prices.cache_write_nusd_per_mtok)
+            .max(prices.cache_write_1h_nusd_per_mtok.unwrap_or(0));
         metered_cost_nusd(
             &Usage {
                 input_tokens: input_bound,
@@ -190,6 +207,7 @@ pub fn verify_catalog_v2(
     now_unix: u64,
 ) -> Result<CatalogV2, CatalogError> {
     let tree = verify_catalog_tree(payload, signature, trusted)?;
+    validate_signed_price_fields(&tree, true)?;
     let catalog: CatalogV2 = serde_json::from_value(tree).map_err(CatalogError::Json)?;
     catalog.validate()?;
     if now_unix >= catalog.expires_at {

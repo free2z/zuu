@@ -1090,6 +1090,9 @@ pub struct Usage {
     pub cached_input_tokens: u64,
     /// Input tokens written to the provider's prompt cache.
     pub cache_write_tokens: u64,
+    /// Hourly subset of total cache writes; subtract before pricing 5m writes.
+    #[serde(skip_serializing_if = "is_zero_count")]
+    pub cache_write_1h_tokens: u64,
     /// Output tokens, **including** reasoning tokens.
     pub output_tokens: u64,
     /// The reasoning subset of `output_tokens`. Informational only: it is
@@ -1265,8 +1268,12 @@ pub struct ChatResponse {
     /// What could not be taken and was written off.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shortfall_milli_2z: Option<Milli2z>,
-    /// Remaining spend under the grant's cap. `None`: absent. `Some(None)`:
-    /// `null`, no cap. `Some(Some(n))`: `n` milli-2Z remain.
+    /// Remaining spend under the grant's cap. The raw settle result reports
+    /// the ledger's current period at settlement time; after an ambiguous
+    /// replay, the gateway may use a read-only context snapshot from recovery
+    /// time because the ledger omits cap values on replay. A period rollover
+    /// can change the reported period. `None`: unknown/unreported;
+    /// `Some(None)`: `null`, no cap; `Some(Some(n))`: `n` milli-2Z remain.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -1354,4 +1361,8 @@ pub struct EstimateResponse {
     /// The signed catalogue version the estimate was priced from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub catalog_version: Option<u64>,
+}
+
+fn is_zero_count(n: &u64) -> bool {
+    *n == 0
 }

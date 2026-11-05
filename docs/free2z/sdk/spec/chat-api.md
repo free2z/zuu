@@ -73,7 +73,7 @@ checked by each terminal type's `check()`.
 | `messages[].tool_call_id` | string | Required on a `tool` message |
 | `tools` | array | Function tools, each `{name, description?, parameters, strict?}`: `name` 1–64 characters of `A-Z a-z 0-9 _ -`, unique in the request; `parameters` a JSON Schema **object** of at most 32 768 bytes serialized (members reach the provider in the order sent); at most 128 tools. The gateway adds the provider's own wrapper (OpenAI's `{"type":"function","function":{…}}`). Tools or tool-result history on a model without `capabilities.tools` → `400 invalid_request`, `field: "tools"`, `reason: "tools_unsupported"`, before any hold. A limit broken → `400 invalid_request` naming the field (`tools[2].name`, `reason` one of `empty`, `too_long`, `invalid_characters`, `duplicate`, `not_object`, `too_large`, `too_many`). The gateway **never executes a tool**: it relays the model's call to the client and the client's result back on the next request. Provider-hosted tools (web search, code execution, file search) are not available on this endpoint in v1 ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)) |
 | `tools[].strict` | boolean | Optional. `true` asks the provider to make the arguments match `parameters` exactly (OpenAI strict function calling, which also wants `additionalProperties: false` and every property `required`). On a model without `capabilities.strict_tools` → `400 invalid_request`, `field: "tools[i].strict"`, `reason: "tools_unsupported"`, before any hold — never sent without it. Absent or `false` is the providers' default; `null` is refused |
-| `tool_choice` | string or object | Optional, OpenAI's shape: `"auto"` (the default when `tools` is set), `"none"`, `"required"` (call at least one), or `{"type":"function","function":{"name":"…"}}` (call that one, which must be in `tools`, else `field: "tool_choice.function.name"`, `reason: "unknown_tool"`). Requires `tools` (`reason: "requires_tools"`). Any other shape, including Anthropic's `"any"` → `400 invalid_request`, `field: "tool_choice"`, `reason: "unsupported"`; `null` → `reason: "null"`. On a model whose adapter cannot express it → `400 invalid_request`, `field: "tool_choice"`, `reason: "tools_unsupported"`, before any hold |
+| `tool_choice` | string or object | Optional, OpenAI's shape: `"auto"` (the default when `tools` is set), `"none"`, `"required"` (call at least one), or `{"type":"function","function":{"name":"…"}}` (call that one, which must be in `tools`, else `field: "tool_choice.function.name"`, `reason: "unknown_tool"`). Requires `tools` (`reason: "requires_tools"`). Any other shape, including Anthropic's `"any"` → `400 invalid_request`, `field: "tool_choice"`, `reason: "unsupported"`; `null` → `reason: "null"`. Required/named choice with signed `capabilities.forced_tool_choice: false`, or any choice on an adapter that cannot express it → `400 invalid_request`, `field: "tool_choice"`, `reason: "tools_unsupported"`, before any hold |
 | `parallel_tool_calls` | boolean | Optional. `false`: at most one tool call per turn; `true` (the providers' default) allows several. Requires `tools`. Refused like `tool_choice` where the adapter cannot express it; Anthropic Messages sends `disable_parallel_tool_use: true` on its `tool_choice`. OpenAI notes strict schemas are not guaranteed on parallel calls; set `false` beside `strict: true` when that matters |
 | `max_output_tokens` | integer | 1 … the model's `max_output_tokens`, which is also the default when omitted. It bounds **total** generated tokens, reasoning included. The gateway may **clamp** it lower for affordability (§2.2) and never raises it; the effective value is reported in `meta` |
 | `max_output_tokens_strict` | boolean | Default `false` (and omitted). `true` makes `max_output_tokens` a requirement: wherever §2.2 would lower it — the model's ceiling, the context window, the balance or the grant's cap — the request is refused before any hold, charge or provider request (`400 invalid_request`, `400 context_length_exceeded`, `402 insufficient_balance`, `403 cap_exceeded`, each with `details.reason: "max_output_tokens_strict"`). Requires `max_output_tokens` (`400 invalid_request`, `reason: "required"`). For an app that discards a length-truncated answer ([INTEGRATION.md](../INTEGRATION.md)) |
@@ -435,7 +435,8 @@ data: {"usage":{"input_tokens":1187,"cached_input_tokens":0,"cache_write_tokens"
 |---|---|
 | `usage.input_tokens` | Uncached input tokens billed. The three input buckets are **disjoint** |
 | `usage.cached_input_tokens` | Input served from the provider's prompt cache (cheaper) |
-| `usage.cache_write_tokens` | Input written to the provider's cache (sometimes dearer) |
+| `usage.cache_write_tokens` | Total input written to the provider's cache across TTLs |
+| `usage.cache_write_1h_tokens` | Hourly subset of cache writes; absent means zero for legacy records. Never add to total writes. |
 | `usage.output_tokens` | Output tokens **including** reasoning |
 | `usage.reasoning_tokens` | The part of `output_tokens` that was reasoning; informational, never priced a second time |
 | `usage.images` | Input images billed per image, where the model prices them so |
@@ -465,7 +466,7 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 | `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` is terminal (`settled`, `settled_partial` or `released`) — not merely until it leaves `settling`, because after a `delivery_aborted` the record can still be `streaming` while the provider finishes; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. In the crate `charged_2z` and `receipt_id` are optional, and `Done::check()` enforces which state requires which |
 | `hold_2z`, `released_2z` | The **final** reservation (it can exceed `meta.hold_2z` after an extension) and what was given back. `charged + released = hold` except in the write-off case |
 | `collected_milli_2z`, `shortfall_milli_2z` | What was actually taken, and what could not be ([metering.md](./metering.md) §5.5). `collected = charged × 1000 − shortfall`; a receipt shows `collected` when `shortfall` is non-zero |
-| `cap_remaining_milli_2z` | Remaining spend under the grant's cap **for the period the hold belongs to** ([metering.md](./metering.md) §4) — after a stream that crossed a period boundary this is the old period's remainder, which is what the settlement was bounded by; `null` when the grant has no cap |
+| `cap_remaining_milli_2z` | Remaining spend under the grant's cap, in milli-2Z. A fresh settlement result reports the ledger's current period at settlement time ([metering.md](./metering.md) §4), which can differ from the hold period across rollover. If recovery sees an idempotent settle replay, whose raw cap is `NULL` even for capped grants, the gateway uses a read-only `gateway_context` snapshot at recovery time; a later rollover can change the reported period again. `null` means confirmed uncapped; absent means the gateway could not determine the value |
 | `usage_source` | The `source` of the `usage` event, repeated here (one value set — `provider` / `estimated` — two field names: `source` inside the `usage` event, `usage_source` beside a `usage` object everywhere else, as the crate spells them) |
 
 All are the crate's `Done` (`Settlement` for `settlement`;
@@ -623,7 +624,7 @@ without arithmetic. Requires `ai:invoke`.
       "display_name": "Example model (small)",
       "context_window": 400000,
       "max_output_tokens": 128000,
-      "capabilities": { "vision": true, "tools": true, "reasoning": true, "structured_output": true, "strict_tools": true, "reasoning_effort": true },
+      "capabilities": { "vision": true, "tools": true, "reasoning": true, "structured_output": true, "strict_tools": true, "forced_tool_choice": true, "reasoning_effort": true },
       "controls": { "effort_levels": ["low", "medium", "high"] },
       "prices": {
         "input_milli_2z_per_mtok": 300000,
@@ -662,7 +663,7 @@ it (anything else answers `403 model_disabled`, `reason: "child_directed"`).
 | `image_milli_2z`, `tool_call_milli_2z` | Per-unit prices where the provider bills per unit; `0` otherwise |
 | `min_charge_2z` | The floor for a call on this model, in whole 2Z. Never below `1`: the catalogue refuses a model priced at zero minimum |
 | `ttfb_timeout_ms` | How long the gateway waits for the provider's first byte before `504 provider_timeout` |
-| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions and Anthropic Messages today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false`. `strict_tools` (`tools[].strict: true`) likewise requires the Chat Completions adapter and the catalogue's `capabilities.strict_tools`, with the same interim rule (OpenAI: yes; xAI and every other provider: no — docs.x.ai documents no `strict` on a function), and is `false` whenever `tools` is. `tool_choice` and `parallel_tool_calls` are accepted wherever `tools` is on a Chat Completions or Anthropic Messages model. `reasoning_effort` (`ChatRequest.reasoning_effort`) is the catalogue's `capabilities.reasoning_effort` on an adapter that translates it (Chat Completions, Responses); it is not implied by `reasoning`, which says only that the model reasons. Each member is a JSON boolean (the SDKs refuse another type as an invalid response); a member a client does not know is ignored, never an error |
+| `capabilities` | What the gateway will accept for this model. `tools` and `reasoning` come from the signed catalogue's `capabilities`. `structured_output` (`response_format`) requires an adapter that can express it (Chat Completions and Anthropic Messages today) and the catalogue's `capabilities.structured_output`; while the catalogue does not carry that member, the gateway treats an OpenAI Chat Completions model as supporting it and every other model as not. Absent in an older gateway's answer: read as `false`. `strict_tools` (`tools[].strict: true`) likewise requires the Chat Completions adapter and the catalogue's `capabilities.strict_tools`, with the same interim rule (OpenAI: yes; xAI and every other provider: no — docs.x.ai documents no `strict` on a function), and is `false` whenever `tools` is. `tool_choice` and `parallel_tool_calls` require `tools` on a Chat Completions or Anthropic Messages model. Required/named function choice additionally requires effective `forced_tool_choice` support. The signed tri-state member `capabilities.forced_tool_choice` overrides legacy admission: explicit `false` refuses forcing, `true` permits it only on those adapters with tools enabled, and absence preserves the existing tools/adapter policy. This legacy exception does not grant tools or adapter support. `auto`, `none` and parallel controls are unaffected. `/v1/models` publishes the effective boolean; clients reading an older listing should treat absence as unsupported. `reasoning_effort` (`ChatRequest.reasoning_effort`) is the catalogue's `capabilities.reasoning_effort` on an adapter that translates it (Chat Completions, Responses); it is not implied by `reasoning`, which says only that the model reasons. Each member is a JSON boolean (the SDKs refuse another type as an invalid response); a member a client does not know is ignored, never an error |
 | `controls` | Signed narrowing of what a capability admits; always an object, `{}` when nothing is narrowed (absent in an older gateway's answer: read as `{}`). `effort_levels`: the `reasoning_effort` levels the model takes, as strings, present only where `capabilities.reasoning_effort` is `true` and the catalogue lists them; absent means any level is forwarded and one the provider rejects fails before any output, uncharged. A level string a client does not know is ignored. `tools_require_effort_none: true`: tools require non-reasoning effort; an explicit non-none effort with non-empty `tools` is refused before reservation (`reasoning_effort_unsupported`, `conflict: "tools"`). Absent/false adds no restriction; omitted effort keeps the provider default. This control grants neither tools nor reasoning effort |
 
 Responses carry `ETag`; `If-None-Match` → `304`. Clients SHOULD cache for
@@ -672,6 +673,18 @@ read by a child-directed app never earns a `304` for a list that differs
 from the one it was read from, nor the reverse. The
 response is `Cache-Control: private` with `Vary: Authorization`: a cache
 keys it by the token, never by `catalog_version` alone.
+
+Signed forced-choice rollout (schema 1): the signature covers the raw JSON tree;
+older readers ignore unknown capability members and cannot enforce this denial.
+Deploy enforcing gateways before publishing explicit false for tool-enabled models
+that reject forcing. The signer migration leaves existing rows NULL (member
+omitted), preserving signed bodies, versions and ETags. New rows default false;
+reviewed operator saves publish true/false and advance `updated_at`/catalogue
+revision. NULL remains the explicit legacy compatibility state. No model name
+implies support. Existing signed fixtures remain unchanged. These request gates
+do not change request encoding or idempotency fingerprints. `structured_output`
+remains independently gated; do not enable its forced-tool translation on a model
+that cannot execute it.
 
 ## 6. `POST /v1/chat/estimate`
 
@@ -698,14 +711,16 @@ cap the call would run with, after clamping) and `hold_2z` (what
 `EstimateResponse`; the rest are optional on decode. Every step fails **exactly as `/v1/chat`
 would** — `401`, `403 insufficient_scope`, `429`, `404`,
 `400 context_length_exceeded`, and for an unaffordable request
-`402 insufficient_balance` or `403 cap_exceeded` with the same `details`
-(`available_milli_2z`, `required_2z`, `cap_remaining_milli_2z`, …) — so an
-app that handles `/v1/chat`'s errors handles the estimate's with the same
-code, and can show "you need N more 2Z" from `details`. An app that must not
-run a shortened call sends the estimate **with** `max_output_tokens_strict`:
-it then answers exactly as the strict call would (same bounds, and
-affordability at the consented markup), whereas a non-strict estimate prices at
-the current effective markup and can disagree. It sends the call itself with the
+`402 insufficient_balance` or `403 cap_exceeded`. A **non-strict
+minimum-affordability refusal** includes `input_tokens_estimate`,
+`required_2z`, `available_milli_2z`, `min_charge_2z`, and
+`cap_remaining_milli_2z` (explicitly `null` when uncapped), so an app can
+show "you need N more 2Z" from `details`. With
+`max_output_tokens_strict`, the estimate answers exactly as the strict call
+would; its existing details omit `input_tokens_estimate` and include
+`cap_remaining_milli_2z` only when capped (see [errors.md](./errors.md)).
+Strict affordability is judged at the consented markup; a non-strict estimate
+uses the current applied markup and can disagree. It sends the call itself with the
 flag too, so that a balance change between the two cannot shorten it either. An estimate is not
 a quotation: the price is the catalogue's at call time.
 

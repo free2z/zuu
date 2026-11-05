@@ -101,14 +101,6 @@
   );
   const trending = data.trending || [];
   const popular = data.popular || [];
-  //the homepage is cached and rendered without the reader's
-  // session, so the hand-rolled hero and Popular Reads rows drop a blocked
-  // author here (ZpageCard handles every card-rendered list on its own).
-  $: heroVisible =
-    !!hero && !isBlockedIn($blockedUsernames, hero?.creator?.username);
-  $: visiblePopular = popular.filter(
-    (p) => !isBlockedIn($blockedUsernames, p?.creator?.username),
-  );
   let liveNow = data.liveNow;
   $: showIntro = !data.authenticated && !$isAuthenticated;
   const creators = (() => {
@@ -332,7 +324,18 @@
     <div class="grid gap-10 lg:grid-cols-12 lg:gap-12">
       <!-- Featured Post (Left) -->
       <div class="lg:col-span-8">
-        {#if heroVisible}
+        {#if hero && isBlockedIn($blockedUsernames, hero?.creator?.username)}
+          <article
+            data-testid="homepage-hero-blocked"
+            class="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground"
+          >
+            {$t(
+              "moderation.block.hiddenPage",
+              "Hidden because you blocked @{username}.",
+              { username: hero?.creator?.username },
+            )}
+          </article>
+        {:else if hero}
           {@const hav = avatarUrl(hero?.creator)}
 
           <div class="group flex flex-col gap-6">
@@ -531,92 +534,105 @@
         </div>
 
         <div class="flex flex-col gap-2">
-          {#each visiblePopular.slice(0, 5) as p, i}
-            {@const thumb = buildImageUrl(
-              p?.featured_image?.thumbnail || p?.featured_image?.url,
-            )}
-            <a
-              href={articleHref(p)}
-              class="group relative flex items-center gap-4 rounded-xl border border-transparent p-3 transition-all duration-300 hover:border-primary/5 hover:bg-muted/40"
-            >
-              <!-- Thumbnail -->
-              <div
-                class="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border/40 bg-muted shadow-sm transition-all group-hover:shadow-md"
+          {#each popular.slice(0, 5) as p, i}
+            {#if isBlockedIn($blockedUsernames, p?.creator?.username)}
+              <article
+                data-testid="homepage-popular-blocked"
+                class="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground"
               >
-                {#if thumb}
-                  <FeaturedImageFrame
-                    src={thumb}
-                    padding="vivid"
-                    fit="contain"
-                    alt={p.title}
-                    loading="lazy"
-                    class="h-full w-full"
-                  />
-                {:else}
-                  <div
-                    class="flex h-full w-full items-center justify-center bg-muted/50"
-                  >
-                    <svg
-                      class="h-6 w-6 text-muted-foreground/20"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.5"
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </div>
-                {/if}
-              </div>
-
-              <!-- Content -->
-              <div class="min-w-0 flex-1 space-y-1.5">
+                {$t(
+                  "moderation.block.hiddenPage",
+                  "Hidden because you blocked @{username}.",
+                  { username: p?.creator?.username },
+                )}
+              </article>
+            {:else}
+              {@const thumb = buildImageUrl(
+                p?.featured_image?.thumbnail || p?.featured_image?.url,
+              )}
+              <a
+                href={articleHref(p)}
+                class="group relative flex items-center gap-4 rounded-xl border border-transparent p-3 transition-all duration-300 hover:border-primary/5 hover:bg-muted/40"
+              >
+                <!-- Thumbnail -->
                 <div
-                  class="flex items-center gap-2 text-[10px] font-bold tracking-wider uppercase"
+                  class="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border/40 bg-muted shadow-sm transition-all group-hover:shadow-md"
                 >
-                  <span
-                    class="text-primary transition-colors dark:group-hover:text-white"
-                    >{p.category
-                      ? translateCategory(p.category, $t)
-                      : $t("homepage.storyFallback", "Story")}</span
-                  >
-                  <span class="text-muted-foreground/40">•</span>
-                  <span class="text-muted-foreground"
-                    >{fmtDate(p.created_at)}</span
-                  >
+                  {#if thumb}
+                    <FeaturedImageFrame
+                      src={thumb}
+                      padding="vivid"
+                      fit="contain"
+                      alt={p.title}
+                      loading="lazy"
+                      class="h-full w-full"
+                    />
+                  {:else}
+                    <div
+                      class="flex h-full w-full items-center justify-center bg-muted/50"
+                    >
+                      <svg
+                        class="h-6 w-6 text-muted-foreground/20"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="1.5"
+                          d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                        />
+                      </svg>
+                    </div>
+                  {/if}
                 </div>
 
-                <h3
-                  class="line-clamp-2 text-sm leading-snug font-bold transition-colors group-hover:text-primary"
-                >
-                  {p.title}
-                </h3>
-
-                <div class="flex items-center gap-2 pt-0.5">
+                <!-- Content -->
+                <div class="min-w-0 flex-1 space-y-1.5">
                   <div
-                    class="h-5 w-5 shrink-0 overflow-hidden rounded-full border border-border bg-muted"
+                    class="flex items-center gap-2 text-[10px] font-bold tracking-wider uppercase"
                   >
-                    {#if avatarUrl(p.creator)}
-                      <SmoothImage
-                        src={avatarUrl(p.creator)}
-                        alt=""
-                        loading="lazy"
-                        class="h-full w-full"
-                      />
-                    {/if}
+                    <span
+                      class="text-primary transition-colors dark:group-hover:text-white"
+                      >{p.category
+                        ? translateCategory(p.category, $t)
+                        : $t("homepage.storyFallback", "Story")}</span
+                    >
+                    <span class="text-muted-foreground/40">•</span>
+                    <span class="text-muted-foreground"
+                      >{fmtDate(p.created_at)}</span
+                    >
                   </div>
-                  <span
-                    class="truncate text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground"
+
+                  <h3
+                    class="line-clamp-2 text-sm leading-snug font-bold transition-colors group-hover:text-primary"
                   >
-                    {p?.creator?.full_name || p?.creator?.username}
-                  </span>
+                    {p.title}
+                  </h3>
+
+                  <div class="flex items-center gap-2 pt-0.5">
+                    <div
+                      class="h-5 w-5 shrink-0 overflow-hidden rounded-full border border-border bg-muted"
+                    >
+                      {#if avatarUrl(p.creator)}
+                        <SmoothImage
+                          src={avatarUrl(p.creator)}
+                          alt=""
+                          loading="lazy"
+                          class="h-full w-full"
+                        />
+                      {/if}
+                    </div>
+                    <span
+                      class="truncate text-xs font-medium text-muted-foreground transition-colors group-hover:text-foreground"
+                    >
+                      {p?.creator?.full_name || p?.creator?.username}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            </a>
+              </a>
+            {/if}
           {/each}
         </div>
 

@@ -1425,7 +1425,8 @@ class PublicMeetingViewSet(viewsets.ReadOnlyModelViewSet):
         # TTL window.
         cutoff = timezone.now() - timezone.timedelta(
             seconds=settings.DYTE_LIVE_LAST_SEEN_TTL_SECONDS)
-        return CreatorMeeting.objects.filter(
+        from dj.apps.g12f.blocks import exclude_blocked
+        meetings = CreatorMeeting.objects.filter(
             creator__is_active=True,
             is_public=True,
             live_now=True,
@@ -1437,6 +1438,7 @@ class PublicMeetingViewSet(viewsets.ReadOnlyModelViewSet):
             # stops the OLD junk leaking out, without a data migration.
             meeting_type__in=PUBLIC_MEETING_TYPES,
         )
+        return exclude_blocked(meetings, self.request.user, 'creator')
 
     def get_queryset(self):
         return self._live_queryset().order_by('-created_at')

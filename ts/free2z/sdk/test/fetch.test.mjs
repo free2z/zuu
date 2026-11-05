@@ -702,7 +702,15 @@ const turn = (callId, middle, finish) =>
     ...middle,
     [
       "usage",
-      { usage: { input_tokens: 10, output_tokens: 5 }, source: "provider" },
+      {
+        usage: {
+          input_tokens: 10,
+          cache_write_tokens: 3,
+          cache_write_1h_tokens: 2,
+          output_tokens: 5,
+        },
+        source: "provider",
+      },
     ],
     [
       "done",
@@ -1082,6 +1090,19 @@ test("models types capabilities, prices and limits, and tolerates additive field
   assert.equal(next.prices.audio_milli_2z_per_mtok, 7n);
   assert.equal(next.prices.tier, "std");
   assert.deepEqual({ ...next.future_field }, { x: 1n });
+  assert.notEqual(old.capabilities.forced_tool_choice, true);
+  for (const forced of [true, false]) {
+    body = catalog(
+      gpt4o.replace(
+        '"structured_output":true',
+        `"structured_output":true,"forced_tool_choice":${forced}`,
+      ),
+    );
+    assert.equal(
+      (await transport.models()).models[0].capabilities.forced_tool_choice,
+      forced,
+    );
+  }
   // A reasoning model with its signed effort levels.
   body = catalog(
     gpt4o
@@ -1102,6 +1123,10 @@ test("models types capabilities, prices and limits, and tolerates additive field
   );
   assert.deepEqual({ ...(await transport.models()).models[0].controls }, {});
   for (const bad of [
+    gpt4o.replace(
+      '"structured_output":true',
+      '"structured_output":true,"forced_tool_choice":"true"',
+    ),
     gpt4o.replace('"structured_output":true', '"structured_output":"true"'),
     gpt4o.replace(
       '"structured_output":true',
@@ -1222,7 +1247,12 @@ test("a round that fails after output keeps its charge, and handlers get the run
             [
               "usage",
               {
-                usage: { input_tokens: 10, output_tokens: 5 },
+                usage: {
+                  input_tokens: 10,
+                  cache_write_tokens: 3,
+                  cache_write_1h_tokens: 2,
+                  output_tokens: 5,
+                },
                 source: "provider",
               },
             ],
@@ -1558,4 +1588,17 @@ test("sampling controls reach HTTP with exact signed seed and reject invalid val
       code: "invalid_request",
     });
   assert.equal(bodies.length, sent);
+});
+
+test("public usage preserves the hourly subset as an exact unsigned count", async () => {
+  const { event } = await import("../dist/decode.js");
+  const { parseJson } = await import("../dist/json.js");
+  const decoded = event(
+    "usage",
+    parseJson(
+      '{"usage":{"cache_write_tokens":9007199254740993,"cache_write_1h_tokens":9007199254740992},"source":"provider"}',
+    ),
+  );
+  assert.equal(decoded.usage.cache_write_tokens, 9007199254740993n);
+  assert.equal(decoded.usage.cache_write_1h_tokens, 9007199254740992n);
 });

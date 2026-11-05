@@ -807,6 +807,8 @@ export interface CatalogModelCapabilities {
   structured_output?: boolean;
   /** `strict: true` on a function tool is supported. Always emitted by this signer; a gateway reads absence as 'not declared', never as false. */
   strict_tools?: boolean;
+  /** Required/named function choice is supported. Explicit false refuses forcing before a hold; absent preserves legacy tools/adapter admission. No default: legacy rows omit this member; new rows default false pending reviewed opt-in. */
+  forced_tool_choice?: boolean;
   /** `reasoning_effort` is supported (zuu#1170); not implied by `reasoning`. Always emitted by this signer; absent reads as false. */
   reasoning_effort?: boolean;
   top_k?: boolean;
@@ -865,7 +867,7 @@ export interface CatalogModel {
      */
   idle_timeout_ms: number;
   enabled: boolean;
-  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared. */
+  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared; absent forced_tool_choice preserves legacy tools/adapter admission. */
   capabilities?: CatalogModelCapabilities;
   /** Signed per-model narrowing (zuu#1170); present only when it narrows something. */
   controls?: CatalogModelControls;
@@ -889,11 +891,98 @@ export interface Catalog {
   models: CatalogModel[];
 }
 
+/**
+ * Schema 2 requires an explicit hourly rate, including a reviewed zero.
+ */
+export interface CatalogModelPricesV2 {
+  /** @minimum 0 */
+  input_nusd_per_mtok: number;
+  /** @minimum 0 */
+  cached_input_nusd_per_mtok: number;
+  /**
+     * The 5-minute-TTL cache-write price (schema 1 has one).
+     * @minimum 0
+     */
+  cache_write_nusd_per_mtok: number;
+  /** @minimum 0 */
+  output_nusd_per_mtok: number;
+  /** @minimum 0 */
+  image_nusd: number;
+  /** @minimum 0 */
+  tool_call_nusd: number;
+  /** @minimum 0 */
+  cache_write_1h_nusd_per_mtok: number;
+}
+
+export interface CatalogModelV2 {
+  /** Public model id a client names. */
+  id: string;
+  provider: string;
+  /** The provider's own model id the gateway sends upstream. */
+  provider_model_id: string;
+  api_style: ApiStyleEnum;
+  prices: CatalogModelPricesV2;
+  /**
+     * Whole 2Z per call.
+     * @minimum 1
+     */
+  min_charge_2z: number;
+  /** @minimum 10000 */
+  safety_factor_bps: number;
+  /**
+     * Tokens.
+     * @minimum 0
+     */
+  context_window: number;
+  /**
+     * Tokens.
+     * @minimum 0
+     */
+  max_output_tokens: number;
+  /**
+     * Milliseconds.
+     * @minimum 0
+     */
+  ttfb_timeout_ms: number;
+  /**
+     * Maximum stream silence in milliseconds; at most the gateway's 300s deadline.
+     * @minimum 1
+     * @maximum 300000
+     */
+  idle_timeout_ms: number;
+  enabled: boolean;
+  /** Signed capability policy, always emitted. Absent vision/tools/reasoning mean false; absent structured_output/strict_tools means undeclared; absent forced_tool_choice preserves legacy tools/adapter admission. */
+  capabilities?: CatalogModelCapabilities;
+  /** Signed per-model narrowing (zuu#1170); present only when it narrows something. */
+  controls?: CatalogModelControls;
+}
+
 export interface CatalogSignature {
   /** Which trusted key signed it. Trust comes from the verifier's own configuration, never from this response. */
   key_id: string;
   /** Ed25519 over b'free2z/ai-catalog/v1' || canonical_json(catalog); 128 lowercase hex characters. */
   signature_hex: string;
+}
+
+/**
+ * Crate ``Catalog`` (schema 1).
+ */
+export interface CatalogV2 {
+  /**
+     * @minimum 2
+     * @maximum 2
+     */
+  schema: number;
+  /** Unix microseconds of the newest change or the per-minute re-issue. Increases over time, but a later response can be LOWER by up to ~7 minutes (pods straddling a minute, a deleted model); see dj.apps.pricing.catalog for the bound. */
+  version: number;
+  /** Unix seconds. */
+  issued_at: number;
+  /** Unix seconds; issued_at + 72h. */
+  expires_at: number;
+  rate_card_version: number;
+  platform_margin_bps: number;
+  disabled_providers: string[];
+  models: CatalogModelV2[];
 }
 
 /**
@@ -4432,6 +4521,11 @@ export interface SignedCatalog {
   signature: CatalogSignature;
 }
 
+export interface SignedCatalogV2 {
+  catalog: CatalogV2;
+  signature: CatalogSignature;
+}
+
 export interface SitemapCreator {
   username: string;
 }
@@ -6393,6 +6487,13 @@ export const TaggingAutocompleteListType = {
   comment: 'comment',
   zpage: 'zpage',
 } as const;
+
+export type TaggingZpageSuggestionsDecideCreateParams = {
+/**
+ * Variant whose validator is supplied and returned; omit for canonical article.
+ */
+lang?: string;
+};
 
 export type TuzisMySubscribersListParams = {
 /**

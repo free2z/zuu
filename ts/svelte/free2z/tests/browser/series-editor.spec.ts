@@ -243,6 +243,27 @@ async function stubSeriesApi(page: Page, options: StubOptions = {}) {
         return;
       }
 
+      // Opening `?lang=` reads `/variants/{language}/` and refuses a body
+      // that is not that variant. The detail route's `?lang=` response is
+      // not a substitute: its validator describes the canonical article.
+      const variantRequest = pathname.match(
+        /^\/api\/zpage\/([^/]+)\/variants\/([^/]+)\/$/,
+      );
+      if (variantRequest && method === "GET") {
+        const id = decodeURIComponent(variantRequest[1]);
+        const language = decodeURIComponent(variantRequest[2]);
+        const currentArticle = articles[id] || article(id);
+        if (currentArticle.actual_language === language) {
+          await route.fulfill({
+            json: currentArticle,
+            headers: { ETag: `"variant-${language}"` },
+          });
+          return;
+        }
+        await route.fulfill({ status: 404, json: { detail: "Not found." } });
+        return;
+      }
+
       if (
         pathname === `/api/g12f/series/clear-zpage/${ARTICLE_ID}/` &&
         method === "DELETE"

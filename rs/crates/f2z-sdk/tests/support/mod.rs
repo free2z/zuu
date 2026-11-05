@@ -1366,7 +1366,7 @@ async fn models(State(f): State<Arc<Fake>>, headers: HeaderMap) -> Response<Body
             {"id": "structured", "provider": "example-provider", "display_name": "Example (JSON)",
              "context_window": 128000, "max_output_tokens": 16384,
              "capabilities": {"vision": false, "tools": true, "reasoning": false,
-                              "structured_output": true},
+                              "structured_output": true, "forced_tool_choice": true},
              "prices": {"input_milli_2z_per_mtok": 150000, "output_milli_2z_per_mtok": 600000},
              "min_charge_2z": 1, "ttfb_timeout_ms": 30000}
         ]}),

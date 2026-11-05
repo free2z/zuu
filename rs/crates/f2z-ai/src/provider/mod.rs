@@ -172,9 +172,9 @@ pub struct ProviderOutcome {
     pub usage: UsageReport,
     /// Anthropic's 1-hour-TTL share of `usage.cache_write_tokens`
     /// (`cache_creation.ephemeral_1h_input_tokens`). It is priced differently
-    /// from the 5-minute share and `f2z-ai-proto` has one cache-write price
-    /// today (zuu#1059): carried here so the split is not lost on the way to
-    /// the settler. `0` for every other provider.
+    /// from the 5-minute share. Also preserved in the public usage vector;
+    /// schema-1 metering refuses positive hourly usage as unpriced.
+    /// `0` for every other provider.
     pub cache_write_1h_tokens: u64,
     /// The provider failure that ended the call, if one did.
     pub failure: Option<ProviderFailure>,
@@ -668,6 +668,16 @@ pub fn strict_tools_supported(model: &CatalogModel) -> bool {
             .unwrap_or(model.provider == "openai")
 }
 
+/// Whether required/named function choice can be sent. Legacy catalogues
+/// omit the declaration and retain their existing tool-control admission.
+/// Explicit false always refuses; no model-name inference is performed.
+#[must_use]
+pub fn forced_tool_choice_supported(model: &CatalogModel) -> bool {
+    model.capabilities.tools
+        && TOOL_CONTROL_STYLES.contains(&model.api_style)
+        && model.capabilities.forced_tool_choice.unwrap_or(true)
+}
+
 /// Refuse a tool feature `model` cannot honour — before any hold, charge or
 /// provider request, and never by dropping it. Runs in the metering plan;
 /// each adapter's `body` re-runs the translation half,
@@ -693,6 +703,7 @@ pub fn check_tools(request: &ChatRequest, model: &CatalogModel) -> Result<(), Ap
 /// Never by dropping a field:
 ///
 /// * `tool_choice` / `parallel_tool_calls` outside [`TOOL_CONTROL_STYLES`].
+/// * Required/named `tool_choice` without [`forced_tool_choice_supported`].
 /// * `tools[i].strict: true` without [`strict_tools_supported`].
 /// * Anthropic Messages also refuses a `response_format` beside `tools`
 ///   ([`anthropic::check`]).
@@ -719,6 +730,19 @@ pub fn check_tool_translation(
                 "this model does not support parallel_tool_calls",
             ));
         }
+    }
+    if matches!(
+        request.tool_choice,
+        Some(
+            f2z_ai_proto::chat::ToolChoice::Required
+                | f2z_ai_proto::chat::ToolChoice::Function { .. }
+        )
+    ) && !forced_tool_choice_supported(model)
+    {
+        return Err(tools_unsupported(
+            "tool_choice",
+            "this model does not support forced tool_choice",
+        ));
     }
     if let Some(index) = request.tools.iter().position(|t| t.strict == Some(true))
         && !strict_tools_supported(model)

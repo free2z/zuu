@@ -78,6 +78,10 @@ export interface SignInOptions {
   prompt?: "login" | "consent" | "none";
   maxAge?: number;
   acrValues?: string;
+  /** Account suggestion only; never proof of the signed-in identity. */
+  loginHint?: string;
+  /** Preferred UI languages, as space-separated BCP 47 tags. */
+  uiLocales?: string;
   /** Optional, additive: see {@link SpendCapHint}. */
   spendCap?: SpendCapHint;
   /**
@@ -307,6 +311,8 @@ export interface Usage extends ObjectData {
   input_tokens?: bigint;
   cached_input_tokens?: bigint;
   cache_write_tokens?: bigint;
+  /** Hourly subset of cache_write_tokens. */
+  cache_write_1h_tokens?: bigint;
   output_tokens?: bigint;
   reasoning_tokens?: bigint;
   images?: bigint;
@@ -374,6 +380,8 @@ export interface ModelCapabilities {
    * `field: "tools[i].strict"`) before any hold or charge. Absent: unsupported.
    */
   strict_tools?: boolean;
+  /** Required/named function choice; absent in older listings: unsupported. */
+  forced_tool_choice?: boolean;
   /**
    * `true` is the precondition for `ChatRequest.reasoning_effort` (at a level
    * in `Model.controls.effort_levels`, when listed): otherwise the gateway
@@ -528,6 +536,12 @@ export interface SettlementFields extends ObjectData {
   receipt_id?: string;
   collected_milli_2z?: bigint;
   shortfall_milli_2z?: bigint;
+  /** Remaining grant-cap spend in milli-2Z. Settlement reports the ledger's
+   * current period at settlement time; recovery may use a context snapshot
+   * from later if an idempotent replay omitted the value. A period rollover
+   * can change the reported period. `null` means confirmed uncapped; absent
+   * means unknown/unreported. */
+  cap_remaining_milli_2z?: bigint | null;
 }
 export type ChatEvent =
   | ({

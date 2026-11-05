@@ -1,17 +1,29 @@
 //! Handle-ownership assertions for the free2z key-transparency log.
 //!
-//! The v1 `HandleAssertion` and `AssertionBindingTBS` encodings are the
-//! ratified Contract C. The additional `InitialBindBindingTBS` used to commit
-//! first-entry evidence into `DirectoryEntry` is a #649 future-wire proposal
-//! for maintainer review and is not yet ratified. The no-authority behavior
-//! remains the existing implementation contract.
+//! **The current v1 assertion wire format is ratified as-implemented.**
+//! [`HandleAssertionTBS`], [`HandleAssertion`], and [`AssertionBindingTBS`]
+//! are specified in `KT.md` §4.5. That ratification binds the current v1 wire
+//! shape. The additional `InitialBindBindingTBS` used to commit first-entry
+//! evidence into `DirectoryEntry` is a #649 future-wire proposal for maintainer
+//! review and is not yet ratified. The no-authority behavior remains the
+//! existing implementation contract.
 //!
-//! **One exception, and it is scoped.** ADR 0017 ratifies this crate's
+//! The crate checks only the assertion layer, not the complete directory
+//! authorization described by `KT.md` §4.4. In particular, its
+//! [`EntryKind::InitialBind`] is an internal model, not a `KT.md` v1
+//! `EntryKind`. Whether a distinct wire discriminator should represent
+//! first-entry authorization is an unresolved #649 choice; any such wire
+//! change remains unratified.
+//!
+//! [issue #649]: https://github.com/free2z/zuu/issues/649
+//!
+//! **Deployment-specific contract.** ADR 0017 also binds this crate's
 //! `HandleAssertion` bytes as Contract C for the *disposable internal*
 //! directory: the free2z backend issues them, and the shared vectors in
 //! `tests/fixtures/handle-assertion-v1.vectors` are what that issuer is held
 //! to. A format change is therefore a wire change for the backend, and
-//! `tests/contract_c_vectors.rs` fails until the vectors are regenerated.
+//! `tests/contract_c_vectors.rs` detects a mismatch. This deployment decision
+//! does not settle the open public-log questions in `KT.md` §12.
 //!
 //! # Why this is a crate and not a module
 //!
@@ -65,9 +77,10 @@
 //! Authority membership and signature, `log_id`, timestamps, **a validity cap
 //! the log holds rather than the issuer**, nonce freshness, `handle_id`
 //! agreement, the `[a-z0-9_]{1,30}` charset, entry-kind shape, assertion intent,
-//! and `account_epoch` monotonicity — together with the rule that keeps that
-//! last one from being satisfiable unconditionally, which is the whole of the
-//! next paragraph. [`AuthorityConfig::check_assertion_layer`]'s documentation
+//! and `account_epoch` monotonicity plus its absolute ceiling. The ceiling
+//! catches clock values that exceed `2^20`; lower clock-derived values remain
+//! indistinguishable from counters and violate the issuer's normative duty.
+//! [`AuthorityConfig::check_assertion_layer`]'s documentation
 //! lists all eighteen asserted-path rules in the order they run, and names the
 //! smaller routine assertion-layer path explicitly.
 //!
@@ -75,21 +88,17 @@
 //!
 //! `account_epoch` (`KT.md` §4.5.4) is the authority's counter for the account
 //! behind a handle, and A15 requires each assertion's value to be strictly
-//! greater than the last one admitted for that handle. That is a real rule
-//! **only if the value is a counter.** Derived from a clock — Unix seconds, say
-//! — "strictly greater than the last one" holds unconditionally and forever, so
-//! the field is present, the check runs, and it enforces nothing. A control
-//! that is visibly present and functionally absent is worse than a missing one,
-//! because it stops anybody looking.
+//! greater than the last one admitted for that handle. A high clock-derived
+//! value is caught by the absolute ceiling, but lower clock-derived values
+//! remain indistinguishable from counters and violate the issuer's normative
+//! duty. A value check cannot prove durable provenance.
 //!
-//! [`ACCOUNT_EPOCH_CEILING`] and [`MAX_ACCOUNT_EPOCH_STEP`] are what this crate
-//! can check from the bytes it holds, and [`check_assertion_layer`]'s rule 18
-//! applies them. Neither proves the value came from durable storage, and rule
-//! 18's own documentation says exactly which clocks still slip through and what
-//! the issuer must therefore guarantee instead. The issuing
-//! side of this crate — `f2z-assert` — refuses to mint a clock-shaped value at
-//! all, and requires the counter explicitly rather than defaulting it on the
-//! one path where the value carries the security property.
+//! [`ACCOUNT_EPOCH_CEILING`] is what this crate can check from the bytes it
+//! holds, and [`check_assertion_layer`]'s rule 18 applies it. It cannot prove
+//! the value came from durable storage; the issuer must guarantee that instead.
+//! The issuing side of this crate — `f2z-assert` — requires the counter
+//! explicitly rather than defaulting it on the one path where the value carries
+//! the security property.
 //!
 //! [`check_assertion_layer`]: crate::authority::AuthorityConfig::check_assertion_layer
 //!
@@ -201,8 +210,7 @@ pub use assertion::{
 };
 pub use authority::{
     ACCOUNT_EPOCH_CEILING, AssertionLayerCheck, AuthorityConfig, AuthorityKey, AuthoritySet,
-    DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_VALIDITY_MS, EntryKind, MAX_ACCOUNT_EPOCH_STEP, Submission,
-    Vouch, VouchingStatus,
+    DEFAULT_CLOCK_SKEW_MS, DEFAULT_MAX_VALIDITY_MS, EntryKind, Submission, Vouch, VouchingStatus,
 };
 pub use error::{AuthorityError, Result};
 pub use key::{SigningKey, VerifyingKey};

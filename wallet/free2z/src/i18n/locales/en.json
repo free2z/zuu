@@ -102,7 +102,7 @@
     },
     "zecTip": {
       "blocked": {
-        "body": "free2z prepared a request for {amount} to {creator} and holds no key to sign it. The verified link to ZUULI is not live yet, so nothing was sent.",
+        "body": "free2z prepared a request for {amount} to {creator} and holds no key to sign it. The verified link to ZUULI exists only in the iOS and Android apps, so nothing was sent from here.",
         "title": "ZEC tips are signed in ZUULI"
       },
       "declined": {
@@ -201,5 +201,26 @@
   "search": {
     "all": "Search all of free2z",
     "clear": "Clear search"
+  },
+  "moderation": {
+    "report": "Report",
+    "block": "Block",
+    "unblock": "Unblock",
+    "blocks": "Blocked accounts",
+    "hidden": "Content hidden from a blocked account.",
+    "loadError": "Could not load blocked accounts.",
+    "empty": "No blocked accounts.",
+    "requestError": "Request failed. Try again.",
+    "sent": "Report sent.",
+    "reason": "Reason",
+    "details": "Details (optional)",
+    "send": "Send report",
+    "csae": "Child sexual abuse or exploitation",
+    "harassment": "Harassment or threats",
+    "hate": "Hateful content",
+    "sexual": "Sexual content",
+    "violence": "Violence",
+    "spam": "Spam or scam",
+    "other": "Other"
   }
 }

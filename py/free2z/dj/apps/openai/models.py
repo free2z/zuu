@@ -815,6 +815,12 @@ class AIModel(models.Model):
         ),
     )
 
+    supports_forced_tool_choice = models.BooleanField(
+        null=True, default=False, db_default=False,
+        help_text="Signed forced_tool_choice policy: true permits required/named function choice, "
+        "false refuses it before a hold. NULL preserves legacy admission and is omitted from "
+        "the signed body. New rows default to false; enable only after reviewed evidence.",
+    )
     supports_strict_tools = models.BooleanField(
         default=False,
         db_default=False,

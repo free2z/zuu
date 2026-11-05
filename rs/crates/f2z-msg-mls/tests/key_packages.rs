@@ -147,13 +147,15 @@ const KEY_PACKAGE_EXHAUSTION_TEXT: &str = "12.6.6 Exhaustion, and the package of
 // contract; the exact §12.6 structure and prose are checked separately below.
 //
 // Because it covers the whole document, a paragraph edit anywhere trips it, and
-// that is the point: the pin moves only with a stated reason. PR #1231 updated
-// the handle documentation. This branch then documents that `max_bytes` counts
-// ciphertext payload bytes while `max_frame_bytes` bounds the complete encoded
-// response. Those edits change rendered prose outside the key-package
-// authentication table. §12.6's exact structure and mutation-sensitive
-// normative assertions are checked independently below.
-const WIRE_RENDERED_PROSE_DIGEST: u64 = 8_101_173_008_715_947_681;
+// that is the point: the pin moves only with a stated reason. #827 retires the
+// reserved synchronized queue-exporter schedule in §7.5 and keeps replacement
+// creation, publication, and overlap/drain unautomated. #1231 updates the
+// handle documentation. #1212 documents that `max_bytes` counts ciphertext
+// payload bytes while `max_frame_bytes` bounds the complete encoded response.
+// Those edits change rendered prose outside the key-package authentication
+// table. §12.6's exact structure and mutation-sensitive normative assertions
+// are checked independently below.
+const WIRE_RENDERED_PROSE_DIGEST: u64 = 15_075_292_404_267_714_683;
 
 fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
     markdown::stable_digest(rendered.paragraphs())

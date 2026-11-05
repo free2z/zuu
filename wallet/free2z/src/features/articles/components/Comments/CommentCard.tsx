@@ -1,12 +1,12 @@
+import {
+  BlockedContent,
+  ModerationControls,
+} from "@/features/moderation/Moderation";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { ChevronDown, ChevronUp, MessageSquare, Reply } from "lucide-react";
 import { toast } from "sonner";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/common/Markdown";
 import { comments as commentsApi } from "@/lib/api/free2z";
@@ -28,7 +28,11 @@ interface CommentCardProps {
   onReplied: (reply: Comment) => void;
 }
 
-export function CommentCard({ comment, numChildren, onReplied }: CommentCardProps) {
+export function CommentCard({
+  comment,
+  numChildren,
+  onReplied,
+}: CommentCardProps) {
   const user = useSession((s) => s.user);
   const balance = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
@@ -81,122 +85,129 @@ export function CommentCard({ comment, numChildren, onReplied }: CommentCardProp
       : undefined;
 
   return (
-    <div className="min-w-0 rounded-xl border border-border bg-card/60 p-4">
-      <div className="flex items-start gap-3">
-        {/* Vote rail */}
-        <div className="flex shrink-0 flex-col items-center gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 min-tap"
-            aria-label="Upvote comment"
-            aria-pressed={voted === "up"}
-            disabled={voting || !canVote}
-            title={voteHint}
-            onClick={() => vote("up")}
-          >
-            <ChevronUp
-              className={cn("h-4 w-4", voted === "up" && "text-primary")}
-              aria-hidden
-            />
-          </Button>
-          <span className="text-xs font-semibold bidi-number tabular-nums text-muted-foreground">
-            {score}
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 min-tap"
-            aria-label="Downvote comment"
-            aria-pressed={voted === "down"}
-            disabled={voting || !canVote}
-            title={voteHint}
-            onClick={() => vote("down")}
-          >
-            <ChevronDown
-              className={cn("h-4 w-4", voted === "down" && "text-primary")}
-              aria-hidden
-            />
-          </Button>
-        </div>
-
-        {/* Body */}
-        <div className="min-w-0 flex-1 space-y-1.5">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <Link
-              to={`/creator/${name}`}
-              className="min-tap flex items-center gap-2 rounded-md font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <Avatar className="h-6 w-6">
-                {comment.author.avatar_image ? (
-                  <AvatarImage src={comment.author.avatar_image} alt={name} />
-                ) : null}
-                <AvatarFallback className="text-xs">
-                  {initials(name)}
-                </AvatarFallback>
-              </Avatar>
-              {name}
-            </Link>
-            <span className="text-muted-foreground" aria-hidden>
-              ·
-            </span>
-            <span className="text-xs text-muted-foreground">
-              {timeAgo(comment.created_at)}
-            </span>
-            <span
-              className="ms-auto inline-flex items-center gap-1 text-xs bidi-number tabular-nums text-muted-foreground"
-              title={`${formatTuzis(comment.tuzis)} weight`}
-            >
-              {formatTuzis(comment.tuzis)}
-            </span>
-          </div>
-
-          <h4 className="break-words text-base font-semibold leading-snug">
-            {comment.headline}
-          </h4>
-
-          <div className="min-w-0 max-w-full overflow-x-auto break-words text-sm text-muted-foreground">
-            {/* Untrusted, unmoderated user content: comment variant degrades
-                remote images/embeds/QRs to links/text and is wrapped in an
-                error boundary so a malicious body can never crash the page. */}
-            <Markdown variant="comment">{comment.content}</Markdown>
-          </div>
-
-          <div className="flex items-center gap-2 pt-1">
+    <BlockedContent username={name}>
+      <div className="min-w-0 rounded-xl border border-border bg-card/60 p-4">
+        <div className="flex items-start gap-3">
+          {/* Vote rail */}
+          <div className="flex shrink-0 flex-col items-center gap-0.5">
             <Button
               variant="ghost"
-              size="sm"
-              className="h-8 px-2 text-muted-foreground"
-              onClick={() => setReplying((r) => !r)}
-              aria-expanded={replying}
+              size="icon"
+              className="h-7 w-7 min-tap"
+              aria-label="Upvote comment"
+              aria-pressed={voted === "up"}
+              disabled={voting || !canVote}
+              title={voteHint}
+              onClick={() => vote("up")}
             >
-              <Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
-              Reply
+              <ChevronUp
+                className={cn("h-4 w-4", voted === "up" && "text-primary")}
+                aria-hidden
+              />
             </Button>
-            {childCount > 0 ? (
-              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                <MessageSquare className="h-3.5 w-3.5" aria-hidden />
-                {childCount}
-              </span>
-            ) : null}
+            <span className="text-xs font-semibold bidi-number tabular-nums text-muted-foreground">
+              {score}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 min-tap"
+              aria-label="Downvote comment"
+              aria-pressed={voted === "down"}
+              disabled={voting || !canVote}
+              title={voteHint}
+              onClick={() => vote("down")}
+            >
+              <ChevronDown
+                className={cn("h-4 w-4", voted === "down" && "text-primary")}
+                aria-hidden
+              />
+            </Button>
           </div>
 
-          {replying ? (
-            <div className="pt-2">
-              <CommentForm
-                compact
-                autoFocus
-                submit={submitReply}
-                onCancel={() => setReplying(false)}
-                onPosted={(reply) => {
-                  setReplying(false);
-                  onReplied(reply);
-                }}
-              />
+          {/* Body */}
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+              <Link
+                to={`/creator/${name}`}
+                className="min-tap flex items-center gap-2 rounded-md font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <Avatar className="h-6 w-6">
+                  {comment.author.avatar_image ? (
+                    <AvatarImage src={comment.author.avatar_image} alt={name} />
+                  ) : null}
+                  <AvatarFallback className="text-xs">
+                    {initials(name)}
+                  </AvatarFallback>
+                </Avatar>
+                {name}
+              </Link>
+              <span className="text-muted-foreground" aria-hidden>
+                ·
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {timeAgo(comment.created_at)}
+              </span>
+              <span
+                className="ms-auto inline-flex items-center gap-1 text-xs bidi-number tabular-nums text-muted-foreground"
+                title={`${formatTuzis(comment.tuzis)} weight`}
+              >
+                {formatTuzis(comment.tuzis)}
+              </span>
             </div>
-          ) : null}
+
+            <h4 className="break-words text-base font-semibold leading-snug">
+              {comment.headline}
+            </h4>
+
+            <div className="min-w-0 max-w-full overflow-x-auto break-words text-sm text-muted-foreground">
+              {/* User-submitted content remains untrusted: comment variant degrades
+                remote images/embeds/QRs to links/text and is wrapped in an
+                error boundary so a malicious body can never crash the page. */}
+              <Markdown variant="comment">{comment.content}</Markdown>
+            </div>
+
+            <ModerationControls
+              username={name}
+              kind="comment"
+              targetId={comment.uuid}
+            />
+            <div className="flex items-center gap-2 pt-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-2 text-muted-foreground"
+                onClick={() => setReplying((r) => !r)}
+                aria-expanded={replying}
+              >
+                <Reply className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
+                Reply
+              </Button>
+              {childCount > 0 ? (
+                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                  <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                  {childCount}
+                </span>
+              ) : null}
+            </div>
+
+            {replying ? (
+              <div className="pt-2">
+                <CommentForm
+                  compact
+                  autoFocus
+                  submit={submitReply}
+                  onCancel={() => setReplying(false)}
+                  onPosted={(reply) => {
+                    setReplying(false);
+                    onReplied(reply);
+                  }}
+                />
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
-    </div>
+    </BlockedContent>
   );
 }

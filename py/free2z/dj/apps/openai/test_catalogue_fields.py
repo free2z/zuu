@@ -34,7 +34,7 @@ pytestmark = pytest.mark.django_db
 
 NEW_COLUMNS = {"provider_model_id", "api_style", "ttfb_timeout_ms", "idle_timeout_ms", "safety_factor_bps",
                "supports_tools", "supports_vision", "supports_reasoning",
-               "supports_structured_output", "supports_strict_tools",
+               "supports_structured_output", "supports_strict_tools", "supports_forced_tool_choice",
                "supports_reasoning_effort", "reasoning_effort_levels", "tools_require_effort_none",
                "supports_top_k", "supports_seed", "supports_logprobs", "supports_penalties",
                "temperature_top_p_exclusive", "sampling_temperature", "sampling_top_p"}

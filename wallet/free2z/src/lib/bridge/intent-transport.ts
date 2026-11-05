@@ -1,24 +1,27 @@
 /**
- * The ONE seam between this app's intent requests and a channel that could
- * carry them — and, today, the reason none of them travel.
+ * The ONE seam between this app's intent requests and the channel that carries
+ * them to ZUULI.
  *
- * `docs/free2z/intent-bridge/PROTOCOL.md` §7 is unambiguous: **no intent carrying
- * authority may be dispatched over a deep link** until
- * [#461](https://github.com/free2z/zuu/issues/461) lands. A custom scheme is
- * not an authenticated channel — any app can register `zuuli://` — so shipping
- * on one would recreate #367's confused deputy at the OS layer. `f2z-intent`
- * contains no transport for that reason, and neither does this.
+ * `docs/free2z/intent-bridge/PROTOCOL.md` §7 forbids dispatching an intent that
+ * carries authority over anything but a **verified** App Link or Universal
+ * Link: a custom scheme is not an authenticated channel — any app can register
+ * `zuuli://` — so shipping on one would recreate #367's confused deputy at the
+ * OS layer. #977 declared those links for all three apps and #1019 gave ZUULI
+ * a listener on its own, so the channel now exists, and `./appLinkTransport`
+ * is it.
  *
- * So this module exists to make the absence *structural* rather than a habit:
+ * It exists only where the association does. `tauri.conf.json` declares it
+ * under `plugins.deep-link.mobile`, so a desktop build or a plain browser has
+ * no channel at all, and there the refusal below is still the whole story:
  *
  *   * There is exactly one interface, {@link IntentTransport}, with exactly one
  *     method. Everything the caller side does funnels through it.
- *   * The shipped implementation is {@link failClosedIntentTransport}, which
- *     rejects. It cannot succeed: there is no code path in it that returns
- *     bytes, so no amount of caller optimism can turn it into a fabricated
- *     receipt.
- *   * {@link installedIntentTransport} is **the drop-in point**. When #461 is
- *     resolved, one binding changes here and nothing else in this app does.
+ *   * {@link failClosedIntentTransport} rejects. It cannot succeed: there is no
+ *     code path in it that returns bytes, so no amount of caller optimism can
+ *     turn it into a fabricated receipt.
+ *   * {@link installedIntentTransport} is **the one place the choice is made**:
+ *     the App Link transport in a native mobile runtime, the refusal
+ *     everywhere else.
  *
  * ## Why a rejection and not a `null`
  *
@@ -38,12 +41,15 @@
  * capability side; a reviewer must refuse it on this side.
  */
 
+import { isMobileRuntime, isTauri, type RuntimeNavigator } from "@/lib/platform";
+import { appLinkIntentTransport } from "./appLinkTransport";
+
 /** The stable identifier for "there is no channel", for logs and tests. */
 export const INTENT_TRANSPORT_UNAVAILABLE = "INTENT_TRANSPORT_UNAVAILABLE";
 
 /** Why no channel exists, in one sentence a human can act on. */
 export const INTENT_TRANSPORT_BLOCKED_REASON =
-  "no verified App Link or Universal Link to cash.free2z.zuuli exists yet (#461)";
+  "the verified App Link to cash.free2z.zuuli exists only in the iOS and Android apps";
 
 /** Thrown by a transport that has no channel to offer. */
 export class IntentTransportUnavailableError extends Error {
@@ -128,33 +134,54 @@ export interface IntentTransport {
    *
    * @throws {@link IntentTransportUnavailableError} when there is no channel.
    */
-  exchange(request: Uint8Array): Promise<Uint8Array>;
+  exchange(
+    request: Uint8Array,
+    context: IntentExchangeContext,
+  ): Promise<Uint8Array>;
 }
 
 /**
- * The transport this app ships: it refuses, every time.
+ * What an exchange is for, so a transport can correlate and time out without
+ * parsing the bytes it carries. The same shape e2e2z's `IntentDispatchContext`
+ * has.
+ */
+export interface IntentExchangeContext {
+  /** The family name, from `intentFamilyName` — for logs only. */
+  readonly family: string;
+  /** The request identifier, lowercase hex. The response correlator. */
+  readonly requestId: string;
+  /** Wall-clock expiry of the request, milliseconds since the epoch. */
+  readonly expiresAtMs: number;
+}
+
+/**
+ * The transport for a runtime with no channel: it refuses, every time.
  *
  * Written so that the refusal is the only branch. There is no flag, no
  * environment check and no "if a wallet is installed" — those are the shapes
- * that decay into a channel nobody reviewed.
+ * that decay into a channel nobody reviewed. The environment is decided once,
+ * in {@link installedIntentTransport}, never in here.
  */
 export const failClosedIntentTransport: IntentTransport = {
   id: "fail-closed",
   exchange(request: Uint8Array): Promise<Uint8Array> {
-    // `request` is accepted and dropped on purpose: the signature is the real
-    // one, so the day a channel exists it replaces this object rather than
-    // changing every call site.
     void request;
     return Promise.reject(new IntentTransportUnavailableError());
   },
 };
 
 /**
- * THE DROP-IN POINT.
+ * The transport this runtime has: the verified App Link in a native iOS or
+ * Android build, {@link failClosedIntentTransport} everywhere else.
  *
- * Replacing this binding — and only this binding — is what #461 unblocks. Until
- * then it is `failClosedIntentTransport`, and every intent this app builds is
- * built, validated, and then not sent.
+ * A function rather than a mutable binding, so there is no setter anywhere in
+ * this app through which some other module could install a channel nobody
+ * reviewed. `runtime` exists for the tests; production passes nothing.
  */
-export const installedIntentTransport: IntentTransport =
-  failClosedIntentTransport;
+export function installedIntentTransport(
+  runtime?: RuntimeNavigator,
+): IntentTransport {
+  return isTauri() && isMobileRuntime(runtime)
+    ? appLinkIntentTransport
+    : failClosedIntentTransport;
+}

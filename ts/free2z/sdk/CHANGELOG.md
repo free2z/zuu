@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Forward optional `SignInOptions.loginHint` and `uiLocales` through both
+  transports, matching the existing native guest/core options. Hints never
+  determine the authenticated account. These additions are not in `sdk-v0.4.0`.
+- Exercise the documented first-app sequence through public package exports
+  and an installed tarball, including strict 402/403 refusals and same-key recovery.
+
 ### Deprecated
 
 - Request `metadata`: the gateway refuses a non-empty `metadata` for every

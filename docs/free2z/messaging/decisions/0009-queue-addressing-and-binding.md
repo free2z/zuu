@@ -42,9 +42,12 @@ identifier.
 5. **The sender binds once with `BIND_SEND`. Binding is once-only and
    irreversible.** A second bind — with any key, including the same key — is
    `ERR_ALREADY_BOUND`.
-6. **Rotation needs no new command:** create a new queue, advertise it in-band,
-   and delete the old one once drained. `free2z/queue/v1` is reserved for a
-   future synchronized schedule; that schedule is not shipping in v1.
+6. **The shipping receiver's replacement handling is advert-driven and needs
+   no new command:** a distinct authenticated advert installs its advertised
+   route with a fresh endpoint-owned key, while an identical replay is
+   idempotent. The shipping plugin does not create/publish replacement queues
+   or coordinate overlap and drain. There is no exporter-derived queue key or
+   synchronized epoch schedule in v1.
 
 ## Consequences
 
@@ -59,16 +62,16 @@ identifier.
   clean recovery. A single CSPRNG can retry, which at 32 bytes it never will.
 - **A deliberate correction to `ARCHITECTURE.md` §5.4.** Queue capability
   signing keys belong to different endpoints and are independently generated or
-  derived; they are not shared exporter outputs. The authenticated advert carries
-  relay/address/rotation intent, never either private key. `free2z/queue/v1` is
-  reserved rather than shipping: no durable counter or advert field synchronizes
-  such an exporter schedule in v1, and the runtime has no exporter call for this
-  path. A genuinely distinct advert makes the sender generate a fresh CSPRNG
-  signing seed; an identical replay preserves the current seed. The shipping engine consumes
-  such an authenticated replacement advert, but does not automate the full
-  create/advertise/overlap/drain rotation flow. The relay still generates the
-  addresses, so a complete rotation costs one relay round trip and one in-band
-  message. See
+  derived; they are not shared exporter outputs. The shipping authenticated
+  advert carries one relay URL, relay identity and send address; it does not
+  carry replacement metadata or either private key. The proposed
+  multi-endpoint/`replaces` shape in `f2z-relay-proto::QueueAdvert` is
+  design-only and has no serializer. There is no queue exporter label or
+  synchronized epoch schedule in v1. A genuinely distinct authenticated route
+  makes the sender generate a fresh CSPRNG signing seed; an identical replay
+  preserves the current seed and bind state. The shipping engine consumes such
+  an advert, but does not automate replacement queue creation and publication,
+  overlapping queues, or draining and deleting the old queue. See
   [`../WIRE.md` §7.5](../WIRE.md#75-rotation-needs-no-new-command).
 - **Any holder of `send_addr` can take the write capability, and the design
   makes it noisy rather than impossible.** A malicious relay operator can read
@@ -93,9 +96,10 @@ identifier.
   the strongest key in the system — the one that can drain the queue — a second
   capability over the send side, to recover from a failure that already has a
   clean, cheap alternative: make a new queue.
-- **Rotation overlaps rather than switching atomically.** The old queue stays
-  readable until drained; the sender switches at `valid_from_epoch`; a message in
-  flight during the switch lands in the old queue and is read from it.
+- **A complete rotation must overlap rather than switch atomically.** The old
+  queue stays readable until drained while the sender processes the
+  authenticated replacement advert. V1 does not define a synchronized epoch
+  boundary, and the shipping engine does not automate overlap or drain.
 - **`relay_id` travels with the address.** Without it, the sender has no
   authenticated statement of *which relay* the recipient chose, and the relay
   identity binding of [ADR 0010](./0010-signing-transcript-and-ack-semantics.md)
@@ -103,10 +107,9 @@ identifier.
 
 ## Alternatives rejected
 
-- **Client-derived addresses from the `free2z/queue/v1` exporter.** Rejected on
-  squatting and collisions, above. This is the alternative the merged docs
-  implied, and rejecting it is the reason §5.4's "without a round trip" is
-  narrowed.
+- **Client-derived addresses from MLS exporter output.** Rejected on squatting
+  and collisions, above. This is the alternative the merged docs implied, and
+  rejecting it is the reason §5.4's "without a round trip" claim was withdrawn.
 - **Addresses derived from the queue public key** (e.g. `H(pk)`). Rejected: it
   ties the address to the key, so rotating one forces rotating the other, and it
   makes the address a commitment to a key an attacker may later learn.

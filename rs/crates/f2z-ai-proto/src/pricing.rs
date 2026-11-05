@@ -114,13 +114,12 @@ impl Bps {
 /// nano-USD per image / per tool call. `$3.00 / 1M` input is
 /// `input_nusd_per_mtok: 3_000_000_000`.
 ///
-/// Decoding refuses unknown members (`deny_unknown_fields`). This is a signed
-/// price list: a price dimension this crate does not know about would
-/// otherwise be silently priced at zero — failing open, on money. A new
-/// dimension therefore needs a catalogue schema bump
-/// ([`crate::catalog::CATALOG_SCHEMA`]), which old consumers refuse.
+/// Unknown members are ignored so additive gateway catalogue metadata does
+/// not break clients. A new price dimension still requires a catalogue schema
+/// bump ([`crate::catalog::CATALOG_SCHEMA`]); consumers must validate the
+/// supported schema before pricing because an unrecognized dimension is not
+/// represented by this type.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ModelPrices {
     /// Uncached input tokens.
     pub input_nusd_per_mtok: u64,
@@ -128,6 +127,9 @@ pub struct ModelPrices {
     pub cached_input_nusd_per_mtok: u64,
     /// Input tokens written to the provider's prompt cache.
     pub cache_write_nusd_per_mtok: u64,
+    /// Schema-2 hourly write rate. Absence is unpriced, never free.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_write_1h_nusd_per_mtok: Option<u64>,
     /// Output tokens, reasoning tokens included.
     pub output_nusd_per_mtok: u64,
     /// Per input image.
@@ -165,18 +167,20 @@ impl Charge {
     }
 }
 
-/// Why a price could not be computed. The only failure is arithmetic overflow
-/// on an absurd input; every realistic call prices without error.
+/// Why a price could not be computed: invalid/unpriced TTL usage or overflow.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PricingError {
     /// An intermediate or final value did not fit its integer type.
     Overflow,
+    /// Hourly writes exceed total writes or have no declared price.
+    InvalidCacheWrite,
 }
 
 impl fmt::Display for PricingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::InvalidCacheWrite => f.write_str("invalid or unpriced hourly cache writes"),
             Self::Overflow => f.write_str("price computation overflowed"),
         }
     }
@@ -193,10 +197,23 @@ impl core::error::Error for PricingError {}
 /// [`PricingError::Overflow`] if the cost does not fit in `u64` nano-USD
 /// (about $1.8 × 10¹⁰). Only an absurd usage vector reaches it.
 pub fn metered_cost_nusd(usage: &Usage, prices: &ModelPrices) -> Result<Nusd, PricingError> {
+    let five_min = usage
+        .cache_write_tokens
+        .checked_sub(usage.cache_write_1h_tokens)
+        .ok_or(PricingError::InvalidCacheWrite)?;
+    let hourly_price = match (
+        usage.cache_write_1h_tokens,
+        prices.cache_write_1h_nusd_per_mtok,
+    ) {
+        (0, _) => 0,
+        (_, Some(price)) => price,
+        (_, None) => return Err(PricingError::InvalidCacheWrite),
+    };
     let per_mtok = [
         (usage.input_tokens, prices.input_nusd_per_mtok),
         (usage.cached_input_tokens, prices.cached_input_nusd_per_mtok),
-        (usage.cache_write_tokens, prices.cache_write_nusd_per_mtok),
+        (five_min, prices.cache_write_nusd_per_mtok),
+        (usage.cache_write_1h_tokens, hourly_price),
         (usage.output_tokens, prices.output_nusd_per_mtok),
     ];
     let per_unit = [

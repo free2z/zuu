@@ -62,6 +62,8 @@ export interface NativeBridge {
     prompt?: "none" | "login" | "consent";
     maxAge?: string;
     acrValues?: string;
+    loginHint?: string;
+    uiLocales?: string;
     /** Needs a plugin with spend-cap support; an older one refuses unknown keys. */
     spendCap?: string;
     spendPeriod?: string;
@@ -268,6 +270,8 @@ export class NativeTransport implements Transport {
     if (options.signal !== undefined)
       failure("native_sign_in_signal_unsupported");
     const native: Parameters<NativeBridge["signIn"]>[0] = {};
+    if (options.loginHint !== undefined) native.loginHint = options.loginHint;
+    if (options.uiLocales !== undefined) native.uiLocales = options.uiLocales;
     if (options.prompt !== undefined) native.prompt = options.prompt;
     if (options.acrValues !== undefined) native.acrValues = options.acrValues;
     if (options.maxAge !== undefined) {

@@ -49,9 +49,9 @@ pub const CATALOG_SIGNING_LABEL: &[u8] = b"free2z/ai-catalog/v1";
 /// The schema understood by the original reader and the active gateway.
 ///
 /// Changes an old consumer must not silently misread require a new schema
-/// and an explicitly versioned reader (see [`crate::catalog_v2`]). In
-/// particular, [`ModelPrices`] refuses unknown price dimensions so older
-/// consumers cannot silently price a new dimension at zero.
+/// and an explicitly versioned reader (see [`crate::catalog_v2`]). Signed
+/// ingress validates price dimensions in the verified JSON tree before the
+/// tolerant response-side [`ModelPrices`] can discard unknown members.
 pub const CATALOG_SCHEMA: u32 = 1;
 
 /// The largest platform margin [`Catalog::validate`] accepts: 1 000 %.
@@ -94,7 +94,8 @@ pub struct Catalog {
 }
 
 /// Audited provider features carried inside the signed catalogue.
-/// Old catalogues and absent members conservatively advertise no support.
+/// Boolean members default false; optional declarations retain their documented
+/// legacy admission policy when absent.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelCapabilities {
@@ -127,6 +128,15 @@ pub struct ModelCapabilities {
         deserialize_with = "declared_bool"
     )]
     pub strict_tools: Option<bool>,
+    /// Required or named function choice is supported. Absent preserves legacy
+    /// admission on adapters that translate tool controls; false refuses forcing.
+    /// Tools support is independently required. A present null is invalid.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "declared_bool"
+    )]
+    pub forced_tool_choice: Option<bool>,
     /// `ChatRequest::reasoning_effort` is supported: the model takes the
     /// provider's own effort control (OpenAI/xAI `reasoning_effort`). Not the
     /// same claim as [`ModelCapabilities::reasoning`], which says the model
@@ -161,6 +171,7 @@ impl ModelCapabilities {
             && !self.reasoning
             && self.structured_output.is_none()
             && self.strict_tools.is_none()
+            && self.forced_tool_choice.is_none()
             && !self.reasoning_effort
             && !self.top_k
             && !self.seed
@@ -317,6 +328,10 @@ impl Catalog {
     ///
     /// [`CatalogError::Invalid`] naming the first violation.
     pub fn validate(&self) -> Result<(), CatalogError> {
+        self.validate_with_hourly(false)
+    }
+
+    pub(crate) fn validate_with_hourly(&self, allow_hourly: bool) -> Result<(), CatalogError> {
         if self.schema != CATALOG_SCHEMA {
             return Err(CatalogError::Invalid("unsupported catalogue schema"));
         }
@@ -330,6 +345,11 @@ impl Catalog {
         }
         let mut seen = BTreeSet::new();
         for model in &self.models {
+            if !allow_hourly && model.prices.cache_write_1h_nusd_per_mtok.is_some() {
+                return Err(CatalogError::Invalid(
+                    "hourly pricing requires catalogue schema 2",
+                ));
+            }
             if model.id.is_empty() {
                 return Err(CatalogError::Invalid("empty model id"));
             }
@@ -350,7 +370,11 @@ impl Catalog {
             if model.idle_timeout_ms == Some(0) {
                 return Err(CatalogError::Invalid("idle_timeout_ms of 0"));
             }
-            if model.prices == ModelPrices::default() {
+            let mut legacy_dimensions = model.prices;
+            legacy_dimensions.cache_write_1h_nusd_per_mtok = None;
+            if legacy_dimensions == ModelPrices::default()
+                && model.prices.cache_write_1h_nusd_per_mtok.unwrap_or(0) == 0
+            {
                 return Err(CatalogError::Invalid("all prices are zero"));
             }
         }
@@ -490,6 +514,7 @@ pub fn verify_catalog(
     now_unix: u64,
 ) -> Result<Catalog, CatalogError> {
     let tree = verify_catalog_tree(payload, signature, trusted)?;
+    validate_signed_price_fields(&tree, false)?;
     // Inspect the signed tree before an older typed reader can discard a new
     // money field. Explicit null is presence too, not a schema-1 extension.
     if tree
@@ -505,12 +530,80 @@ pub fn verify_catalog(
             "context pricing requires catalogue schema 2",
         ));
     }
+    if tree
+        .get("models")
+        .and_then(Value::as_array)
+        .is_some_and(|models| {
+            models.iter().any(|m| {
+                m.get("prices")
+                    .is_some_and(|p| p.get("cache_write_1h_nusd_per_mtok").is_some())
+            })
+        })
+    {
+        return Err(CatalogError::Invalid(
+            "hourly pricing requires catalogue schema 2",
+        ));
+    }
     let catalog: Catalog = serde_json::from_value(tree).map_err(CatalogError::Json)?;
     catalog.validate()?;
     if now_unix >= catalog.expires_at {
         return Err(CatalogError::Expired);
     }
     Ok(catalog)
+}
+
+/// Response-side price structs accept additive metadata, but signed prices
+/// must remain fail-closed: otherwise a new money dimension can be silently
+/// dropped by an older verifier and priced as though it were absent.
+pub(crate) fn validate_signed_price_fields(
+    tree: &Value,
+    allow_context_tier: bool,
+) -> Result<(), CatalogError> {
+    const PRICE_FIELDS: &[&str] = &[
+        "input_nusd_per_mtok",
+        "cached_input_nusd_per_mtok",
+        "cache_write_nusd_per_mtok",
+        "cache_write_1h_nusd_per_mtok",
+        "output_nusd_per_mtok",
+        "image_nusd",
+        "tool_call_nusd",
+    ];
+    let Some(models) = tree.get("models").and_then(Value::as_array) else {
+        return Ok(()); // The typed schema validation reports the structural error.
+    };
+    for model in models {
+        if let Some(prices) = model.get("prices") {
+            reject_unknown_members(prices, PRICE_FIELDS, "model prices")?;
+        }
+        if let Some(tier) = model.get("long_context_pricing") {
+            if !allow_context_tier {
+                continue; // schema-1 caller reports the schema mismatch below
+            }
+            reject_unknown_members(
+                tier,
+                &["input_tokens_gt", "prices"],
+                "long-context pricing tier",
+            )?;
+            if let Some(prices) = tier.get("prices") {
+                reject_unknown_members(prices, PRICE_FIELDS, "long-context prices")?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn reject_unknown_members(
+    value: &Value,
+    allowed: &[&str],
+    description: &'static str,
+) -> Result<(), CatalogError> {
+    if value
+        .as_object()
+        .is_some_and(|object| object.keys().any(|key| !allowed.contains(&key.as_str())))
+    {
+        return Err(CatalogError::Invalid(description));
+    }
+    Ok(())
 }
 
 /// Shared signature boundary; version-specific readers use this same tree.

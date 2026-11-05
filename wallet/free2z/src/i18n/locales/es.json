@@ -102,7 +102,7 @@
     },
     "zecTip": {
       "blocked": {
-        "body": "free2z preparó una solicitud de {amount} para {creator} y no tiene ninguna clave para firmarla. El enlace verificado a ZUULI todavía no existe, así que no se envió nada.",
+        "body": "free2z preparó una solicitud de {amount} para {creator} y no tiene ninguna clave para firmarla. El enlace verificado a ZUULI solo existe en las apps de iOS y Android, así que desde aquí no se envió nada.",
         "title": "Las propinas en ZEC se firman en ZUULI"
       },
       "declined": {
@@ -201,5 +201,26 @@
   "search": {
     "all": "Buscar en todo free2z",
     "clear": "Borrar búsqueda"
+  },
+  "moderation": {
+    "report": "Denunciar",
+    "block": "Bloquear",
+    "unblock": "Desbloquear",
+    "blocks": "Cuentas bloqueadas",
+    "hidden": "Contenido oculto de una cuenta bloqueada.",
+    "loadError": "No se pudieron cargar las cuentas bloqueadas.",
+    "empty": "No hay cuentas bloqueadas.",
+    "requestError": "No se pudo completar la solicitud. Inténtalo de nuevo.",
+    "sent": "Denuncia enviada.",
+    "reason": "Motivo",
+    "details": "Detalles (opcional)",
+    "send": "Enviar denuncia",
+    "csae": "Abuso o explotación sexual infantil",
+    "harassment": "Acoso o amenazas",
+    "hate": "Contenido de odio",
+    "sexual": "Contenido sexual",
+    "violence": "Violencia",
+    "spam": "Spam o estafa",
+    "other": "Otro"
   }
 }

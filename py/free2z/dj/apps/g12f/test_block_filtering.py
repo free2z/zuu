@@ -89,10 +89,12 @@ def test_reply_list_and_bulk_list_hide_the_blocked_author(trio):
     assert contents(client_for(blocker).get(replies)) == ["bystander reply"]
     assert contents(client_for(bystander).get(replies)) == [
         "blocked reply", "bystander reply"]
+    assert contents(APIClient().get(replies)) == ["blocked reply", "bystander reply"]
 
     bulk = client_for(blocker).get("/api/comments/")
     assert "blocked reply" not in contents(bulk)
     assert "blocked reply" in contents(client_for(bystander).get("/api/comments/"))
+    assert "blocked reply" in contents(APIClient().get("/api/comments/"))
 
 
 def test_a_comment_opened_by_link_still_resolves_for_the_blocker(trio):
@@ -120,6 +122,41 @@ def test_zpage_lists_hide_the_blocked_creator_from_the_blocker(trio):
     assert vanities(APIClient()) == ["blocked-page", "bystander-page"]
     # The blocked account's own dashboard is untouched by anyone's block.
     assert vanities(client_for(blocked), "?mine=true") == ["blocked-page"]
+
+
+def test_creator_directory_and_follow_list_hide_blocked_accounts(trio):
+    from dj.apps.g12f.models import CreatorFollow
+    from dj.apps.uploads.models import GenericFile
+
+    blocker, blocked, bystander = trio
+    for creator in (blocked, bystander):
+        image = GenericFile.objects.create(
+            owner=creator, file=f'uploads/{uuid.uuid4()}.png', mime_type='image/png',
+        )
+        creator.avatar_image = image
+        creator.banner_image = image
+        creator.save(update_fields=['avatar_image', 'banner_image'])
+    CreatorFollow.objects.create(follower=blocker, creator=blocked)
+    CreatorFollow.objects.create(follower=blocker, creator=bystander)
+    CreatorFollow.objects.create(follower=bystander, creator=blocked)
+
+    def names(client, url):
+        response = client.get(url)
+        assert response.status_code == 200, response.content
+        return {row['username'] for row in response.json()['results']}
+
+    directory = '/api/creator/?ordering=username'
+    assert blocked.username not in names(client_for(blocker), directory)
+    assert bystander.username in names(client_for(blocker), directory)
+    assert blocked.username in names(client_for(bystander), directory)
+    assert blocked.username in names(APIClient(), directory)
+    follows = '/api/g12f/follows/mine/'
+    assert names(client_for(blocker), follows) == {bystander.username}
+    assert names(client_for(bystander), follows) == {blocked.username}
+    assert APIClient().get(follows).status_code in (401, 403)
+    assert client_for(blocker).get(f'/api/creator/{blocked.username}/').status_code == 200
+    assert client_for(blocker).delete(f'/api/creator/{blocked.username}/block/').status_code == 200
+    assert names(client_for(blocker), follows) == {blocked.username, bystander.username}
 
 
 def test_unblock_restores_every_list(trio):
@@ -272,6 +309,7 @@ def test_related_pages_do_not_recommend_a_blocked_creator(trio):
         return [row["vanity"] for row in response.json()]
 
     assert related(client_for(bystander)) == ["sibling"]
+    assert related(APIClient()) == ["sibling"]
     assert related(client_for(blocker)) == []
 
 
@@ -319,3 +357,134 @@ def test_a_mixed_series_omits_the_blocked_creators_page(trio):
 
     assert members(client_for(bystander)) == ["series-own", "series-blocked"]
     assert members(client_for(blocker)) == ["series-own"]
+
+
+def test_owned_series_editor_hides_blocked_members_without_deleting_them(trio):
+    from dj.apps.g12f.models import PageOrder, Series
+
+    blocker, blocked, bystander = trio
+    own_page = page_for(blocker, 'editor-own')
+    hidden_page = page_for(blocked, 'editor-hidden')
+    series = Series.objects.create(creator=blocker, name='Editor')
+    PageOrder.objects.create(series=series, page=own_page, order=0)
+    PageOrder.objects.create(series=series, page=hidden_page, order=1)
+    response = client_for(blocker).get('/api/g12f/series/mine/')
+    assert response.status_code == 200, response.content
+    assert 'editor-own' in response.content.decode()
+    assert hidden_page.free2zaddr not in response.content.decode()
+    assert client_for(bystander).get('/api/g12f/series/mine/').json() == []
+    assert APIClient().get('/api/g12f/series/mine/').status_code in (401, 403)
+    response = client_for(blocker).put(f'/api/g12f/series/mine/{series.pk}/', {
+        'name': 'Editor', 'pageorder_set': [{'page': {'free2zaddr': own_page.free2zaddr}, 'order': 0}],
+    }, format='json')
+    assert response.status_code == 409
+    assert PageOrder.objects.filter(series=series, page=hidden_page).exists()
+
+
+def test_public_ai_lists_filter_conversation_and_transcript_authors(trio):
+    from dj.apps.openai.models import AIModel, Conversation, PromptResponse
+
+    blocker, blocked, bystander = trio
+    model = AIModel.objects.create(
+        model='block-test', display_name='Test', system_message='help',
+        max_tokens=4096, is_ga=True,
+    )
+    blocked_chat = Conversation.objects.create(
+        user=blocked, ai_model=model, display_name='blocked chat', is_public=True,
+    )
+    visible_chat = Conversation.objects.create(
+        user=bystander, ai_model=model, display_name='visible chat', is_public=True,
+    )
+    for author, text in ((blocked, 'blocked text'), (bystander, 'visible text')):
+        prompt = PromptResponse.objects.create(
+            user=author, ai_model=model, user_input=text, response='answer',
+        )
+        visible_chat.prompt_response_set.add(prompt)
+        if author == blocked:
+            blocked_chat.prompt_response_set.add(prompt)
+
+    for client, hidden in ((client_for(blocker), True),
+                           (client_for(bystander), False), (APIClient(), False)):
+        response = client.get('/api/ai/public-conversations/')
+        assert response.status_code == 200, response.content
+        names = {row['display_name'] for row in response.json()['results']}
+        assert ('blocked chat' in names) != hidden
+        assert 'visible chat' in names
+        response = client.get(f'/api/ai/public-conversations/{visible_chat.id}/promptresponses/')
+        assert response.status_code == 200, response.content
+        assert ('blocked text' in response.content.decode()) != hidden
+        assert 'visible text' in response.content.decode()
+        response = client.get(f'/api/ai/public-conversations/{blocked_chat.id}/promptresponses/')
+        assert response.status_code == 200, response.content
+        assert ('blocked text' in response.content.decode()) != hidden
+    response = client_for(blocker).get('/api/ai/conversations/public/')
+    assert response.status_code == 200, response.content
+    assert 'blocked chat' not in response.content.decode()
+    assert 'visible chat' in response.content.decode()
+    response = client_for(bystander).get('/api/ai/conversations/public/')
+    assert response.status_code == 200, response.content
+    assert 'blocked chat' in response.content.decode()
+    assert 'visible chat' in response.content.decode()
+    assert APIClient().get('/api/ai/conversations/public/').status_code in (401, 403)
+
+
+def test_owned_conversation_hides_blocked_transcript_authors(trio):
+    from dj.apps.openai.models import AIModel, Conversation, PromptResponse
+
+    blocker, blocked, bystander = trio
+    model = AIModel.objects.create(model='owned-block-test', display_name='Test',
+                                   system_message='help', max_tokens=4096, is_ga=True)
+    conversation = Conversation.objects.create(user=blocker, ai_model=model)
+    for author, text in ((blocked, 'hidden transcript'), (bystander, 'visible transcript')):
+        prompt = PromptResponse.objects.create(user=author, ai_model=model, user_input=text, response='ok')
+        conversation.prompt_response_set.add(prompt)
+    url = f'/api/ai/conversations/{conversation.pk}/promptresponses/'
+    response = client_for(blocker).get(url)
+    assert response.status_code == 200, response.content
+    assert 'hidden transcript' not in response.content.decode()
+    assert 'visible transcript' in response.content.decode()
+    assert client_for(bystander).get(url).status_code in (403, 404)
+    assert APIClient().get(url).status_code in (401, 403)
+
+
+def test_live_list_and_discovery_filter_before_counting(trio):
+    from django.utils import timezone
+    from dj.apps.dyte.models import CreatorMeeting
+
+    blocker, blocked, bystander = trio
+    for creator in (blocked, bystander):
+        CreatorMeeting.objects.create(
+            creator=creator, meeting_id=str(uuid.uuid4()), meeting_type='broadcast',
+            is_public=True, live_now=True, last_seen_at=timezone.now(),
+        )
+    for client, hidden in ((client_for(blocker), True),
+                           (client_for(bystander), False), (APIClient(), False)):
+        response = client.get('/api/dyte/public/')
+        assert response.status_code == 200, response.content
+        names = {row['creator']['username'] for row in response.json()['results']}
+        assert (blocked.username in names) != hidden
+        assert bystander.username in names
+        assert response.json()['count'] == (1 if hidden else 2)
+        response = client.get('/api/dyte/public/discovery/')
+        assert response.status_code == 200, response.content
+        names = set(response.json()['selected_creators'])
+        assert (blocked.username in names) != hidden
+        assert bystander.username in names
+
+
+def test_personality_list_filters_blocked_creator_but_keeps_system_personalities(trio):
+    from dj.apps.openai.models import Personality
+
+    blocker, blocked, bystander = trio
+    for creator, name in ((blocked, 'blocked persona'), (bystander, 'visible persona'),
+                          (None, 'system persona')):
+        Personality.objects.create(
+            creator=creator, display_name=name, system_message='hello', is_public=True,
+        )
+    for client, hidden in ((client_for(blocker), True),
+                           (client_for(bystander), False), (APIClient(), False)):
+        response = client.get('/api/ai/personalities/')
+        assert response.status_code == 200, response.content
+        names = {row['display_name'] for row in response.json()['results']}
+        assert ('blocked persona' in names) != hidden
+        assert {'visible persona', 'system persona'} <= names

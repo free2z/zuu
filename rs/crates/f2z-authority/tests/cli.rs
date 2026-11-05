@@ -687,7 +687,7 @@ fn issue_refuses_a_clock_shaped_account_epoch() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("account_epoch is a clock, not a counter"),
+        stderr.contains("account_epoch exceeds the plausible counter ceiling"),
         "refused for an unrelated reason: {stderr}"
     );
     assert!(output.stdout.is_empty());

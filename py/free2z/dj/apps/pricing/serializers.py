@@ -106,6 +106,12 @@ class CatalogModelCapabilitiesSerializer(serializers.Serializer):
         "emitted by this signer; a gateway reads absence as 'not declared', "
         "never as false.",
     )
+    forced_tool_choice = serializers.BooleanField(
+        required=False,
+        help_text="Required/named function choice is supported. Explicit false refuses "
+        "forcing before a hold; absent preserves legacy tools/adapter admission. "
+        "No default: legacy rows omit this member; new rows default false pending reviewed opt-in.",
+    )
     reasoning_effort = serializers.BooleanField(
         required=False, default=False,
         help_text="`reasoning_effort` is supported (zuu#1170); not implied by "
@@ -162,7 +168,8 @@ class CatalogModelSerializer(serializers.Serializer):
     enabled = serializers.BooleanField()
     capabilities = CatalogModelCapabilitiesSerializer(
         required=False, help_text="Signed capability policy, always emitted. Absent vision/tools/"
-        "reasoning mean false; absent structured_output/strict_tools means undeclared."
+        "reasoning mean false; absent structured_output/strict_tools means undeclared; "
+        "absent forced_tool_choice preserves legacy tools/adapter admission."
     )
     controls = CatalogModelControlsSerializer(
         required=False, help_text="Signed per-model narrowing (zuu#1170); present "
@@ -202,3 +209,22 @@ class CatalogSignatureSerializer(serializers.Serializer):
 class SignedCatalogSerializer(serializers.Serializer):
     catalog = CatalogSerializer(help_text="Served in canonical JSON form.")
     signature = CatalogSignatureSerializer()
+
+
+class CatalogModelPricesV2Serializer(CatalogModelPricesSerializer):
+    """Schema 2 requires an explicit hourly rate, including a reviewed zero."""
+
+    cache_write_1h_nusd_per_mtok = serializers.IntegerField(min_value=0)
+
+
+class CatalogModelV2Serializer(CatalogModelSerializer):
+    prices = CatalogModelPricesV2Serializer()
+
+
+class CatalogV2Serializer(CatalogSerializer):
+    schema = serializers.IntegerField(min_value=2, max_value=2)
+    models = CatalogModelV2Serializer(many=True)
+
+
+class SignedCatalogV2Serializer(SignedCatalogSerializer):
+    catalog = CatalogV2Serializer()

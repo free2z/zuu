@@ -275,12 +275,31 @@ async fn handle(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let request_seq = shared.seq.fetch_add(1, Ordering::Relaxed);
     let parsed: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     let name = headers
         .get(SCENARIO_HEADER)
         .and_then(|v| v.to_str().ok())
         .map(str::to_owned);
+    let scenario = match &name {
+        None => Some(
+            shared
+                .default
+                .read()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clone(),
+        ),
+        Some(n) => shared
+            .named
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(n)
+            .cloned(),
+    };
+    // Publish the count only after this request's scenario is snapshotted.
+    // A test that replaces the default scenario once `request_count` leaves
+    // zero otherwise races the clone on another worker, and the first attempt
+    // becomes the replacement instead of the scenario it was sent against.
+    let request_seq = shared.seq.fetch_add(1, Ordering::Relaxed);
     {
         let mut log = shared.log.lock().unwrap_or_else(PoisonError::into_inner);
         if log.len() >= RECORD_LIMIT {
@@ -301,21 +320,6 @@ async fn handle(
         });
     }
 
-    let scenario = match &name {
-        None => Some(
-            shared
-                .default
-                .read()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone(),
-        ),
-        Some(n) => shared
-            .named
-            .read()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(n)
-            .cloned(),
-    };
     let Some(scenario) = scenario else {
         return bad_request("unknown mock scenario named in x-f2z-mock-scenario");
     };

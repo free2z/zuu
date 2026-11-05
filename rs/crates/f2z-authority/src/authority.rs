@@ -3,7 +3,7 @@
 //! # The whole of it, in one function
 //!
 //! [`AuthorityConfig::check_assertion_layer`] is the only public verification
-//! path for this experimental assertion proposal. There is no
+//! path for the ratified `KT.md` §4.5 assertion layer. There is no
 //! `verify_assertion`, no `check_authority_signature`, and no `is_expired`:
 //! those narrower helpers would make it easy to mistake one successful rule
 //! for the complete assertion-layer check. The single assertion-layer door is
@@ -26,10 +26,9 @@
 //!
 //! # "No authority" is a configuration, and it is reported
 //!
-//! This proposal models a self-hosted log with no user directory through
-//! [`AuthoritySet::none`]. `KT.md` does not ratify that behavior; #594 remains
-//! open. It is *spelled*, not reached by leaving the set empty, which is
-//! [`AuthorityError::EmptyAuthoritySet`] instead.
+//! `KT.md` §4.6 permits a self-hosted log with no user directory through
+//! [`AuthoritySet::none`]. It is *spelled*, not reached by leaving the set
+//! empty, which is [`AuthorityError::EmptyAuthoritySet`] instead.
 //!
 //! It is not silent. Every successful assertion-layer check on such a log returns
 //! [`Vouch::Unvouched`], and [`AuthoritySet::status`] answers the same question
@@ -84,31 +83,10 @@ pub const DEFAULT_MAX_VALIDITY_MS: u64 = 900_000;
 /// **This is necessary, not sufficient, and the gap is stated rather than
 /// papered over.** A clock at a coarse granularity — days since the epoch is
 /// about 20,700 — passes the ceiling, and no check on a single `u32` can prove
-/// the value came from durable storage. [`MAX_ACCOUNT_EPOCH_STEP`] closes most
-/// of what is left; what remains is the issuer's obligation, stated in §4.5.4
-/// and in this crate's module documentation.
+/// the value came from durable storage. The issuer's durable-counter
+/// obligation, stated in §4.5.4 and this crate's module documentation, is the
+/// only sound way to distinguish it.
 pub const ACCOUNT_EPOCH_CEILING: u32 = 1 << 20;
-
-/// The largest advance in `account_epoch` between two assertions admitted for
-/// one handle: 16.
-///
-/// A counter increments once per account-ownership event, and only events whose
-/// assertion never reached the log accumulate slack, so the gap between two
-/// *admitted* assertions is a handful at most. A clock's gap is however much
-/// time passed between the two issuances, at whatever granularity the clock
-/// runs.
-///
-/// Together with [`ACCOUNT_EPOCH_CEILING`] this leaves a clock only one narrow
-/// band to hide in — fine enough to tick between two issuances, coarse enough
-/// that it ticks at most 16 times, and small enough in absolute terms to stay
-/// under the ceiling. It is a fixed constant rather than a published policy
-/// number deliberately: the same bound on every log is one a client can apply
-/// without first fetching a policy document, and unlike
-/// [`AuthorityConfig::max_validity_ms`] there is no operational reason for two
-/// logs to disagree about it.
-///
-/// [`AuthorityConfig::max_validity_ms`]: AuthorityConfig::max_validity_ms
-pub const MAX_ACCOUNT_EPOCH_STEP: u32 = 16;
 
 /// The default clock skew allowed on `issued_ms`, in milliseconds: 2 minutes.
 ///
@@ -250,8 +228,7 @@ impl AuthoritySet {
         Self::new(alloc::vec![AuthorityKey::new(key)])
     }
 
-    /// **Experimental proposal:** this log has no user directory, so handles
-    /// on it are unvouched. `KT.md` has not ratified this mode (#594).
+    /// Configure the log with no handle-vouching authority (`KT.md` §4.6).
     ///
     /// See the module note: this must be chosen, and it is reported on every
     /// assertion-layer check.
@@ -337,11 +314,14 @@ impl fmt::Display for Vouch {
 
 /// Why this directory entry exists.
 ///
-/// The last three variants are `KT.md`'s `EntryKind`. [`InitialBind`] names
-/// this crate's **unratified candidate** for the first-entry case that `KT.md`
-/// and #594 deliberately leave open. It must not be read as merged protocol.
+/// The last three variants are `KT.md`'s `EntryKind`. [`InitialBind`] is this
+/// crate's internal model for the first-entry case. It is not a `KT.md` v1
+/// `EntryKind`: using a distinct wire discriminator to move first-entry
+/// authorization into `EntryAuthorization` is one of the open choices in
+/// [issue #649].
 ///
 /// [`InitialBind`]: Self::InitialBind
+/// [issue #649]: https://github.com/free2z/zuu/issues/649
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EntryKind {
     /// The handle's first entry.
@@ -354,7 +334,7 @@ pub enum EntryKind {
     PlatformReset,
 }
 
-/// The result of checking only this crate's experimental assertion layer.
+/// The result of checking only the ratified assertion layer.
 ///
 /// This is deliberately **not** an authorization-to-publish token. In
 /// particular, for `same_key` and `key_change` this crate does not parse or
@@ -413,7 +393,7 @@ impl AssertionLayerCheck {
 
     /// The `account_epoch` to retain for this handle. A platform assertion
     /// advances it; a routine entry carries the required previous value
-    /// forward. The experimental unvouched initial path starts at zero. Feed
+    /// forward. The unvouched initial path starts at zero under `KT.md` §4.6. Feed
     /// it back as [`Submission::previous_account_epoch`] next time.
     #[must_use]
     pub const fn account_epoch(&self) -> u32 {
@@ -470,7 +450,7 @@ pub struct Submission<'a> {
     pub previous_vouch: Option<Vouch>,
     /// The predecessor's retained `account_epoch`, or `None` only if this is
     /// the first entry. Every non-initial entry must carry it, including an
-    /// unvouched history whose experimental baseline is zero.
+    /// unvouched history whose baseline is zero under `KT.md` §4.6.
     pub previous_account_epoch: Option<u32>,
 }
 
@@ -636,7 +616,7 @@ impl AuthorityConfig {
         )
     }
 
-    /// Check this crate's experimental assertion layer.
+    /// Check the `KT.md` §4.5 assertion layer.
     ///
     /// The returned [`AssertionLayerCheck`] is partial, not permission to
     /// publish a directory entry. `same_key` and `key_change` still require the
@@ -680,13 +660,12 @@ impl AuthorityConfig {
     /// 16. **The identity key signed the binding.** Without this a stolen
     ///     assertion is usable by the thief; with it, it is useless.
     /// 17. `(authority_id, nonce)` has not been admitted before.
-    /// 18. **`account_epoch` moved like a counter, not like a clock** — it is
-    ///     below [`ACCOUNT_EPOCH_CEILING`] and, where there is a predecessor,
-    ///     advanced by at most [`MAX_ACCOUNT_EPOCH_STEP`]. Rule 15 is
-    ///     satisfiable *unconditionally* by any monotonic clock, so without
-    ///     this rule the field is present and enforcing nothing. Run with rule
-    ///     15 rather than after rule 17, because it costs nothing and a
-    ///     submission that fails it must not burn a nonce.
+    /// 18. **`account_epoch` is below [`ACCOUNT_EPOCH_CEILING`].** This absolute
+    ///     ceiling refuses Unix seconds and milliseconds. The issuer's durable
+    ///     per-account counter obligation remains normative; a value check
+    ///     cannot prove durable provenance. Run this with rule 15 rather than
+    ///     after rule 17, because a submission that fails it must not burn a
+    ///     nonce.
     ///
     /// On a path without an assertion, rules 2–15, 17 and 18 have nothing to run
     /// against and rule 16 is the whole check in this layer — the submitter
@@ -791,8 +770,9 @@ impl AuthorityConfig {
             return Err(AuthorityError::IntentMismatch);
         }
 
-        // 15, 18. Account-epoch monotonicity, and the rule that keeps rule 15
-        //     from being satisfiable unconditionally by a clock.
+        // 15, 18. Account-epoch monotonicity and absolute ceiling. The issuer's
+        //     durable per-account counter requirement remains normative; the log
+        //     cannot distinguish lower clock values from counter values.
         check_account_epoch(body.account_epoch, previous_account_epoch)?;
 
         // 16. The rule that makes the whole thing sound.
@@ -926,35 +906,15 @@ impl AuthorityConfig {
     }
 }
 
-/// Rules 15 and 18: `account_epoch` advanced, **and it moved like a counter**.
-///
-/// Free rather than a method because it takes no policy: both bounds are fixed
-/// constants ([`ACCOUNT_EPOCH_CEILING`], [`MAX_ACCOUNT_EPOCH_STEP`]), so a
-/// client applying them needs nothing from the log.
-///
-/// # What each half catches, and what neither can
-///
-/// | | Rule 15 alone | With rule 18 |
-/// |---|---|---|
-/// | a durable counter, replayed | refused | refused |
-/// | Unix **seconds** in a `uint32` | **accepted, always** | refused on its face — over the ceiling |
-/// | a coarser clock (days, hours) | **accepted, always** | refused as soon as two issuances are more than [`MAX_ACCOUNT_EPOCH_STEP`] ticks apart |
-/// | a clock ticking 1–16 times between two issuances, under the ceiling | accepted | **accepted** |
-///
-/// The last row is the residue, and it is stated rather than hidden: **no check
-/// on a single `u32` can prove the value came from durable storage.** What the
-/// issuer must guarantee, and what `KT.md` §4.5.4 requires of it, is that
-/// `account_epoch` is read from and written to a per-account column that
-/// survives a process restart, and is incremented **only** on the events that
-/// justify invalidating outstanding assertions — account recovery and account
-/// transfer. An issuer that cannot read that column MUST refuse to issue
-/// `intent = reset` rather than substitute a clock.
+/// Rules 15 and 18: `account_epoch` strictly advances and remains below the
+/// absolute ceiling. It is stored per account while the log retains a value
+/// per handle, so a relative step bound would eventually reject a conforming
+/// issuer when other handles advance that account's counter. The issuer must
+/// therefore guarantee durable provenance; a value check cannot prove it.
 fn check_account_epoch(account_epoch: u32, previous: Option<u32>) -> Result<()> {
-    // 18a. Before anything relative: a value this large is not a count of what
-    //      one account did. Checked on every path — including a first `bind`,
-    //      which has no predecessor and is therefore the only place a
-    //      clock-derived epoch can be caught the first time an issuer mints
-    //      one.
+    // 18. A value this large is not a count of what one account did. Checked
+    //     on every path — including a first `bind`, which has no predecessor
+    //     and is where a Unix-seconds epoch is caught the first time.
     if account_epoch >= ACCOUNT_EPOCH_CEILING {
         return Err(AuthorityError::AccountEpochNotACounter);
     }
@@ -967,12 +927,6 @@ fn check_account_epoch(account_epoch: u32, previous: Option<u32>) -> Result<()> 
     if account_epoch <= previous {
         return Err(AuthorityError::AccountEpochRegression);
     }
-    // 18b. …and it advanced by an amount a counter could have advanced by.
-    //      `previous` is below the ceiling because it was admitted under 18a,
-    //      so this cannot overflow.
-    if account_epoch > previous.saturating_add(MAX_ACCOUNT_EPOCH_STEP) {
-        return Err(AuthorityError::AccountEpochStepTooLarge);
-    }
     Ok(())
 }
 
@@ -981,12 +935,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_published_bounds_are_the_ones_this_crate_applies() {
-        // KT.md §4.5.4 states these to clients as fixed constants. A client
-        // that hard-codes the specification and a log that applies something
-        // else disagree about admissibility, not merely about an encoding.
+    fn the_published_ceiling_is_the_one_this_crate_applies() {
+        // KT.md §4.5.4 states this absolute bound to clients. A client that
+        // hard-codes the specification and a log that applies something else
+        // disagree about admissibility, not merely about an encoding.
         assert_eq!(ACCOUNT_EPOCH_CEILING, 1 << 20, "KT.md §4.5.4 A18a");
-        assert_eq!(MAX_ACCOUNT_EPOCH_STEP, 16, "KT.md §4.5.4 A18b");
     }
     use crate::assertion::HandleAssertionTBS;
     use crate::key::SigningKey;

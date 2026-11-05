@@ -277,6 +277,7 @@ fn usage_of(response: &Value) -> Result<Option<Usage>, Malformed> {
         return Err(Malformed("usage subset exceeds its total"));
     }
     Ok(Some(Usage {
+        cache_write_1h_tokens: 0,
         input_tokens: ordinary,
         cached_input_tokens: cached,
         cache_write_tokens: written,

@@ -167,6 +167,41 @@
         "developer_milli": 0,
         "platform_milli": 900
       }
+    },
+    {
+      "name": "synthetic_hourly_subset",
+      "note": "Synthetic total/subset TTL counts, one metering ceil, no provider price assertion.",
+      "input": {
+        "usage": {
+          "input_tokens": 0,
+          "cached_input_tokens": 0,
+          "cache_write_tokens": 1000001,
+          "output_tokens": 0,
+          "reasoning_tokens": 0,
+          "images": 0,
+          "tool_calls": 0,
+          "cache_write_1h_tokens": 500000
+        },
+        "prices": {
+          "input_nusd_per_mtok": 0,
+          "cached_input_nusd_per_mtok": 0,
+          "cache_write_nusd_per_mtok": 2,
+          "output_nusd_per_mtok": 0,
+          "image_nusd": 0,
+          "tool_call_nusd": 0,
+          "cache_write_1h_nusd_per_mtok": 5
+        },
+        "platform_margin_bps": 5000,
+        "dev_markup_bps": 1000,
+        "min_charge_2z": 1
+      },
+      "expected": {
+        "cost_nusd": 4,
+        "total_milli": 1000,
+        "provider_milli": 1,
+        "developer_milli": 0,
+        "platform_milli": 999
+      }
     }
   ]
 }

@@ -53,8 +53,8 @@
 // document type — and a leafless label is a prefix of *every* leafed label in
 // its namespace, which is the sharpest form of the defect this check exists for.
 //
-// The MLS exporter labels (`free2z/queue/v1`, `free2z/frost/v1`,
-// `free2z/webrtc/v1`, `free2z/history/v1`) are swept in as well. They are not
+// The MLS exporter labels (`free2z/frost/v1`, `free2z/webrtc/v1`,
+// `free2z/history/v1`) are swept in as well. They are not
 // arguments to `H` — MLS's exporter frames its label — so prefix-freeness is not
 // load-bearing for them today. They are included anyway because the cost is
 // zero, because the set of constructions a label gets reused in only ever grows,
@@ -178,9 +178,7 @@ const LABEL_BEARING_DOCUMENTS = [
   "docs/free2z/messaging/ARCHITECTURE.md",
   "docs/free2z/messaging/KT.md",
   "docs/free2z/messaging/README.md",
-  "docs/free2z/messaging/THREAT-MODEL.md",
   "docs/free2z/messaging/WIRE.md",
-  "docs/free2z/messaging/decisions/0009-queue-addressing-and-binding.md",
   "docs/free2z/messaging/decisions/0010-signing-transcript-and-ack-semantics.md",
   "docs/free2z/messaging/decisions/0017-internal-directory-activation.md",
   // The cross-app intent bridge (#905) mints `free2z/intent/v1/request` and
@@ -196,6 +194,10 @@ const LABEL_BEARING_DOCUMENTS = [
   // shares the one prefix-free namespace with the relay, the log and the
   // intent bridge.
   "docs/free2z/ai-gateway/README.md",
+  // Schema-2 hourly cache-write prices (#1059) quote the same catalogue
+  // signature label. The metering spec does not mint a new domain; it has to
+  // be registered because it names one.
+  "docs/free2z/sdk/spec/metering.md",
 ];
 
 /// Files under this prefix are subject to the registration half of the anchor.

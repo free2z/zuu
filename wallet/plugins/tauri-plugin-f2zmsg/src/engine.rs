@@ -3031,8 +3031,9 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
     }
 }
 
-/// Where a peer writes to reach this device: `WIRE.md` §12.2's queue advert,
-/// reduced to what a 1:1 conversation on one relay needs.
+/// The shipping one-relay body of `WIRE.md` §7.2's queue advert, serialized as
+/// JSON inside `MessageType::QUEUE_ADVERT`. This is separate from the
+/// design-only multi-endpoint `f2z-relay-proto::QueueAdvert` model.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct QueueAdvert {
     pub relay_url: String,
@@ -6478,6 +6479,193 @@ mod tests {
             .is_none(),
             "the checked join must roll the OpenMLS transaction back"
         );
+    }
+
+    #[tokio::test]
+    async fn authenticated_queue_advert_replacement_and_replay_survive_receiver_reload() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let database = root.path().join("queue-advert-replay.sqlite3");
+        let (receiver_signer, receiver_credential, receiver_entry) =
+            issued_device("receiver", 0x31, 0x41);
+        let conversation_id = hex::encode([0x51; 32]);
+
+        let receiver = Engine::new(
+            SqliteBackend::open(&database).expect("receiver database"),
+            Arc::new(NullSink),
+            Platform::ZuuliDesktop,
+        )
+        .expect("receiver engine");
+        let receiver_package = {
+            let mut inner = receiver.inner.lock().await;
+            let backend = inner.backend.clone();
+            inner.mls = Some(
+                MlsEngine::new(backend, receiver_signer, receiver_credential, 0)
+                    .expect("receiver MLS engine"),
+            );
+            inner
+                .mls_ref("test")
+                .unwrap()
+                .generate_key_package()
+                .expect("receiver key package")
+        };
+
+        let (sender_signer, sender_credential, _sender_entry) = issued_device("sender", 0x32, 0x42);
+        let sender = MlsEngine::new(MemoryBackend::new(), sender_signer, sender_credential, 0)
+            .expect("sender MLS engine");
+        let verified_receiver = sender
+            .verify_key_package(&receiver_package, &receiver_entry, 0)
+            .expect("receiver key package is directory-bound");
+        let group_id = [0x51; 32];
+        let mut sender_group = sender.create_group(&group_id).expect("sender group");
+        let (_commit, welcome) = sender
+            .add_member(&mut sender_group, &verified_receiver, 0)
+            .expect("add receiver");
+        {
+            let mut inner = receiver.inner.lock().await;
+            let receiver_group = inner
+                .mls_ref("test")
+                .unwrap()
+                .join_from_welcome_for_group_id(&welcome, 0, &group_id)
+                .expect("receiver joins sender group");
+            let initial = StoredConversation {
+                conversation_id: conversation_id.clone(),
+                peer_handle: "sender".to_owned(),
+                peer_identity_fingerprint: "ff".into(),
+                group_id: conversation_id.clone(),
+                verification: VerificationState::Unverified,
+                created_at: 1,
+                last_message_at: None,
+                unread_count: 0,
+                retention: None,
+                ephemeral_hint: None,
+                receipt_policy: ReceiptPolicy::default(),
+                queues: StoredQueues {
+                    inbound: Some(InboundQueue {
+                        relay_url: "wss://local.example/relay/v1".into(),
+                        recv_addr: hex::encode([0x61; 32]),
+                        send_addr: hex::encode([0x62; 32]),
+                        recv_key_seed: hex::encode([0x63; 32]),
+                        next_index: 0,
+                        acked_through: None,
+                    }),
+                    outbound: Some(OutboundQueue {
+                        relay_url: "wss://old.example/relay/v1".into(),
+                        relay_id: "11".repeat(32),
+                        send_addr: hex::encode([0x64; 32]),
+                        send_key_seed: hex::encode([0x65; 32]),
+                        bind_state: Some(BindState::Confirmed),
+                        bound: true,
+                    }),
+                },
+                send_address_stolen: false,
+                read_through: None,
+            };
+            inner.groups.insert(conversation_id.clone(), receiver_group);
+            inner
+                .records()
+                .commit(|records| records.put_conversation(&initial))
+                .expect("persist initial conversation");
+        };
+
+        let advert = QueueAdvert {
+            relay_url: "wss://replacement.example/relay/v1".into(),
+            relay_id: "22".repeat(32),
+            send_addr: hex::encode([0x72; 32]),
+        };
+        let advert_body = serde_json::to_vec(&advert).expect("serialize shipping advert");
+        assert_eq!(
+            advert_body,
+            br#"{"relay_url":"wss://replacement.example/relay/v1","relay_id":"2222222222222222222222222222222222222222222222222222222222222222","send_addr":"7272727272727272727272727272727272727272727272727272727272727272"}"#,
+            "the shipping JSON body is exactly the three fields specified in WIRE §7.2",
+        );
+        let send_advert = |group: &mut MlsGroup| {
+            let framed = envelope::seal(
+                MessageType::QUEUE_ADVERT,
+                &[],
+                group.epoch().as_u64(),
+                group.own_leaf_index().u32(),
+                1,
+                RetentionClass::Chat,
+                &advert_body,
+            )
+            .expect("frame queue advert")
+            .encode()
+            .expect("encode queue advert");
+            sender
+                .send(group, &framed)
+                .expect("authenticate queue advert")
+        };
+        let first_ciphertext = send_advert(&mut sender_group);
+        let replay_ciphertext = send_advert(&mut sender_group);
+        assert_ne!(
+            first_ciphertext, replay_ciphertext,
+            "each MLS delivery is fresh"
+        );
+
+        {
+            let mut inner = receiver.inner.lock().await;
+            let mut stored = inner
+                .conversation(&conversation_id)
+                .expect("initial conversation");
+            let applied = inner.apply_inbound(&mut stored, 0, &first_ciphertext).await;
+            assert!(applied.is_ok(), "authenticate and apply replacement advert");
+            let replaced = inner
+                .conversation(&conversation_id)
+                .expect("persisted replacement");
+            let outbound = replaced
+                .queues
+                .outbound
+                .as_ref()
+                .expect("replacement outbound");
+            assert_eq!(outbound.send_addr, advert.send_addr);
+            assert_eq!(outbound.bind_state, Some(BindState::Fresh));
+            assert!(!outbound.bound);
+            assert_ne!(outbound.send_key_seed, hex::encode([0x65; 32]));
+            inner.groups.remove(&conversation_id);
+        }
+
+        // Reopen both the endpoint engine and SQLite store. `load_groups` reads
+        // the authenticated receive ratchet back before the second message is
+        // accepted, so this replay crosses an actual restart boundary.
+        drop(receiver);
+        let (receiver_signer, receiver_credential, _) = issued_device("receiver", 0x31, 0x41);
+        let restarted = Engine::new(
+            SqliteBackend::open(&database).expect("reopen receiver database"),
+            Arc::new(NullSink),
+            Platform::ZuuliDesktop,
+        )
+        .expect("restarted receiver engine");
+        let mut inner = restarted.inner.lock().await;
+        let backend = inner.backend.clone();
+        inner.mls = Some(
+            MlsEngine::new(backend, receiver_signer, receiver_credential, 0)
+                .expect("restarted receiver MLS engine"),
+        );
+        inner.load_groups().expect("reload persisted MLS group");
+        let before_replay = inner
+            .conversation(&conversation_id)
+            .expect("persisted replacement after restart");
+        let before_outbound = before_replay.queues.outbound.as_ref().expect("outbound");
+        let replacement_seed = before_outbound.send_key_seed.clone();
+        assert_eq!(before_outbound.bind_state, Some(BindState::Fresh));
+        assert_eq!(before_outbound.send_addr, advert.send_addr);
+        let mut stored = before_replay;
+        let applied = inner
+            .apply_inbound(&mut stored, 1, &replay_ciphertext)
+            .await;
+        assert!(
+            applied.is_ok(),
+            "authenticate and apply identical replay after restart"
+        );
+        let after_replay = inner
+            .conversation(&conversation_id)
+            .expect("persisted replay state");
+        let after_outbound = after_replay.queues.outbound.as_ref().expect("outbound");
+        assert_eq!(after_outbound.send_key_seed, replacement_seed);
+        assert_eq!(after_outbound.bind_state, Some(BindState::Fresh));
+        assert!(!after_outbound.bound);
+        assert_eq!(after_outbound.send_addr, advert.send_addr);
+        assert_eq!(after_replay.queues.inbound.as_ref().unwrap().next_index, 2);
     }
 
     struct FailNextApply {

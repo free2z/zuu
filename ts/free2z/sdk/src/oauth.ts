@@ -321,6 +321,10 @@ export class WebSession {
         nonce,
       }))
         url.searchParams.set(k, v);
+      if (options.loginHint !== undefined)
+        url.searchParams.set("login_hint", options.loginHint);
+      if (options.uiLocales !== undefined)
+        url.searchParams.set("ui_locales", options.uiLocales);
       if (options.prompt) url.searchParams.set("prompt", options.prompt);
       if (options.acrValues)
         url.searchParams.set("acr_values", options.acrValues);

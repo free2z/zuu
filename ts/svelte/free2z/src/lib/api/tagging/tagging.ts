@@ -22,9 +22,11 @@ import type {
 } from '@tanstack/svelte-query';
 
 import type {
+  PreconditionFailed,
   TagHub,
   TagSuggestion,
   TaggingAutocompleteListParams,
+  TaggingZpageSuggestionsDecideCreateParams,
   ZPageTagDecision,
   ZPageTagDecisionResult,
   ZPageTagSuggestion
@@ -255,6 +257,7 @@ export function createTaggingZpageSuggestionsList<TData = Awaited<ReturnType<typ
 export const taggingZpageSuggestionsDecideCreate = (
     free2zaddr: string,
     zPageTagDecision?: ZPageTagDecision,
+    params?: TaggingZpageSuggestionsDecideCreateParams,
  options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
 ) => {
 
@@ -262,7 +265,8 @@ export const taggingZpageSuggestionsDecideCreate = (
       return customInstance<ZPageTagDecisionResult>(
       {url: `/api/tagging/zpage/${free2zaddr}/suggestions/decide`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
-      data: zPageTagDecision, signal
+      data: zPageTagDecision,
+        params, signal
     },
       options);
     }
@@ -272,7 +276,7 @@ export const taggingZpageSuggestionsDecideCreate = (
 
 export const getTaggingZpageSuggestionsDecideCreateMutationKey = () => ['taggingZpageSuggestionsDecideCreate'] as const;
 
-export const getTaggingZpageSuggestionsDecideCreateMutationOptions = <TError = unknown,
+export const getTaggingZpageSuggestionsDecideCreateMutationOptions = <TError = PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>, TError,TaggingZpageSuggestionsDecideCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
 ): CreateMutationOptions<Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>, TError,TaggingZpageSuggestionsDecideCreateMutationVariables, TContext> => {
 
@@ -287,9 +291,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>, TaggingZpageSuggestionsDecideCreateMutationVariables> = (props) => {
-          const {free2zaddr,data} = props ?? {};
+          const {free2zaddr,data,params} = props ?? {};
 
-          return  taggingZpageSuggestionsDecideCreate(free2zaddr,data,requestOptions)
+          return  taggingZpageSuggestionsDecideCreate(free2zaddr,data,params,requestOptions)
         }
 
 
@@ -301,10 +305,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type TaggingZpageSuggestionsDecideCreateMutationResult = NonNullable<Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>>
     export type TaggingZpageSuggestionsDecideCreateMutationBody = ZPageTagDecision | undefined
-    export type TaggingZpageSuggestionsDecideCreateMutationError = unknown
-    export type TaggingZpageSuggestionsDecideCreateMutationVariables = {free2zaddr: string;data?: ZPageTagDecision}
+    export type TaggingZpageSuggestionsDecideCreateMutationError = PreconditionFailed
+    export type TaggingZpageSuggestionsDecideCreateMutationVariables = {free2zaddr: string;data?: ZPageTagDecision;params?: TaggingZpageSuggestionsDecideCreateParams}
 
-    export const createTaggingZpageSuggestionsDecideCreate = <TError = unknown,
+    export const createTaggingZpageSuggestionsDecideCreate = <TError = PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>, TError,TaggingZpageSuggestionsDecideCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>,

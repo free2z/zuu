@@ -40,7 +40,7 @@
         "cached_input_nusd_per_mtok": 37500000,
         "cache_write_nusd_per_mtok": 0,
         "output_nusd_per_mtok": 600000000,
-        "image_nusd": 1000000,
+        "image_nusd": 0,
         "tool_call_nusd": 10000000
       },
       "min_charge_2z": 1,

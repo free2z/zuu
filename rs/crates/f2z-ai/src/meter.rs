@@ -176,6 +176,54 @@ fn money(v: &Value, key: &str) -> Result<u64, ApiFailure> {
 fn whole(milli: u64) -> Result<Whole2z, ApiFailure> {
     Milli2z::new(milli).to_whole_exact().ok_or_else(invalid)
 }
+
+/// Read the post-settlement cap reported by the ledger. Keep `null` distinct
+/// from an omitted field: `Some(None)` is an uncapped grant, while `None`
+/// means this ledger response did not report the value.
+fn cap_value(value: &Value) -> Option<Option<Milli2z>> {
+    if value.is_null() {
+        Some(None)
+    } else {
+        let milli = value.as_u64()?;
+        (milli <= SAFE_INTEGER).then_some(Some(Milli2z::new(milli)))
+    }
+}
+
+fn settled_cap(result: &Value) -> Option<Option<Milli2z>> {
+    result.get("cap_remaining").and_then(cap_value)
+}
+
+async fn context_cap(ledger: &dyn Ledger, identity: Identity) -> Option<Option<Milli2z>> {
+    let value = ledger::recover(ledger, &Operation::Context(identity))
+        .await
+        .ok()?;
+    let context = Context::parse(value).ok()?;
+    Some(context.cap_remaining_milli_2z.map(Milli2z::new))
+}
+
+fn attach_cap(record: &mut Value, cap: Option<Option<Milli2z>>) -> Result<(), ApiFailure> {
+    if let Some(cap) = cap {
+        record.as_object_mut().ok_or_else(invalid)?.insert(
+            "cap_remaining_milli_2z".into(),
+            cap.map_or(Value::Null, |milli| json!(milli)),
+        );
+    }
+    Ok(())
+}
+
+async fn settled_cap_with_context(
+    ledger: &dyn Ledger,
+    identity: Identity,
+    result: &Value,
+) -> Option<Option<Milli2z>> {
+    match settled_cap(result) {
+        // A numeric raw settle result is authoritative at settlement time.
+        Some(Some(milli)) => Some(Some(milli)),
+        // Raw NULL is ambiguous: uncapped settlement and idempotent settle
+        // replay both return it. gateway_context distinguishes them.
+        Some(None) | None => context_cap(ledger, identity).await,
+    }
+}
 fn refusal(s: &str) -> ApiFailure {
     let code = match s {
         "revoked" => ErrorCode::TokenRevoked,
@@ -260,7 +308,8 @@ impl Plan {
         prices.input_nusd_per_mtok = prices
             .input_nusd_per_mtok
             .max(prices.cached_input_nusd_per_mtok)
-            .max(prices.cache_write_nusd_per_mtok);
+            .max(prices.cache_write_nusd_per_mtok)
+            .max(prices.cache_write_1h_nusd_per_mtok.unwrap_or(0));
         let usage = Usage {
             input_tokens: self.input,
             output_tokens: output,
@@ -522,8 +571,36 @@ fn plan_with(
         p.hold = required;
         return Ok(p);
     }
-    if p.worst(1)?.get() > available {
-        return Err(refusal(short()));
+    let minimum_hold = p.worst(1)?;
+    if minimum_hold.get() > available {
+        // A non-strict request may be clamped only after its minimum
+        // one-output-token call is affordable. Keep this pre-hold refusal
+        // useful to clients in exactly the same units as the strict refusal:
+        // the price is the real worst-case one-token price at the current
+        // applied markup, not a guess based on the published rate card.
+        // These are all caller-scoped values from the context read above.
+        if input > SAFE_INTEGER
+            || minimum_hold.get() > SAFE_INTEGER
+            || p.model.min_charge_2z.get() > SAFE_INTEGER
+        {
+            return Err(invalid());
+        }
+        let failure = ApiFailure::new(
+            match short() {
+                "cap_exceeded" => ErrorCode::CapExceeded,
+                _ => ErrorCode::InsufficientBalance,
+            },
+            "the available balance or app cap cannot cover the minimum charge for one output token",
+        )
+        .detail("input_tokens_estimate", input)
+        .detail("required_2z", minimum_hold.get())
+        .detail("available_milli_2z", c.available_milli_2z)
+        .detail("min_charge_2z", p.model.min_charge_2z.get())
+        .detail("cap_remaining_milli_2z", json!(c.cap_remaining_milli_2z));
+        // Keep the context field explicitly nullable: null means this grant
+        // has no app spend cap, while a number is the caller's remaining cap.
+        // (The detail is always from this request's authorized context.)
+        return Err(failure);
     }
     let (mut low, mut high) = (1, ceiling);
     while low < high {
@@ -862,7 +939,7 @@ impl ChatBackend for Metered {
                 let n=u64::try_from(numerator.div_ceil(1_000_000_000_000)).map_err(|_| invalid())?;
                 if n > SAFE_INTEGER { return Err(invalid()); } prices.insert(name.into(),json!(n));
             }
-            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"top_k":m.api_style == f2z_ai_proto::catalog::ApiStyle::AnthropicMessages || (m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.top_k),"seed":m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.seed,"logprobs":m.api_style != f2z_ai_proto::catalog::ApiStyle::AnthropicMessages && m.capabilities.logprobs,"penalties":m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.penalties,"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
+            Ok(json!({"id":m.id,"provider":m.provider,"display_name":m.id,"context_window":m.context_window,"max_output_tokens":m.max_output_tokens,"capabilities":{"vision":false,"tools":m.capabilities.tools,"reasoning":m.capabilities.reasoning,"structured_output":crate::provider::structured_output_supported(m),"strict_tools":m.capabilities.tools && crate::provider::strict_tools_supported(m),"forced_tool_choice":crate::provider::forced_tool_choice_supported(m),"top_k":m.api_style == f2z_ai_proto::catalog::ApiStyle::AnthropicMessages || (m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.top_k),"seed":m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.seed,"logprobs":m.api_style != f2z_ai_proto::catalog::ApiStyle::AnthropicMessages && m.capabilities.logprobs,"penalties":m.api_style == f2z_ai_proto::catalog::ApiStyle::OpenaiChat && m.capabilities.penalties,"reasoning_effort":crate::provider::reasoning_effort_supported(m)},"controls":models_controls(m),"prices":prices,"min_charge_2z":m.min_charge_2z,"ttfb_timeout_ms":m.ttfb_timeout_ms}))
         }).collect::<Result<Vec<_>, ApiFailure>>()?;
         Ok(
             json!({"catalog_version":cat.version,"includes_markup_bps":c.markup().0,"models":models}),
@@ -1474,12 +1551,18 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
         .filter(|p| {
             let total = p
                 .input_tokens
-                .saturating_add(p.cached_input_tokens)
-                .saturating_add(p.cache_write_tokens);
-            total > 0 && total <= plan.input
+                .checked_add(p.cached_input_tokens)
+                .and_then(|n| n.checked_add(p.cache_write_tokens));
+            p.cache_write_1h_tokens <= p.cache_write_tokens
+                && total.is_some_and(|n| n > 0 && n <= plan.input)
         })
-        .map_or((plan.input, 0, 0), |p| {
-            (p.input_tokens, p.cached_input_tokens, p.cache_write_tokens)
+        .map_or((plan.input, 0, 0, 0), |p| {
+            (
+                p.input_tokens,
+                p.cached_input_tokens,
+                p.cache_write_tokens,
+                p.cache_write_1h_tokens,
+            )
         });
     if !plan.input_exact && partial.is_none() {
         // metering.md §5.4: a provider without a tokeniser settles its
@@ -1524,6 +1607,7 @@ fn estimated_usage(active: &Active, outcome: Option<&ProviderOutcome>) -> Option
         input_tokens: input.0,
         cached_input_tokens: input.1,
         cache_write_tokens: input.2,
+        cache_write_1h_tokens: input.3,
         output_tokens: output,
         ..Usage::default()
     })
@@ -1557,7 +1641,14 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
         && *lock(&active.provider_started)
         && intent.get("usage").is_some();
     if matches!(status(record)?, "settled" | "settled_partial" | "released") && !late_cost {
-        let public = project(record, false)?;
+        let mut public = project(record, false)?;
+        if matches!(status(record)?, "settled" | "settled_partial") {
+            // call_envelope does not persist cap context. During recovery,
+            // take a fresh read-only snapshot; failure leaves the optional
+            // field absent and never changes the completed billing result.
+            let cap = context_cap(ledger, active.identity).await;
+            attach_cap(&mut public, cap)?;
+        }
         *lock(&active.final_record) = Some(public.clone());
         return Ok(public);
     }
@@ -1614,12 +1705,22 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
     let result = ledger::recover(ledger, &operation)
         .await
         .map_err(|_| unavailable())?;
+    let result_status = status(&result)?;
     if !matches!(
-        status(&result)?,
+        result_status,
         "settled" | "released" | "expired" | "not_open"
     ) {
         return Err(invalid());
     }
+    // The raw settle ABI calls this field `cap_remaining`; a numeric value is
+    // exact as of settlement time. NULL is ambiguous with the removed-hold
+    // idempotent replay, so resolve it with a best-effort read-only context.
+    // Failure must never turn a completed charge into an HTTP failure.
+    let cap_remaining = if result_status == "settled" {
+        settled_cap_with_context(ledger, active.identity, &result).await
+    } else {
+        None
+    };
     // A terminal winner (including an expired/released hold) is authoritative;
     // never derive amounts from the operation we hoped would commit.
     let done = ledger::recover(ledger, &complete)
@@ -1628,10 +1729,11 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
     if !matches!(status(&done)?, "recorded" | "replayed") {
         return Err(invalid());
     }
-    let public = project(done.get("record").ok_or_else(invalid)?, false)?;
+    let mut public = project(done.get("record").ok_or_else(invalid)?, false)?;
     if matches!(status(&public)?, "streaming" | "settling") {
         return Err(unavailable());
     }
+    attach_cap(&mut public, cap_remaining)?;
     *lock(&active.final_record) = Some(public.clone());
     Ok(public)
 }
@@ -1676,6 +1778,7 @@ fn terminal_unchecked(active: &Active, record: Option<&Value>) -> Event {
                 .get("shortfall_milli_2z")
                 .and_then(Value::as_u64)
                 .map(Milli2z::new);
+            done.cap_remaining_milli_2z = r.get("cap_remaining_milli_2z").and_then(cap_value);
         }
     }
     done.usage_source = source;
@@ -2025,6 +2128,28 @@ mod tests {
     ];
 
     #[test]
+    fn settlement_cap_parser_matches_the_raw_ledger_abi() {
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining": 12_345})),
+            Some(Some(Milli2z::new(12_345)))
+        );
+        // Raw NULL is intentionally ambiguous; only context resolution can
+        // distinguish an uncapped first settle from a capped settle replay.
+        assert_eq!(settled_cap(&json!({"cap_remaining": null})), Some(None));
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining_milli_2z": 12_345})),
+            None,
+            "the gateway_context spelling is not the raw settle ABI"
+        );
+        assert_eq!(
+            settled_cap(&json!({"cap_remaining": 9_007_199_254_740_992_u64})),
+            None,
+            "wire amounts above JavaScript's safe integer limit are not projected"
+        );
+        assert_eq!(settled_cap(&json!({})), None);
+    }
+
+    #[test]
     fn idempotency_fingerprints_are_unchanged_by_1132() {
         for (expected, body) in PRE_1132_FINGERPRINTS {
             let request: ChatRequest = serde_json::from_str(body).unwrap();
@@ -2180,6 +2305,112 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn unpriced_hourly_finalize_persists_reported_and_interrupted_usage_without_settlement() {
+        struct RecordingLedger {
+            hold: Uuid,
+            operations: Mutex<Vec<Operation>>,
+            durable_completion: Mutex<Option<Value>>,
+        }
+        #[async_trait]
+        impl Ledger for RecordingLedger {
+            async fn execute(&self, operation: &Operation) -> Result<Value, ledger::Failure> {
+                lock(&self.operations).push(operation.clone());
+                if let Operation::Complete {
+                    completion,
+                    no_hold,
+                    ..
+                } = operation
+                {
+                    assert!(!no_hold, "the admitted call has a hold");
+                    *lock(&self.durable_completion) = Some(completion.clone());
+                    Ok(json!({"status":"recorded","record":{
+                        "status":"settling","attempts":[{"hold_id":self.hold}]
+                    }}))
+                } else {
+                    Err(ledger::Failure)
+                }
+            }
+        }
+        for reported in [true, false] {
+            let catalog = priced(200_000);
+            let model = catalog.catalog().models[0].clone();
+            assert!(model.prices.cache_write_1h_nusd_per_mtok.is_none());
+            let active = active_with(Plan {
+                model,
+                input: 135,
+                input_exact: true,
+                output: 72,
+                reasoning_output: false,
+                hold: Whole2z::new(1),
+                markup: Bps::ZERO,
+                margin: Bps(2000),
+            });
+            let hold = Uuid::now_v7();
+            *lock(&active.hold) = Some(Operation::Hold {
+                identity: active.identity,
+                call: active.id,
+                amount_milli: 1000,
+                model: "m".into(),
+                rate_card: 1,
+                catalog: "1".into(),
+                consented_markup: 0,
+                provider: "p".into(),
+            });
+            // Recover the hold from the durable Complete reply, as after a
+            // lost hold response; do not seed active.hold_id.
+            let usage = Usage {
+                input_tokens: 40,
+                cached_input_tokens: 5,
+                cache_write_tokens: 3,
+                cache_write_1h_tokens: 2,
+                output_tokens: if reported { 7 } else { 0 },
+                ..Usage::default()
+            };
+            let mut outcome = drained_outcome(Some(usage));
+            if reported {
+                outcome.usage = UsageReport::Reported(usage);
+                outcome.finish_reason = Some(FinishReason::Stop);
+            } else {
+                // Partial input survived an interrupted stream after output.
+                *lock(&active.output_bytes) = 1;
+                outcome.failure = Some(crate::provider::ProviderFailure::new(
+                    ErrorCode::ProviderError,
+                    "truncated",
+                    true,
+                ));
+            }
+            let intent = completion(&active, Some(&outcome));
+            assert_eq!(intent["usage"]["cache_write_tokens"], 3);
+            assert_eq!(intent["usage"]["cache_write_1h_tokens"], 2);
+            assert_eq!(
+                intent["usage_source"],
+                if reported { "provider" } else { "estimated" }
+            );
+            assert_eq!(intent["partial"], !reported);
+            *lock(&active.completion) = Some(intent.clone());
+            let ledger = RecordingLedger {
+                hold,
+                operations: Mutex::new(Vec::new()),
+                durable_completion: Mutex::new(None),
+            };
+            assert!(finalize(&ledger, &active).await.is_err());
+            assert_eq!(*lock(&active.hold_id), Some(hold));
+            assert_eq!(*lock(&ledger.durable_completion), Some(intent));
+            let operations = lock(&ledger.operations);
+            assert_eq!(
+                operations.len(),
+                1,
+                "only durable Complete, no Settle or Release"
+            );
+            assert!(matches!(
+                operations.first(),
+                Some(Operation::Complete { .. })
+            ));
+            assert!(lock(&active.final_record).is_none());
+        }
+    }
+
     // metering.md §5.4's guard on the byte-bound settlement: a provider
     // without a tokeniser whose interrupted call settles at the byte bound
     // logs `estimated_input_byte_bound`; a tokenised model, or partial
@@ -2231,6 +2462,7 @@ mod tests {
         let catalog = priced(200_000);
         let mut model = catalog.catalog().models[0].clone();
         model.capabilities.reasoning = true;
+        model.prices.cache_write_1h_nusd_per_mtok = Some(7000);
         let mut plan = Plan {
             model,
             input: 135,
@@ -2248,6 +2480,7 @@ mod tests {
             input_tokens: 40,
             cached_input_tokens: 5,
             cache_write_tokens: 3,
+            cache_write_1h_tokens: 2,
             output_tokens: 0,
             ..Usage::default()
         };
@@ -2255,6 +2488,7 @@ mod tests {
         assert_eq!(usage.input_tokens, 40);
         assert_eq!(usage.cached_input_tokens, 5);
         assert_eq!(usage.cache_write_tokens, 3);
+        assert_eq!(usage.cache_write_1h_tokens, 2);
         assert_eq!(usage.output_tokens, 72);
         assert_eq!(
             usage.reasoning_tokens, 0,

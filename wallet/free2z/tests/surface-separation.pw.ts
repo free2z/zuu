@@ -116,8 +116,9 @@ test("a creator ZEC tip collects an amount and then fails closed", async ({
 
   await page.getByRole("button", { name: "Continue with ZEC" }).click();
 
-  // The request was built and NOT sent: there is no verified link to ZUULI
-  // (#461), so the transport refuses and the copy says exactly that.
+  // The request was built and NOT sent: this browser has no verified link to
+  // ZUULI — only the iOS and Android apps do — so the transport refuses and the
+  // copy says exactly that.
   await expect(page.getByText("ZEC tips are signed in ZUULI")).toBeVisible();
   await expect(
     page.getByText(/prepared a request for 0\.05 ZEC to Zooko/),

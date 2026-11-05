@@ -25,12 +25,12 @@ fn payload() -> Value {
     v["models"][0]["prices"] = json!({
         "input_nusd_per_mtok":2_000_000_000u64,"cached_input_nusd_per_mtok":200_000_000,
         "cache_write_nusd_per_mtok":2_500_000_000u64,"output_nusd_per_mtok":10_000_000_000u64,
-        "image_nusd":0,"tool_call_nusd":0
+        "cache_write_1h_nusd_per_mtok":8_000_000_000u64,"image_nusd":0,"tool_call_nusd":0
     });
     v["models"][0]["long_context_pricing"] = json!({"input_tokens_gt":100,"prices":{
         "input_nusd_per_mtok":4_000_000_000u64,"cached_input_nusd_per_mtok":400_000_000,
         "cache_write_nusd_per_mtok":5_000_000_000u64,"output_nusd_per_mtok":15_000_000_000u64,
-        "image_nusd":0,"tool_call_nusd":0
+        "cache_write_1h_nusd_per_mtok":8_000_000_000u64,"image_nusd":0,"tool_call_nusd":0
     }});
     v
 }
@@ -92,6 +92,25 @@ fn v2_is_explicit_and_v1_rejects_tier_presence_even_null() {
 }
 
 #[test]
+fn v2_response_price_types_ignore_additive_metadata_but_keep_known_values() {
+    let mut tier_value = payload()["models"][0]["long_context_pricing"].clone();
+    tier_value["published_by"] = json!("gateway");
+    tier_value["prices"]["price_note"] = json!("additive catalogue metadata");
+    let tier: f2z_ai_proto::catalog_v2::ContextPriceTier =
+        serde_json::from_value(tier_value).unwrap();
+    assert_eq!(tier.input_tokens_gt, 100);
+    assert_eq!(tier.prices.output_nusd_per_mtok, 15_000_000_000);
+
+    // A required known amount remains mandatory on signed ingress.
+    let mut bad_known_price = payload();
+    bad_known_price["models"][0]["long_context_pricing"]["prices"]
+        .as_object_mut()
+        .unwrap()
+        .remove("output_nusd_per_mtok");
+    assert!(read(&bad_known_price).is_err());
+}
+
+#[test]
 fn signatures_cover_tier_and_expiry_and_reject_duplicate_members() {
     let v = payload();
     let (bytes, sig, key) = signed(&v);
@@ -126,7 +145,7 @@ fn signatures_cover_tier_and_expiry_and_reject_duplicate_members() {
 }
 
 #[test]
-fn invalid_tiers_fail_closed_but_zero_dimensions_are_valid() {
+fn signed_prices_and_tiers_fail_closed_on_unknown_money_semantics() {
     assert!(read(&payload()).is_ok()); // zero image/tool prices are intentional
     for threshold in [0, 1000, 1001] {
         let mut v = payload();
@@ -151,6 +170,37 @@ fn invalid_tiers_fail_closed_but_zero_dimensions_are_valid() {
     let mut v = payload();
     v["models"][0]["long_context_pricing"]["prices"]["new_money_dimension"] = json!(1);
     assert!(read(&v).is_err());
+    let mut v = payload();
+    v["models"][0]["prices"]["new_money_dimension"] = json!(1);
+    assert!(read(&v).is_err());
+}
+
+#[test]
+fn response_price_types_ignore_additive_metadata_but_signed_prices_do_not() {
+    let extended = json!({
+        "input_nusd_per_mtok": 1,
+        "cached_input_nusd_per_mtok": 2,
+        "cache_write_nusd_per_mtok": 3,
+        "output_nusd_per_mtok": 4,
+        "image_nusd": 5,
+        "tool_call_nusd": 6,
+        "future_price_metadata": true
+    });
+    let parsed: f2z_ai_proto::ModelPrices = serde_json::from_value(extended).unwrap();
+    assert_eq!(parsed.input_nusd_per_mtok, 1);
+    let mut signed_payload = payload();
+    signed_payload["models"][0]["prices"]["future_price_metadata"] = json!(true);
+    assert!(read(&signed_payload).is_err());
+
+    let mut v1 = payload();
+    v1["schema"] = json!(1);
+    v1["models"][0]
+        .as_object_mut()
+        .unwrap()
+        .remove("long_context_pricing");
+    v1["models"][0]["prices"]["new_money_dimension"] = json!(1);
+    let (bytes, signature, key) = signed(&v1);
+    assert!(verify_catalog(&bytes, &signature, &[key], 0).is_err());
 }
 
 #[test]
@@ -194,9 +244,9 @@ fn threshold_uses_all_exclusive_input_and_amplifies_the_whole_output() {
 #[test]
 fn reservation_covers_cache_write_premium_and_output_tier() {
     let m = model();
-    assert_eq!(m.token_reservation_cost_nusd(100, 4).unwrap().get(), 290000);
+    assert_eq!(m.token_reservation_cost_nusd(100, 4).unwrap().get(), 840000);
     let held = m.token_reservation_cost_nusd(101, 4).unwrap();
-    assert_eq!(held.get(), 565000);
+    assert_eq!(held.get(), 868000);
     // Every possible cache composition at and below the certified input bound.
     for input in 0..=101 {
         for cached in 0..=input {
@@ -251,4 +301,174 @@ fn v2_rejects_a_forgery_that_non_strict_verification_accepts() {
         verify_catalog_v2(&serde_json::to_vec(&v).unwrap(), &sig, &[key], 0),
         Err(CatalogError::BadSignature)
     ));
+}
+
+#[test]
+fn hourly_price_presence_is_versioned_and_unknown_money_is_refused() {
+    let mut v = payload();
+    v["models"][0]["prices"]
+        .as_object_mut()
+        .unwrap()
+        .remove("cache_write_1h_nusd_per_mtok");
+    assert!(read(&v).is_err());
+    v["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = Value::Null;
+    assert!(read(&v).is_err());
+    v["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = json!(0);
+    assert!(read(&v).is_ok());
+    v["models"][0]["prices"]["unknown_money"] = json!(1);
+    assert!(read(&v).is_err());
+}
+
+#[test]
+fn hourly_subset_is_charged_once_and_rounds_once() {
+    use f2z_ai_proto::pricing::{ModelPrices, PricingError, metered_cost_nusd};
+    let prices = ModelPrices {
+        cache_write_nusd_per_mtok: 1,
+        cache_write_1h_nusd_per_mtok: Some(3),
+        ..ModelPrices::default()
+    };
+    for (total, hourly, expected) in [
+        (1_000_000, 0, 1),
+        (1_000_000, 1_000_000, 3),
+        (1_000_000, 500_000, 2),
+        (2, 1, 1),
+    ] {
+        let u = Usage {
+            cache_write_tokens: total,
+            cache_write_1h_tokens: hourly,
+            ..Usage::default()
+        };
+        assert_eq!(metered_cost_nusd(&u, &prices).unwrap().get(), expected);
+    }
+    let u = Usage {
+        cache_write_tokens: 1,
+        cache_write_1h_tokens: 2,
+        ..Usage::default()
+    };
+    assert_eq!(
+        metered_cost_nusd(&u, &prices),
+        Err(PricingError::InvalidCacheWrite)
+    );
+    let u = Usage {
+        cache_write_tokens: 1,
+        cache_write_1h_tokens: 1,
+        ..Usage::default()
+    };
+    assert_eq!(
+        metered_cost_nusd(&u, &ModelPrices::default()),
+        Err(PricingError::InvalidCacheWrite)
+    );
+    let u = Usage {
+        cache_write_tokens: u64::MAX,
+        cache_write_1h_tokens: u64::MAX,
+        ..Usage::default()
+    };
+    let p = ModelPrices {
+        cache_write_1h_nusd_per_mtok: Some(u64::MAX),
+        ..prices
+    };
+    assert_eq!(metered_cost_nusd(&u, &p), Err(PricingError::Overflow));
+}
+
+#[test]
+fn legacy_signature_and_money_are_frozen() {
+    use f2z_ai_proto::pricing::metered_cost_nusd;
+    let v: Value =
+        serde_json::from_str(include_str!("../fixtures/catalog/legacy-v1/catalog.json")).unwrap();
+    let meta: Value =
+        serde_json::from_str(include_str!("../fixtures/catalog/legacy-v1/signature.json")).unwrap();
+    let key = TrustedKey::from_hex(
+        meta["key_id"].as_str().unwrap(),
+        meta["public_key_hex"].as_str().unwrap(),
+    )
+    .unwrap();
+    let sig = DetachedSignature::from_hex(
+        meta["key_id"].as_str().unwrap(),
+        meta["signature_hex"].as_str().unwrap(),
+    )
+    .unwrap();
+    let old = verify_catalog(
+        &serde_json::to_vec(&v).unwrap(),
+        &sig,
+        &[key],
+        v["issued_at"].as_u64().unwrap(),
+    )
+    .unwrap();
+    let p = &old.callable_model("example-mini").unwrap().prices;
+    assert_eq!(
+        metered_cost_nusd(
+            &Usage {
+                images: 1,
+                ..Usage::default()
+            },
+            p
+        )
+        .unwrap()
+        .get(),
+        1_000_000
+    );
+    let current: Value =
+        serde_json::from_str(include_str!("../fixtures/catalog/catalog.json")).unwrap();
+    assert_eq!(current["models"][1]["prices"]["image_nusd"], json!(0));
+    let prices = serde_json::from_value(current["models"][1]["prices"].clone()).unwrap();
+    let input = Usage {
+        input_tokens: 17,
+        ..Usage::default()
+    };
+    assert_eq!(
+        metered_cost_nusd(&input, &prices).unwrap(),
+        metered_cost_nusd(&Usage { images: 3, ..input }, &prices).unwrap()
+    );
+}
+
+#[test]
+fn independently_signed_hourly_fixture_verifies() {
+    let payload = include_bytes!("../fixtures/catalog/v2/catalog.json");
+    let meta: Value =
+        serde_json::from_str(include_str!("../fixtures/catalog/v2/signature.json")).unwrap();
+    let key = TrustedKey::from_hex(
+        meta["key_id"].as_str().unwrap(),
+        meta["public_key_hex"].as_str().unwrap(),
+    )
+    .unwrap();
+    let sig = DetachedSignature::from_hex(
+        meta["key_id"].as_str().unwrap(),
+        meta["signature_hex"].as_str().unwrap(),
+    )
+    .unwrap();
+    let read = verify_catalog_v2(payload, &sig, &[key], 1_790_000_000).unwrap();
+    assert_eq!(
+        read.models[0].base.prices.cache_write_1h_nusd_per_mtok,
+        Some(17)
+    );
+}
+
+#[test]
+fn schema1_refuses_hourly_price_presence_even_zero_or_null() {
+    for value in [json!(0), Value::Null, json!(17)] {
+        let mut v = payload();
+        v["schema"] = json!(1);
+        v["models"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("long_context_pricing");
+        v["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = value;
+        let (bytes, sig, key) = signed(&v);
+        assert!(verify_catalog(&bytes, &sig, &[key], 0).is_err());
+    }
+}
+
+#[test]
+fn explicit_zero_hourly_price_does_not_hide_an_all_zero_table() {
+    let mut v = payload();
+    for value in v["models"][0]["prices"]
+        .as_object_mut()
+        .unwrap()
+        .values_mut()
+    {
+        *value = json!(0);
+    }
+    assert!(read(&v).is_err());
+    v["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = json!(1);
+    assert!(read(&v).is_ok());
 }

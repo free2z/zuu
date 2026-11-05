@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("openai", "0032_tools_require_effort_none")]
+    dependencies = [("openai", "0033_aimodel_forced_tool_choice")]
     operations = [
         migrations.AddField(model_name="aimodel", name="supports_top_k", field=models.BooleanField(default=False, db_default=False)),
         migrations.AddField(model_name="aimodel", name="supports_seed", field=models.BooleanField(default=False, db_default=False)),

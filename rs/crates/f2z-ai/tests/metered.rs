@@ -67,20 +67,26 @@ struct Memory {
     revoke_after_hold: bool,
     lose_hold_replies: usize,
     lose_settle_reply: bool,
+    omit_settle_cap: bool,
+    malformed_settle_cap: bool,
+    unsafe_settle_cap: bool,
+    fail_context_after_settle: bool,
+    terminalize_on_first_complete: bool,
     available: u64,
-    cap_remaining: Option<u64>,
+    cap_remaining_milli_2z: Option<u64>,
     slow_completion: bool,
     /// Mimic a ledger before `ledger.0006_call_features`: its
     /// `gateway_metadata_valid` refuses any key it does not name, so
     /// `call_claim` raises (22023), which the adapter reports as `Failure`.
     old_ledger: bool,
     claims: usize,
+    context_requests: usize,
     /// The usage vector the last `Settle` carried.
     settled_usage: Value,
 }
 impl Memory {
     fn context(&self) -> Value {
-        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":self.cap_remaining,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
+        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":self.cap_remaining_milli_2z,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
     }
     fn record(&self) -> Value {
         let status = match self.terminal {
@@ -122,11 +128,17 @@ impl Ledger for Database {
         }
         let mut m = self.0.lock().unwrap();
         match op {
-            Operation::Context(_) => Ok(if m.revoked {
-                json!({"status":"revoked"})
-            } else {
-                m.context()
-            }),
+            Operation::Context(_) => {
+                m.context_requests += 1;
+                if m.terminal == Some("settled") && m.fail_context_after_settle {
+                    return Err(Failure);
+                }
+                Ok(if m.revoked {
+                    json!({"status":"revoked"})
+                } else {
+                    m.context()
+                })
+            }
             Operation::Claim {
                 identity,
                 call,
@@ -191,6 +203,17 @@ impl Ledger for Database {
                 completion,
                 no_hold,
             } => {
+                if m.terminalize_on_first_complete && m.terminal.is_none() {
+                    // Model another durable settler winning just before this
+                    // completion recovery reads the call envelope.
+                    m.terminalize_on_first_complete = false;
+                    m.completion = completion.clone();
+                    m.terminal = Some("settled");
+                    m.charges += 1;
+                    if let Some(cap) = m.cap_remaining_milli_2z.as_mut() {
+                        *cap = cap.saturating_sub(1_000);
+                    }
+                }
                 if m.old_ledger && m.call.is_none() {
                     // The refused claim inserted nothing: the settler's
                     // completion of it finds no call, as the real ledger's does.
@@ -238,15 +261,43 @@ impl Ledger for Database {
                 assert!(usage["input_tokens"].as_u64().unwrap() > 0);
                 m.settled_usage = usage.clone();
                 m.settle_requests += 1;
+                let replayed = m.terminal == Some("settled");
                 if m.terminal.is_none() {
                     m.charges += 1;
                     m.terminal = Some("settled");
+                    if let Some(cap) = m.cap_remaining_milli_2z.as_mut() {
+                        *cap = cap.saturating_sub(1_000);
+                    }
                 }
                 if m.lose_settle_reply {
                     m.lose_settle_reply = false;
                     return Err(Failure);
                 }
-                Ok(json!({"status":if m.terminal==Some("settled") {"settled"} else {"not_open"}}))
+                let mut result = json!({
+                    "status":if m.terminal==Some("settled") {"settled"} else {"not_open"},
+                    "state":m.terminal,
+                    "priced":if m.terminal==Some("settled") {1000} else {0},
+                    "charged":if m.terminal==Some("settled") {1000} else {0},
+                    "shortfall":0,
+                    "available":m.available,
+                });
+                result["transfer_id"] = if m.terminal == Some("settled") {
+                    json!(1)
+                } else {
+                    Value::Null
+                };
+                if !m.omit_settle_cap {
+                    result["cap_remaining"] = if m.malformed_settle_cap {
+                        json!("not-an-integer")
+                    } else if m.unsafe_settle_cap {
+                        json!(9_007_199_254_740_992_u64)
+                    } else if replayed {
+                        Value::Null
+                    } else {
+                        json!(m.cap_remaining_milli_2z)
+                    };
+                }
+                Ok(result)
             }
             Operation::Release { hold, .. } => {
                 assert_eq!(Some(*hold), m.hold);
@@ -1833,6 +1884,18 @@ async fn send_nonstream(r: &support::Running) -> axum::http::Response<hyper::bod
     support::send(r.public, req).await
 }
 
+fn settled_wire(text: &str, stream: bool) -> Value {
+    if stream {
+        let data = text
+            .split("\n\n")
+            .find_map(|frame| frame.strip_prefix("event: done\ndata: "))
+            .unwrap_or_else(|| panic!("missing done event: {text}"));
+        serde_json::from_str::<Value>(data).unwrap()
+    } else {
+        serde_json::from_str::<Value>(text).unwrap()
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nonstream_uses_confirmed_settlement_and_replays_receipt_json() {
     let db = Arc::new(Database::new());
@@ -1860,6 +1923,179 @@ async fn nonstream_uses_confirmed_settlement_and_replays_receipt_json() {
     assert_eq!(receipt["call_id"], call_id);
     assert_eq!(db.0.lock().unwrap().charges, 1);
     mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_chat_responses_include_the_ledger_post_settlement_cap() {
+    for (stream, capped) in [(true, true), (true, false), (false, true), (false, false)] {
+        let db = Arc::new(Database::new());
+        if capped {
+            db.0.lock().unwrap().cap_remaining_milli_2z = Some(200_000);
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "stream={stream}, capped={capped}"
+        );
+        let text = support::text(response).await;
+        let completed = settled_wire(&text, stream);
+        assert!(
+            completed
+                .as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z"),
+            "settled response omitted cap field: {completed}"
+        );
+        if capped {
+            assert_eq!(completed["cap_remaining_milli_2z"], json!(199_000));
+        } else {
+            assert_eq!(completed["cap_remaining_milli_2z"], Value::Null);
+        }
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.charges, 1, "stream={stream}, capped={capped}");
+            assert_eq!(state.hold_requests, 1, "stream={stream}, capped={capped}");
+            assert_eq!(state.settle_requests, 1, "stream={stream}, capped={capped}");
+        }
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ambiguous_settle_replay_resolves_null_cap_from_context_without_rebilling() {
+    for (stream, capped) in [(true, true), (false, false)] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.lose_settle_reply = true;
+            if capped {
+                state.cap_remaining_milli_2z = Some(200_000);
+            }
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(response.status(), StatusCode::OK);
+        let wire = settled_wire(&support::text(response).await, stream);
+        assert_eq!(wire["settlement"], "settled");
+        assert!(
+            wire.as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z")
+        );
+        assert_eq!(
+            wire["cap_remaining_milli_2z"],
+            if capped { json!(199_000) } else { Value::Null }
+        );
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.hold_requests, 1);
+            assert_eq!(
+                state.settle_requests, 2,
+                "same idempotent settle is recovered"
+            );
+            assert_eq!(state.charges, 1, "settle replay must not rebill");
+            assert!(state.context_requests > 0, "ambiguous NULL needs context");
+        }
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn already_terminal_completion_recovery_reads_cap_without_resettling() {
+    for (stream, capped) in [(true, true), (false, false)] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.terminalize_on_first_complete = true;
+            if capped {
+                state.cap_remaining_milli_2z = Some(200_000);
+            }
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(response.status(), StatusCode::OK);
+        let wire = settled_wire(&support::text(response).await, stream);
+        assert_eq!(wire["settlement"], "settled");
+        assert!(
+            wire.as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z")
+        );
+        assert_eq!(
+            wire["cap_remaining_milli_2z"],
+            if capped { json!(199_000) } else { Value::Null }
+        );
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.hold_requests, 1);
+            assert_eq!(
+                state.settle_requests, 0,
+                "terminal recovery must not resettle"
+            );
+            assert_eq!(state.charges, 1);
+            assert!(
+                state.context_requests > 0,
+                "terminal call record has no cap"
+            );
+        }
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unavailable_or_invalid_cap_metadata_stays_absent_after_completed_billing() {
+    for (stream, malformed, unsafe_value) in [
+        (true, false, false),
+        (false, true, false),
+        (true, false, true),
+    ] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.omit_settle_cap = !malformed && !unsafe_value;
+            state.malformed_settle_cap = malformed;
+            state.unsafe_settle_cap = unsafe_value;
+            state.fail_context_after_settle = true;
+            state.cap_remaining_milli_2z = Some(200_000);
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(response.status(), StatusCode::OK);
+        let wire = settled_wire(&support::text(response).await, stream);
+        assert_eq!(wire["settlement"], "settled");
+        assert_eq!(wire["charged_2z"], json!(1));
+        assert!(
+            !wire
+                .as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z")
+        );
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.hold_requests, 1);
+            assert_eq!(state.settle_requests, 1);
+            assert_eq!(state.charges, 1);
+        }
+        mock.shutdown().await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1966,6 +2202,43 @@ fn aha_request(strict: bool) -> Value {
     json!({"model":"m-responses","max_output_tokens":1800,"max_output_tokens_strict":strict,
         "messages":[{"role":"user","content":[{"type":"text","text":"teach me fractions"}]}]})
 }
+fn exact_one_token_hold(request: &Value, catalog: &f2z_ai::catalog::VerifiedCatalog) -> (u64, u64) {
+    use f2z_ai_proto::{
+        chat::{ChatRequest, Usage},
+        pricing::{Bps, apply_safety_factor, metered_cost_nusd, price_nusd},
+    };
+
+    let request: ChatRequest = serde_json::from_value(request.clone()).unwrap();
+    let model = catalog.catalog().callable_model(&request.model).unwrap();
+    let estimate = f2z_ai::estimate::input_tokens(&request, model).unwrap();
+    let input = apply_safety_factor(
+        estimate.tokens + f2z_ai::provider::reserved_overhead_tokens(&request, model),
+        model.safety_factor_bps,
+    )
+    .unwrap();
+    let mut prices = model.prices;
+    prices.input_nusd_per_mtok = prices
+        .input_nusd_per_mtok
+        .max(prices.cached_input_nusd_per_mtok)
+        .max(prices.cache_write_nusd_per_mtok);
+    let usage = Usage {
+        input_tokens: input,
+        output_tokens: 1,
+        tool_calls: if prices.tool_call_nusd > 0 { 8 } else { 0 },
+        ..Usage::default()
+    };
+    let cost = metered_cost_nusd(&usage, &prices).unwrap();
+    let required = price_nusd(
+        cost,
+        catalog.catalog().platform_margin_bps,
+        Bps::ZERO,
+        model.min_charge_2z,
+    )
+    .unwrap()
+    .total_2z()
+    .get();
+    (input, required)
+}
 async fn post(r: &support::Running, path: &str, body: &Value) -> (StatusCode, Value) {
     let mut req = axum::http::Request::post(path)
         .header("host", "gateway")
@@ -2043,12 +2316,123 @@ async fn strict_output_limit_is_refused_before_any_hold_charge_or_provider_reque
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn non_strict_estimate_refusals_report_exact_minimum_and_do_not_reserve_or_start_provider() {
+    let catalog = priced_catalog();
+    let request = aha_request(false);
+    let (input, required) = exact_one_token_hold(&request, &catalog);
+    assert!(required > 0);
+    let required_milli = required * 1_000;
+
+    for (available, cap, expected_code, expected_status) in [
+        (
+            required_milli - 1,
+            None,
+            "insufficient_balance",
+            StatusCode::PAYMENT_REQUIRED,
+        ),
+        (
+            0,
+            None,
+            "insufficient_balance",
+            StatusCode::PAYMENT_REQUIRED,
+        ),
+        (
+            required_milli + 10_000,
+            Some(required_milli - 1),
+            "cap_exceeded",
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.available = available;
+            state.cap_remaining_milli_2z = cap;
+        }
+        let (r, mock) =
+            launch_catalog(db.clone(), Scenario::default(), None, catalog.clone()).await;
+
+        let (status, refusal) = post(&r, "/v1/chat/estimate", &request).await;
+        assert_eq!(status, expected_status, "{refusal}");
+        let details = &refusal["error"]["details"];
+        assert_eq!(refusal["error"]["code"], expected_code, "{refusal}");
+        for key in [
+            "input_tokens_estimate",
+            "required_2z",
+            "available_milli_2z",
+            "min_charge_2z",
+            "cap_remaining_milli_2z",
+        ] {
+            assert!(
+                details
+                    .as_object()
+                    .is_some_and(|details| details.contains_key(key)),
+                "estimate refusal omitted details.{key}: {refusal}"
+            );
+        }
+        assert_eq!(details["input_tokens_estimate"], input, "{refusal}");
+        assert_eq!(details["required_2z"], required, "{refusal}");
+        assert_eq!(details["available_milli_2z"], available, "{refusal}");
+        assert_eq!(details["min_charge_2z"], 1, "{refusal}");
+        assert_eq!(
+            details["cap_remaining_milli_2z"],
+            cap.map_or(Value::Null, |amount| json!(amount)),
+            "{refusal}"
+        );
+        assert!(
+            db.0.lock().unwrap().call.is_none(),
+            "estimate claimed a call"
+        );
+        assert!(db.0.lock().unwrap().hold.is_none());
+        assert_eq!(mock.request_count(), 0);
+
+        let (status, refusal) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, expected_status, "{refusal}");
+        let details = &refusal["error"]["details"];
+        assert_eq!(refusal["error"]["code"], expected_code, "{refusal}");
+        for key in [
+            "input_tokens_estimate",
+            "required_2z",
+            "available_milli_2z",
+            "min_charge_2z",
+            "cap_remaining_milli_2z",
+        ] {
+            assert!(
+                details
+                    .as_object()
+                    .is_some_and(|details| details.contains_key(key)),
+                "chat refusal omitted details.{key}: {refusal}"
+            );
+        }
+        assert_eq!(details["input_tokens_estimate"], input, "{refusal}");
+        assert_eq!(details["required_2z"], required, "{refusal}");
+        assert_eq!(details["available_milli_2z"], available, "{refusal}");
+        assert_eq!(details["min_charge_2z"], 1, "{refusal}");
+        assert_eq!(
+            details["cap_remaining_milli_2z"],
+            cap.map_or(Value::Null, |amount| json!(amount)),
+            "{refusal}"
+        );
+        final_state(&db).await;
+        {
+            let state = db.0.lock().unwrap();
+            assert!(state.hold.is_none(), "chat refusal reserved a hold");
+            assert_eq!(state.charges, 0);
+            assert_eq!(state.terminal, Some("released"));
+            assert_eq!(state.claims, 1);
+        }
+        assert_eq!(mock.request_count(), 0, "chat refusal started the provider");
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn strict_cap_refusal_pins_supported_details_and_has_no_paid_work() {
     let db = Arc::new(Database::new());
     {
         let mut state = db.0.lock().unwrap();
         state.available = 10_000_000;
-        state.cap_remaining = Some(5_000);
+        state.cap_remaining_milli_2z = Some(5_000);
     }
     let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, priced_catalog()).await;
 
@@ -3158,5 +3542,113 @@ async fn sampling_refusals_are_terminal_without_holds_or_upstream_calls() {
         assert_eq!(db.0.lock().unwrap().charges, 0);
         assert_eq!(mock.request_count(), 0);
         mock.shutdown().await;
+    }
+}
+
+// zuu#1144: the same controls cross admission, the ledger and real adapters.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn forced_tool_choice_signed_policy_precedes_holds_and_provider_io() {
+    for id in ["m-chat", "m-anthropic", "m-xai"] {
+        for declared in [None, Some(false), Some(true)] {
+            for choice in [
+                json!("required"),
+                json!({"type":"function","function":{"name":"lookup"}}),
+                json!("auto"),
+                json!("none"),
+            ] {
+                for (path, stream) in [
+                    ("/v1/chat/estimate", false),
+                    ("/v1/chat", false),
+                    ("/v1/chat", true),
+                ] {
+                    let mut catalog = tool_catalog().catalog().clone();
+                    for model in &mut catalog.models {
+                        model.capabilities.forced_tool_choice = declared;
+                    }
+                    let catalog = f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap();
+                    let db = Arc::new(Database::new());
+                    let (r, mock) =
+                        launch_catalog(db.clone(), Scenario::default(), None, catalog).await;
+                    let mut body = request();
+                    body["model"] = json!(id);
+                    body["stream"] = json!(stream);
+                    body["tools"] = json!([{"name":"lookup","parameters":{"type":"object"}}]);
+                    body["tool_choice"] = choice.clone();
+                    body["parallel_tool_calls"] = json!(false);
+                    if path == "/v1/chat/estimate" && choice == json!("required") {
+                        let get = axum::http::Request::get("/v1/models")
+                            .header("host", "gateway")
+                            .body(axum::body::Body::empty())
+                            .unwrap();
+                        let listed: Value = serde_json::from_str(
+                            &support::text(support::send(r.public, get).await).await,
+                        )
+                        .unwrap();
+                        let model = listed["models"]
+                            .as_array()
+                            .unwrap()
+                            .iter()
+                            .find(|m| m["id"] == id)
+                            .unwrap();
+                        assert_eq!(
+                            model["capabilities"]["forced_tool_choice"],
+                            declared.unwrap_or(true)
+                        );
+                    }
+                    let forced = choice == json!("required") || choice.is_object();
+                    let (status, reply) = post(&r, path, &body).await;
+                    if declared == Some(false) && forced {
+                        assert_eq!(
+                            status,
+                            StatusCode::BAD_REQUEST,
+                            "{id} {declared:?} {choice}: {reply}"
+                        );
+                        assert_eq!(reply["error"]["code"], "invalid_request");
+                        let error: f2z_ai_proto::error::ApiError =
+                            serde_json::from_value(reply["error"].clone()).unwrap();
+                        assert!(!error.retryable());
+                        assert_eq!(reply["error"]["details"]["reason"], "tools_unsupported");
+                        assert_eq!(reply["error"]["details"]["field"], "tool_choice");
+                        let state = db.0.lock().unwrap();
+                        assert_eq!(state.hold_requests, 0);
+                        assert_eq!(state.charges, 0);
+                        assert_eq!(mock.request_count(), 0);
+                    } else {
+                        assert_eq!(
+                            status,
+                            StatusCode::OK,
+                            "{id} {declared:?} {choice}: {reply}"
+                        );
+                        if path == "/v1/chat" {
+                            final_state(&db).await;
+                            assert_eq!(db.0.lock().unwrap().hold_requests, 1);
+                            assert_eq!(mock.request_count(), 1);
+                            let sent = mock.recorded_requests();
+                            if id == "m-anthropic" {
+                                let expected = if choice.is_object() {
+                                    "tool"
+                                } else if forced {
+                                    "any"
+                                } else {
+                                    choice.as_str().unwrap()
+                                };
+                                assert_eq!(sent[0].body["tool_choice"]["type"], expected);
+                                // none suppresses tools and therefore has no parallel control.
+                                if choice != json!("none") {
+                                    assert_eq!(
+                                        sent[0].body["tool_choice"]["disable_parallel_tool_use"],
+                                        true
+                                    );
+                                }
+                            } else {
+                                assert_eq!(sent[0].body["tool_choice"], choice);
+                                assert_eq!(sent[0].body["parallel_tool_calls"], false);
+                            }
+                        }
+                    }
+                    mock.shutdown().await;
+                }
+            }
+        }
     }
 }

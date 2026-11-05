@@ -217,7 +217,7 @@ def test_the_crate_fixture_minus_what_we_refuse_to_publish_validates():
 
 
 @pytest.mark.parametrize("mutate, reason", [
-    (lambda c: c.update(schema=2), "invalid_catalog"),
+    (lambda c: c.update(schema=3), "invalid_catalog"),
     (lambda c: c.update(expires_at=c["issued_at"]), "invalid_catalog"),
     (lambda c: c.update(platform_margin_bps=100_001), "invalid_catalog"),
     (lambda c: c.update(version=-1), "invalid_catalog"),
@@ -632,6 +632,7 @@ def test_the_seeded_lineup_publishes_on_the_seeded_card(db):
 
 def test_django_sample_is_reproduced_byte_for_byte(sample_dataset):
     """Regenerate with ``AI_CATALOG_WRITE_SAMPLE=1 pytest -k reproduced``."""
+    AIModel.objects.update(supports_forced_tool_choice=None)
     signed = catalog.sign_catalog(catalog.build_catalog(SAMPLE_NOW), _test_key())
     if os.environ.get("AI_CATALOG_WRITE_SAMPLE") == "1":
         SAMPLE.parent.mkdir(parents=True, exist_ok=True)
@@ -679,6 +680,7 @@ def at_sample_now(monkeypatch):
 
 
 def test_get_serves_the_signed_document(sample_dataset, at_sample_now):
+    AIModel.objects.update(supports_forced_tool_choice=None)
     response = APIClient().get(URL)
     assert response.status_code == 200
     assert response["Content-Type"] == "application/json"
@@ -973,14 +975,14 @@ def test_no_refusal_path_returns_5xx(sample_dataset, at_sample_now, monkeypatch,
         # The DB CHECK forbids all-zero rows, so feed the builder directly.
         real = catalog.validate_model
 
-        def poisoned(model, disabled=()):
+        def poisoned(model, disabled=(), *, schema=1):
             if model["id"] == "grok-4.5":
                 model = json.loads(json.dumps(model))
                 if refusal == "all_zero":
                     model["prices"] = dict.fromkeys(model["prices"], 0)
                 else:
                     model["provider"], model["prices"]["image_nusd"] = "openai", 5
-            return real(model, disabled)
+            return real(model, disabled, schema=schema)
 
         monkeypatch.setattr(catalog, "validate_model", poisoned)
     with ctx:
@@ -1054,6 +1056,7 @@ def test_only_the_gateway_user_agent_counts_as_the_gateway(user_agent, expected)
 
 
 def test_command_prints_the_served_body(sample_dataset):
+    AIModel.objects.update(supports_forced_tool_choice=None)
     import io
 
     out = io.StringIO()
@@ -1110,7 +1113,7 @@ def test_optional_capability_members_follow_the_public_boolean_contract(capabili
 
 
 ALL_FALSE = {"vision": False, "tools": False, "reasoning": False, "structured_output": False,
-             "strict_tools": False, "reasoning_effort": False}
+             "strict_tools": False, "reasoning_effort": False, "forced_tool_choice": False}
 
 
 def test_default_capabilities_do_not_guess_from_model_names(sample_dataset):
@@ -1120,6 +1123,10 @@ def test_default_capabilities_do_not_guess_from_model_names(sample_dataset):
     document = catalog.build_catalog(SAMPLE_NOW)
     assert document["schema"] == 1
     assert [m["capabilities"] for m in document["models"]] == [ALL_FALSE] * 3
+    # New rows deny forcing; deleting just the new member recovers the
+    # independently signed legacy sample exactly.
+    for model in document["models"]:
+        assert model["capabilities"].pop("forced_tool_choice") is False
     assert catalog.sign_catalog(document, _test_key()).body == SAMPLE.read_bytes()
 
 
@@ -1207,7 +1214,7 @@ def test_catalogue_response_schema_preserves_optional_capability_policy():
     field = CatalogModelSerializer().fields["capabilities"]
     assert not field.required and not field.allow_null
     members = dict(field.fields)
-    for name in ("structured_output", "strict_tools", "top_k", "seed", "logprobs", "penalties"):
+    for name in ("structured_output", "strict_tools", "forced_tool_choice", "top_k", "seed", "logprobs", "penalties"):
         undeclared = members.pop(name)
         # Tri-state at the gateway: absent must stay absent, never become false.
         assert not undeclared.required and undeclared.default is empty, name
@@ -1555,3 +1562,93 @@ def test_sampling_default_body_identity_and_signed_grants(sample_dataset, at_sam
     assert ed25519_reference.verify(public, catalog.signing_message(after), signature)
     model["capabilities"]["seed"] = False
     assert not ed25519_reference.verify(public, catalog.signing_message(after), signature)
+
+
+@pytest.mark.parametrize("value", [True, False, None])
+def test_forced_tool_choice_signing_and_revision(sample_dataset, monkeypatch, value):
+    row = AIModel.objects.get(model="gpt-5.6-luna")
+    row.supports_forced_tool_choice = None
+    row.save()
+    before = catalog.build_catalog(SAMPLE_NOW)
+    prior = catalog.sign_catalog(before, catalog.load_signing_key())
+    monkeypatch.setattr("django.utils.timezone.now", lambda: _at(SAMPLE_NOW))
+    row.supports_forced_tool_choice = value
+    row.save(update_fields=["supports_forced_tool_choice"])
+    assert row.updated_at == _at(SAMPLE_NOW)
+    after = catalog.build_catalog(SAMPLE_NOW)
+    model = next(m for m in after["models"] if m["id"] == row.model)
+    if value is None:
+        assert "forced_tool_choice" not in model["capabilities"]
+    else:
+        assert model["capabilities"]["forced_tool_choice"] is value
+    signed = catalog.sign_catalog(after, catalog.load_signing_key())
+    if value is not None:
+        assert after["version"] > before["version"]
+        assert signed.etag != prior.etag
+    catalog.load_signing_key().private_key.public_key().verify(
+        bytes.fromhex(signed.signature_hex), catalog.CATALOG_SIGNING_LABEL + signed.canonical)
+
+
+@pytest.mark.parametrize("value", [True, False, None, 1, "true"])
+def test_forced_tool_choice_signer_allowlist(value):
+    model = json.loads((CRATE / "catalog.json").read_text())["models"][0]
+    model["capabilities"] = {"forced_tool_choice": value}
+    if type(value) is bool:
+        catalog.validate_model(model)
+    else:
+        with pytest.raises(catalog.CatalogRefused, match="invalid capabilities"):
+            catalog.validate_model(model)
+
+
+@pytest.mark.parametrize("declared", [True, False])
+def test_forced_tool_choice_serializer_and_committed_schema(declared):
+    import yaml
+    from dj.apps.pricing.serializers import CatalogModelCapabilitiesSerializer
+
+    serializer = CatalogModelCapabilitiesSerializer(data={"forced_tool_choice": declared})
+    assert serializer.is_valid(), serializer.errors
+    assert serializer.data["forced_tool_choice"] is declared
+    absent = CatalogModelCapabilitiesSerializer(data={})
+    assert absent.is_valid(), absent.errors
+    assert "forced_tool_choice" not in absent.data
+    null = CatalogModelCapabilitiesSerializer(data={"forced_tool_choice": None})
+    assert not null.is_valid()
+    schema_path = HERE.parents[2] / "free2z" / "openapi" / "f2z.yaml"
+    schemas = yaml.safe_load(schema_path.read_text())["components"]["schemas"]
+    capabilities = schemas["CatalogModelCapabilities"]
+    field = capabilities["properties"]["forced_tool_choice"]
+    assert field["type"] == "boolean"
+    assert "default" not in field and not field.get("nullable", False)
+    assert "forced_tool_choice" not in capabilities.get("required", [])
+    assert "preserves legacy" in field["description"]
+    assert "supports_forced_tool_choice" not in schemas["AIModel"]["properties"]
+
+
+def test_schema2_ttl_publication_preserves_v1(sample_dataset, at_sample_now):
+    old = catalog.build_catalog(SAMPLE_NOW)
+    new = catalog.build_catalog(SAMPLE_NOW, schema=2)
+    assert new["schema"] == 2
+    assert old["version"] == new["version"]
+    for v1, v2 in zip(old["models"], new["models"], strict=True):
+        assert "cache_write_1h_nusd_per_mtok" not in v1["prices"]
+        row = RateCardModel.objects.get(rate_card=sample_dataset, model_id=v1["id"])
+        assert v2["prices"]["cache_write_1h_nusd_per_mtok"] == row.cache_write_1h_nusd_per_mtok
+    client = APIClient()
+    v1 = client.get(URL)
+    v2 = client.get("/api/ai/catalog/v2")
+    assert v1.status_code == v2.status_code == 200
+    assert v1["ETag"] != v2["ETag"]
+    body = v2.json()
+    assert ed25519_reference.verify(
+        bytes.fromhex(TEST1_PUBLIC_HEX), catalog.signing_message(body["catalog"]),
+        bytes.fromhex(body["signature"]["signature_hex"]),
+    )
+    poisoned = json.loads(json.dumps(old))
+    poisoned["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = None
+    with pytest.raises(catalog.CatalogRefused):
+        catalog.validate_catalog(poisoned)
+    for value in (None, -1, True):
+        bad = json.loads(json.dumps(new))
+        bad["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = value
+        with pytest.raises(catalog.CatalogRefused):
+            catalog.validate_catalog(bad)
