@@ -5,7 +5,8 @@
 //! A [`ChatRequest`] is parsed with `deny_unknown_fields`: the gateway refuses
 //! a field it does not understand rather than silently ignoring, say, a
 //! misspelt `max_output_tokens` and billing a call the caller thought was
-//! capped. `metadata` is the extension point for caller-defined data.
+//! capped. (`metadata`, once the extension point for caller-defined data, is
+//! refused by the gateway since zuu#1225: send none.)
 //!
 //! Everything the gateway *sends* — [`ChatResponse`], [`Usage`], and the
 //! events in [`crate::event`] — tolerates unknown fields, so a gateway can add
@@ -58,8 +59,11 @@ pub struct ChatRequest {
     /// [`crate::event::Event`]s; `false` answers with one [`ChatResponse`].
     #[serde(default = "default_stream")]
     pub stream: bool,
-    /// Caller-defined string pairs, echoed into the call record. Never sent
-    /// to the model provider.
+    /// **Leave empty.** Since zuu#1225 the gateway refuses a non-empty
+    /// `metadata` for every app (`400 invalid_request`, `field: "metadata"`,
+    /// `reason: "privacy_baseline"`): call records keep no caller-chosen
+    /// text. Kept on the wire type because records of earlier calls may
+    /// still carry it. Never sent to the model provider.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub metadata: BTreeMap<String, String>,
     /// Opt-in, **ordered** fallback models. If the current model fails with
@@ -674,7 +678,11 @@ impl ChatRequest {
         self
     }
 
-    /// Adds one caller-defined `metadata` pair, echoed into the call record.
+    /// Adds one caller-defined `metadata` pair. The gateway refuses any
+    /// since zuu#1225 (`400`, `reason: "privacy_baseline"`).
+    #[deprecated(
+        note = "the gateway refuses `metadata` (400 privacy_baseline, zuu#1225); send none"
+    )]
     #[must_use]
     pub fn with_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
         self.metadata.insert(key.into(), value.into());

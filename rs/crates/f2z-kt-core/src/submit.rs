@@ -403,6 +403,17 @@ pub fn validate_submission(
     // be present.
     let entry_bytes = entry.entry.signing_bytes()?;
     match (&entry.authorization, context.previous) {
+        (EntryAuthorization::InitialBind { auth_signature, .. }, None) => {
+            if entry.entry.entry_version != 1
+                || entry.entry.kind != crate::entry::EntryKind::InitialBind
+            {
+                return Err(KtError::BadAuthorization);
+            }
+            sig::verify(&entry.entry.directory_auth_pk, &entry_bytes, auth_signature)?;
+        }
+        (EntryAuthorization::InitialBind { .. }, Some(_)) => {
+            return Err(KtError::BadAuthorization);
+        }
         // -- same_key ---------------------------------------------------------
         (EntryAuthorization::SameKey { auth_signature }, previous) => {
             let signing_key = match previous {
@@ -438,15 +449,7 @@ pub fn validate_submission(
                     }
                     previous.directory_auth_pk()
                 }
-                // Version 1: there is no previous entry and therefore no
-                // previously published key. AMBIGUITY CALL — §4.4's table has no
-                // row for a handle's first entry. Read as trust-on-first-
-                // registration: the entry is self-signed by the
-                // `directory_auth_pk` it publishes. Nothing weaker is possible
-                // (there is no earlier key) and nothing stronger is specified;
-                // what makes it safe is that the *registration* is what a client
-                // pins, and every later change is chained to it.
-                None => &entry.entry.directory_auth_pk,
+                None => return Err(KtError::BadAuthorization),
             };
             sig::verify(signing_key, &entry_bytes, auth_signature)?;
         }
@@ -793,7 +796,25 @@ mod tests {
         let entry = directory.reauthorize_genesis(entry);
         assert_eq!(
             accept(&directory, &entry, None, 0),
-            Err(KtError::VersionConflict),
+            Err(KtError::BadAuthorization),
+        );
+    }
+
+    #[test]
+    fn the_frozen_legacy_same_key_genesis_is_not_accepted_as_initial_bind() {
+        let directory = TestDirectory::new();
+        let mut legacy = directory.genesis();
+        legacy.entry.kind = crate::entry::EntryKind::SameKey;
+        // TestDirectory's fixture auth key is signing_key(0x42), so this is a
+        // genuine old-form self-signature, not a malformed shortcut.
+        let auth_signature =
+            crate::testing::sign(&signing_key(0x42), &legacy.entry.signing_bytes().unwrap());
+        legacy.authorization = EntryAuthorization::SameKey { auth_signature };
+
+        assert_eq!(
+            accept(&directory, &legacy, None, 0),
+            Err(KtError::BadAuthorization),
+            "legacy version-1 same_key registrations must fail closed",
         );
     }
 
@@ -953,7 +974,9 @@ mod tests {
         let genesis = directory.genesis();
         let impostor = signing_key(0x9b);
         let not_self_signed = DirectoryEntry {
-            authorization: EntryAuthorization::SameKey {
+            authorization: EntryAuthorization::InitialBind {
+                assertion: f2z_codec::types::Payload::new(vec![1]).unwrap(),
+                identity_signature: f2z_codec::types::Signature::zero(),
                 auth_signature: crate::testing::sign(
                     &impostor,
                     &genesis.entry.signing_bytes().unwrap(),

@@ -18,8 +18,8 @@ Run it as a detached `Job`, never `kubectl exec` -- a deploy drains the pod
 and kills a long-running exec with exit 137 (docs/agent-operations.md).
 
 **Pace it.** `image-variant-worker` is the CATCH-ALL procrastinate worker
-(`QUEUES=""`, concurrency 1), so every job this enqueues is ahead of, and
-competing with, live work: notifications, translation, search indexing, blob
+(`QUEUES=""`, concurrency 1), so every job this enqueues competes for a slot
+with live work: notifications, translation, search indexing, blob
 cleanup. Each poster job downloads a whole video and decodes a frame, so a
 few thousand of them is hours of wall clock. Two things keep that from
 becoming an outage:
@@ -36,7 +36,8 @@ becoming an outage:
     during a batch, so this is an operator pacing bound rather than a global
     hard cap. Both options are mandatory when enqueueing.
     Successive slices extend the latest persisted BACKFILL schedule, and a
-    database lock serializes simultaneous invocations.
+    database lock serializes simultaneous invocations. Priority is fixed to
+    BACKFILL by the command; there is no priority option.
 
 Start with `--dry-run` to see the size, then a small `--limit`.
 
