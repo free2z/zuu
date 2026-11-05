@@ -67,20 +67,26 @@ struct Memory {
     revoke_after_hold: bool,
     lose_hold_replies: usize,
     lose_settle_reply: bool,
+    omit_settle_cap: bool,
+    malformed_settle_cap: bool,
+    unsafe_settle_cap: bool,
+    fail_context_after_settle: bool,
+    terminalize_on_first_complete: bool,
     available: u64,
-    cap_remaining: Option<u64>,
+    cap_remaining_milli_2z: Option<u64>,
     slow_completion: bool,
     /// Mimic a ledger before `ledger.0006_call_features`: its
     /// `gateway_metadata_valid` refuses any key it does not name, so
     /// `call_claim` raises (22023), which the adapter reports as `Failure`.
     old_ledger: bool,
     claims: usize,
+    context_requests: usize,
     /// The usage vector the last `Settle` carried.
     settled_usage: Value,
 }
 impl Memory {
     fn context(&self) -> Value {
-        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":self.cap_remaining,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
+        json!({"status":"ok","available_milli_2z":self.available,"cap_remaining_milli_2z":self.cap_remaining_milli_2z,"debt_milli_2z":0,"open_holds":0,"frozen":false,"consented_markup_bps":0,"effective_markup_bps":0})
     }
     fn record(&self) -> Value {
         let status = match self.terminal {
@@ -122,11 +128,17 @@ impl Ledger for Database {
         }
         let mut m = self.0.lock().unwrap();
         match op {
-            Operation::Context(_) => Ok(if m.revoked {
-                json!({"status":"revoked"})
-            } else {
-                m.context()
-            }),
+            Operation::Context(_) => {
+                m.context_requests += 1;
+                if m.terminal == Some("settled") && m.fail_context_after_settle {
+                    return Err(Failure);
+                }
+                Ok(if m.revoked {
+                    json!({"status":"revoked"})
+                } else {
+                    m.context()
+                })
+            }
             Operation::Claim {
                 identity,
                 call,
@@ -191,6 +203,17 @@ impl Ledger for Database {
                 completion,
                 no_hold,
             } => {
+                if m.terminalize_on_first_complete && m.terminal.is_none() {
+                    // Model another durable settler winning just before this
+                    // completion recovery reads the call envelope.
+                    m.terminalize_on_first_complete = false;
+                    m.completion = completion.clone();
+                    m.terminal = Some("settled");
+                    m.charges += 1;
+                    if let Some(cap) = m.cap_remaining_milli_2z.as_mut() {
+                        *cap = cap.saturating_sub(1_000);
+                    }
+                }
                 if m.old_ledger && m.call.is_none() {
                     // The refused claim inserted nothing: the settler's
                     // completion of it finds no call, as the real ledger's does.
@@ -238,15 +261,43 @@ impl Ledger for Database {
                 assert!(usage["input_tokens"].as_u64().unwrap() > 0);
                 m.settled_usage = usage.clone();
                 m.settle_requests += 1;
+                let replayed = m.terminal == Some("settled");
                 if m.terminal.is_none() {
                     m.charges += 1;
                     m.terminal = Some("settled");
+                    if let Some(cap) = m.cap_remaining_milli_2z.as_mut() {
+                        *cap = cap.saturating_sub(1_000);
+                    }
                 }
                 if m.lose_settle_reply {
                     m.lose_settle_reply = false;
                     return Err(Failure);
                 }
-                Ok(json!({"status":if m.terminal==Some("settled") {"settled"} else {"not_open"}}))
+                let mut result = json!({
+                    "status":if m.terminal==Some("settled") {"settled"} else {"not_open"},
+                    "state":m.terminal,
+                    "priced":if m.terminal==Some("settled") {1000} else {0},
+                    "charged":if m.terminal==Some("settled") {1000} else {0},
+                    "shortfall":0,
+                    "available":m.available,
+                });
+                result["transfer_id"] = if m.terminal == Some("settled") {
+                    json!(1)
+                } else {
+                    Value::Null
+                };
+                if !m.omit_settle_cap {
+                    result["cap_remaining"] = if m.malformed_settle_cap {
+                        json!("not-an-integer")
+                    } else if m.unsafe_settle_cap {
+                        json!(9_007_199_254_740_992_u64)
+                    } else if replayed {
+                        Value::Null
+                    } else {
+                        json!(m.cap_remaining_milli_2z)
+                    };
+                }
+                Ok(result)
             }
             Operation::Release { hold, .. } => {
                 assert_eq!(Some(*hold), m.hold);
@@ -291,27 +342,15 @@ async fn launch_meta(
     catalog: f2z_ai::catalog::VerifiedCatalog,
     features_meta: bool,
 ) -> (support::Running, MockProvider) {
-    launch_keyed(db, scenario, allowed, catalog, features_meta, true).await
-}
-async fn launch_keyed(
-    db: Arc<Database>,
-    scenario: Scenario,
-    allowed: Option<Vec<&str>>,
-    catalog: f2z_ai::catalog::VerifiedCatalog,
-    features_meta: bool,
-    child_directed_key: bool,
-) -> (support::Running, MockProvider) {
     let mock = MockProvider::start(scenario).await.unwrap();
     let meter = Arc::new(
         Metered::new(
             db,
             adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         )
         .with_allowed_models(allowed.map(|ids| ids.into_iter().map(str::to_owned).collect()))
-        .with_features_meta(features_meta)
-        .with_child_directed_key(
-            child_directed_key.then(|| f2z_ai::meter::ChildDirectedKey::new(&[7; 32]).unwrap()),
-        ),
+        .with_features_meta(features_meta),
     );
     let running = support::start(
         &support::config(&[]),
@@ -327,7 +366,7 @@ async fn launch_keyed(
     (running, mock)
 }
 fn request() -> Value {
-    json!({"model":"m-responses","max_output_tokens":100,"messages":[{"role":"user","content":[{"type":"text","text":"hello tutor"}]}],"metadata":{"hold_2z":"essay"}})
+    json!({"model":"m-responses","max_output_tokens":100,"messages":[{"role":"user","content":[{"type":"text","text":"hello tutor"}]}]})
 }
 async fn send(r: &support::Running) -> axum::http::Response<hyper::body::Incoming> {
     let mut req = support::chat_request(request().to_string());
@@ -373,7 +412,7 @@ async fn paid_stream_lost_settle_response_replay_and_account_scoped_receipt() {
     assert_eq!(replay.headers()["x-f2z-replayed"], "true");
     let record: Value = serde_json::from_str(&support::text(replay).await).unwrap();
     assert_eq!(record["status"], "settled");
-    assert_eq!(record["metadata"]["hold_2z"], "essay");
+    assert_eq!(record["metadata"], json!({}), "no caller text (zuu#1225)");
     assert!(!record.to_string().contains("private_debug"));
     assert_eq!(db.0.lock().unwrap().charges, 1);
     let foreign = axum::http::Request::get(format!("/v1/calls/{id}"))
@@ -428,6 +467,7 @@ async fn launch_keepalive(
     let meter = Arc::new(Metered::new(
         db,
         adapter_support::backend(&mock.base_url(), tuning),
+        adapter_support::claim_key(),
     ));
     let mut config = support::config(&[]);
     config.stream_keepalive = keepalive;
@@ -865,6 +905,7 @@ async fn reasoning_timeouts_settle_at_the_provider_output_cap() {
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&mock.base_url(), tuning),
+            adapter_support::claim_key(),
         ));
         let catalog = if signed_effort {
             reasoning_effort_interruption_catalog()
@@ -978,6 +1019,7 @@ async fn reasoning_requests_keep_complete_provider_usage_unchanged() {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&mock.base_url(), adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let running = support::start(
         &support::config(&[]),
@@ -1062,6 +1104,7 @@ async fn a_tool_stream_cut_mid_call_bills_the_generated_arguments_from_its_fragm
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&base, adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         ));
         let r = support::start(
             &support::config(&[]),
@@ -1121,6 +1164,7 @@ async fn a_drain_that_cuts_a_silent_accepted_stream_settles_on_the_input_estimat
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&mock.base_url(), tuning),
+        adapter_support::claim_key(),
     ));
     let running = support::start(
         &support::config(&[
@@ -1348,6 +1392,7 @@ async fn a_drain_after_anthropic_message_start_settles_on_its_reported_input() {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&mock.base_url(), tuning),
+        adapter_support::claim_key(),
     ));
     let running = support::start(
         &support::config(&[
@@ -1455,6 +1500,7 @@ async fn a_head_then_silence_past_ttfb_is_charged_the_input_estimate_after_meta(
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&base, adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let r = support::start(
         &support::config(&[]),
@@ -1549,6 +1595,7 @@ async fn a_responses_error_event_then_silence_is_still_a_refusal() {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&base, adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let r = support::start(
         &support::config(&[]),
@@ -1596,6 +1643,7 @@ async fn unrelayed_tool_fragments_still_commit_a_nonstreamed_call() {
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&base, adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         ));
         let r = support::start(
             &support::config(&[]),
@@ -1749,6 +1797,7 @@ async fn metered_tool_turn(stream: bool) {
     let meter = Arc::new(Metered::new(
         db.clone(),
         adapter_support::backend(&base, adapter_support::tuning(0)),
+        adapter_support::claim_key(),
     ));
     let r = support::start(
         &support::config(&[]),
@@ -1835,6 +1884,18 @@ async fn send_nonstream(r: &support::Running) -> axum::http::Response<hyper::bod
     support::send(r.public, req).await
 }
 
+fn settled_wire(text: &str, stream: bool) -> Value {
+    if stream {
+        let data = text
+            .split("\n\n")
+            .find_map(|frame| frame.strip_prefix("event: done\ndata: "))
+            .unwrap_or_else(|| panic!("missing done event: {text}"));
+        serde_json::from_str::<Value>(data).unwrap()
+    } else {
+        serde_json::from_str::<Value>(text).unwrap()
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn nonstream_uses_confirmed_settlement_and_replays_receipt_json() {
     let db = Arc::new(Database::new());
@@ -1862,6 +1923,179 @@ async fn nonstream_uses_confirmed_settlement_and_replays_receipt_json() {
     assert_eq!(receipt["call_id"], call_id);
     assert_eq!(db.0.lock().unwrap().charges, 1);
     mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn settled_chat_responses_include_the_ledger_post_settlement_cap() {
+    for (stream, capped) in [(true, true), (true, false), (false, true), (false, false)] {
+        let db = Arc::new(Database::new());
+        if capped {
+            db.0.lock().unwrap().cap_remaining_milli_2z = Some(200_000);
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "stream={stream}, capped={capped}"
+        );
+        let text = support::text(response).await;
+        let completed = settled_wire(&text, stream);
+        assert!(
+            completed
+                .as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z"),
+            "settled response omitted cap field: {completed}"
+        );
+        if capped {
+            assert_eq!(completed["cap_remaining_milli_2z"], json!(199_000));
+        } else {
+            assert_eq!(completed["cap_remaining_milli_2z"], Value::Null);
+        }
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.charges, 1, "stream={stream}, capped={capped}");
+            assert_eq!(state.hold_requests, 1, "stream={stream}, capped={capped}");
+            assert_eq!(state.settle_requests, 1, "stream={stream}, capped={capped}");
+        }
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ambiguous_settle_replay_resolves_null_cap_from_context_without_rebilling() {
+    for (stream, capped) in [(true, true), (false, false)] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.lose_settle_reply = true;
+            if capped {
+                state.cap_remaining_milli_2z = Some(200_000);
+            }
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(response.status(), StatusCode::OK);
+        let wire = settled_wire(&support::text(response).await, stream);
+        assert_eq!(wire["settlement"], "settled");
+        assert!(
+            wire.as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z")
+        );
+        assert_eq!(
+            wire["cap_remaining_milli_2z"],
+            if capped { json!(199_000) } else { Value::Null }
+        );
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.hold_requests, 1);
+            assert_eq!(
+                state.settle_requests, 2,
+                "same idempotent settle is recovered"
+            );
+            assert_eq!(state.charges, 1, "settle replay must not rebill");
+            assert!(state.context_requests > 0, "ambiguous NULL needs context");
+        }
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn already_terminal_completion_recovery_reads_cap_without_resettling() {
+    for (stream, capped) in [(true, true), (false, false)] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.terminalize_on_first_complete = true;
+            if capped {
+                state.cap_remaining_milli_2z = Some(200_000);
+            }
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(response.status(), StatusCode::OK);
+        let wire = settled_wire(&support::text(response).await, stream);
+        assert_eq!(wire["settlement"], "settled");
+        assert!(
+            wire.as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z")
+        );
+        assert_eq!(
+            wire["cap_remaining_milli_2z"],
+            if capped { json!(199_000) } else { Value::Null }
+        );
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.hold_requests, 1);
+            assert_eq!(
+                state.settle_requests, 0,
+                "terminal recovery must not resettle"
+            );
+            assert_eq!(state.charges, 1);
+            assert!(
+                state.context_requests > 0,
+                "terminal call record has no cap"
+            );
+        }
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unavailable_or_invalid_cap_metadata_stays_absent_after_completed_billing() {
+    for (stream, malformed, unsafe_value) in [
+        (true, false, false),
+        (false, true, false),
+        (true, false, true),
+    ] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.omit_settle_cap = !malformed && !unsafe_value;
+            state.malformed_settle_cap = malformed;
+            state.unsafe_settle_cap = unsafe_value;
+            state.fail_context_after_settle = true;
+            state.cap_remaining_milli_2z = Some(200_000);
+        }
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let response = if stream {
+            send(&r).await
+        } else {
+            send_nonstream(&r).await
+        };
+        assert_eq!(response.status(), StatusCode::OK);
+        let wire = settled_wire(&support::text(response).await, stream);
+        assert_eq!(wire["settlement"], "settled");
+        assert_eq!(wire["charged_2z"], json!(1));
+        assert!(
+            !wire
+                .as_object()
+                .unwrap()
+                .contains_key("cap_remaining_milli_2z")
+        );
+        {
+            let state = db.0.lock().unwrap();
+            assert_eq!(state.hold_requests, 1);
+            assert_eq!(state.settle_requests, 1);
+            assert_eq!(state.charges, 1);
+        }
+        mock.shutdown().await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1968,6 +2202,43 @@ fn aha_request(strict: bool) -> Value {
     json!({"model":"m-responses","max_output_tokens":1800,"max_output_tokens_strict":strict,
         "messages":[{"role":"user","content":[{"type":"text","text":"teach me fractions"}]}]})
 }
+fn exact_one_token_hold(request: &Value, catalog: &f2z_ai::catalog::VerifiedCatalog) -> (u64, u64) {
+    use f2z_ai_proto::{
+        chat::{ChatRequest, Usage},
+        pricing::{Bps, apply_safety_factor, metered_cost_nusd, price_nusd},
+    };
+
+    let request: ChatRequest = serde_json::from_value(request.clone()).unwrap();
+    let model = catalog.catalog().callable_model(&request.model).unwrap();
+    let estimate = f2z_ai::estimate::input_tokens(&request, model).unwrap();
+    let input = apply_safety_factor(
+        estimate.tokens + f2z_ai::provider::reserved_overhead_tokens(&request, model),
+        model.safety_factor_bps,
+    )
+    .unwrap();
+    let mut prices = model.prices;
+    prices.input_nusd_per_mtok = prices
+        .input_nusd_per_mtok
+        .max(prices.cached_input_nusd_per_mtok)
+        .max(prices.cache_write_nusd_per_mtok);
+    let usage = Usage {
+        input_tokens: input,
+        output_tokens: 1,
+        tool_calls: if prices.tool_call_nusd > 0 { 8 } else { 0 },
+        ..Usage::default()
+    };
+    let cost = metered_cost_nusd(&usage, &prices).unwrap();
+    let required = price_nusd(
+        cost,
+        catalog.catalog().platform_margin_bps,
+        Bps::ZERO,
+        model.min_charge_2z,
+    )
+    .unwrap()
+    .total_2z()
+    .get();
+    (input, required)
+}
 async fn post(r: &support::Running, path: &str, body: &Value) -> (StatusCode, Value) {
     let mut req = axum::http::Request::post(path)
         .header("host", "gateway")
@@ -2045,12 +2316,123 @@ async fn strict_output_limit_is_refused_before_any_hold_charge_or_provider_reque
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn non_strict_estimate_refusals_report_exact_minimum_and_do_not_reserve_or_start_provider() {
+    let catalog = priced_catalog();
+    let request = aha_request(false);
+    let (input, required) = exact_one_token_hold(&request, &catalog);
+    assert!(required > 0);
+    let required_milli = required * 1_000;
+
+    for (available, cap, expected_code, expected_status) in [
+        (
+            required_milli - 1,
+            None,
+            "insufficient_balance",
+            StatusCode::PAYMENT_REQUIRED,
+        ),
+        (
+            0,
+            None,
+            "insufficient_balance",
+            StatusCode::PAYMENT_REQUIRED,
+        ),
+        (
+            required_milli + 10_000,
+            Some(required_milli - 1),
+            "cap_exceeded",
+            StatusCode::FORBIDDEN,
+        ),
+    ] {
+        let db = Arc::new(Database::new());
+        {
+            let mut state = db.0.lock().unwrap();
+            state.available = available;
+            state.cap_remaining = cap;
+        }
+        let (r, mock) =
+            launch_catalog(db.clone(), Scenario::default(), None, catalog.clone()).await;
+
+        let (status, refusal) = post(&r, "/v1/chat/estimate", &request).await;
+        assert_eq!(status, expected_status, "{refusal}");
+        let details = &refusal["error"]["details"];
+        assert_eq!(refusal["error"]["code"], expected_code, "{refusal}");
+        for key in [
+            "input_tokens_estimate",
+            "required_2z",
+            "available_milli_2z",
+            "min_charge_2z",
+            "cap_remaining_milli_2z",
+        ] {
+            assert!(
+                details
+                    .as_object()
+                    .is_some_and(|details| details.contains_key(key)),
+                "estimate refusal omitted details.{key}: {refusal}"
+            );
+        }
+        assert_eq!(details["input_tokens_estimate"], input, "{refusal}");
+        assert_eq!(details["required_2z"], required, "{refusal}");
+        assert_eq!(details["available_milli_2z"], available, "{refusal}");
+        assert_eq!(details["min_charge_2z"], 1, "{refusal}");
+        assert_eq!(
+            details["cap_remaining_milli_2z"],
+            cap.map_or(Value::Null, |amount| json!(amount)),
+            "{refusal}"
+        );
+        assert!(
+            db.0.lock().unwrap().call.is_none(),
+            "estimate claimed a call"
+        );
+        assert!(db.0.lock().unwrap().hold.is_none());
+        assert_eq!(mock.request_count(), 0);
+
+        let (status, refusal) = post(&r, "/v1/chat", &request).await;
+        assert_eq!(status, expected_status, "{refusal}");
+        let details = &refusal["error"]["details"];
+        assert_eq!(refusal["error"]["code"], expected_code, "{refusal}");
+        for key in [
+            "input_tokens_estimate",
+            "required_2z",
+            "available_milli_2z",
+            "min_charge_2z",
+            "cap_remaining_milli_2z",
+        ] {
+            assert!(
+                details
+                    .as_object()
+                    .is_some_and(|details| details.contains_key(key)),
+                "chat refusal omitted details.{key}: {refusal}"
+            );
+        }
+        assert_eq!(details["input_tokens_estimate"], input, "{refusal}");
+        assert_eq!(details["required_2z"], required, "{refusal}");
+        assert_eq!(details["available_milli_2z"], available, "{refusal}");
+        assert_eq!(details["min_charge_2z"], 1, "{refusal}");
+        assert_eq!(
+            details["cap_remaining_milli_2z"],
+            cap.map_or(Value::Null, |amount| json!(amount)),
+            "{refusal}"
+        );
+        final_state(&db).await;
+        {
+            let state = db.0.lock().unwrap();
+            assert!(state.hold.is_none(), "chat refusal reserved a hold");
+            assert_eq!(state.charges, 0);
+            assert_eq!(state.terminal, Some("released"));
+            assert_eq!(state.claims, 1);
+        }
+        assert_eq!(mock.request_count(), 0, "chat refusal started the provider");
+        mock.shutdown().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn strict_cap_refusal_pins_supported_details_and_has_no_paid_work() {
     let db = Arc::new(Database::new());
     {
         let mut state = db.0.lock().unwrap();
         state.available = 10_000_000;
-        state.cap_remaining = Some(5_000);
+        state.cap_remaining_milli_2z = Some(5_000);
     }
     let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, priced_catalog()).await;
 
@@ -2569,8 +2951,9 @@ async fn features_are_recorded_on_the_claim_and_the_receipt_when_enabled() {
     let schema_bytes = serde_json::to_vec(&request["response_format"]["json_schema"]["schema"])
         .unwrap()
         .len();
+    // The schema name is caller-chosen text: never recorded (zuu#1225).
     let expected = json!({"response_format":"json_schema","response_format_strict":true,
-        "response_format_schema_name":"activity_spec","response_format_schema_bytes":schema_bytes,
+        "response_format_schema_name":null,"response_format_schema_bytes":schema_bytes,
         "tools":0,"max_output_tokens_strict":false,"stream":false,"fallback":0});
     let claimed = db.0.lock().unwrap().request.clone();
     assert_eq!(claimed["features"], expected);
@@ -2587,11 +2970,19 @@ async fn features_are_recorded_on_the_claim_and_the_receipt_when_enabled() {
     mock.shutdown().await;
 }
 
-// A child-directed app (CHILD-DIRECTED.md): the call record keeps no
-// caller-chosen text. `metadata` is refused before any paid work, and the
-// schema's name is not recorded even with `features` on.
+// zuu#1225: the baseline is the same for every app, whatever its
+// audience: the call record keeps no caller-chosen text. `metadata` is
+// refused before any paid work, an unknown model id before the claim would
+// record it, the schema name is not recorded, and the `Idempotency-Key` and
+// fingerprint are stored only as keyed HMACs.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
+async fn no_apps_call_record_keeps_caller_chosen_text() {
+    for child in [false, true] {
+        call_record_keeps_no_caller_chosen_text(child).await;
+    }
+}
+
+async fn call_record_keeps_no_caller_chosen_text(child: bool) {
     let db = Arc::new(Database::new());
     let (r, mock) = launch_meta(
         db.clone(),
@@ -2601,60 +2992,55 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
         true,
     )
     .await;
-    let child = |body: &Value| {
+    let as_app = |body: &Value| {
         let mut req = support::chat_request(body.to_string());
-        req.headers_mut()
-            .insert("test-child-directed", "1".parse().unwrap());
+        if child {
+            req.headers_mut()
+                .insert("test-child-directed", "1".parse().unwrap());
+        }
         req
     };
 
-    let with_metadata = structured_request("m-chat");
-    let refused = support::send(r.public, child(&with_metadata)).await;
-    assert_eq!(refused.status(), StatusCode::BAD_REQUEST);
-    let body = support::text(refused).await;
-    assert!(body.contains("child_directed"), "{body}");
+    let mut with_metadata = structured_request("m-chat");
+    with_metadata["metadata"] = json!({"lesson": "alice-smith-fractions"});
+    for route in ["/v1/chat", "/v1/chat/estimate"] {
+        let mut req = as_app(&with_metadata);
+        *req.uri_mut() = route.parse().unwrap();
+        let refused = support::send(r.public, req).await;
+        assert_eq!(refused.status(), StatusCode::BAD_REQUEST, "{route}");
+        let body = support::text(refused).await;
+        assert!(body.contains("\"metadata\""), "{body}");
+        assert!(body.contains("privacy_baseline"), "{body}");
+    }
     assert!(db.0.lock().unwrap().hold.is_none(), "no hold");
-    assert_eq!(mock.request_count(), 0, "no provider request");
-
-    // A model id is caller-chosen text too: one the catalogue does not hold
-    // is refused before the claim would record it.
-    let mut unknown = structured_request("Alice_Smith_age_8");
-    unknown.as_object_mut().unwrap().remove("metadata");
-    let refused = support::send(r.public, child(&unknown)).await;
-    assert_eq!(refused.status(), StatusCode::NOT_FOUND);
-    let _ = support::text(refused).await;
     assert_eq!(db.0.lock().unwrap().request, Value::Null, "nothing claimed");
     assert_eq!(mock.request_count(), 0, "no provider request");
 
-    // Only providers sent `store: false` (OpenAI); m-anthropic is not.
-    let mut other = structured_request("m-anthropic");
-    other.as_object_mut().unwrap().remove("metadata");
-    other.as_object_mut().unwrap().remove("response_format");
-    let refused = support::send(r.public, child(&other)).await;
-    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
-    let body = support::text(refused).await;
-    assert!(body.contains("child_directed"), "{body}");
-    // ... nor as a fallback behind an OpenAI model.
+    // A model id is caller-chosen text too, fallbacks included.
+    let unknown = structured_request("Alice_Smith_age_8");
     let mut fallback = structured_request("m-chat");
-    fallback.as_object_mut().unwrap().remove("metadata");
-    fallback["fallback"] = json!(["m-anthropic"]);
-    let refused = support::send(r.public, child(&fallback)).await;
-    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
-    let _ = support::text(refused).await;
+    fallback["fallback"] = json!(["Alice_Smith_age_8"]);
+    for body in [unknown, fallback] {
+        let refused = support::send(r.public, as_app(&body)).await;
+        assert_eq!(refused.status(), StatusCode::NOT_FOUND, "{body}");
+        let _ = support::text(refused).await;
+    }
     assert_eq!(db.0.lock().unwrap().request, Value::Null, "nothing claimed");
     assert_eq!(mock.request_count(), 0, "no provider request");
 
-    let mut request = structured_request("m-chat");
-    request.as_object_mut().unwrap().remove("metadata");
-    let mut keyed = child(&request);
-    keyed
-        .headers_mut()
-        .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
-    let response = support::send(r.public, keyed).await;
+    let request = structured_request("m-chat");
+    let keyed = || {
+        let mut req = as_app(&request);
+        req.headers_mut()
+            .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
+        req
+    };
+    let response = support::send(r.public, keyed()).await;
     assert_eq!(response.status(), StatusCode::OK);
     let _ = support::text(response).await;
     final_state(&db).await;
     let claimed = db.0.lock().unwrap().request.clone();
+    assert_eq!(claimed["metadata"], json!({}), "{claimed}");
     assert_eq!(claimed["features"]["response_format"], "json_schema");
     assert_eq!(
         claimed["features"]["response_format_schema_name"],
@@ -2662,22 +3048,41 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     );
     assert!(!claimed.to_string().contains("activity_spec"), "{claimed}");
     assert!(!claimed.to_string().contains("hello tutor"), "{claimed}");
-    // Keyed (HMAC) fingerprint and Idempotency-Key: the caller's key text is
-    // not stored, and the fingerprint is not the unkeyed SHA-256.
     {
         let state = db.0.lock().unwrap();
         let key = state.key.clone().unwrap();
         assert_eq!(key.len(), 64, "{key}");
         assert!(key.bytes().all(|b| b.is_ascii_hexdigit()), "{key}");
         assert!(!key.contains("alice"), "{key}");
+        let unkeyed: String = ring::digest::digest(
+            &ring::digest::SHA256,
+            &serde_json::to_vec(
+                &serde_json::from_value::<f2z_ai_proto::chat::ChatRequest>(request.clone())
+                    .unwrap(),
+            )
+            .unwrap(),
+        )
+        .as_ref()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
         assert_eq!(state.fingerprint.len(), 64);
+        assert_ne!(state.fingerprint, unkeyed, "not the unkeyed SHA-256");
     }
-    // A same-key retry replays: the derivation is deterministic.
-    let mut retry = child(&request);
-    retry
-        .headers_mut()
-        .insert("idempotency-key", "lesson-for-alice-smith".parse().unwrap());
-    let replay = support::send(r.public, retry).await;
+    // The receipt shows the same: no caller text to read back.
+    let call = db.0.lock().unwrap().call.unwrap();
+    let mut read = axum::http::Request::get(format!("/v1/calls/{call}"))
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    if child {
+        read.headers_mut()
+            .insert("test-child-directed", "1".parse().unwrap());
+    }
+    let receipt = support::text(support::send(r.public, read).await).await;
+    assert!(receipt.contains("\"metadata\":{}"), "{receipt}");
+    assert!(!receipt.contains("activity_spec"), "{receipt}");
+    let replay = support::send(r.public, keyed()).await;
     assert_eq!(replay.status(), StatusCode::OK);
     assert_eq!(replay.headers()["x-f2z-replayed"], "true");
     let _ = support::text(replay).await;
@@ -2685,10 +3090,10 @@ async fn a_child_directed_call_record_keeps_no_caller_chosen_text() {
     mock.shutdown().await;
 }
 
-// Discovery matches invocation: a child-directed app is shown only the
-// models it may call (OpenAI), and so gets its own ETag.
+// zuu#1225: discovery no longer depends on the audience — a child-directed
+// and an ordinary app see the same models, under the same ETag.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_child_directed_app_is_shown_only_models_it_may_call() {
+async fn every_app_is_shown_the_same_models() {
     let db = Arc::new(Database::new());
     let (r, mock) = launch_catalog(db, Scenario::default(), None, structured_catalog()).await;
     let list = |child: bool| {
@@ -2698,219 +3103,12 @@ async fn a_child_directed_app_is_shown_only_models_it_may_call() {
         }
         req.body(axum::body::Body::empty()).unwrap()
     };
-    let all: Value =
-        serde_json::from_str(&support::text(support::send(r.public, list(false)).await).await)
-            .unwrap();
-    let response = support::send(r.public, list(true)).await;
-    let etag = response.headers()["etag"].clone();
-    let child: Value = serde_json::from_str(&support::text(response).await).unwrap();
-    let providers = |v: &Value| -> Vec<String> {
-        v["models"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|m| m["provider"].as_str().unwrap().to_owned())
-            .collect()
-    };
-    assert!(providers(&all).iter().any(|p| p != "openai"), "{all}");
-    assert!(!providers(&child).is_empty());
-    assert!(providers(&child).iter().all(|p| p == "openai"), "{child}");
     let ordinary = support::send(r.public, list(false)).await;
-    assert_ne!(ordinary.headers()["etag"], etag);
-    let _ = support::text(ordinary).await;
-    mock.shutdown().await;
-}
-
-/// `GET /v1/models` for an ordinary (`child == false`) or a child-directed
-/// app, revalidating with `if_none_match` when given.
-fn list_models(
-    child: bool,
-    if_none_match: Option<&axum::http::HeaderValue>,
-) -> axum::http::Request<axum::body::Body> {
-    let mut req = axum::http::Request::get("/v1/models").header("host", "gateway");
-    if child {
-        req = req.header("test-child-directed", "1");
-    }
-    if let Some(etag) = if_none_match {
-        req = req.header("if-none-match", etag);
-    }
-    req.body(axum::body::Body::empty()).unwrap()
-}
-fn model_ids(v: &Value) -> Vec<String> {
-    v["models"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|m| m["id"].as_str().unwrap().to_owned())
-        .collect()
-}
-
-// The child-directed narrowing is the child-directed app's alone: an ordinary
-// app is shown every callable model, whatever its provider, and a
-// child-directed app is shown exactly the ordinary projection's OpenAI entries.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_child_directed_catalogue_is_the_ordinary_one_narrowed_to_openai() {
-    let db = Arc::new(Database::new());
-    let (r, mock) = launch_catalog(db, Scenario::default(), None, structured_catalog()).await;
-    let ordinary: Value = serde_json::from_str(
-        &support::text(support::send(r.public, list_models(false, None)).await).await,
-    )
-    .unwrap();
-    assert_eq!(
-        model_ids(&ordinary),
-        ["m-responses", "m-anthropic", "m-chat", "m-xai"],
-        "an ordinary app sees every callable model: {ordinary}"
-    );
-    let child: Value = serde_json::from_str(
-        &support::text(support::send(r.public, list_models(true, None)).await).await,
-    )
-    .unwrap();
-    let mut expected = ordinary.clone();
-    expected["models"]
-        .as_array_mut()
-        .unwrap()
-        .retain(|m| m["provider"] == "openai");
-    assert_eq!(child, expected, "same projection, OpenAI models only");
-    assert_eq!(model_ids(&child), ["m-responses", "m-chat"]);
-    assert_eq!(child["catalog_version"], ordinary["catalog_version"]);
-    mock.shutdown().await;
-}
-
-// Both projections carry one `catalog_version`, so nothing keyed by the
-// version alone may serve one audience's list to the other. The ETag hashes
-// the body actually served, so an ETag learnt under one audience never earns
-// a `304` under the other: each gets `200` and its own list. And the answer
-// is `private` and varies by `Authorization`, the header that carries the
-// `child_directed` claim, so a shared cache cannot hand it across either.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_models_etag_never_revalidates_across_the_child_directed_line() {
-    let db = Arc::new(Database::new());
-    let (r, mock) = launch_catalog(db, Scenario::default(), None, structured_catalog()).await;
-    let first = |child: bool| {
-        let addr = r.public;
-        async move {
-            let response = support::send(addr, list_models(child, None)).await;
-            assert_eq!(response.status(), StatusCode::OK);
-            assert_eq!(response.headers()["cache-control"], "private, max-age=60");
-            assert_eq!(response.headers()["vary"], "Authorization");
-            let etag = response.headers()["etag"].clone();
-            let body: Value = serde_json::from_str(&support::text(response).await).unwrap();
-            (etag, body)
-        }
-    };
-    let (ordinary_etag, ordinary) = first(false).await;
-    let (child_etag, child) = first(true).await;
-    assert_ne!(ordinary_etag, child_etag);
-
-    for (child_caller, presented, served_etag, served) in [
-        (false, &child_etag, &ordinary_etag, &ordinary),
-        (true, &ordinary_etag, &child_etag, &child),
-    ] {
-        let response = support::send(r.public, list_models(child_caller, Some(presented))).await;
-        assert_eq!(
-            response.status(),
-            StatusCode::OK,
-            "child_directed={child_caller}: the other audience's ETag must not revalidate"
-        );
-        assert_eq!(&response.headers()["etag"], served_etag);
-        let body: Value = serde_json::from_str(&support::text(response).await).unwrap();
-        assert_eq!(&body, served, "child_directed={child_caller}");
-    }
-    // Each audience's own ETag still revalidates.
-    for (child_caller, own) in [(false, &ordinary_etag), (true, &child_etag)] {
-        let response = support::send(r.public, list_models(child_caller, Some(own))).await;
-        assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
-        assert_eq!(response.headers()["vary"], "Authorization");
-    }
-    mock.shutdown().await;
-}
-
-// `/v1/chat/estimate` refuses what `/v1/chat` refuses: a child-directed app
-// cannot price a model it may not call, as the primary or as a fallback, and
-// learns why exactly as `/v1/chat` would tell it. An ordinary app estimates
-// the same request.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_child_directed_estimate_is_refused_for_a_model_it_may_not_call() {
-    let db = Arc::new(Database::new());
-    let (r, mock) =
-        launch_catalog(db.clone(), Scenario::default(), None, structured_catalog()).await;
-    let estimate = |child: bool, body: &Value| {
-        let mut req = axum::http::Request::post("/v1/chat/estimate")
-            .header("host", "gateway")
-            .header("content-type", "application/json");
-        if child {
-            req = req.header("test-child-directed", "1");
-        }
-        req.body(axum::body::Body::from(body.to_string())).unwrap()
-    };
-    let body = |model: &str, fallback: &[&str]| {
-        let mut request = request();
-        request["model"] = json!(model);
-        request.as_object_mut().unwrap().remove("metadata");
-        if !fallback.is_empty() {
-            request["fallback"] = json!(fallback);
-        }
-        request
-    };
-    for refused in [body("m-anthropic", &[]), body("m-chat", &["m-anthropic"])] {
-        let response = support::send(r.public, estimate(true, &refused)).await;
-        assert_eq!(response.status(), StatusCode::FORBIDDEN, "{refused}");
-        let error: Value = serde_json::from_str(&support::text(response).await).unwrap();
-        assert_eq!(error["error"]["code"], "model_disabled", "{error}");
-        assert_eq!(
-            error["error"]["details"]["reason"], "child_directed",
-            "{error}"
-        );
-    }
-    for allowed in [body("m-chat", &[]), body("m-responses", &[])] {
-        let response = support::send(r.public, estimate(true, &allowed)).await;
-        assert_eq!(response.status(), StatusCode::OK, "{allowed}");
-        let _ = support::text(response).await;
-    }
-    let response = support::send(r.public, estimate(false, &body("m-anthropic", &[]))).await;
-    assert_eq!(response.status(), StatusCode::OK, "an ordinary app may");
-    let _ = support::text(response).await;
-    assert!(
-        db.0.lock().unwrap().call.is_none(),
-        "an estimate claims nothing"
-    );
-    assert_eq!(mock.request_count(), 0, "no provider request");
-    mock.shutdown().await;
-}
-
-// Without the server secret a child-directed call is refused before any
-// claim: failing closed, never storing the plain fingerprint or key.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn without_its_key_the_gateway_refuses_child_directed_calls() {
-    let db = Arc::new(Database::new());
-    let (r, mock) = launch_keyed(
-        db.clone(),
-        Scenario::default(),
-        None,
-        structured_catalog(),
-        false,
-        false,
-    )
-    .await;
-    let mut request = structured_request("m-chat");
-    request.as_object_mut().unwrap().remove("metadata");
-    let mut req = support::chat_request(request.to_string());
-    req.headers_mut()
-        .insert("test-child-directed", "1".parse().unwrap());
-    let refused = support::send(r.public, req).await;
-    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
-    let body = support::text(refused).await;
-    assert!(body.contains("child_directed_unconfigured"), "{body}");
-    assert_eq!(db.0.lock().unwrap().claims, 0, "no claim");
-    assert_eq!(mock.request_count(), 0);
-    // An ordinary call on the same gateway is unaffected.
-    let ok = support::send(
-        r.public,
-        support::chat_request(structured_request("m-chat").to_string()),
-    )
-    .await;
-    assert_eq!(ok.status(), StatusCode::OK);
-    let _ = support::text(ok).await;
+    let ordinary_etag = ordinary.headers()["etag"].clone();
+    let ordinary = support::text(ordinary).await;
+    let child = support::send(r.public, list(true)).await;
+    assert_eq!(child.headers()["etag"], ordinary_etag);
+    assert_eq!(support::text(child).await, ordinary);
     mock.shutdown().await;
 }
 
@@ -3130,6 +3328,7 @@ async fn a_chat_completions_tool_turn_streams_fragments_then_the_call() {
         let meter = Arc::new(Metered::new(
             db.clone(),
             adapter_support::backend(&base, adapter_support::tuning(0)),
+            adapter_support::claim_key(),
         ));
         let r = support::start(
             &support::config(&[]),

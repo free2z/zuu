@@ -199,6 +199,11 @@ export interface ChatRequest {
    * `max_output_tokens`. `false`/absent is the default and is never sent.
    */
   max_output_tokens_strict?: boolean;
+  /**
+   * @deprecated The gateway refuses a non-empty `metadata` for every app
+   * since zuu#1225 (`400 invalid_request`, `reason: "privacy_baseline"`):
+   * call records keep no caller-chosen text. Send none.
+   */
   metadata?: Record<string, string>;
   fallback?: string[];
   /**
@@ -291,6 +296,8 @@ export interface Usage extends ObjectData {
   input_tokens?: bigint;
   cached_input_tokens?: bigint;
   cache_write_tokens?: bigint;
+  /** Hourly subset of cache_write_tokens. */
+  cache_write_1h_tokens?: bigint;
   output_tokens?: bigint;
   reasoning_tokens?: bigint;
   images?: bigint;
@@ -505,6 +512,12 @@ export interface SettlementFields extends ObjectData {
   receipt_id?: string;
   collected_milli_2z?: bigint;
   shortfall_milli_2z?: bigint;
+  /** Remaining grant-cap spend in milli-2Z. Settlement reports the ledger's
+   * current period at settlement time; recovery may use a context snapshot
+   * from later if an idempotent replay omitted the value. A period rollover
+   * can change the reported period. `null` means confirmed uncapped; absent
+   * means unknown/unreported. */
+  cap_remaining_milli_2z?: bigint | null;
 }
 export type ChatEvent =
   | ({

@@ -33,6 +33,7 @@ const integerKeys = new Set([
   "input_tokens",
   "cached_input_tokens",
   "cache_write_tokens",
+  "cache_write_1h_tokens",
   "output_tokens",
   "reasoning_tokens",
   "images",

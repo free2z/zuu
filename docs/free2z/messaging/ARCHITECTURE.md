@@ -419,7 +419,6 @@ is the mechanism we intend to use for component-scoped exports as it stabilizes.
 |---|---|---|---|
 | FROST/DKG (§11) | `free2z/frost/v1` | `ceremony_id` | Session domain separator, transcript binding, outer AEAD for part-2 shares |
 | WebRTC binding (§10) | `free2z/webrtc/v1` | `session_id` | Binds DTLS fingerprints to the group |
-| Queue rotation (§6.2) | `free2z/queue/v1` | reserved | Reserved for a future synchronized rotation schedule; it is not used by the shipping queue path — see the correction below |
 | Local history wrap | `free2z/history/v1` | `conversation_id` | At-rest key for retained plaintext |
 
 Because these are exporter outputs, they inherit the group's forward secrecy and
@@ -436,12 +435,16 @@ standard instead of invented.
 > generate both queue addresses from its own CSPRNG, because client-chosen
 > addresses permit squatting and collisions. Queue capability signing keys are
 > endpoint-owned and independently generated or derived; they are not shared
-> MLS exporter output. The authenticated advert carries the relay, address, and
-> rotation intent, never either private capability key. `free2z/queue/v1` is
-> reserved for a future synchronized schedule, but no counter or advert field
-> synchronizes such a schedule today and the shipping path does not call it.
-> The designed rotation flow is therefore advert-driven and costs one relay
-> round trip and one in-band message; the shipping scope is stated in §6.2 —
+> MLS exporter output. The shipping authenticated advert carries the relay and
+> address only, never replacement metadata or either private capability key.
+> Queue replacement is advert-driven: the receiver consumes a distinct
+> authenticated route and generates a fresh endpoint-owned capability signing key. An
+> identical replay retains the current key. No exporter-derived queue key or
+> synchronized epoch schedule is part of v1. Creating and advertising the
+> replacement, overlapping queues, and draining and deleting the old queue are
+> not automated by the shipping engine. A complete caller-driven replacement
+> costs one relay round trip and one in-band message; the shipping scope is
+> stated in §6.2 —
 > [`WIRE.md` §7.5](./WIRE.md#75-rotation-needs-no-new-command).
 
 ### 5.5 What hybrid PQ does and does not buy
@@ -555,12 +558,16 @@ and against that adversary it fails completely. See
 and [§4.9](./THREAT-MODEL.md#49-the-relay-knows-which-queue-addresses-are-paired).
 
 Queue addresses are established **inside** the MLS group — a member advertises
-its `QueueSendAddr` set to peers in an authenticated application message, never
-via the server. The shipping path can consume a distinct authenticated advert
-and safely replace its outbound queue. It does not yet automate the full
-create/advertise/overlap/drain rotation flow, and the reserved `free2z/queue/v1`
-synchronized schedule is not implemented. Without an external replacement
-advert, today's queue pseudonym can therefore remain long-lived.
+its single relay URL, relay identity and send address to a peer in an
+authenticated application message, never via the server. The shipping plugin
+serializes that three-field JSON payload under the `QUEUE_ADVERT` MLS message
+type; it does not carry the design-only multi-endpoint/replaces shape. The
+shipping receive path consumes a distinct authenticated route and safely
+replaces its outbound queue with a fresh endpoint-owned key; identical replays
+preserve the existing key and state. It does not automate replacement queue
+creation or advert publication, overlapping old and new queues, or draining
+and deleting the old queue. Without an external replacement advert, today's
+queue pseudonym can therefore remain long-lived.
 
 > **This paragraph is circular for a pair that has never spoken**, and the gap is
 > real rather than a detail: there is no path for the `Welcome` that creates the
@@ -1439,22 +1446,22 @@ deliberate.
   portable evidence rather than a local error dialog are all unspecified.
   `KT.md` defines the evidence structures but deliberately does not invent the
   protocol that exchanges them.
-- **S′. Client verification of a handle's first directory entry.** Opened
-  2026-08-24 by [`KT.md` §4.7](./KT.md#47-what-a-compromised-authority-can-and-cannot-do),
-  as the narrower remainder of **S** below. §4.5 now says what authorizes a first
-  entry, and the log is the only party that checks it: a `HandleAssertion`
-  travels in the submission envelope, is not part of `DirectoryEntry`, is not
-  inside the value the tree commits to, and is not served with a lookup. Every
-  other authorization in §4.4 is the opposite — a `RotationProof` and a
-  `ResetAuthorization` sit inside `EntryAuthorization` and are re-verified by
-  every client on every lookup. So the first-entry hole is closed against a
-  stranger and **not against the log**, `KT.md` §8.1 step 6 still verifies
-  nothing at `entry_version == 1`, and §8.5's table still says so. Closing it
-  means a fourth `EntryAuthorization` case carrying the assertion and the
-  identity countersignature, with the binding committing to
-  `H(tls_codec(DirectoryEntryTBS))` rather than to the whole entry digest —
-  a wire change to a structure two implementations have already frozen, so it is
-  filed rather than made. [#594](https://github.com/free2z/zuu/issues/594).
+- **S′. Client verification of a handle's first directory entry.** The #649
+  implementation proposal adds `initial_bind` as a fourth `EntryAuthorization`
+  case. It commits the assertion, an identity binding over the digest of
+  `DirectoryEntryTBS`, and the entry's directory-auth signature into the value
+  the tree serves. Clients and auditors can check those signatures and expose
+  the artifact as portable evidence. The authority key still needs an
+  out-of-band pin: a log-signed policy alone does not establish that key's
+  identity. This future-wire extension has not been ratified or coordinated
+  with the external assertion issuer. The existing v1 assertion and submission
+  binding remain unchanged. Clients check assertion lifetime against the
+  submitter-signed `created_at_ms`, which is not proof of actual log admission
+  time. They also use the current authority policy: after a cold restart,
+  issuer eviction, a lower validity/skew cap, or a switch to no-authority mode
+  can make a legitimate historical first entry unverifiable. No historical
+  policy-membership proof is specified; maintainers must decide this fail-closed
+  compatibility behavior before rollout. [#649](https://github.com/free2z/zuu/issues/649).
 
 - **T. Proving that a handle is unregistered.** Opened 2026-08-24 by
   [`KT.md` §8.1](./KT.md#81-lookup) and

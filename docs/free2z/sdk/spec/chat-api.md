@@ -60,8 +60,7 @@ checked by each terminal type's `check()`.
   ],
   "max_output_tokens": 800,
   "stream": true,
-  "fallback": ["example-model-tiny"],
-  "metadata": { "lesson": "quadratics-3" }
+  "fallback": ["example-model-tiny"]
 }
 ```
 
@@ -80,7 +79,7 @@ checked by each terminal type's `check()`.
 | `max_output_tokens_strict` | boolean | Default `false` (and omitted). `true` makes `max_output_tokens` a requirement: wherever §2.2 would lower it — the model's ceiling, the context window, the balance or the grant's cap — the request is refused before any hold, charge or provider request (`400 invalid_request`, `400 context_length_exceeded`, `402 insufficient_balance`, `403 cap_exceeded`, each with `details.reason: "max_output_tokens_strict"`). Requires `max_output_tokens` (`400 invalid_request`, `reason: "required"`). For an app that discards a length-truncated answer ([INTEGRATION.md](../INTEGRATION.md)) |
 | `stream` | boolean | Default `true`. `false` returns one JSON document (§4) |
 | `fallback` | array of model ids | Opt-in, **ordered**: tried in order, at most once each. If the current model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway releases that attempt's hold, takes a new hold at the next model's price, and tries it; a hold it cannot take ends the call with that code ([metering.md](./metering.md) §5.7). Never after `meta`. The model actually used is in `meta` |
-| `metadata` | object | Up to 16 string keys, each key ≤ 64 and value ≤ 256 characters. Stored with the call record and returned by `GET /v1/calls/{id}`; never sent to a provider. A **child-directed** app (access-token claim `child_directed`, [CHILD-DIRECTED.md](../CHILD-DIRECTED.md)) may not send it: `400 invalid_request`, `field: "metadata"`, `reason: "child_directed"`, on `/v1/chat` and `/v1/chat/estimate`, before any hold or provider request. A child-directed call must also name only catalogue models (`404 model_not_found`) whose provider is sent `store: false` — OpenAI (`403 model_disabled`, `reason: "child_directed"`), fallbacks included; its fingerprint and `Idempotency-Key` are stored only as keyed HMACs, and a gateway without that key refuses it (`503 unavailable`, `reason: "child_directed_unconfigured"`). Its call records then hold numbers only |
+| `metadata` | object | **Refused for every app** (zuu#1225): a non-empty object is `400 invalid_request`, `field: "metadata"`, `reason: "privacy_baseline"`, on `/v1/chat` and `/v1/chat/estimate`, before any hold or provider request; `{}` or absent is accepted. Call records keep no caller-chosen text, so there is nothing to store it in. Records of calls made before then may still return what was sent then (§7). The same baseline applies to every call whatever the app's audience: `model` and every `fallback` must be catalogue ids (`404 model_not_found` before anything is recorded); the gateway routes only to providers it sends `store: false` to — OpenAI; and the request fingerprint and `Idempotency-Key` are stored only as keyed HMACs. The `child_directed` access-token claim ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)) changes none of this; it is an audience classification |
 | `response_format` | object | Optional, opt-in structured output; omitted when absent. `{"type":"json_schema","json_schema":{"name":…,"schema":{…},"strict":true}}` constrains the reply to JSON matching `schema`; `{"type":"json_object"}` to any JSON object (OpenAI also requires the word "JSON" in the messages). `name`: 1–64 characters of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema **object** of at most 32 768 bytes serialized; `strict`: optional boolean (absent = the provider's default; `null` refused); no other members. The schema's object members reach the provider in the order sent (as do a tool's `parameters`, and on Anthropic the forced tool's `input_schema`), so a provider that emits keys in schema order (OpenAI) replies in the declared order; a repeated member name keeps its first position and its last value. A present `"response_format": null` is refused (`field: "response_format"`, `reason: "null"`), never read as absent. Any other `type` (including `text`, the default — omit the field instead) → `400 invalid_request`, `field: "response_format.type"`, `reason: "unsupported"`; a limit broken → `400 invalid_request` naming the field. On a model without `capabilities.structured_output` → `400 invalid_request`, `field: "response_format"`, `reason: "response_format_unsupported"`, before any hold, charge or provider request — never sent without the constraint. On Anthropic Messages the model must be declared (absence is not support) and the format is sent as a forced single tool whose `input_schema` is the schema (`strict` carried onto the tool), unwrapped back into `delta` text with `finish_reason: "stop"`; there it cannot be combined with `tools`, `tool_choice` or `parallel_tool_calls` (`reason: "response_format_unsupported"`, `details.conflict` naming the field), since the forced tool would leave the caller's tools uncallable. The reply is ordinary `delta` text (a provider refusal arrives as text too); `finish_reason: "length"` means truncated JSON. Pricing is unchanged: the schema is input the provider reads, so it enters the input reservation like a tool definition, and the charge is provider-reported usage |
 | `reasoning_effort` | string | Optional, OpenAI's `reasoning_effort`; omitted when absent (the provider's default). Exactly `"minimal"`, `"low"`, `"medium"` or `"high"`; any other value (including provider extensions such as `"none"` or `"xhigh"`) → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "unsupported"`; a present `null` → `reason: "null"`. On a model without `capabilities.reasoning_effort`, or at a level outside its `controls.effort_levels` when the catalogue lists them, → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"` (with `details.effort_levels` for a level outside the list), before any hold, charge or provider request — never sent without it. Translated by Chat Completions as `reasoning_effort` (OpenAI and xAI) and by Responses as `reasoning.effort`; Anthropic Messages has no effort control (its `thinking` takes a budget) and refuses it. OpenAI documents that from GPT-5.4 on, Chat Completions does not combine function tools with a `reasoning_effort` other than `none`; the signed `controls.tools_require_effort_none: true` on affected tool-enabled rows rejects such a call locally with `400 invalid_request`, `reason: "reasoning_effort_unsupported"`, `field: "reasoning_effort"`, `conflict: "tools"`, before any hold or provider call. Omitted effort retains the provider default (`none` on those rows). Pricing and the hold are unchanged: reasoning tokens are billed as output tokens and the hold already reserves the whole output cap. On OpenAI that cap (`max_completion_tokens` / `max_output_tokens`) **includes** reasoning, so a small `max_output_tokens` can be spent thinking before any text (`finish_reason: "length"`); leave room. On xAI it does **not** (docs.x.ai: `max_completion_tokens` "only applies to visible output tokens"), so an xAI reasoning model's charge can exceed its hold — a pre-existing property of every xAI reasoning model, effort or not (xAI's default effort is already `high`); the shortfall is written off, never debt (metering.md) |
 
@@ -225,6 +224,13 @@ hours** returns the *same* call — the same `call_id`, and:
   not the delivery. A client that lost the stream re-asks with a new key,
   and that is a new call;
 - if the body differs from the original, `409 idempotency_conflict`. "Differs" is judged on the decoded request with every `parameters` and `response_format` schema object's members sorted by name: a retry that only reorders a schema's members is the same call, and is replayed.
+
+The window's edge is soft by up to 10 minutes: a key reused between 24 h
+and 24 h 10 m after its call may still be resolved to that call — replayed,
+or `409` if the body differs — rather than start a new one (the gateway's
+retry record outlives the 24-hour key by that margin, zuu#1225). From
+24 h 10 m on it is always a new call. Reuse a key for a new call never;
+generate a new one.
 
 Without a key, every request is a new call. SDKs generate a key per logical
 call so that a retried request after a network failure never double-charges.
@@ -401,19 +407,20 @@ The provider-reported usage, once known — normally just before `done`.
 ```
 event: usage
 id: 5
-data: {"usage":{"input_tokens":1187,"cached_input_tokens":0,"cache_write_tokens":0,"output_tokens":342,"reasoning_tokens":0,"images":1,"tool_calls":1},"source":"provider"}
+data: {"usage":{"input_tokens":1187,"cached_input_tokens":0,"cache_write_tokens":0,"output_tokens":342,"reasoning_tokens":0,"images":1,"tool_calls":0},"source":"provider"}
 ```
 
 | Field | Meaning |
 |---|---|
 | `usage.input_tokens` | Uncached input tokens billed. The three input buckets are **disjoint** |
 | `usage.cached_input_tokens` | Input served from the provider's prompt cache (cheaper) |
-| `usage.cache_write_tokens` | Input written to the provider's cache (sometimes dearer) |
+| `usage.cache_write_tokens` | Total input written to the provider's cache across TTLs |
+| `usage.cache_write_1h_tokens` | Hourly subset of cache writes; absent means zero for legacy records. Never add to total writes. |
 | `usage.output_tokens` | Output tokens **including** reasoning |
 | `usage.reasoning_tokens` | The part of `output_tokens` that was reasoning; informational, never priced a second time |
 | `usage.images` | Input images billed per image, where the model prices them so |
-| `usage.tool_calls` | Tool calls billed per call, where the catalogue prices them |
-| `source` | `provider` — the numbers are the provider's; or `estimated` — the provider reported none and the gateway estimated from streamed text ([metering.md](./metering.md) §5.4) |
+| `usage.tool_calls` | Provider-billed **server-side** tool invocations that the catalogue prices per call (for example, web search). Client function calls returned as `tool_call` events are not included: their generated names and arguments are part of `output_tokens`, with no additional per-call charge. The public `Usage` wire type has no separate `function_tool_calls` field |
+| `source` | `provider` — the numbers are the provider's; or `estimated` — the provider reported no usage and the gateway estimated from generated text and function-call names/arguments it observed ([metering.md](./metering.md) §5.4) |
 
 A missing `usage` field reads as `0`.
 
@@ -438,7 +445,7 @@ data: {"charged_2z":1,"receipt_id":"rcpt_019a2f1d-2b0e-7c4a-9f11-6d0e2a8b3c44","
 | `settlement` | `settled` (the default when absent); `pending` when the ledger had not confirmed the charge within 10 s of the provider finishing ([metering.md](./metering.md) §5.11) — every 2Z field except `hold_2z` is then **absent** and the client reads `GET /v1/calls/{id}` until `status` is terminal (`settled`, `settled_partial` or `released`) — not merely until it leaves `settling`, because after a `delivery_aborted` the record can still be `streaming` while the provider finishes; or `released` when the settler found the hold already expired ([metering.md](./metering.md) §5.6) — `charged_2z` is `0` and no `receipt_id` exists. In the crate `charged_2z` and `receipt_id` are optional, and `Done::check()` enforces which state requires which |
 | `hold_2z`, `released_2z` | The **final** reservation (it can exceed `meta.hold_2z` after an extension) and what was given back. `charged + released = hold` except in the write-off case |
 | `collected_milli_2z`, `shortfall_milli_2z` | What was actually taken, and what could not be ([metering.md](./metering.md) §5.5). `collected = charged × 1000 − shortfall`; a receipt shows `collected` when `shortfall` is non-zero |
-| `cap_remaining_milli_2z` | Remaining spend under the grant's cap **for the period the hold belongs to** ([metering.md](./metering.md) §4) — after a stream that crossed a period boundary this is the old period's remainder, which is what the settlement was bounded by; `null` when the grant has no cap |
+| `cap_remaining_milli_2z` | Remaining spend under the grant's cap, in milli-2Z. A fresh settlement result reports the ledger's current period at settlement time ([metering.md](./metering.md) §4), which can differ from the hold period across rollover. If recovery sees an idempotent settle replay, whose raw cap is `NULL` even for capped grants, the gateway uses a read-only `gateway_context` snapshot at recovery time; a later rollover can change the reported period again. `null` means confirmed uncapped; absent means the gateway could not determine the value |
 | `usage_source` | The `source` of the `usage` event, repeated here (one value set — `provider` / `estimated` — two field names: `source` inside the `usage` event, `usage_source` beside a `usage` object everywhere else, as the crate spells them) |
 
 All are the crate's `Done` (`Settlement` for `settlement`;
@@ -671,14 +678,16 @@ cap the call would run with, after clamping) and `hold_2z` (what
 `EstimateResponse`; the rest are optional on decode. Every step fails **exactly as `/v1/chat`
 would** — `401`, `403 insufficient_scope`, `429`, `404`,
 `400 context_length_exceeded`, and for an unaffordable request
-`402 insufficient_balance` or `403 cap_exceeded` with the same `details`
-(`available_milli_2z`, `required_2z`, `cap_remaining_milli_2z`, …) — so an
-app that handles `/v1/chat`'s errors handles the estimate's with the same
-code, and can show "you need N more 2Z" from `details`. An app that must not
-run a shortened call sends the estimate **with** `max_output_tokens_strict`:
-it then answers exactly as the strict call would (same bounds, and
-affordability at the consented markup), whereas a non-strict estimate prices at
-the current effective markup and can disagree. It sends the call itself with the
+`402 insufficient_balance` or `403 cap_exceeded`. A **non-strict
+minimum-affordability refusal** includes `input_tokens_estimate`,
+`required_2z`, `available_milli_2z`, `min_charge_2z`, and
+`cap_remaining_milli_2z` (explicitly `null` when uncapped), so an app can
+show "you need N more 2Z" from `details`. With
+`max_output_tokens_strict`, the estimate answers exactly as the strict call
+would; its existing details omit `input_tokens_estimate` and include
+`cap_remaining_milli_2z` only when capped (see [errors.md](./errors.md)).
+Strict affordability is judged at the consented markup; a non-strict estimate
+uses the current applied markup and can disagree. It sends the call itself with the
 flag too, so that a balance change between the two cannot shorten it either. An estimate is not
 a quotation: the price is the catalogue's at call time.
 
@@ -707,7 +716,7 @@ can read it. Requires `ai:invoke`.
   "shortfall_milli_2z": 0,
   "catalog_version": 7,
   "markup_bps": 0,
-  "metadata": { "lesson": "quadratics-3" },
+  "metadata": {},
   "error": null,
   "replayed": false,
   "created_at": "2026-09-26T21:04:11Z",
@@ -735,17 +744,18 @@ Records are readable for 90 days. Prompts and completions are **not** in
 the record. The gateway keeps no copy of either except under a grant whose
 user consented to debug capture ([oidc.md](./oidc.md) §5), and that copy
 is never served by this endpoint. Debug capture is never available to a child-directed
-app ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)).
+app ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)). `metadata` is `{}` on every
+call made since zuu#1225 (§2.1); older records may carry what was sent then.
 
 **`features`** (optional, additive). A record may carry a content-free
 description of which request features the call asked for — never what they
-contained (for a child-directed app, not even the schema name):
+contained, not even the schema name (`null` on every call since zuu#1225):
 
 ```json
 "features": {
   "response_format": "json_schema",
   "response_format_strict": true,
-  "response_format_schema_name": "activity_spec",
+  "response_format_schema_name": null,
   "response_format_schema_bytes": 1834,
   "tools": 0,
   "max_output_tokens_strict": true,
@@ -758,7 +768,7 @@ contained (for a child-directed app, not even the schema name):
 |---|---|
 | `response_format` | `"json_schema"`, `"json_object"`, or `null` when the request sent none |
 | `response_format_strict` | `json_schema.strict` as sent; `null` when absent |
-| `response_format_schema_name` | `json_schema.name` (`[A-Za-z0-9_-]{1,64}`); `null` when absent |
+| `response_format_schema_name` | Always `null` since zuu#1225 (the name is caller-chosen text). Records of earlier calls may carry `json_schema.name` (`[A-Za-z0-9_-]{1,64}`) |
 | `response_format_schema_bytes` | compact serialized size of `json_schema.schema`; `0` when absent |
 | `tools`, `fallback` | how many tool definitions and fallback models the request named |
 | `max_output_tokens_strict`, `stream` | as sent |

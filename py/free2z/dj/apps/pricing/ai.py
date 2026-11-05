@@ -23,7 +23,7 @@ error when a value leaves ``u64``; this port raises:class:`PricingOverflow`
 at the same boundaries, so an input the crate refuses is refused here too
 rather than being priced by one side only.
 
-**Nothing in Django charges through this yet.** ``AIModel.get_tuzi_price`` is
+**This module supplies rate-card and ledger pricing parity.** ``AIModel.get_tuzi_price`` is
 deliberately unchanged in  — this module exists for the rate card, the
 future signed catalogue, and the ledger's settle parity tests.
 
@@ -32,8 +32,9 @@ The one deliberate extension over the crate's catalogue schema 1 is the
 both, and:meth:`ModelPrices.from_crate` maps schema 1's single
 ``cache_write_nusd_per_mtok`` onto the 5-minute price (the TTL a bare
 ``cache_control`` gets). A 1-hour write is metered only from
-``Usage.cache_write_1h_tokens``, which schema 1 has no member for and is
-therefore always 0 on crate input — so every crate fixture prices identically.
+``Usage.cache_write_1h_tokens``. The versioned schema-2 decoder maps the public
+total/subset representation to this module's exclusive internal buckets. Schema-1
+prices leave the hourly rate absent; positive hourly usage then refuses metering.
 """
 from __future__ import annotations
 
@@ -98,13 +99,15 @@ class ModelPrices:
     input_nusd_per_mtok: int = 0
     cached_input_nusd_per_mtok: int = 0
     cache_write_5m_nusd_per_mtok: int = 0
-    cache_write_1h_nusd_per_mtok: int = 0
+    cache_write_1h_nusd_per_mtok: int | None = None
     output_nusd_per_mtok: int = 0
     image_nusd: int = 0
     tool_call_nusd: int = 0
 
     def __post_init__(self):
         for f in fields(self):
+            if f.name == "cache_write_1h_nusd_per_mtok" and getattr(self, f.name) is None:
+                continue
             _u64(getattr(self, f.name), f.name)
 
     # Schema-1 member names of the crate's ModelPrices, in the crate's order.
@@ -118,23 +121,26 @@ class ModelPrices:
     )
 
     @classmethod
-    def from_crate(cls, prices: dict) -> "ModelPrices":
-        """Decode the crate's schema-1 ``ModelPrices`` JSON object.
+    def from_crate(cls, prices: dict, *, schema: int = 1) -> "ModelPrices":
+        """Decode the explicitly selected schema; the default retains schema 1.
 
         Mirrors ``#[serde(deny_unknown_fields)]``: an unknown member is refused
         rather than silently priced at zero, and every member is required.
         """
-        unknown = set(prices) - set(cls.CRATE_V1_MEMBERS)
+        if type(schema) is not int or schema not in (1, 2):
+            raise ValueError("unsupported catalogue schema")
+        members = cls.CRATE_V1_MEMBERS + (("cache_write_1h_nusd_per_mtok",) if schema == 2 else ())
+        unknown = set(prices) - set(members)
         if unknown:
             raise ValueError(f"unknown ModelPrices member(s): {sorted(unknown)}")
-        missing = set(cls.CRATE_V1_MEMBERS) - set(prices)
+        missing = set(members) - set(prices)
         if missing:
             raise ValueError(f"missing ModelPrices member(s): {sorted(missing)}")
         return cls(
             input_nusd_per_mtok=prices["input_nusd_per_mtok"],
             cached_input_nusd_per_mtok=prices["cached_input_nusd_per_mtok"],
             cache_write_5m_nusd_per_mtok=prices["cache_write_nusd_per_mtok"],
-            cache_write_1h_nusd_per_mtok=0,
+            cache_write_1h_nusd_per_mtok=_u64(prices["cache_write_1h_nusd_per_mtok"], "hourly price") if schema == 2 else None,
             output_nusd_per_mtok=prices["output_nusd_per_mtok"],
             image_nusd=prices["image_nusd"],
             tool_call_nusd=prices["tool_call_nusd"],
@@ -149,7 +155,8 @@ class Usage:
 
     input_tokens: int = 0
     cached_input_tokens: int = 0
-    # The crate's ``cache_write_tokens``: writes at the default (5-minute) TTL.
+    # INTERNAL exclusive 5m bucket. from_crate(schema=2) subtracts the hourly
+    # subset from the public total; never pass public totals directly here.
     cache_write_tokens: int = 0
     # 1-hour-TTL cache writes (zuu#1059). Not in crate schema 1.
     cache_write_1h_tokens: int = 0
@@ -173,11 +180,21 @@ class Usage:
     )
 
     @classmethod
-    def from_crate(cls, usage: dict) -> "Usage":
-        unknown = set(usage) - set(cls.CRATE_V1_MEMBERS)
+    def from_crate(cls, usage: dict, *, schema: int = 1) -> "Usage":
+        if type(schema) is not int or schema not in (1, 2):
+            raise ValueError("unsupported catalogue schema")
+        members = cls.CRATE_V1_MEMBERS + (("cache_write_1h_tokens",) if schema == 2 else ())
+        unknown = set(usage) - set(members)
         if unknown:
             raise ValueError(f"unknown Usage member(s): {sorted(unknown)}")
-        return cls(**{name: usage.get(name, 0) for name in cls.CRATE_V1_MEMBERS})
+        values = {name: usage.get(name, 0) for name in members}
+        if schema == 2:
+            total = _u64(values["cache_write_tokens"], "cache_write_tokens")
+            hourly = _u64(values["cache_write_1h_tokens"], "cache_write_1h_tokens")
+            if hourly > total:
+                raise ValueError("hourly cache writes exceed total")
+            values["cache_write_tokens"] = total - hourly
+        return cls(**values)
 
 
 @dataclass(frozen=True)
@@ -197,11 +214,13 @@ class Charge:
 
 def metered_cost_nusd(usage: Usage, prices: ModelPrices) -> int:
     """Step 1: the cost of ``usage`` at ``prices``, rounded UP to whole nUSD."""
+    if usage.cache_write_1h_tokens and prices.cache_write_1h_nusd_per_mtok is None:
+        raise ValueError("hourly cache writes are unpriced")
     per_mtok = (
         (usage.input_tokens, prices.input_nusd_per_mtok),
         (usage.cached_input_tokens, prices.cached_input_nusd_per_mtok),
         (usage.cache_write_tokens, prices.cache_write_5m_nusd_per_mtok),
-        (usage.cache_write_1h_tokens, prices.cache_write_1h_nusd_per_mtok),
+        (usage.cache_write_1h_tokens, prices.cache_write_1h_nusd_per_mtok or 0),
         (usage.output_tokens, prices.output_nusd_per_mtok),
     )
     per_unit = (

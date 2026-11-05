@@ -44,7 +44,9 @@
     /** Saved article identifier; empty until the first save. */
     free2zaddr?: string;
     /** The tag-suggestion endpoint just rewrote this article's tags. */
-    onTagSuggestionWrite?: () => void;
+    onTagSuggestionWrite?: (
+      decision: import("$lib/api/f2z.schemas").ZPageTagDecision,
+    ) => Promise<import("$lib/api/f2z.schemas").ZPageTagDecisionResult>;
     zcashAddress: string;
     isSubscriberOnly: boolean;
     publishAt: string;

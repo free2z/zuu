@@ -302,7 +302,7 @@ test("a conflicted save keeps its validator instead of dropping it", () => {
   // And it stops sending saves at all, or every keystroke is another 412.
   assert.match(
     source,
-    /if \(saveConflicted\) \{\s*\n\s*return failSave\("conflict"\)/,
+    /if \(saveConflicted \|\| recoveryDraft \|\| tagDecisionBusy\) \{\s*\n\s*return failSave\("conflict"\)/,
   );
   // Cleared when the editor hydrates onto freshly read state.
   assert.match(source, /saveConflicted = false/);
@@ -408,7 +408,7 @@ test("a translation's body and its validator come from ONE response", () => {
   // And it is actually reached — a helper nothing calls is not a fix.
   assert.match(
     source,
-    /await fetchOwnedVariant\(fetch, requestedId, explicitLanguage\)/,
+    /await fetchOwnedVariant\([\s\S]{0,100}fetch,[\s\S]{0,100}requestedId,[\s\S]{0,100}explicitLanguage,[\s\S]{0,100}returnTo,?[\s\S]{0,10}\)/,
   );
   assert.match(
     source,
@@ -443,7 +443,7 @@ test("a canonical write outside the save path drops the stale validator", () => 
     source,
     /zpagePartialUpdate\([\s\S]{0,400}source_language: language[\s\S]{0,1600}invalidateEtags\(identifier\)/,
   );
-  assert.match(source, /onTagSuggestionWrite=\{\(\) =>\s*invalidateEtags\(/);
+  assert.match(source, /onTagSuggestionWrite=\{decideEditorTags\}/);
 });
 
 test("the tag-suggestion write signal reaches the editor through every layer", () => {
@@ -451,11 +451,11 @@ test("the tag-suggestion write signal reaches the editor through every layer", (
   // the symptom (a dead-ended editor) shows up nowhere near the missing line.
   assert.match(
     read("src/lib/components/TagSuggestions.svelte"),
-    /onServerWrote\?\.\(\)/,
+    /await onDecide\(decision\)/,
   );
   assert.match(
     read("src/lib/components/mdEditor/PublishSheet.svelte"),
-    /onServerWrote=\{onTagSuggestionWrite\}/,
+    /onDecide=\{onTagSuggestionWrite\}/,
   );
   assert.match(
     read("src/lib/components/mdEditor/EditorTopbar.svelte"),
@@ -539,5 +539,5 @@ test("dismissing a tag suggestion does not drop the validator", () => {
   // Signalling a write there dropped a still-valid validator and put the next
   // autosave on the wire unconditioned.
   const source = read("src/lib/components/TagSuggestions.svelte");
-  assert.match(source, /if \(accept\) onServerWrote\?\.\(\)/);
+  assert.match(source, /await onDecide\(\{ dismiss: names \}\)/);
 });
