@@ -1,8 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
+import { browserMockApiOrigin } from "./ports";
 test.describe.configure({ timeout: 90000 });
 const initial = "Before selected after";
 async function setup(page: Page, ext: string, mime: string, access = "public") {
-  const owner = { id: 1274, username: "media-owner", full_name: "Media Owner" };
+  const owner = {
+    id: 1274,
+    username: "caption-owner",
+    full_name: "Media Owner",
+  };
   const url = `/uploadz/public/media-owner/fixture.${ext}`;
   let item = {
     id: 7,
@@ -12,6 +17,7 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
     access,
   };
   let content = initial;
+  let published = false;
   const saves: string[] = [];
   const patches: unknown[] = [];
   const article = () => ({
@@ -23,8 +29,9 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
     creator: owner,
     tags: [],
     category: "TECHNOLOGY",
-    is_published: false,
-    variant_is_published: false,
+    is_published: published,
+    variant_is_published: published,
+    vanity: "media-fixture",
     is_subscriber_only: false,
     source_language: "en",
     requested_language: "en",
@@ -39,11 +46,30 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
       if (path === "/api/auth/user/") return route.fulfill({ json: owner });
       if (path === "/api/zpage/media-fixture/") {
         if (route.request().method() === "PUT") {
-          content = route.request().postDataJSON().content;
+          const payload = route.request().postDataJSON();
+          content = payload.content;
+          published = Boolean(payload.is_published);
           saves.push(content);
+          await fetch(`${browserMockApiOrigin()}/__caption-fixture`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              ...article(),
+              featured_image: {},
+              comments: [],
+              total: "0",
+              f2z_score: "0",
+              get_url: "/caption-owner/media-fixture",
+            }),
+          });
         }
         return route.fulfill({ json: article() });
       }
+      if (path === "/api/zpage/media-fixture/variants/en/")
+        return route.fulfill({
+          json: article(),
+          headers: { ETag: '"fixture-v1"' },
+        });
       if (path.endsWith("/variants/"))
         return route.fulfill({
           json: [{ language: "en", origin: "source", is_published: false }],
@@ -82,7 +108,7 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
   await page.goto("/edit?id=media-fixture");
   const body = page.locator("textarea.writing-area-textarea");
   await expect(body).toHaveValue(initial, { timeout: 60000 });
-  return { body, url, saves, patches };
+  return { body, url, saves, patches, isPublished: () => published };
 }
 async function chooseAction(page: Page, name: string) {
   await page
@@ -343,7 +369,7 @@ test("cloud image collects separate alt and caption before insertion", async ({
 test("upload details can be cancelled or inserted with a visible caption", async ({
   page,
 }) => {
-  const { body, saves } = await setup(page, "png", "image/png");
+  const { body, saves, isPublished } = await setup(page, "png", "image/png");
   await chooseAction(page, "Image");
   await page
     .locator('input[type="file"]')
@@ -369,11 +395,26 @@ test("upload details can be cancelled or inserted with a visible caption", async
   await expect(body).toHaveValue(
     /!\[Bird\].*::caption\["雪\\n<script>unsafe<\/script>"\]/s,
   );
-  await expect
-    .poll(() => saves.at(-1), { timeout: 15000 })
-    .toMatch(/!\[Bird\].*::caption/s);
+  const exact = (await body.inputValue()).replace(
+    "fixture.png)",
+    'fixture.png "Original title")',
+  );
+  await body.fill(exact);
+  await expect.poll(() => saves.at(-1), { timeout: 15000 }).toBe(exact);
   await page.reload();
-  await expect(body).toHaveValue(/!\[Bird\].*::caption/s);
+  await expect(body).toHaveValue(exact);
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await page.getByRole("button", { name: "Publish Now" }).click();
+  await expect.poll(() => isPublished()).toBe(true);
+  await page.goto("/caption-owner/media-fixture");
+  await expect(
+    page.locator('figure img[alt="Bird"][title="Original title"]'),
+  ).toHaveCount(1);
+  await expect(page.locator("figcaption")).toHaveText(
+    "雪<script>unsafe</script>",
+  );
+  await expect(page.locator("figcaption script")).toHaveCount(0);
+  await page.goto("/edit?id=media-fixture");
   await page
     .getByRole("button", { name: "Preview", exact: true })
     .last()
