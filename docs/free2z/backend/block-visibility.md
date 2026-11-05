@@ -23,7 +23,12 @@ creator block toggle are scoped to the authenticated caller.
 | Own AI conversations, stories and uploads | Owner-scoped lists. |
 | Subscriber and subscription lists, payment transactions | Financial relationships and receipts remain visible. |
 | AI model catalogue | System catalogue, not user-authored content. |
+| Global and per-user RSS: zPages, podcasts, Converse and AI | Session viewer's blocks filter authors before the feed limit. Anonymous requests keep public visibility. Responses are private, no-store, and vary by Cookie and Authorization. AI descriptions also filter transcript authors. |
+| Page translation variant actions | Variants of a directly requested page; direct object access remains available. |
+| Creator block, mute and follow actions | Caller-owned relationship state and counts; management remains accessible. |
 
-The DRF list-route census in `test_block_policy_inventory.py` requires an
-explicit decision for each discovered list view. Behavioural tests in
-`test_block_filtering.py` exercise the filters with real database rows.
+The route census in `test_block_policy_inventory.py` discovers DRF list views,
+custom GET actions and Django syndication feed handlers from the URLconf and
+requires an explicit decision for each. Behavioural tests in
+`test_block_filtering.py` and `feeds/test_block_visibility.py` exercise the
+filters with real database rows.
