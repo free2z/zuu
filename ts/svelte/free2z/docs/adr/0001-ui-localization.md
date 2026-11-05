@@ -11,3 +11,5 @@ Migrate in stages: establish a registry and negotiation; integrate ICU and async
 The four source JSON catalogs total 818,327 bytes uncompressed (en 187,970; es 207,398; fr 217,323; pt-BR 205,636), measured at base 14edafea. This is source size, not transferred bundle size. Initial-load, switch and SSR latency budgets still need reproducible measurements on a defined CI runner and enforced thresholds; these numbers must not be represented as those budgets. The existing static imports mean adding catalogs currently increases the client payload.
 
 Malformed opted-in patterns are logged and resolution continues to the English source, then to the caller’s legacy fallback. This is runtime recovery, not evidence that the failed translation is reviewed or complete.
+
+The editor category-label wrapper has a finite domain: `CATEGORY_LABELS` supplies every suffix, and `tests/i18n-category-domain.test.mjs` requires each resulting key in all four catalogs. Unknown creator categories remain unchanged. This check does not classify the other translator escapes.
