@@ -95,6 +95,16 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
   }
 
+  if (isHtml || isPageData) {
+    const existing = response.headers.get("vary") || "";
+    if (!/(^|,)\s*accept-language\s*($|,)/i.test(existing)) {
+      response.headers.set(
+        "vary",
+        existing ? `${existing}, Accept-Language` : "Accept-Language",
+      );
+    }
+  }
+
   // Make mixed-revision responses visible in origin logs and deployment
   // smoke checks without exposing any request data.
   if (publicEnv.PUBLIC_BUILD_SHA) {

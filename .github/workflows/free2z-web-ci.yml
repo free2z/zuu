@@ -254,6 +254,7 @@ jobs:
         if: matrix.shard == 6
         run: |
           npm run build
+          node scripts/check-locale-budgets.mjs
           PLAYWRIGHT_PRODUCTION=1 npm run test:browser -- tests/browser/locale-built-runtime.spec.ts
       - name: Verify pseudo-localized UI
         if: matrix.shard == 6

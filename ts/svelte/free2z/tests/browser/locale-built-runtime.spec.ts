@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
+import {
+  bytes,
+  enforceBytes,
+  enforceTiming,
+  HTML_LIMITS,
+  INITIAL_ASSET_LIMITS,
+  TIMING_LIMITS,
+} from "../../scripts/locale-budget.mjs";
 
 // Run with PLAYWRIGHT_PRODUCTION=1 after npm run build.
 const production = process.env.PLAYWRIGHT_PRODUCTION === "1";
@@ -89,7 +97,27 @@ test("measure initial HTML and catalog network", async ({ page, request }) => {
     const response = await request.get(`/trending?lang=${locale}`);
     expect(response.ok()).toBeTruthy();
     const html = await response.body();
+    enforceBytes(
+      `${locale} HTML`,
+      bytes(html),
+      HTML_LIMITS[locale as "en" | "fr"],
+    );
     const catalogRequests: string[] = [];
+    const assets = new Map<string, Buffer>();
+    const pending: Promise<void>[] = [];
+    page.on("response", (response) => {
+      const url = new URL(response.url());
+      if (url.pathname.startsWith("/_app/immutable/")) {
+        pending.push(
+          response
+            .body()
+            .then((body) => {
+              assets.set(url.pathname, body);
+            })
+            .catch(() => {}),
+        );
+      }
+    });
     const paths = ["en", "es", "fr", "pt-BR"].map(
       (x) => manifest[`src/lib/locales/${x}.json`].file,
     );
@@ -97,9 +125,19 @@ test("measure initial HTML and catalog network", async ({ page, request }) => {
       if (paths.some((path) => url.endsWith(path))) catalogRequests.push(url);
     };
     page.on("request", (req) => capture(req.url()));
-    await page.goto(`/trending?lang=${locale}`);
+    await page.goto(`/trending?lang=${locale}`, { waitUntil: "networkidle" });
     await expect(page.locator("html")).toHaveAttribute("lang", locale);
+    await Promise.all(pending);
+    const assetBytes = [...assets.values()].map(bytes);
+    const totals = {
+      raw: assetBytes.reduce((sum, value) => sum + value.raw, 0),
+      gzip: assetBytes.reduce((sum, value) => sum + value.gzip, 0),
+    };
+    enforceBytes(`${locale} initial assets`, totals, INITIAL_ASSET_LIMITS);
     expect(catalogRequests).toEqual([]);
+    console.log(
+      `locale-assets ${locale} raw=${totals.raw} gzip=${totals.gzip} count=${assets.size}`,
+    );
     console.log(
       `locale-measure ${locale} html=${html.length} gzip=${gzipSync(html).length} catalog-chunk-requests=${catalogRequests.length}`,
     );
@@ -121,4 +159,86 @@ test("same-document retry after a failed chunk fetch", async ({ page }) => {
   await choose(page, "Español");
   await expect(page.locator("html")).toHaveAttribute("lang", "es");
   expect(requests).toBe(2);
+});
+
+test("controlled cold and warm locale switches stay within smoke budgets", async ({
+  page,
+}) => {
+  await page.route(chunk("es"), async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    await route.continue();
+  });
+  await page.goto("/trending?lang=en");
+  let start = performance.now();
+  await choose(page, "Español");
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+  const cold = Math.max(0, performance.now() - start - 150);
+  await choose(page, "English");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  start = performance.now();
+  await choose(page, "Español");
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+  const warm = performance.now() - start;
+  enforceTiming(
+    "cold switch excluding injected network delay",
+    cold,
+    TIMING_LIMITS.coldSwitchMs,
+  );
+  enforceTiming("warm switch", warm, TIMING_LIMITS.warmSwitchMs);
+  console.log(
+    `locale-switch cold-minus-150ms=${cold.toFixed(1)} warm=${warm.toFixed(1)}`,
+  );
+});
+
+test("concurrent locale SSR is private and stays within a smoke budget", async ({
+  request,
+}) => {
+  const samples = await Promise.all(
+    Array.from({ length: 12 }, async (_, index) => {
+      const locale = index % 2 ? "fr" : "en";
+      const start = performance.now();
+      const response = await request.get("/trending", {
+        headers: {
+          Cookie: `free2z-locale=${locale}${index % 3 === 0 ? "; sessionid=billing-fixture-session" : ""}`,
+          "Accept-Language": locale,
+        },
+      });
+      const html = await response.text();
+      expect(response.ok()).toBeTruthy();
+      expect(response.headers()["cache-control"]).toMatch(/\bprivate\b/);
+      expect(response.headers().vary).toMatch(/\bCookie\b/i);
+      expect(response.headers().vary).toMatch(/\bAccept-Language\b/i);
+      expect(html).toContain(`<html lang="${locale}"`);
+      return performance.now() - start;
+    }),
+  );
+  samples.sort((a, b) => a - b);
+  const p95 = samples[Math.ceil(samples.length * 0.95) - 1];
+  enforceTiming("SSR p95", p95, TIMING_LIMITS.ssrP95Ms);
+  console.log(`locale-ssr concurrent=12 p95=${p95.toFixed(1)}ms`);
+});
+
+test("authenticated and anonymous billing responses remain isolated", async ({
+  request,
+}) => {
+  const [member, anonymous] = await Promise.all([
+    request.get("/fixtureowner/dashboard/billing", {
+      headers: {
+        Cookie: "sessionid=billing-fixture-session; free2z-locale=fr",
+      },
+      maxRedirects: 0,
+    }),
+    request.get("/fixtureowner/dashboard/billing", {
+      headers: { Cookie: "free2z-locale=en" },
+      maxRedirects: 0,
+    }),
+  ]);
+  expect(member.status()).toBe(200);
+  const memberHtml = await member.text();
+  expect(memberHtml).toContain('<html lang="fr"');
+  expect(memberHtml).toContain('data-testid="billing-stats"');
+  expect(member.headers()["cache-control"]).toMatch(/\bprivate\b/);
+  expect(member.headers().vary).toMatch(/\bCookie\b/i);
+  expect(anonymous.status()).not.toBe(200);
+  expect(await anonymous.text()).not.toContain('data-testid="billing-stats"');
 });
