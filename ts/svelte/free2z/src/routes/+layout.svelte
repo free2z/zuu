@@ -48,7 +48,14 @@
   import { createAccountRouteRefresh } from "$lib/ws/accountRouteRefresh";
   import { createAccountEventDelivery } from "$lib/ws/accountEvents";
   import type { Event } from "$lib/api/f2z.schemas";
-  import { getCurrentLocale, locale, setLocale, tStore as t } from "$lib/i18n";
+  import {
+    getCurrentLocale,
+    locale,
+    hydrateLocale,
+    setLocale,
+    LOCALE_STORAGE_KEY,
+    tStore as t,
+  } from "$lib/i18n";
   import { goto, invalidate, invalidateAll } from "$app/navigation";
   import { ACCOUNT_BALANCE_DEPENDENCY } from "$lib/account-balance";
   import { isSdkFlow } from "$lib/sdk-flow";
@@ -57,17 +64,12 @@
   export let data: {
     locale?: string;
     localePersisted?: boolean;
+    localeCatalogs?: Record<string, unknown>;
     hasSession?: boolean;
   };
 
-  // On the server the active locale comes from the per-request async context
-  // bound in `hooks.server.ts`, so this call is a no-op there rather
-  // than a write to a store shared by every concurrent request. It still runs
-  // for any server context without that scope, and on hydration it prefers the
-  // persisted cookie so the first client render matches the server's HTML.
-  if (data.locale && (!browser || data.localePersisted)) {
-    setLocale(data.locale);
-  }
+  if (browser && data.locale && data.localeCatalogs)
+    hydrateLocale(data.locale, data.localeCatalogs);
 
   // Hand the server's session fact to the store before anything renders
   //. No `sessionid` on the request means Django could not have
@@ -398,6 +400,19 @@
   });
 
   onMount(() => {
+    // Older releases stored a preference without a cookie. Preserve the SSR
+    // render through hydration, then migrate that preference after loading.
+    if (!data.localePersisted) {
+      try {
+        const saved = window.localStorage.getItem(LOCALE_STORAGE_KEY);
+        if (saved && saved !== data.locale)
+          void setLocale(saved).then((changed) => {
+            if (changed) void invalidateAll();
+          });
+      } catch {
+        /* storage is optional */
+      }
+    }
     const stopPrivacyStorageSync = privacyStore.startStorageSync();
     // Registered here rather than at component init: the store is module-scoped
     // and shared by every concurrent SSR request, so a handler bound to
@@ -405,18 +420,6 @@
     const unregisterRetry = notificationSocketStatus.registerRetry(() =>
       profileSocket.resume(),
     );
-    const browserLocale = getCurrentLocale();
-    if (data.localePersisted && data.locale) {
-      setLocale(data.locale);
-    } else {
-      setLocale(browserLocale);
-      if (
-        browserLocale !== data.locale &&
-        !isLiveStreamPath(page.url.pathname)
-      ) {
-        void invalidateAll();
-      }
-    }
     const syncAuthState = () => {
       authStore
         .checkAuth({ force: true, silent: true })

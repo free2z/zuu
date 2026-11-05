@@ -12,6 +12,7 @@ before(async () => {
     server: { middlewareMode: true },
   });
   i18n = await vite.ssrLoadModule("/src/lib/i18n.ts");
+  await Promise.all(["en", "es", "fr", "pt-BR"].map(i18n.prepareLocale));
 });
 
 after(async () => {

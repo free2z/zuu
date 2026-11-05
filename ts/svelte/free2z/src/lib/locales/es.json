@@ -27,7 +27,10 @@
   "language": {
     "choose": "Elegir idioma",
     "current": "Idioma",
-    "label": "Idioma"
+    "label": "Idioma",
+    "loading": "Cargando idioma…",
+    "loadFailed": "No se pudo cargar ese idioma.",
+    "retry": "Intentar de nuevo"
   },
   "homepage": {
     "topStories": "Historias Destacadas",

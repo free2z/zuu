@@ -27,7 +27,10 @@
   "language": {
     "choose": "Choose language",
     "current": "Language",
-    "label": "Language"
+    "label": "Language",
+    "loading": "Loading language…",
+    "loadFailed": "Could not load that language.",
+    "retry": "Try again"
   },
   "homepage": {
     "topStories": "Top Stories",

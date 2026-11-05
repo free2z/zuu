@@ -4,6 +4,7 @@ import { getSessionCookie } from "$lib/server/backend";
 export const load: LayoutServerLoad = ({ locals, cookies }) => ({
   locale: locals.locale,
   localePersisted: locals.localePersisted,
+  localeCatalogs: locals.localeCatalogs,
   // The only auth fact the server hands to the client.
   //
   // Django session auth cannot authenticate a request that carries no

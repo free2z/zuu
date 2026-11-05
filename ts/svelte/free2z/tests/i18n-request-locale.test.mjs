@@ -201,7 +201,7 @@ test("the browser keeps the module-global store untouched", () => {
   // switcher stops updating the live page.
   assert.match(
     i18n,
-    /if \(browser \|\| !activeRequestLocale\(\)\) \{\s*localeStore\.set/,
+    /if \(!browser\) return false;[\s\S]*localeStore\.set\(normalized\)/,
   );
 });
 

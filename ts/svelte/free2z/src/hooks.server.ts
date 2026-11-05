@@ -2,6 +2,7 @@ import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import * as publicEnv from "$app/env/public";
 import { LOCALE_STORAGE_KEY, resolveRequestLocale } from "$lib/locale.js";
 import { withRequestLocale } from "$lib/server/request-locale.js";
+import { prepareLocale, getPreparedCatalogs } from "$lib/i18n";
 import { logSsrError } from "$lib/server/ssr-log";
 
 export const handle: Handle = async ({ event, resolve }) => {
@@ -12,10 +13,13 @@ export const handle: Handle = async ({ event, resolve }) => {
     routeId: event.route.id,
     queryLocale: event.url.searchParams.get("lang"),
     cookieLocale: event.cookies.get(LOCALE_STORAGE_KEY),
+    acceptLanguage: event.request.headers.get("accept-language"),
   });
   const selected = locale as App.Locals["locale"];
   event.locals.locale = selected;
   event.locals.localePersisted = persisted;
+  await prepareLocale(selected);
+  event.locals.localeCatalogs = getPreparedCatalogs(selected);
 
   // Bind the locale to this request's async context. `$lib/i18n` reads it from
   // there instead of its module-global store, so two concurrent renders cannot
@@ -42,7 +46,7 @@ export const handle: Handle = async ({ event, resolve }) => {
       transformPageChunk: ({ html }) =>
         html.replace(
           '<html lang="en">',
-          `<html lang="${event.locals.contentLanguage || selected}">`,
+          `<html lang="${event.locals.contentLanguage || selected}" dir="ltr">`,
         ),
     }),
   );
@@ -57,7 +61,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   // contain the same cookie-backed data even though they are JSON. Keep both
   // response classes private so a host/path/query-only CDN cache can never
   // leak one visitor's render to the next.
-  if (isHtml && !response.headers.has("cache-control")) {
+  if (isHtml) {
     response.headers.set("cache-control", "private, no-cache");
   }
   if (isPageData) {

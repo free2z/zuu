@@ -27,7 +27,10 @@
   "language": {
     "choose": "Choisir la langue",
     "current": "Langue",
-    "label": "Langue"
+    "label": "Langue",
+    "loading": "Chargement de la langue…",
+    "loadFailed": "Impossible de charger cette langue.",
+    "retry": "Réessayer"
   },
   "homepage": {
     "topStories": "Histoires Populaires",

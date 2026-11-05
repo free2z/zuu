@@ -38,7 +38,13 @@ test("concurrent SSR renders never leak another request's language", async ({
         const locale = LOCALES[index % LOCALES.length];
         const response = await request.get(`${path}${separator}lang=${locale}`);
         expect(response.status()).toBe(200);
-        return { locale, html: await response.text() };
+        return {
+          locale,
+          html: (await response.text()).replace(
+            /<script\b[^>]*>[\s\S]*?<\/script>/gi,
+            "",
+          ),
+        };
       }),
     );
 

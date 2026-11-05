@@ -12,10 +12,14 @@
     languageOptions,
     locale,
     setLocale,
+    loading,
+    localeLoadError,
     tStore as t,
     type SupportedLocale,
   } from "$lib/i18n";
-  import { invalidateAll } from "$app/navigation";
+  import { goto, invalidateAll } from "$app/navigation";
+  import { page } from "$app/state";
+  import { isContentLanguageRoute } from "$lib/locale.js";
 
   let selectedLocale = $state<SupportedLocale>($locale);
   const activeLanguage = $derived(
@@ -28,9 +32,21 @@
   });
 
   async function chooseLanguage(nextLocale: SupportedLocale) {
-    selectedLocale = nextLocale;
-    setLocale(nextLocale);
-    await invalidateAll();
+    const success = await setLocale(nextLocale);
+    if (success) {
+      const url = new URL(window.location.href);
+      if (
+        !isContentLanguageRoute(page.route.id) &&
+        url.searchParams.has("lang")
+      ) {
+        url.searchParams.delete("lang");
+        await goto(url.pathname + url.search + url.hash, {
+          replace: true,
+          reset: false,
+          refreshAll: true,
+        });
+      } else await invalidateAll();
+    } else selectedLocale = $locale;
   }
 </script>
 
@@ -65,3 +81,17 @@
     </DropdownMenuRadioGroup>
   </DropdownMenuContent>
 </DropdownMenu>
+
+{#if $loading}<span role="status"
+    >{$t("language.loading", "Loading language…")}</span
+  >{/if}
+{#if $localeLoadError}<div role="alert">
+    {$t("language.loadFailed", "Could not load that language.")}
+    <button
+      type="button"
+      onclick={() =>
+        $localeLoadError &&
+        void chooseLanguage($localeLoadError as SupportedLocale)}
+      >{$t("language.retry", "Try again")}</button
+    >
+  </div>{/if}

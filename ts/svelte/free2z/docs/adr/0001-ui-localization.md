@@ -13,3 +13,9 @@ The four source JSON catalogs total 818,327 bytes uncompressed (en 187,970; es 2
 Malformed opted-in patterns are logged and resolution continues to the English source, then to the caller’s legacy fallback. This is runtime recovery, not evidence that the failed translation is reviewed or complete.
 
 The editor category-label wrapper has a finite domain: `CATEGORY_LABELS` supplies every suffix, and `tests/i18n-category-domain.test.mjs` requires each resulting key in all four catalogs. Unknown creator categories remain unchanged. This check does not classify the other translator escapes.
+
+The runtime now prepares English and the selected dictionary before SSR and serializes those two dictionaries in layout data for hydration. Subsequent selections load a catalog on demand before changing the store or persistence. The server caches dictionary data while request locale selection stays in AsyncLocalStorage. The server negotiates URL (except content-language routes), cookie, weighted Accept-Language, then English. There is no authenticated account locale contract in the current server load. A local-storage-only legacy preference is migrated after hydration. HTML and page data are private.
+
+The selection sequence prevents an older catalog load from committing after a newer selection. Retry and delayed/out-of-order network behavior still need end-to-end coverage; catalog import failures may be cached by the browser module loader. The English and selected dictionaries in the serialized HTML also require a measured payload budget.
+
+A local production build emitted uncompressed JavaScript locale chunks of 161,711 bytes (English), 181,150 (Spanish), 191,372 (French), and 179,396 (Brazilian Portuguese). These are chunk sizes, not a measured initial transfer or an enforced budget. The active and English dictionaries are additionally serialized into the HTML, so the initial payload must be measured before setting a budget.

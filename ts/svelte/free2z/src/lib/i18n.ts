@@ -1,6 +1,4 @@
 import { browser } from "$app/env";
-import i18n from "@sveltekit-i18n/base";
-import parser from "@sveltekit-i18n/parser-default";
 import {
   writable,
   derived,
@@ -15,8 +13,8 @@ import {
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
   normalizeLocale,
-  resolveLocale,
 } from "./locale.js";
+import { catalogLoader } from "./catalog-loader.js";
 import { formatIcuMessage, ICU_MESSAGE_KEYS } from "./icu-message.js";
 import { getRequestLocale } from "./request-locale.js";
 import { requestScopedStore } from "./request-scoped-store.js";
@@ -38,34 +36,34 @@ export const languageOptions: ReadonlyArray<{
   label: string;
 }> = LANGUAGE_OPTIONS;
 
-function getInitialLocale(): SupportedLocale {
-  if (!browser) return DEFAULT_LOCALE;
-
-  let savedLocale: string | null = null;
-  try {
-    savedLocale = window.localStorage.getItem(LOCALE_STORAGE_KEY);
-  } catch {
-    // Storage can be unavailable in privacy-focused browser modes.
-  }
-
-  return resolveLocale({
-    savedLocale,
-    browserLocale: window.navigator.languages?.[0] || window.navigator.language,
-  }) as SupportedLocale;
+// Dictionaries are immutable module data; the selected locale remains request scoped.
+const translations: Record<string, unknown> = {};
+export async function prepareLocale(next: string): Promise<void> {
+  const normalized = normalizeLocale(next);
+  if (!normalized) throw new Error(`Unsupported locale: ${next}`);
+  const [english, selected] = await Promise.all([
+    translations[DEFAULT_LOCALE] ?? catalogLoader.load(DEFAULT_LOCALE),
+    translations[normalized] ?? catalogLoader.load(normalized),
+  ]);
+  translations[DEFAULT_LOCALE] = english;
+  translations[normalized] = selected;
 }
-
-// Load translations statically for SSR
-import enTranslations from "./locales/en.json";
-import esTranslations from "./locales/es.json";
-import frTranslations from "./locales/fr.json";
-import ptBRTranslations from "./locales/pt-BR.json";
-
-const translations = {
-  en: enTranslations,
-  es: esTranslations,
-  fr: frTranslations,
-  "pt-BR": ptBRTranslations,
-} as const;
+export function getPreparedCatalogs(next: string): Record<string, unknown> {
+  return {
+    [DEFAULT_LOCALE]: translations[DEFAULT_LOCALE],
+    [next]: translations[next],
+  };
+}
+export function hydrateLocale(
+  next: string,
+  catalogs: Record<string, unknown>,
+): void {
+  if (!browser) return;
+  const normalized = normalizeLocale(next) as SupportedLocale | null;
+  if (!normalized || !catalogs[normalized] || !catalogs[DEFAULT_LOCALE]) return;
+  Object.assign(translations, catalogs);
+  localeStore.set(normalized);
+}
 
 function lookupTranslation(source: unknown, key: string): string | undefined {
   let result = source;
@@ -130,41 +128,6 @@ function getTranslation(
   return undefined;
 }
 
-/** @type {import('@sveltekit-i18n/parser-default').Config} */
-const config = {
-  parser: parser(),
-  loaders: [
-    // English
-    {
-      locale: "en",
-      key: "",
-      loader: async () => translations.en,
-    },
-    // Spanish
-    {
-      locale: "es",
-      key: "",
-      loader: async () => translations.es,
-    },
-    // French
-    {
-      locale: "fr",
-      key: "",
-      loader: async () => translations.fr,
-    },
-    // Brazilian Portuguese
-    {
-      locale: "pt-BR",
-      key: "",
-      loader: async () => translations["pt-BR"],
-    },
-  ],
-  fallbackLocale: DEFAULT_LOCALE,
-  initialLocale: getInitialLocale(),
-};
-
-const i18nInstance = new i18n(config);
-
 // Create stores
 //
 // `localeStore` is module-scoped, which is correct in the browser (one process,
@@ -172,7 +135,7 @@ const i18nInstance = new i18n(config);
 // module. On the server the active locale therefore comes from the per-request
 // AsyncLocalStorage bound by `hooks.server.ts`; `localeStore` is only the
 // fallback for contexts with no request scope. See issue.
-const localeStore = writable<SupportedLocale>(getInitialLocale());
+const localeStore = writable<SupportedLocale>(DEFAULT_LOCALE);
 
 /** The locale of the in-flight server request, or null (browser / no scope). */
 function activeRequestLocale(): SupportedLocale | null {
@@ -272,6 +235,9 @@ function applyDocumentLanguage(): void {
   if (!browser) return;
   document.documentElement.lang =
     documentContentLanguage || getCurrentLocale() || DEFAULT_LOCALE;
+  document.documentElement.dir =
+    LOCALE_REGISTRY.find((entry) => entry.code === getCurrentLocale())
+      ?.direction ?? "ltr";
 }
 
 /**
@@ -291,32 +257,33 @@ export function setDocumentContentLanguage(tag: string | null): void {
   applyDocumentLanguage();
 }
 
-export function setLocale(nextLocale: string): void {
-  const normalizedLocale = normalizeLocale(
-    nextLocale,
-  ) as SupportedLocale | null;
-  if (!normalizedLocale) return;
-
-  // On the server the request scope already carries this request's locale (and
-  // is the only thing read back), so writing the shared module-global would do
-  // nothing but leak into whichever request runs next. Outside a request scope
-  // prerendering, scripts — the global is still the only place to put it.
-  if (browser || !activeRequestLocale()) {
-    localeStore.set(normalizedLocale);
-  }
-
-  if (!browser) return;
-
-  // NOT a direct write: a content language, when one is on screen, outranks the
-  // UI locale for `<html lang>`. `applyDocumentLanguage` is the one place that
-  // decides, so the two can never race each other on hydration.
-  applyDocumentLanguage();
+let switchSequence = 0;
+export const localeLoadError = writable<string | null>(null);
+export async function setLocale(nextLocale: string): Promise<boolean> {
+  const normalized = normalizeLocale(nextLocale) as SupportedLocale | null;
+  if (!normalized) return false;
+  if (!browser) return false;
+  const sequence = ++switchSequence;
+  loading.set(true);
+  localeLoadError.set(null);
   try {
-    window.localStorage.setItem(LOCALE_STORAGE_KEY, normalizedLocale);
+    await prepareLocale(normalized);
+    if (sequence !== switchSequence) return false;
+    localeStore.set(normalized);
+    applyDocumentLanguage();
+    try {
+      window.localStorage.setItem(LOCALE_STORAGE_KEY, normalized);
+    } catch {
+      /* unavailable */
+    }
+    document.cookie = `${LOCALE_STORAGE_KEY}=${encodeURIComponent(normalized)}; Path=/; Max-Age=31536000; SameSite=Lax`;
+    return true;
   } catch {
-    // The in-memory selection still works when persistence is unavailable.
+    if (sequence === switchSequence) localeLoadError.set(normalized);
+    return false;
+  } finally {
+    if (sequence === switchSequence) loading.set(false);
   }
-  document.cookie = `${LOCALE_STORAGE_KEY}=${encodeURIComponent(normalizedLocale)}; Path=/; Max-Age=31536000; SameSite=Lax`;
 }
 
 // Create a simple t function that works in SSR and client
@@ -352,20 +319,5 @@ export const tStore: Readable<TranslationFunction> = requestScopedStore(
     return requestLocale ? translatorFor(requestLocale) : null;
   },
 );
-
-// Export other functions
-export const locales = i18nInstance.locales;
-export const loadTranslations = i18nInstance.loadTranslations;
-
-if (browser) {
-  const currentLocale = get(localeStore);
-  document.documentElement.lang = currentLocale;
-  loading.set(true);
-
-  console.log("Initializing i18n with locale:", currentLocale);
-
-  // Since we're using static imports, we don't need to load translations
-  loading.set(false);
-}
 
 export { DEFAULT_LOCALE, LOCALE_STORAGE_KEY, SUPPORTED_LOCALES };

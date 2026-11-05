@@ -177,10 +177,16 @@ export function resolveLocale({ savedLocale, browserLocale }) {
  *   routeId?: string | null,
  *   queryLocale?: unknown,
  *   cookieLocale?: unknown,
+ *   acceptLanguage?: unknown,
  * }} request
  * @returns {{ locale: string, persisted: boolean }}
  */
-export function resolveRequestLocale({ routeId, queryLocale, cookieLocale }) {
+export function resolveRequestLocale({
+  routeId,
+  queryLocale,
+  cookieLocale,
+  acceptLanguage,
+}) {
   const cookie = normalizeLocale(cookieLocale);
   // On an article or editor route `?lang=` selects the content variant, not
   // the product UI. The editor's language picker deep-links to `/edit?lang=`.
@@ -189,7 +195,11 @@ export function resolveRequestLocale({ routeId, queryLocale, cookieLocale }) {
     : normalizeLocale(queryLocale);
 
   return {
-    locale: query ?? cookie ?? DEFAULT_LOCALE,
+    locale:
+      query ??
+      cookie ??
+      firstSupportedLocale(parseAcceptLanguage(acceptLanguage)) ??
+      DEFAULT_LOCALE,
     persisted: Boolean(query || cookie),
   };
 }

@@ -5,6 +5,7 @@ declare global {
     interface Locals {
       locale: "en" | "es" | "fr" | "pt-BR";
       localePersisted: boolean;
+      localeCatalogs: Record<string, unknown>;
       /**
        * The CONTENT language of the document this request is rendering, when
        * the route resolved one — an article variant's own tag, which is any
