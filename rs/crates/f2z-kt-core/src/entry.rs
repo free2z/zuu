@@ -21,7 +21,7 @@
 //! structure useful outside the directory.
 
 use f2z_codec::canonical::{Canonical as _, encode};
-use f2z_codec::types::{Digest, PublicKey, QueueAddress, RelayId, ShortBytes, Signature};
+use f2z_codec::types::{Digest, Payload, PublicKey, QueueAddress, RelayId, ShortBytes, Signature};
 use f2z_codec::vec::VecU16;
 use tls_codec::{
     DeserializeBytes, Error as TlsError, SerializeBytes, Size, TlsDeserializeBytes,
@@ -180,6 +180,9 @@ impl ContactEndpoint {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[non_exhaustive]
 pub enum EntryKind {
+    /// Register a handle for the first time. The committed `InitialBind`
+    /// authorization carries the issuer assertion and both signatures.
+    InitialBind,
     /// Adding or revoking a device, or updating contact endpoints. The identity
     /// key is unchanged (ADR 0014 case 1).
     SameKey,
@@ -193,7 +196,12 @@ pub enum EntryKind {
 
 impl EntryKind {
     /// Every kind, in wire order.
-    pub const ALL: [Self; 3] = [Self::SameKey, Self::KeyChange, Self::PlatformReset];
+    pub const ALL: [Self; 4] = [
+        Self::SameKey,
+        Self::KeyChange,
+        Self::PlatformReset,
+        Self::InitialBind,
+    ];
 
     /// The wire value.
     #[must_use]
@@ -202,6 +210,7 @@ impl EntryKind {
             Self::SameKey => 1,
             Self::KeyChange => 2,
             Self::PlatformReset => 3,
+            Self::InitialBind => 4,
         }
     }
 
@@ -219,6 +228,7 @@ impl EntryKind {
             1 => Self::SameKey,
             2 => Self::KeyChange,
             3 => Self::PlatformReset,
+            4 => Self::InitialBind,
             _ => return Err(KtError::Malformed),
         })
     }
@@ -241,7 +251,7 @@ impl DeserializeBytes for EntryKind {
         let (code, rest) = u8::tls_deserialize_bytes(bytes)?;
         let kind = Self::from_code(code).map_err(|_| {
             TlsError::DecodingError(format!(
-                "EntryKind {code} is not one of same_key(1), key_change(2), platform_reset(3)"
+                "EntryKind {code} is not one of same_key(1), key_change(2), platform_reset(3), initial_bind(4)"
             ))
         })?;
         Ok((kind, rest))
@@ -370,6 +380,21 @@ pub struct ResetAuthorization {
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum EntryAuthorization {
+    /// `initial_bind`: a canonical authority assertion, a binding by the
+    /// claimed identity key, and a directory-auth signature. The binding is
+    /// over `H(tls_codec(DirectoryEntryTBS))`, avoiding a circular reference
+    /// to this containing authorization while fixing every entry field.
+    InitialBind {
+        /// Canonical `tls_codec(HandleAssertion)` bytes. Kept opaque here to
+        /// preserve the core/authority crate boundary; authority-aware layers
+        /// decode with re-encode equality.
+        assertion: Payload,
+        /// Ed25519 over the assertion-binding transcript by `identity_pk`.
+        identity_signature: Signature,
+        /// Ed25519 over `tls_codec(DirectoryEntryTBS)` by this entry's
+        /// `directory_auth_pk`.
+        auth_signature: Signature,
+    },
     /// `same_key`: one signature, by the `directory_auth_pk` **published in the
     /// previous entry**.
     SameKey {
@@ -401,6 +426,7 @@ impl EntryAuthorization {
     #[must_use]
     pub const fn kind(&self) -> EntryKind {
         match self {
+            Self::InitialBind { .. } => EntryKind::InitialBind,
             Self::SameKey { .. } => EntryKind::SameKey,
             Self::KeyChange { .. } => EntryKind::KeyChange,
             Self::PlatformReset { .. } => EntryKind::PlatformReset,
@@ -411,6 +437,7 @@ impl EntryAuthorization {
     #[must_use]
     pub const fn auth_signature(&self) -> &Signature {
         match self {
+            Self::InitialBind { auth_signature, .. } => auth_signature,
             Self::SameKey { auth_signature }
             | Self::KeyChange { auth_signature, .. }
             | Self::PlatformReset { auth_signature, .. } => auth_signature,
@@ -421,6 +448,14 @@ impl EntryAuthorization {
 impl Size for EntryAuthorization {
     fn tls_serialized_len(&self) -> usize {
         let body = match self {
+            Self::InitialBind {
+                assertion,
+                identity_signature,
+                auth_signature,
+            } => assertion
+                .tls_serialized_len()
+                .saturating_add(identity_signature.tls_serialized_len())
+                .saturating_add(auth_signature.tls_serialized_len()),
             Self::SameKey { auth_signature } => auth_signature.tls_serialized_len(),
             Self::KeyChange {
                 rotation,
@@ -443,6 +478,15 @@ impl SerializeBytes for EntryAuthorization {
     fn tls_serialize_bytes(&self) -> Result<Vec<u8>, TlsError> {
         let mut out = vec![self.kind().code()];
         match self {
+            Self::InitialBind {
+                assertion,
+                identity_signature,
+                auth_signature,
+            } => {
+                out.extend_from_slice(&assertion.tls_serialize_bytes()?);
+                out.extend_from_slice(&identity_signature.tls_serialize_bytes()?);
+                out.extend_from_slice(&auth_signature.tls_serialize_bytes()?);
+            }
             Self::SameKey { auth_signature } => {
                 out.extend_from_slice(&auth_signature.tls_serialize_bytes()?);
             }
@@ -469,6 +513,19 @@ impl DeserializeBytes for EntryAuthorization {
     fn tls_deserialize_bytes(bytes: &[u8]) -> Result<(Self, &[u8]), TlsError> {
         let (kind, rest) = EntryKind::tls_deserialize_bytes(bytes)?;
         match kind {
+            EntryKind::InitialBind => {
+                let (assertion, rest) = Payload::tls_deserialize_bytes(rest)?;
+                let (identity_signature, rest) = Signature::tls_deserialize_bytes(rest)?;
+                let (auth_signature, rest) = Signature::tls_deserialize_bytes(rest)?;
+                Ok((
+                    Self::InitialBind {
+                        assertion,
+                        identity_signature,
+                        auth_signature,
+                    },
+                    rest,
+                ))
+            }
             EntryKind::SameKey => {
                 let (auth_signature, rest) = Signature::tls_deserialize_bytes(rest)?;
                 Ok((Self::SameKey { auth_signature }, rest))
@@ -578,6 +635,9 @@ impl DirectoryEntryTBS {
         // path, because both are self-contradictory on the bytes alone.
         if (self.entry_version == 1) != self.prev_entry_hash.is_zero() {
             return Err(KtError::VersionConflict);
+        }
+        if (self.entry_version == 1) != matches!(self.kind, EntryKind::InitialBind) {
+            return Err(KtError::BadAuthorization);
         }
 
         // Invented here: ADR 0014 gives `no_reset` as a flag and KT.md §4.1 as a
@@ -713,6 +773,7 @@ impl DirectoryEntry {
             return Err(KtError::BadAuthorization);
         }
         match &self.authorization {
+            EntryAuthorization::InitialBind { .. } => {}
             EntryAuthorization::SameKey { .. } => {}
             EntryAuthorization::KeyChange { rotation, .. } => rotation.proof.validate()?,
             EntryAuthorization::PlatformReset { reset, .. } => reset.reset.validate()?,
@@ -749,7 +810,8 @@ mod tests {
     #[test]
     fn entry_kind_rejects_a_value_this_build_does_not_know() {
         assert_eq!(EntryKind::from_code(0), Err(KtError::Malformed));
-        assert_eq!(EntryKind::from_code(4), Err(KtError::Malformed));
+        assert_eq!(EntryKind::from_code(4), Ok(EntryKind::InitialBind));
+        assert_eq!(EntryKind::from_code(5), Err(KtError::Malformed));
         assert_eq!(EntryKind::from_code(255), Err(KtError::Malformed));
         for kind in EntryKind::ALL {
             assert_eq!(EntryKind::from_code(kind.code()), Ok(kind));
@@ -786,13 +848,28 @@ mod tests {
     }
 
     #[test]
+    fn proposed_initial_bind_selector_and_fields_have_the_candidate_wire_order() {
+        let authorization = EntryAuthorization::InitialBind {
+            assertion: Payload::new(vec![0xaa]).unwrap(),
+            identity_signature: Signature::new([0xbb; 64]),
+            auth_signature: Signature::new([0xcc; 64]),
+        };
+        let bytes = authorization.tls_serialize_bytes().unwrap();
+        let expected = [vec![4, 0, 0, 1, 0xaa], vec![0xbb; 64], vec![0xcc; 64]].concat();
+        assert_eq!(bytes, expected);
+        let (decoded, rest) = EntryAuthorization::tls_deserialize_bytes(&bytes).unwrap();
+        assert!(rest.is_empty());
+        assert_eq!(decoded, authorization);
+    }
+
+    #[test]
     fn an_unknown_kind_byte_fails_to_decode_rather_than_defaulting() {
         let directory = TestDirectory::new();
         let mut bytes = directory.genesis().encode_canonical().unwrap();
         // The `kind` byte inside DirectoryEntryTBS: label(1+18) + kt_version(2)
         // + log_id(32) + handle(1+5) + entry_version(4) = 63.
         let offset = 1 + LABEL_ENTRY.len() + 2 + 32 + 1 + 5 + 4;
-        assert_eq!(bytes.get(offset), Some(&EntryKind::SameKey.code()));
+        assert_eq!(bytes.get(offset), Some(&EntryKind::InitialBind.code()));
         if let Some(byte) = bytes.get_mut(offset) {
             *byte = 9;
         }

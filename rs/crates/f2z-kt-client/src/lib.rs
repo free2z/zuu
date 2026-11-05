@@ -57,15 +57,12 @@
 //! [`WitnessStanding::is_independently_witnessed`] returns `false` in the
 //! shipped configuration on purpose.
 //!
-//! # And one more, which is about the *first* entry
+//! # First-entry evidence
 //!
-//! §8.1 step 6: at `entry_version == 1` **there is nothing to verify**. §4.5
-//! says what authorizes a first entry and the log checks it at submission, but
-//! it is not committed to the tree, so a client is served no artefact to check
-//! ([#649](https://github.com/free2z/zuu/issues/649)). Resolving a stranger for
-//! the first time therefore establishes inclusion and **not** entitlement, and
-//! [`Authorization::FirstEntryUnverifiable`] is what this crate returns rather
-//! than a check that quietly passes.
+//! The proposed #649 `InitialBind` case commits first-entry evidence into the
+//! tree value, and this crate verifies its assertion and signatures. The
+//! authority key comes from the log-signed policy unless the application pins
+//! it independently. A log-signed policy is not itself a trust root.
 //!
 //! # Shape
 //!

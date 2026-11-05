@@ -1,6 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { evaluate, ALLOWLIST } from "./npm-audit-allowlist.mjs";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawnSync } from "node:child_process";
+import { allowlistForScope, evaluate, ALLOWLIST } from "./npm-audit-allowlist.mjs";
+
+const SCRIPT = new URL("./npm-audit-allowlist.mjs", import.meta.url);
 
 const BR = "GHSA-vfj7-8cjw-p6xm";
 const adv = (name, id, severity = "high") => ({ name, severity, title: "t", url: `https://github.com/advisories/${id}` });
@@ -45,14 +51,104 @@ test("expired entry fails even with a clean report", () => {
 test("malformed report is not a pass", () => {
   assert.ok(evaluate({}, historicalAllowlist, before).unparseable);
 });
-test("allowlist is exactly the known entries, each with an issue and a 30-day expiry", () => {
+test("a high devalue advisory fails whether npm marks it dev or production", () => {
+  for (const isDev of [true, false]) {
+    const result = evaluate({
+      vulnerabilities: {
+        devalue: { name: "devalue", severity: "high", isDirect: false, isDev, via: [adv("devalue", "GHSA-j22f-vq7h-c4qm")] },
+      },
+    }, allowlistForScope("ts/svelte/free2z"), before);
+    assert.ok(result.problems.some((problem) => /devalue/.test(problem)), JSON.stringify(result));
+  }
+});
+test("empty Svelte baseline and unknown roots cannot inherit wallet exceptions", () => {
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z", ALLOWLIST.filter((entry) => entry.scope === "ts/svelte/free2z")), []);
+  assert.deepEqual(allowlistForScope("unknown/root"), []);
+  const svelte = evaluate(report(adv("braces", BR)), allowlistForScope("ts/svelte/free2z"), before);
+  assert.match(svelte.problems.join("\n"), /braces/);
+});
+test("a package-scoped baseline cannot inherit another root's reasons", () => {
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z"), []);
+  assert.deepEqual(allowlistForScope("wallet/zuuli"), []);
+  const walletOnly = [{
+    id: "GHSA-5gmw-xhrv-c9v3",
+    package: "tinypool",
+    expires: "2026-11-04",
+    issue: "https://github.com/free2z/zuu/issues/1173",
+    reason: "wallet-only fixture",
+    scope: "wallet/zuuli",
+  }];
+  assert.deepEqual(allowlistForScope("wallet/zuuli", walletOnly).map((entry) => entry.id), [
+    "GHSA-5gmw-xhrv-c9v3",
+  ]);
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z", walletOnly), []);
+  const { scope: _scope, ...legacy } = walletOnly[0];
+  assert.deepEqual(allowlistForScope("wallet/zuuli", [legacy]).map((entry) => entry.id), [
+    "GHSA-5gmw-xhrv-c9v3",
+  ]);
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z", [legacy]), []);
+});
+test("npm audit rejects vulnerable devalue in prod and dev fixtures under production omit-dev config", { timeout: 120_000 }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "npm-audit-devalue-test-"));
+  try {
+    for (const dependencyType of ["prod", "dev"]) {
+      const packageDir = path.join(root, dependencyType);
+      fs.mkdirSync(packageDir);
+      fs.writeFileSync(path.join(packageDir, "package.json"), JSON.stringify({ name: `devalue-${dependencyType}-fixture`, version: "1.0.0" }));
+      const installArgs = ["install", "--package-lock-only", "--ignore-scripts", "--save-exact", `devalue@5.3.1`, dependencyType === "dev" ? "--save-dev" : "--save-prod"];
+      const install = spawnSync("npm", installArgs, {
+        cwd: packageDir,
+        encoding: "utf8",
+        env: { ...process.env, NODE_ENV: "", npm_config_omit: "" },
+      });
+      assert.equal(install.status, 0, `${dependencyType} fixture install failed:\n${install.stderr}`);
+
+      const audit = spawnSync(process.execPath, [SCRIPT.pathname, packageDir], {
+        encoding: "utf8",
+        env: { ...process.env, NODE_ENV: "production", npm_config_omit: "dev" },
+      });
+      assert.equal(audit.status, 1, `${dependencyType} devalue fixture unexpectedly passed:\n${audit.stdout}\n${audit.stderr}`);
+      assert.match(`${audit.stdout}\n${audit.stderr}`, /devalue/);
+    }
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+test("npm audit network errors and unexpected exits fail closed", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "npm-audit-allowlist-test-"));
+  try {
+    const bin = path.join(root, "bin");
+    const packageDir = path.join(root, "package");
+    fs.mkdirSync(bin);
+    fs.mkdirSync(packageDir);
+    fs.writeFileSync(path.join(packageDir, "package-lock.json"), "{}");
+    const npm = path.join(bin, "npm");
+    const check = (body, exitCode) => {
+      fs.writeFileSync(npm, `#!/bin/sh\nfor required in --include=prod --include=dev --include=optional --include=peer; do\n  found=0\n  for arg in "$@"; do [ "$arg" = "$required" ] && found=1; done\n  [ "$found" -eq 1 ] || exit 9\ndone\nprintf '%s\\n' '${body}'\nexit ${exitCode}\n`);
+      fs.chmodSync(npm, 0o755);
+      return spawnSync(process.execPath, [SCRIPT.pathname, packageDir], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}` },
+      });
+    };
+    const networkFailure = check('{"error":{"code":"ENOAUDIT"}}', 1);
+    assert.equal(networkFailure.status, 2);
+    assert.match(networkFailure.stderr, /npm audit error/);
+    const unexpectedExit = check('{"vulnerabilities":{}}', 2);
+    assert.equal(unexpectedExit.status, 2);
+    assert.match(unexpectedExit.stderr, /exited unexpectedly/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+test("allowlist is exact and expiring per package root", () => {
   assert.deepEqual(
     ALLOWLIST.map((e) => [e.id, e.package, e.issue.split("/").pop()]),
     [],
   );
   for (const e of ALLOWLIST) assert.equal(e.expires, "2026-11-04");
+  assert.deepEqual(allowlistForScope("ts/svelte/free2z"), []);
 });
-
 
 test("retired braces waiver cannot hide a returning advisory", () => {
   const r = evaluate(report(adv("braces", BR)), ALLOWLIST, new Date("2026-11-04T00:00:00Z"));

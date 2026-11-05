@@ -34,6 +34,20 @@ test("no randomUUID (an insecure context) means no key, not a weak one", () => {
   );
 });
 
+test("the editor's keyless-create setup cannot mint a key", () => {
+  // editor-save-timeout.spec.ts deletes the prototype method before /edit
+  // mounts. The AI completion panel calls this helper while the composer is
+  // created, so a throw here takes the writing area down with it.
+  const original = Crypto.prototype.randomUUID;
+  delete Crypto.prototype.randomUUID;
+  try {
+    assert.equal(typeof crypto.randomUUID, "undefined");
+    assert.equal(newZpageCreateKey(), null);
+  } finally {
+    Crypto.prototype.randomUUID = original;
+  }
+});
+
 test("only proof of the outcome resolves a create attempt", () => {
   const page = { free2zaddr: "abc" };
   assert.equal(resolvesCreateAttempt(201, page), "created");

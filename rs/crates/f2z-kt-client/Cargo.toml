@@ -44,6 +44,8 @@ http = ["dep:ureq", "verifier"]
 # "a client cannot substitute its own consistency check for a witness's", the
 # proof is O(entries added) and was measured at 3.9 MB for five epochs.
 f2z-kt-core = { path = "../f2z-kt-core", version = "0.1.0", default-features = false }
+# Offline verification of the committed first-entry HandleAssertion.
+f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
 # `version` beside `path` is not redundant: rs/deny.toml sets
 # `wildcards = "deny"`, and a bare path dependency is a wildcard requirement.
 f2z-codec = { workspace = true }
@@ -73,7 +75,6 @@ ureq = { workspace = true, optional = true }
 # ---------------------------------------------------------------------------
 f2z-kt = { path = "../f2z-kt", version = "0.1.0", features = ["testing"] }
 f2z-witness = { path = "../f2z-witness", version = "0.1.0" }
-f2z-authority = { path = "../f2z-authority", version = "0.1.0" }
 akd_core = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
