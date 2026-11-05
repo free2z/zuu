@@ -116,6 +116,42 @@ export function normalizeLocale(value) {
   return LOCALE_REGISTRY.find((entry) => entry.code === language)?.code ?? null;
 }
 
+/** Parse ordered HTTP language preferences; invalid and zero-quality entries are ignored.
+ * @param {unknown} header
+ * @returns {string[]}
+ */
+export function parseAcceptLanguage(header) {
+  if (typeof header !== "string") return [];
+  return header
+    .split(",")
+    .map((part, index) => {
+      const [tag, ...parameters] = part.trim().split(";");
+      if (!tag || tag === "*") return null;
+      let quality = 1;
+      if (parameters.length) {
+        if (parameters.length !== 1) return null;
+        const match = /^\s*q=(0(?:\.\d{0,3})?|1(?:\.0{0,3})?)\s*$/i.exec(
+          parameters[0],
+        );
+        if (!match) return null;
+        quality = Number(match[1]);
+      }
+      return quality > 0 ? { tag, quality, index } : null;
+    })
+    .filter((entry) => entry !== null)
+    .sort((a, b) => b.quality - a.quality || a.index - b.index)
+    .map(({ tag }) => tag);
+}
+
+/** @param {readonly unknown[]} values */
+export function firstSupportedLocale(values) {
+  for (const value of values) {
+    const locale = normalizeLocale(value);
+    if (locale) return locale;
+  }
+  return null;
+}
+
 /**
  * Prefer an explicit user selection, then browser preference, then English.
  *
