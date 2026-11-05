@@ -21,7 +21,7 @@
     clippy::arithmetic_side_effects
 )]
 
-use f2z_msg_mls::{EngineError, ExportLabel, MlsEngine, ProtocolVersion, Received};
+use f2z_msg_mls::{EngineError, ExportLabel, GroupHandle, MlsEngine, ProtocolVersion, Received};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -36,9 +36,9 @@ const TEST_AAD: &[u8] = b"free2z/test/non-empty-aad";
 /// Alice creates the group and adds Bob; Bob joins from the `Welcome`.
 fn paired() -> (
     MlsEngine<MemoryBackend>,
-    openmls::prelude::MlsGroup,
+    GroupHandle,
     MlsEngine<MemoryBackend>,
-    openmls::prelude::MlsGroup,
+    GroupHandle,
 ) {
     let alice = device("alice", 11, 111);
     let bob = device("bob", 22, 222);
@@ -111,6 +111,15 @@ impl StorageBackend for FailableBackend {
         self.inner.apply(ops)
     }
 
+    fn atomic_rewrite(
+        &self,
+        marker_key: &[u8],
+        marker_value: &[u8],
+        rewrite: &mut f2z_msg_store::RowRewrite<'_>,
+    ) -> f2z_msg_store::Result<()> {
+        self.inner.atomic_rewrite(marker_key, marker_value, rewrite)
+    }
+
     fn durability(&self) -> Durability {
         self.inner.durability()
     }
@@ -121,9 +130,9 @@ fn paired_with_bob_backend<B: StorageBackend>(
     bob_not_after_ms: u64,
 ) -> (
     MlsEngine<MemoryBackend>,
-    openmls::prelude::MlsGroup,
+    GroupHandle,
     MlsEngine<B>,
-    openmls::prelude::MlsGroup,
+    GroupHandle,
 ) {
     let alice = device("alice", 11, 111);
     let (bob_credential, bob_signer) =
@@ -172,7 +181,7 @@ fn two_engines_exchange_a_message_in_both_directions() {
 #[test]
 fn an_update_advances_both_sides_to_the_same_epoch() {
     let (alice, mut alice_group, bob, mut bob_group) = paired();
-    let before = alice_group.epoch().as_u64();
+    let before = alice_group.epoch();
 
     // §5.1's post-compromise security: a fresh leaf key, committed.
     let commit = alice.update(&mut alice_group).expect("update");
@@ -183,7 +192,7 @@ fn an_update_advances_both_sides_to_the_same_epoch() {
     assert_eq!(
         received,
         Received::EpochChanged {
-            epoch: bob_group.epoch().as_u64()
+            epoch: bob_group.epoch()
         }
     );
     assert_eq!(
@@ -191,7 +200,7 @@ fn an_update_advances_both_sides_to_the_same_epoch() {
         bob_group.epoch(),
         "both sides must agree on the new epoch"
     );
-    assert!(alice_group.epoch().as_u64() > before);
+    assert!(alice_group.epoch() > before);
 
     // …and the group still works afterwards, which is the property an Update
     // that merely appeared to succeed would not have.
@@ -284,8 +293,13 @@ fn two_engines_share_no_state() {
 
     // Each store holds its own group, and neither is empty — if they were the
     // same store, the counts would be identical for a trivial reason.
-    assert!(alice.provider().store().backend().len().expect("len") > 0);
-    assert!(bob.provider().store().backend().len().expect("len") > 0);
+    assert!(
+        alice
+            .load_group(GROUP_ID)
+            .expect("load alice group")
+            .is_some()
+    );
+    assert!(bob.load_group(GROUP_ID).expect("load bob group").is_some());
     assert_ne!(
         alice.credential().credential.device_pk,
         bob.credential().credential.device_pk
@@ -473,8 +487,8 @@ fn an_apply_failure_after_merging_restores_memory_and_redelivery_succeeds() {
     let (alice, mut alice_group, bob, mut bob_group) =
         paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
 
-    alice_group.set_aad(TEST_AAD.to_vec());
-    bob_group.set_aad(TEST_AAD.to_vec());
+    alice.set_aad(&mut alice_group, TEST_AAD);
+    bob.set_aad(&mut bob_group, TEST_AAD);
     let commit = alice.update(&mut alice_group).expect("update");
     let epoch_before = bob_group.epoch();
 
@@ -507,7 +521,7 @@ fn an_apply_failure_after_merging_restores_memory_and_redelivery_succeeds() {
     assert_eq!(
         redelivery,
         Received::EpochChanged {
-            epoch: bob_group.epoch().as_u64()
+            epoch: bob_group.epoch()
         }
     );
     assert_eq!(alice_group.epoch(), bob_group.epoch());
@@ -518,8 +532,8 @@ fn an_application_apply_failure_restores_the_receive_ratchet_for_redelivery() {
     let bob_backend = FailableBackend::new();
     let (alice, mut alice_group, bob, mut bob_group) =
         paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
-    alice_group.set_aad(TEST_AAD.to_vec());
-    bob_group.set_aad(TEST_AAD.to_vec());
+    alice.set_aad(&mut alice_group, TEST_AAD);
+    bob.set_aad(&mut bob_group, TEST_AAD);
     let wire = alice
         .send(&mut alice_group, b"ratchet rollback")
         .expect("send");
@@ -553,10 +567,10 @@ fn a_restore_read_failure_requires_a_fresh_group_before_redelivery() {
     let bob_backend = FailableBackend::new();
     let (alice, mut alice_group, bob, mut bob_group) =
         paired_with_bob_backend(bob_backend.clone(), NOW + 1_000_000);
-    alice_group.set_aad(TEST_AAD.to_vec());
-    bob_group.set_aad(TEST_AAD.to_vec());
+    alice.set_aad(&mut alice_group, TEST_AAD);
+    bob.set_aad(&mut bob_group, TEST_AAD);
     let commit = alice.update(&mut alice_group).expect("update");
-    let group_id = bob_group.group_id().clone();
+    let group_id = bob_group.group_id().to_vec();
 
     bob_backend.fail_apply_and_restore_get_once();
     let outcome = bob.receive(&mut bob_group, &commit, b"restore-read", NOW);
@@ -578,17 +592,18 @@ fn a_restore_read_failure_requires_a_fresh_group_before_redelivery() {
     // reused. This is the same fresh durable load the ZUULI caller performs
     // when it sees GroupStateUnavailable.
     bob_backend.set_fail_apply(false);
-    let mut restored = openmls::prelude::MlsGroup::load(bob.provider().store(), &group_id)
+    let mut restored = bob
+        .load_group(&group_id)
         .expect("fresh durable load")
         .expect("durable pre-transaction group");
-    restored.set_aad(TEST_AAD.to_vec());
+    bob.set_aad(&mut restored, TEST_AAD);
     let redelivery = bob
         .receive(&mut restored, &commit, b"restore-read", NOW)
         .expect("redelivery through the freshly loaded group");
     assert_eq!(
         redelivery,
         Received::EpochChanged {
-            epoch: restored.epoch().as_u64()
+            epoch: restored.epoch()
         }
     );
     assert_eq!(alice_group.epoch(), restored.epoch());

@@ -295,6 +295,12 @@ group state and message plaintext sit **unencrypted** beside it
 message; refusing to enroll defends only "cannot sign as this identity". Is a
 hard refusal proportionate to that narrow property?
 
+**Update after issue #903:** `f2z-msg-mls` now seals OpenMLS storage rows and
+its version/delivery markers before they reach the shared backend. The plugin's
+separate application records, including retained message plaintext, remain
+unencrypted. The statements above describe the boundary when this decision was
+written; they are not the current MLS storage behavior.
+
 I think yes, but on a different ground than the one it looks like: the refusal
 is not primarily protecting the seal, it is preventing this section's first paragraph
 — an app that re-enrolls on every launch, minting a directory entry and a

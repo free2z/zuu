@@ -502,6 +502,14 @@ async fn a_late_install_preserves_the_existing_seal_even_when_writes_fail() {
             }
             self.data.apply(ops)
         }
+        fn atomic_rewrite(
+            &self,
+            marker_key: &[u8],
+            marker_value: &[u8],
+            rewrite: &mut f2z_msg_store::RowRewrite<'_>,
+        ) -> Result<(), StoreError> {
+            self.data.atomic_rewrite(marker_key, marker_value, rewrite)
+        }
         fn durability(&self) -> Durability {
             self.data.durability()
         }

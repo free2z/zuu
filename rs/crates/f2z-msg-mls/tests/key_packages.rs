@@ -16,8 +16,6 @@
 )]
 
 use f2z_msg_mls::{CredentialError, EngineError, MlsEngine};
-use openmls::prelude::{GroupId, MlsGroup};
-use openmls_traits::OpenMlsProvider as _;
 
 mod common;
 use common::{NOW, device, directory_entry, issue_credential, with_revocation};
@@ -75,14 +73,21 @@ device unreachable for first contact. In particular, accepting a matching
 `device_pk` instead of the complete published credential would preserve the
 longer lifetime of a stale package after the owner replaced that credential.
 
-The reference implementation's safe first-party route makes this structural:
-`f2z_msg_mls::VerifiedKeyPackage` has no constructor but the verifying one, and
-`MlsEngine::add_member` takes that type instead of bytes. Its crate-level public
-API still exposes enough raw OpenMLS capabilities for an external caller to go
-around that wrapper; [#903](https://github.com/free2z/zuu/issues/903) tracks
-sealing that escape. This is an implementation status disclosure, not a
-weakening of the wire requirement: every client MUST perform all nine checks
-before proposing the Add."#;
+The reference implementation enforces this in its public API:
+`f2z_msg_mls::VerifiedKeyPackage` has no constructor but the verifying one,
+`MlsEngine::add_member` takes that type instead of bytes, and its opaque
+`GroupHandle` exposes no raw OpenMLS group. It also seals MLS storage keys and
+values before they reach a caller-owned backend and atomically migrates legacy
+OpenMLS rows plus its version and handled-delivery markers when opening the
+store, leaving the plugin's separate application records untouched. A retained
+backend clone reveals ciphertext, sizes, and access patterns, but cannot
+reconstruct a group while the caller holds only the opaque `DeviceSigner`. A
+caller that already holds the raw
+signing secret can derive the storage key and has broader authority; this API
+cannot constrain the owner of that secret. The migration checkpoints SQLite's
+WAL, but cannot erase a backup or database copy captured before upgrade. These
+are implementation guarantees, not a weakening of the wire requirement: every
+client MUST perform all nine checks before proposing the Add."#;
 
 const KEY_PACKAGE_EXHAUSTION_SECTION: &str = r#"When the pool is empty a relay serves the **package of last resort** — RFC 9420's
 `last_resort` KeyPackage extension — repeatedly, without deleting it.
@@ -147,15 +152,16 @@ const KEY_PACKAGE_EXHAUSTION_TEXT: &str = "12.6.6 Exhaustion, and the package of
 // contract; the exact §12.6 structure and prose are checked separately below.
 //
 // Because it covers the whole document, a paragraph edit anywhere trips it, and
-// that is the point: the pin moves only with a stated reason. #827 retires the
-// reserved synchronized queue-exporter schedule in §7.5 and keeps replacement
-// creation, publication, and overlap/drain unautomated. #1231 updates the
-// handle documentation. #1212 documents that `max_bytes` counts ciphertext
-// payload bytes while `max_frame_bytes` bounds the complete encoded response.
-// Those edits change rendered prose outside the key-package authentication
-// table. §12.6's exact structure and mutation-sensitive normative assertions
-// are checked independently below.
-const WIRE_RENDERED_PROSE_DIGEST: u64 = 15_075_292_404_267_714_683;
+// that is the point: the pin moves only with a stated reason. This branch
+// names the sealed storage and migration boundary under the authentication
+// table. #827 retires the reserved synchronized queue-exporter schedule in
+// §7.5 and keeps replacement creation, publication, and overlap/drain
+// unautomated. #1231 updates the handle documentation. #1212 documents that
+// `max_bytes` counts ciphertext payload bytes while `max_frame_bytes` bounds
+// the complete encoded response. Those edits change rendered prose outside
+// the key-package authentication table. §12.6's exact structure and
+// mutation-sensitive normative assertions are checked independently below.
+const WIRE_RENDERED_PROSE_DIGEST: u64 = 9_290_946_079_464_539_001;
 
 fn wire_rendered_prose_digest(rendered: &markdown::RenderedMarkdown) -> u64 {
     markdown::stable_digest(rendered.paragraphs())
@@ -688,7 +694,7 @@ fn a_mismatched_outer_group_id_rolls_back_and_the_correct_group_reloads() {
         .expect_err("the outer id must agree with the Welcome");
     assert!(matches!(error, EngineError::GroupIdMismatch));
     assert!(
-        MlsGroup::load(bob.provider().storage(), &GroupId::from_slice(actual_id))
+        bob.load_group(actual_id)
             .expect("load after refused join")
             .is_none(),
         "the failed join must roll back instead of leaving an orphan group"
@@ -697,10 +703,10 @@ fn a_mismatched_outer_group_id_rolls_back_and_the_correct_group_reloads() {
     let joined = bob
         .join_from_welcome_for_group_id(&welcome, NOW, actual_id)
         .expect("the rolled-back init key remains usable");
-    assert_eq!(joined.group_id().as_slice(), actual_id);
+    assert_eq!(joined.group_id(), actual_id);
     drop(joined);
     assert!(
-        MlsGroup::load(bob.provider().storage(), &GroupId::from_slice(actual_id))
+        bob.load_group(actual_id)
             .expect("restart-style reload")
             .is_some(),
         "a correctly keyed conversation must reload after the live group is dropped"

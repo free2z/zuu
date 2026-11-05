@@ -113,9 +113,10 @@ fn entry_for(credential: &DeviceCredential) -> DirectoryEntryTBS {
 
 /// Alice creates the group and adds Bob; Bob joins from the `Welcome`.
 ///
-/// A macro rather than a function so this crate does not have to declare
-/// `openmls` as a dependency merely to name `MlsGroup` in a return type. The
-/// engines and groups are two devices that share nothing but the byte strings
+/// A macro rather than a function so this crate need not spell out the group
+/// handle return types. It depends only on `f2z-msg-mls`'s opaque handle, not
+/// directly on OpenMLS. The engines and groups are two devices that share
+/// nothing but the byte strings
 /// a relay would carry — a `KeyPackage`, a `Welcome`, a commit, a
 /// `PrivateMessage` — which is what makes the assertions below about two
 /// parties rather than about one process talking to itself.
@@ -159,7 +160,7 @@ fn chat(parents: Parents, epoch: u64, body: &[u8]) -> AppMessage {
 #[test]
 fn a_repair_is_re_encrypted_under_the_current_epoch_and_is_not_a_replay() {
     paired!(alice, alice_group, bob, bob_group);
-    let original_epoch = alice_group.epoch().as_u64();
+    let original_epoch = alice_group.epoch();
 
     // Alice authors a message and keeps the plaintext against a repair request.
     let message = chat(Parents::empty(), original_epoch, b"the one that got lost");
@@ -175,7 +176,7 @@ fn a_repair_is_re_encrypted_under_the_current_epoch_and_is_not_a_replay() {
     let processed = bob
         .receive(&mut bob_group, &commit, b"commit-1", NOW)
         .unwrap();
-    let current_epoch = bob_group.epoch().as_u64();
+    let current_epoch = bob_group.epoch();
     assert_eq!(
         processed,
         Received::EpochChanged {
@@ -299,7 +300,7 @@ fn a_repair_is_re_encrypted_under_the_current_epoch_and_is_not_a_replay() {
 #[test]
 fn the_original_ciphertext_no_longer_decrypts_after_the_epoch_advanced() {
     paired!(alice, alice_group, bob, bob_group);
-    let epoch = alice_group.epoch().as_u64();
+    let epoch = alice_group.epoch();
 
     let message = chat(Parents::empty(), epoch, b"the one that got lost");
     let original_ciphertext = alice
@@ -320,7 +321,7 @@ fn the_original_ciphertext_no_longer_decrypts_after_the_epoch_advanced() {
 #[test]
 fn a_repaired_message_carries_its_original_msg_id_unchanged() {
     paired!(alice, alice_group, bob, bob_group);
-    let epoch = alice_group.epoch().as_u64();
+    let epoch = alice_group.epoch();
     let message = chat(Parents::empty(), epoch, b"stable identity");
     let bytes = message.encode().unwrap();
 
@@ -351,7 +352,7 @@ fn a_repaired_message_carries_its_original_msg_id_unchanged() {
 #[test]
 fn an_expired_outbox_window_produces_an_explicit_unrecoverable_state() {
     paired!(alice, alice_group, bob, bob_group);
-    let epoch = alice_group.epoch().as_u64();
+    let epoch = alice_group.epoch();
 
     let message = chat(Parents::empty(), epoch, b"gone forever");
     let mut outbox = PlaintextOutbox::new(5_000, 32);

@@ -4,7 +4,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 use f2z_msg_mls::MlsEngine;
 use f2z_msg_store::SqliteBackend;
-use openmls::prelude::{GroupId, MlsGroup};
 use std::{env, fs, path::PathBuf};
 mod common;
 use common::{NOW, directory_entry, issue_credential};
@@ -53,7 +52,8 @@ fn shipping_compatibility_peer() {
                 .expect("join");
         }
         "update" => {
-            let mut group = MlsGroup::load(engine.provider().store(), &GroupId::from_slice(GROUP))
+            let mut group = engine
+                .load_group(GROUP)
                 .expect("load")
                 .expect("persisted group");
             write("commit", &engine.update(&mut group).expect("update"));
@@ -65,7 +65,8 @@ fn shipping_compatibility_peer() {
             );
         }
         "receive" => {
-            let mut group = MlsGroup::load(engine.provider().store(), &GroupId::from_slice(GROUP))
+            let mut group = engine
+                .load_group(GROUP)
                 .expect("load")
                 .expect("persisted group");
             engine

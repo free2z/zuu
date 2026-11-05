@@ -47,7 +47,7 @@
 //! `openmls_sqlite_storage` is native by construction — `rusqlite`'s `bundled`
 //! feature links SQLite's C amalgamation — so a web client would need a second
 //! implementation of all 57 methods, and the second implementation is the one
-//! that ends up with the bug in it. [`StorageBackend`] is three methods with no
+//! that ends up with the bug in it. [`StorageBackend`] is four methods with no
 //! generics; an IndexedDB backend is a new type behind it.
 //!
 //! **3. The application namespace.** The durable "handled" record that makes an
@@ -74,7 +74,8 @@
 //! engine. They are implemented **once**, in [`storage_impl`], in the upstream
 //! trait's declaration order so a reviewer can diff them against
 //! `openmls_traits::storage` and against `openmls_memory_storage 0.6.0` side by
-//! side. The backend seam is three methods with no generics.
+//! side. The backend seam is four methods with no generics; atomic rewrite is
+//! reserved for storage-format migration.
 //!
 //! The seam exists now, before the browser needs it, because ADR 0001 requires
 //! one Rust core shared by ZUULI and the web client, and retrofitting a
@@ -158,7 +159,7 @@ mod provider;
 mod sqlite;
 mod storage_impl;
 
-pub use backend::{Durability, Op, StorageBackend};
+pub use backend::{Durability, Op, RowRewrite, StorageBackend};
 pub use error::{Result, StoreError};
 pub use memory::MemoryBackend;
 pub use provider::{F2zStorageProvider, Transaction};

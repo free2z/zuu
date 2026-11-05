@@ -49,10 +49,10 @@ pub enum EngineError {
     ///
     /// The handle passed to [`crate::MlsEngine::receive`] is unusable after
     /// this outcome and **must be discarded**. The caller may retry only after
-    /// loading a fresh [`openmls::prelude::MlsGroup`] from durable storage and
-    /// reapplying any ephemeral AAD it set on the discarded handle. Both errors
-    /// are retained so a recovery failure does not hide the operation that
-    /// made recovery necessary.
+    /// loading a fresh [`crate::GroupHandle`] through
+    /// [`crate::MlsEngine::load_group`] and reapplying any ephemeral AAD it set
+    /// on the discarded handle. Both errors are retained so a recovery failure
+    /// does not hide the operation that made recovery necessary.
     GroupStateUnavailable {
         /// The receive failure that caused the transaction to roll back.
         operation: Box<EngineError>,
