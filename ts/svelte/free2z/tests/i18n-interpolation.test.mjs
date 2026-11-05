@@ -337,3 +337,30 @@ test("currency, scaled assets and units preserve exact values and Intl semantics
     ]),
   );
 });
+
+test("billing number, percent and date display preserves prior Intl behavior", async () => {
+  const { formatDateTime } = await vite.ssrLoadModule("/src/lib/utils/date.ts");
+  for (const locale of ["en", "fr"]) {
+    for (const value of [0, -0, -1234.56789, 0.00000001, 9007199254740991]) {
+      for (const options of [
+        {},
+        { minimumFractionDigits: 0, maximumFractionDigits: 8 },
+        { minimumFractionDigits: 2, maximumFractionDigits: 9 },
+        { style: "percent" },
+      ]) {
+        assert.equal(
+          i18n.formatLocalizedNumber(value, locale, options),
+          value.toLocaleString(locale, options),
+        );
+      }
+    }
+    const value = "2026-10-11T18:55:00Z";
+    assert.equal(
+      formatDateTime(value, locale),
+      new Intl.DateTimeFormat(locale, {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(new Date(value)),
+    );
+  }
+});

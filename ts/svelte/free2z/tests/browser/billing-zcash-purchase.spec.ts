@@ -1653,3 +1653,29 @@ for (const held of ["capacity", "authentication"]) {
     await page.evaluate(() => (window as any).restoreWakeClock());
   });
 }
+
+test("billing estimate numbers and timestamps follow the selected UI locale", async ({
+  page,
+}) => {
+  await page.goto(`${billing}&lang=en`);
+  const estimate = page.getByTestId("zcash-price-estimate");
+  await expect(estimate).toContainText("Estimate buffer: 10%");
+  await expect(estimate).toContainText("ZEC ≈ $100");
+  const timestamp = estimate.locator("time");
+  await expect(timestamp).toHaveAttribute("datetime", "2026-10-11T18:55:00Z");
+  const englishTime = await timestamp.textContent();
+  await expect
+    .poll(async () => {
+      await page.getByRole("button", { name: /Language: English/i }).click();
+      return page.getByText("Français", { exact: true }).isVisible();
+    })
+    .toBe(true);
+  await page.getByText("Français", { exact: true }).click();
+  await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+  const frenchPercent = new Intl.NumberFormat("fr", {
+    style: "percent",
+  }).format(0.1);
+  await expect(estimate).toContainText(`Estimate buffer: ${frenchPercent}`);
+  await expect(timestamp).toHaveAttribute("datetime", "2026-10-11T18:55:00Z");
+  await expect(timestamp).not.toHaveText(englishTime ?? "");
+});

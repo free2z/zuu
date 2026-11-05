@@ -533,7 +533,9 @@
         Object.fromEntries(
           Object.entries(actionData.messageParams || {}).map(([key, value]) => [
             key,
-            typeof value === "number" ? value.toLocaleString($locale) : value,
+            typeof value === "number"
+              ? formatLocalizedNumber(value, $locale)
+              : value,
           ]),
         ),
       )
@@ -1097,7 +1099,7 @@
 
       <StatTile
         testId="billing-stat-subscriptions"
-        value={subscriptionsCount.toLocaleString($locale)}
+        value={formatLocalizedNumber(subscriptionsCount, $locale)}
         label={$t("dashboard.billing.subscriptions", "Subscriptions")}
       >
         <Repeat2 slot="icon" class="size-5 text-primary" />
@@ -1105,7 +1107,7 @@
 
       <StatTile
         testId="billing-stat-subscribers"
-        value={subscribersCount.toLocaleString($locale)}
+        value={formatLocalizedNumber(subscribersCount, $locale)}
         label={$t("dashboard.billing.subscribers", "Subscribers")}
       >
         <Users slot="icon" class="size-5 text-primary" />
@@ -1113,7 +1115,7 @@
 
       <StatTile
         testId="billing-stat-transactions"
-        value={transactionsCount.toLocaleString($locale)}
+        value={formatLocalizedNumber(transactionsCount, $locale)}
         label={$t("dashboard.billing.transactions", "Card purchases")}
       >
         <CreditCard slot="icon" class="size-5 text-primary" />
@@ -1307,8 +1309,10 @@
                         "{minimum} to {maximum} 2Z",
                         {
                           minimum: 1,
-                          maximum:
-                            MAX_CHECKOUT_QUANTITY.toLocaleString($locale),
+                          maximum: formatLocalizedNumber(
+                            MAX_CHECKOUT_QUANTITY,
+                            $locale,
+                          ),
                         },
                       )}
                     </p>
@@ -1320,7 +1324,7 @@
                         >{$t("dashboard.billing.credit", "2Z Credit")}</span
                       >
                       <span class="font-mono"
-                        >{quantity.toLocaleString($locale)} 2Z</span
+                        >{formatLocalizedNumber(quantity, $locale)} 2Z</span
                       >
                     </div>
                     <div class="flex justify-between text-sm">
@@ -1381,10 +1385,10 @@
                         "dashboard.billing.exactCardCredit",
                         "Stripe will charge this amount for {quantity} 2Z.",
                         {
-                          quantity:
-                            reviewedCheckout.quote.tuzis.toLocaleString(
-                              $locale,
-                            ),
+                          quantity: formatLocalizedNumber(
+                            reviewedCheckout.quote.tuzis,
+                            $locale,
+                          ),
                         },
                       )}
                     </p>
@@ -1479,7 +1483,7 @@
                       "dashboard.billing.zcash.approximately",
                       "Approximately {amount} ZEC",
                       {
-                        amount: zecAmount.toLocaleString($locale, {
+                        amount: formatLocalizedNumber(zecAmount, $locale, {
                           minimumFractionDigits: 0,
                           maximumFractionDigits: 8,
                         }),
@@ -1493,17 +1497,21 @@
                     <p>
                       Conservative estimated rate:
                       <span class="font-mono"
-                        >{Math.round(liveTuzisPerZec).toLocaleString($locale)} 2Z
-                        / ZEC</span
+                        >{formatLocalizedNumber(
+                          Math.round(liveTuzisPerZec),
+                          $locale,
+                        )} 2Z / ZEC</span
                       >
                     </p>
                     {#if livePricing && Number.isFinite(Number(livePricing.zec_usd)) && Number(livePricing.zec_usd) > 0}
                       <p>
                         {priceIsEstimate
                           ? "Reference market price"
-                          : "Current market price"}: ZEC ≈ ${Number(
-                          livePricing.zec_usd,
-                        ).toLocaleString($locale, { maximumFractionDigits: 2 })}
+                          : "Current market price"}: ZEC ≈ ${formatLocalizedNumber(
+                          Number(livePricing.zec_usd),
+                          $locale,
+                          { maximumFractionDigits: 2 },
+                        )}
                       </p>
                       {#if typeof livePricing.updated_at === "string" && Number.isFinite(Date.parse(livePricing.updated_at))}
                         <p>
@@ -1518,9 +1526,13 @@
                     {/if}
                     {#if Number.isFinite(estimateBuffer) && estimateBuffer >= 0 && estimateBuffer < 1}
                       <p>
-                        Estimate buffer: {new Intl.NumberFormat($locale, {
-                          style: "percent",
-                        }).format(estimateBuffer)}.
+                        Estimate buffer: {formatLocalizedNumber(
+                          estimateBuffer,
+                          $locale,
+                          {
+                            style: "percent",
+                          },
+                        )}.
                       </p>
                     {/if}
                     {#if Number.isFinite(settlementSpread) && settlementSpread >= 0 && settlementSpread < 1}
@@ -1531,9 +1543,13 @@
                         </p>
                       {:else}
                         <p>
-                          Settlement spread: {new Intl.NumberFormat($locale, {
-                            style: "percent",
-                          }).format(settlementSpread)}.
+                          Settlement spread: {formatLocalizedNumber(
+                            settlementSpread,
+                            $locale,
+                            {
+                              style: "percent",
+                            },
+                          )}.
                         </p>
                       {/if}
                     {/if}
@@ -1628,15 +1644,17 @@
                         {formatUsageMilli(
                           zcashPolicy.zec_funding_capacity.remaining_m2z,
                           $locale,
-                        )} in credits and ${(
+                        )} in credits and ${formatLocalizedNumber(
                           Number(
                             zcashPolicy.zec_funding_capacity
                               .remaining_sale_nusd,
-                          ) / 1_000_000_000
-                        ).toLocaleString($locale, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 9,
-                        })} USD in purchase value remain.
+                          ) / 1_000_000_000,
+                          $locale,
+                          {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 9,
+                          },
+                        )} USD in purchase value remain.
                       </p>
                       {#if zcashCapacityExhausted}
                         <p role="alert" class="text-destructive">
@@ -1657,13 +1675,15 @@
                             )}.
                           </p>{/if}
                         {#if capacityPreview.exceeds_sale_limit}<p>
-                            Current-rate purchase value: ${(
+                            Current-rate purchase value: ${formatLocalizedNumber(
                               Number(capacityPreview.projected_sale_nusd) /
-                              1_000_000_000
-                            ).toLocaleString($locale, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 9,
-                            })} USD.
+                                1_000_000_000,
+                              $locale,
+                              {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 9,
+                              },
+                            )} USD.
                           </p>{/if}
                       {/if}
                       <p>
@@ -2343,8 +2363,11 @@
                         "dashboard.billing.pagination",
                         "Page {current} of {total}",
                         {
-                          current: subscriptionsPage.toLocaleString($locale),
-                          total: subTotalPages.toLocaleString($locale),
+                          current: formatLocalizedNumber(
+                            subscriptionsPage,
+                            $locale,
+                          ),
+                          total: formatLocalizedNumber(subTotalPages, $locale),
                         },
                       )}</span
                     >
@@ -2536,7 +2559,7 @@
                           <span class="font-mono font-medium text-foreground"
                             >{maxPrice === null
                               ? "—"
-                              : `${maxPrice.toLocaleString($locale)} 2Z`}</span
+                              : `${formatLocalizedNumber(maxPrice, $locale)} 2Z`}</span
                           >
                         </div>
                         <!-- Fails closed exactly like the fan card: an
@@ -2597,8 +2620,11 @@
                         "dashboard.billing.pagination",
                         "Page {current} of {total}",
                         {
-                          current: subscribersPage.toLocaleString($locale),
-                          total: fanTotalPages.toLocaleString($locale),
+                          current: formatLocalizedNumber(
+                            subscribersPage,
+                            $locale,
+                          ),
+                          total: formatLocalizedNumber(fanTotalPages, $locale),
                         },
                       )}</span
                     >
@@ -2755,8 +2781,11 @@
                         "dashboard.billing.pagination",
                         "Page {current} of {total}",
                         {
-                          current: transactionsPage.toLocaleString($locale),
-                          total: txTotalPages.toLocaleString($locale),
+                          current: formatLocalizedNumber(
+                            transactionsPage,
+                            $locale,
+                          ),
+                          total: formatLocalizedNumber(txTotalPages, $locale),
                         },
                       )}</span
                     >
