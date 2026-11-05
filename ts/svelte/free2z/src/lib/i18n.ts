@@ -94,6 +94,8 @@ function getTranslation(
   key: string,
   currentLocale: string = DEFAULT_LOCALE,
   params?: TranslationParams,
+  catalogs: Record<string, unknown> = translations,
+  icuKeys: readonly string[] = ICU_MESSAGE_KEYS,
 ): string | undefined {
   const requestedLocale = normalizeLocale(
     currentLocale,
@@ -107,12 +109,9 @@ function getTranslation(
 
   for (const sourceLocale of [resolvedLocale, DEFAULT_LOCALE] as const) {
     for (const candidateKey of candidateKeys) {
-      const result = lookupTranslation(
-        translations[sourceLocale],
-        candidateKey,
-      );
+      const result = lookupTranslation(catalogs[sourceLocale], candidateKey);
       if (result !== undefined) {
-        if ((ICU_MESSAGE_KEYS as readonly string[]).includes(candidateKey)) {
+        if (icuKeys.includes(candidateKey)) {
           try {
             return formatIcuMessage(result, sourceLocale, params);
           } catch (error) {
@@ -120,7 +119,7 @@ function getTranslation(
               `Invalid ICU message ${candidateKey} (${sourceLocale})`,
               error,
             );
-            return result;
+            continue;
           }
         }
         return interpolate(result, params);
@@ -226,6 +225,21 @@ export function isSingularCount(
     new Intl.PluralRules(
       resolveSupportedLocale(requestedLocale) ?? defaultLocale,
     ).select(value) === "one"
+  );
+}
+
+// The same resolution path can be exercised with isolated catalogs in tests.
+export function translateWithCatalogs(
+  catalogs: Record<string, unknown>,
+  icuKeys: readonly string[],
+  currentLocale: SupportedLocale,
+  key: string,
+  fallback?: string,
+  params?: TranslationParams,
+): string {
+  return (
+    getTranslation(key, currentLocale, params, catalogs, icuKeys) ??
+    interpolate(fallback || key, params)
   );
 }
 

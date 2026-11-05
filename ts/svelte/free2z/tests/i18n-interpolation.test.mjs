@@ -109,3 +109,81 @@ test("ICU migrated keys retain shipped output and source fallback is distinct fr
     "missing.translation",
   );
 });
+
+test("catalog resolution falls back to English and handles malformed ICU safely", () => {
+  const catalogs = { en: { sample: "Hello {name}" }, fr: {} };
+  assert.equal(
+    i18n.translateWithCatalogs(catalogs, ["sample"], "fr", "sample", "unused", {
+      name: "Ada",
+    }),
+    "Hello Ada",
+  );
+  catalogs.fr.sample = "{count, plural, one {broken}}";
+  const original = console.error;
+  const errors = [];
+  console.error = (...args) => errors.push(args);
+  try {
+    assert.equal(
+      i18n.translateWithCatalogs(
+        catalogs,
+        ["sample"],
+        "fr",
+        "sample",
+        "unused",
+        { name: "Ada" },
+      ),
+      "Hello Ada",
+    );
+    assert.equal(
+      i18n.translateWithCatalogs(
+        { en: { sample: "{n, plural, one {bad}}" } },
+        ["sample"],
+        "en",
+        "sample",
+        "It's {name} {unknown}",
+        { name: "Ada" },
+      ),
+      "It's Ada {unknown}",
+    );
+    assert.equal(
+      i18n.translateWithCatalogs(
+        { en: { sample: "{name}" } },
+        ["sample"],
+        "en",
+        "sample",
+        "Missing {name}",
+        {},
+      ),
+      "Missing {name}",
+    );
+    assert.ok(errors.length >= 3);
+  } finally {
+    console.error = original;
+  }
+});
+
+test("production adapter observes concurrent request locales", async () => {
+  const { withRequestLocale } = await vite.ssrLoadModule(
+    "/src/lib/server/request-locale.js",
+  );
+  const catalogs = {
+    en: { sample: "{n, plural, one {one} other {# items}}" },
+    fr: { sample: "{n, plural, one {un} other {# articles}}" },
+  };
+  const run = (locale) =>
+    withRequestLocale(locale, async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      return i18n.translateWithCatalogs(
+        catalogs,
+        ["sample"],
+        i18n.getCurrentLocale(),
+        "sample",
+        "",
+        { n: 2 },
+      );
+    });
+  assert.deepEqual(await Promise.all([run("en"), run("fr")]), [
+    "2 items",
+    "2 articles",
+  ]);
+});

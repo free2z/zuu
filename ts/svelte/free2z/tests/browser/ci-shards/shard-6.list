@@ -21,3 +21,4 @@ zpage-hero.spec.ts › a crawler with no JavaScript › the pending wide cover s
 zpage-hero.spec.ts › a crawler with no JavaScript › the pending wide cover shows all four edges without JavaScript at 390px
 zpage-hero.spec.ts › a subscriber-only zPage keeps its hero and withholds its body
 zpage-hero.spec.ts › expanding the outline re-measures the reading progress
+icu-render.spec.ts
