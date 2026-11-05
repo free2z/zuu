@@ -1,0 +1,224 @@
+{
+  "navigation.home": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "3a78695388b38b5cceefaf6796b0137877514593543b91af2752d5a17e3d736c",
+    "translationHash": "e04d24c52b3d2893ac140c8aa2f0a0d678d8114d421a1cbbd34da154bee23ec5"
+  },
+  "navigation.explore": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "3b73900b8d29f963dece78edd4bd9529d855e50f2a3fcc39b3d66cd657630905",
+    "translationHash": "5e22d3ddd13bdd53d31d217420798c9193d0e2ea28f98efe40c9662e846c3872"
+  },
+  "navigation.create": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "4759498ac2a719c619e2c8cf8ee60af2d2407425e95d308eb208425b2a6d427a",
+    "translationHash": "5ca419548155adf202543d8d3663a633bf3ad721864ef1db8f11d6cea575cb15"
+  },
+  "navigation.signIn": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "bcc0bcc9140b0c97a6440ce56966a07a05e85bddd509ddc5e2ab98755f319af1",
+    "translationHash": "a329a32263a460ff8d4bdf4640fd793b5dd91c99362e0ab4fb061d56883b098f"
+  },
+  "navigation.signUp": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "47de23586e49d83300bafc4feec21bfc1483d728d12bb000e99c31283206f2ce",
+    "translationHash": "3badc984343995c1dd43666c14b90248da9861e2b4cf95b27ca1ea8834c21246"
+  },
+  "navigation.menu": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "99af6606ff9d6cd5154d4d4e9c21e325086d3e904677cdb41d363c8a3480f862",
+    "translationHash": "49cf4bf53ae3f572fbd13e78a7f247fccdb45c1d11618bad00176fbf7c28d4e7"
+  },
+  "navigation.preferences": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "66962f72a08883733c35df6f82a049b929f9579f19c4bc083ac99bead602eab3",
+    "translationHash": "f5750a5d7231e1f74f898c956d7d29749a7a893174ef81349d42dd785dcac7a1"
+  },
+  "auth.welcome": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "b8899a2d8950979bd2ac0e1ac52f36241ce3d22808227dc1c98c80568f0c5748",
+    "translationHash": "b3205c22023078698e7fea2ebc2b9ba289feb437e56c084fc8953ce9aeb63a69"
+  },
+  "auth.loginDescription": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "87be1d75d43627adb37136ea01237a838f0e3c62c79d97e170a6384dafd448c7",
+    "translationHash": "7215952b6036cb50fae99dbe559dd43a7b247d2f7136fa30fce56e6d7ed8b045"
+  },
+  "auth.username": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "e3b89e9d33f88e523083d8b4436adcc3726c89e97fd3179a2e102d765d1b16ed",
+    "translationHash": "fc309e30dbbe8a435efbdd0b7e382595932509ed56f140aa1759256b00485a18"
+  },
+  "auth.password": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "e7cf3ef4f17c3999a94f2c6f612e8a888e5b1026878e4e19398b23bd38ec221a",
+    "translationHash": "a36c101570cc4410993de5385ad7034adb2dae6a05139ac7672577803084634d"
+  },
+  "auth.email": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "969ccbd3cf6300ecd5c880459d81ae9027df7517563184a1b8b15282db230621",
+    "translationHash": "c2f9765ad5cefe3a48b0672e4545f21f481d381bbd266da62d675a455c1c96fd"
+  },
+  "auth.signIn": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "bcc0bcc9140b0c97a6440ce56966a07a05e85bddd509ddc5e2ab98755f319af1",
+    "translationHash": "a329a32263a460ff8d4bdf4640fd793b5dd91c99362e0ab4fb061d56883b098f"
+  },
+  "auth.signUp": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "5e2b8e96503d722e7ebf61b9bc3e9988e1ec7fd4eabcf25a52577f845125b31e",
+    "translationHash": "3badc984343995c1dd43666c14b90248da9861e2b4cf95b27ca1ea8834c21246"
+  },
+  "auth.forgotPassword": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "afd25fdf17c7f534649b98afa8673ef6c78d83355950192912a5cadcbd56eb39",
+    "translationHash": "78ef93e2ec179872f882f545863993744d0a4536bee163d4b203b7ba268d5a3a"
+  },
+  "auth.signInToContinue": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "ecbd45b6cea47db3a44ba40f3d4d43c09dd003150b65624db51cfeb118187608",
+    "translationHash": "658718513bdf86955338cc2d0d93e0fd449b776d24217cc9bca5bb92000fc67c"
+  },
+  "auth.privacyPolicy": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "506ff394621596dd88138642eddfc1e41833b3ae92d95e5c77c94327098abd9a",
+    "translationHash": "a1235efbc18d60e2359b3257cd79769df0b2fd2f7bb5683e73495bbef69b3282"
+  },
+  "auth.settings": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "74a883a037bc227f91891ab654a753d3a99f31ab06ae5b5d2b6e594a692b41f8",
+    "translationHash": "f5750a5d7231e1f74f898c956d7d29749a7a893174ef81349d42dd785dcac7a1"
+  },
+  "auth.billing": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "2a6b24ad287220345e96eb8021fe29d42b0785766c8df658827e7251da2d36dc",
+    "translationHash": "9417d8121e5755c0e3b177847ce147a35cf27c55a1e4e2cd0ec4a4bba60b8383"
+  },
+  "auth.logout": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "49616145514e9abf1fc47d631fccccff2ed974cc260d38848181a07e0fa9972f",
+    "translationHash": "545f8be33bf06a1cb6eaa138814f3530c78354caf5f2edcec690c2cf8f9251bc"
+  },
+  "editor.title": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "57afe2bdf95bb6fa18df905b1cde3201b463624f8ac0c81e0d3ed809c4989ef7",
+    "translationHash": "8c5cbce0938032d7168dbca9a1490119c7892c89750496911b4f945bd2633beb"
+  },
+  "editor.save": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "1509f561f2416598629b886ad7d3c05a7e221e4e0675c84bbff4ee6d9e03913d",
+    "translationHash": "f6b2ff39f540eb8164628b1f1a838aea1eb673394253fa603d8935297eaaf36e"
+  },
+  "editor.preview": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "324b134f57c70c729ae3dc4d298bb451656717d70523e942c1ce667b8024ea07",
+    "translationHash": "69337f6de91475ad7699c35bb9dfc6ea0222306147de428c7e0f7132139fd027"
+  },
+  "editor.unsaved": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "a710c2b90913b5375ca6ac865341e49dd6daa42f6d95182e6ed1a7b1b650ff4c",
+    "translationHash": "77f120b20528a4bf2c79ae0e7dda279bd7e34287f087dc64b5ca1b59c1cb3fc7"
+  },
+  "editor.deletePageConfirm": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "280b10c89cc41d57a7524b447e4c510949a5b0b07d88670d602a0513e1e7ad61",
+    "translationHash": "6c1fd39216fe7e8096a2c3ceb482a43dba5ff282d4912bd0c0d94b4656d6a304"
+  },
+  "dashboard.billing.balance": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "fbc841b791a14110e06a9913d3d69153b9cc4cf9542b856821b357a09a7c08a4",
+    "translationHash": "f79487c248eb7599700f4bab0b2e6fa1c8ed9875e8bfda836ae0d4deedc4628b"
+  },
+  "dashboard.billing.description": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "3da6512f05e6df2d9046a18adec7eb7a2475d43f37f6afdbc8aea9c5f78ea3cc",
+    "translationHash": "fa101311f1c0488dc81f16a7b29cdc1be38fa32a9afe762a4ac3688464a2b2be"
+  },
+  "settings.account.appearance": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "3907fa7f80722a6fc58cd8c1bd30abf7638095d6774f183b6e831b7093957d1b",
+    "translationHash": "1da7a3b4eea2f86e3d8f5970042197338aa903ce46aeb349b27723bf7cc472d2"
+  },
+  "settings.account.deleteAccount": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "a2e20a33570001ae083b4667b54c433a7246897eba226b258a680cf46089c0b0",
+    "translationHash": "205096fdbbc32155c640a5a5b0dfa6955f3f6b9a537f806d2988ed46455f4104"
+  },
+  "settings.account.deleteAccountDescription": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "6e2f6ed63080a43a6b8609243a179de34addb3ebef2b59e761da9122585ec8d4",
+    "translationHash": "8f1e5fd8eb01c97e328050693edafcbb6390e9d3e4233dfec798d32ad1579979"
+  },
+  "privacy.embedWarningShort": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "0074f289f015aac0f6358773be1ed13ee8394b760e62363f4372ba8652197433",
+    "translationHash": "10a4279d05adceca22c9a2934833aa382877e4d7e2ef2dd3912cf493b4cc0349"
+  },
+  "privacy.loadOnce": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "b34bb8a7866c18eb042282c5ea554746b3560c7f59400b576c2a07bc45e2cd04",
+    "translationHash": "30db96481232ed418c82e44e93b68c70a80f1623407051c9e38365b0d4eaa0ec"
+  },
+  "account.delete.title": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "6146040b259fa071ae9ad0edc3639a4a508221a9c075dfdb65b61f6236a2bb33",
+    "translationHash": "b2d4685397f670c8603900428031b1e1341097aee88bbdbbdd5024b4617aaab5"
+  },
+  "account.delete.content": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "d2b3c8d2ff8095cffe0d2c0176bc5fe5152068f16b7d8e23df62538970310105",
+    "translationHash": "62b9f1b4ed662747b50824e8ca883717286ace18384bf193e85fa21aa981aed9"
+  },
+  "account.delete.submit": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "a2e20a33570001ae083b4667b54c433a7246897eba226b258a680cf46089c0b0",
+    "translationHash": "205096fdbbc32155c640a5a5b0dfa6955f3f6b9a537f806d2988ed46455f4104"
+  },
+  "common.cancel": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "19766ed6ccb2f4a32778eed80d1928d2c87a18d7c275ccb163ec6709d3eb2e27",
+    "translationHash": "f7ff1178af202f6ffb67b9572c3fcf88059d030657e6e07447123f4e48c78e50"
+  },
+  "common.close": {
+    "status": "draft",
+    "provenance": "Local model-produced draft; human review pending",
+    "sourceHash": "7d9eb7acb13e24625c404401d8e88b2350e32162455885f18276cf802f7701ed",
+    "translationHash": "b808f6e97075772fe36de2ee4ea0eb310550f84baa9ea8aa88314f21e467616d"
+  }
+}

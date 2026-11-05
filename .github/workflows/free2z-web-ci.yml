@@ -255,9 +255,13 @@ jobs:
         run: |
           npm run build
           node scripts/check-locale-budgets.mjs
-          PLAYWRIGHT_PRODUCTION=1 npm run test:browser -- tests/browser/locale-built-runtime.spec.ts
+          node scripts/check-pilot-production.mjs
+          PLAYWRIGHT_PRODUCTION=1 npm run test:browser -- tests/browser/locale-built-runtime.spec.ts tests/browser/pilot-production.spec.ts
           PRIVATE_DISABLED_UI_LOCALES=fr PLAYWRIGHT_PRODUCTION=1 npm run test:browser -- tests/browser/locale-disabled.spec.ts
           PRIVATE_DISABLED_UI_LOCALES=en PLAYWRIGHT_PRODUCTION=1 npm run test:browser -- tests/browser/locale-disabled.spec.ts
+      - name: Verify test-only pilot drafts
+        if: matrix.shard == 6
+        run: FREE2Z_PILOT_TEST=1 npm run test:browser -- tests/browser/pilot-locales.spec.ts
       - name: Verify pseudo-localized UI
         if: matrix.shard == 6
         run: FREE2Z_PSEUDO_TEST=1 npm run test:browser -- tests/browser/pseudo-locales.spec.ts

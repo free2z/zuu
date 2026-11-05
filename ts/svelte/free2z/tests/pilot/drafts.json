@@ -1,0 +1,225 @@
+{
+  "navigation.home": [
+    "الرئيسية",
+    "Strona główna",
+    "ホーム",
+    "मुखपृष्ठ",
+    "Startseite"
+  ],
+  "navigation.explore": ["استكشف", "Odkrywaj", "探す", "खोजें", "Entdecken"],
+  "navigation.create": ["إنشاء", "Utwórz", "作成", "बनाएँ", "Erstellen"],
+  "navigation.signIn": [
+    "تسجيل الدخول",
+    "Zaloguj się",
+    "ログイン",
+    "साइन इन",
+    "Anmelden"
+  ],
+  "navigation.signUp": [
+    "إنشاء حساب",
+    "Zarejestruj się",
+    "新規登録",
+    "खाता बनाएँ",
+    "Registrieren"
+  ],
+  "navigation.menu": [
+    "القائمة",
+    "Menu nawigacji",
+    "メニュー",
+    "मेनू",
+    "Navigationsmenü"
+  ],
+  "navigation.preferences": [
+    "التفضيلات",
+    "Preferencje",
+    "設定",
+    "प्राथमिकताएँ",
+    "Einstellungen"
+  ],
+  "auth.welcome": [
+    "مرحبًا بك في Free2Z",
+    "Witamy w Free2Z",
+    "Free2Zへようこそ",
+    "Free2Z में आपका स्वागत है",
+    "Willkommen bei Free2Z"
+  ],
+  "auth.loginDescription": [
+    "سجّل الدخول إلى حسابك أو أنشئ حسابًا جديدًا",
+    "Zaloguj się na swoje konto lub utwórz nowe",
+    "アカウントにログインするか、新規作成してください",
+    "अपने खाते में साइन इन करें या नया खाता बनाएँ",
+    "Melde dich an oder erstelle ein neues Konto"
+  ],
+  "auth.username": [
+    "اسم المستخدم",
+    "Nazwa użytkownika",
+    "ユーザー名",
+    "उपयोगकर्ता नाम",
+    "Benutzername"
+  ],
+  "auth.password": [
+    "كلمة المرور",
+    "Hasło",
+    "パスワード",
+    "पासवर्ड",
+    "Passwort"
+  ],
+  "auth.email": [
+    "البريد الإلكتروني",
+    "Adres e-mail",
+    "メールアドレス",
+    "ईमेल",
+    "E-Mail-Adresse"
+  ],
+  "auth.signIn": [
+    "تسجيل الدخول",
+    "Zaloguj się",
+    "ログイン",
+    "साइन इन",
+    "Anmelden"
+  ],
+  "auth.signUp": [
+    "إنشاء حساب",
+    "Zarejestruj się",
+    "新規登録",
+    "खाता बनाएँ",
+    "Registrieren"
+  ],
+  "auth.forgotPassword": [
+    "هل نسيت كلمة المرور؟",
+    "Nie pamiętasz hasła?",
+    "パスワードをお忘れですか？",
+    "पासवर्ड भूल गए?",
+    "Passwort vergessen?"
+  ],
+  "auth.signInToContinue": [
+    "يرجى تسجيل الدخول للمتابعة.",
+    "Zaloguj się, aby kontynuować.",
+    "続行するにはログインしてください。",
+    "जारी रखने के लिए साइन इन करें।",
+    "Bitte melde dich an, um fortzufahren."
+  ],
+  "auth.privacyPolicy": [
+    "سياسة الخصوصية",
+    "Polityka prywatności",
+    "プライバシーポリシー",
+    "गोपनीयता नीति",
+    "Datenschutzerklärung"
+  ],
+  "auth.settings": [
+    "الإعدادات",
+    "Ustawienia",
+    "設定",
+    "सेटिंग",
+    "Einstellungen"
+  ],
+  "auth.billing": ["الرصيد", "Środki", "クレジット", "क्रेडिट", "Guthaben"],
+  "auth.logout": [
+    "تسجيل الخروج",
+    "Wyloguj się",
+    "ログアウト",
+    "साइन आउट",
+    "Abmelden"
+  ],
+  "editor.title": [
+    "كتابة مقال",
+    "Napisz artykuł",
+    "記事を書く",
+    "लेख लिखें",
+    "Artikel schreiben"
+  ],
+  "editor.save": ["حفظ", "Zapisz", "保存", "सहेजें", "Speichern"],
+  "editor.preview": [
+    "معاينة",
+    "Podgląd",
+    "プレビュー",
+    "पूर्वावलोकन",
+    "Vorschau"
+  ],
+  "editor.unsaved": [
+    "تغييرات غير محفوظة",
+    "Niezapisane zmiany",
+    "未保存の変更",
+    "बिना सहेजे बदलाव",
+    "Ungespeicherte Änderungen"
+  ],
+  "editor.deletePageConfirm": [
+    "حذف نهائي",
+    "Usuń trwale",
+    "完全に削除",
+    "हमेशा के लिए मिटाएँ",
+    "Endgültig löschen"
+  ],
+  "dashboard.billing.balance": [
+    "رصيد الاستخدام",
+    "Środki na korzystanie",
+    "利用クレジット",
+    "उपयोग क्रेडिट",
+    "Nutzungsguthaben"
+  ],
+  "dashboard.billing.description": [
+    "إدارة الرصيد وأرباح المنشئ والاشتراكات.",
+    "Zarządzaj środkami, zarobkami twórcy i subskrypcjami.",
+    "クレジット、クリエイター収益、サブスクリプションを管理します。",
+    "अपने क्रेडिट, निर्माता की आय और सदस्यताएँ प्रबंधित करें।",
+    "Verwalte dein Guthaben, deine Creator-Einnahmen und Abonnements."
+  ],
+  "settings.account.appearance": [
+    "المظهر",
+    "Wygląd",
+    "外観",
+    "दिखावट",
+    "Darstellung"
+  ],
+  "settings.account.deleteAccount": [
+    "حذف الحساب",
+    "Usuń konto",
+    "アカウントを削除",
+    "खाता मिटाएँ",
+    "Konto löschen"
+  ],
+  "settings.account.deleteAccountDescription": [
+    "احذف هذا الحساب نهائيًا وسجّل الخروج من جميع الأجهزة.",
+    "Trwale usuń to konto i wyloguj się na wszystkich urządzeniach.",
+    "このアカウントを完全に削除し、すべての端末からログアウトします。",
+    "इस खाते को हमेशा के लिए मिटाएँ और सभी उपकरणों से साइन आउट करें।",
+    "Lösche dieses Konto dauerhaft und melde dich auf allen Geräten ab."
+  ],
+  "privacy.embedWarningShort": [
+    "قد يؤدي تحميل هذا المحتوى إلى مشاركة عنوان IP وتفاصيل المتصفح مع المزوّد.",
+    "Wczytanie tej treści może udostępnić dostawcy Twój adres IP i dane przeglądarki.",
+    "この埋め込みを読み込むと、IPアドレスやブラウザー情報が提供元に共有される場合があります。",
+    "यह सामग्री लोड करने पर आपका IP पता और ब्राउज़र विवरण प्रदाता के साथ साझा हो सकता है।",
+    "Beim Laden dieser Einbettung können deine IP-Adresse und Browserdaten an den Anbieter übertragen werden."
+  ],
+  "privacy.loadOnce": [
+    "تحميل مرة واحدة",
+    "Wczytaj raz",
+    "今回のみ読み込む",
+    "एक बार लोड करें",
+    "Einmal laden"
+  ],
+  "account.delete.title": [
+    "حذف حسابك في Free2Z",
+    "Usuń swoje konto Free2Z",
+    "Free2Zアカウントを削除",
+    "अपना Free2Z खाता मिटाएँ",
+    "Dein Free2Z-Konto löschen"
+  ],
+  "account.delete.content": [
+    "سيتم حذف صفحاتك ومنشوراتك وملفاتك المرفوعة.",
+    "Twoje strony, wpisy i przesłane pliki zostaną usunięte.",
+    "ページ、投稿、アップロードしたファイルが削除されます。",
+    "आपके पेज, पोस्ट और अपलोड मिटा दिए जाएँगे।",
+    "Deine Seiten, Beiträge und hochgeladenen Dateien werden gelöscht."
+  ],
+  "account.delete.submit": [
+    "حذف الحساب",
+    "Usuń konto",
+    "アカウントを削除",
+    "खाता मिटाएँ",
+    "Konto löschen"
+  ],
+  "common.cancel": ["إلغاء", "Anuluj", "キャンセル", "रद्द करें", "Abbrechen"],
+  "common.close": ["إغلاق", "Zamknij", "閉じる", "बंद करें", "Schließen"]
+}

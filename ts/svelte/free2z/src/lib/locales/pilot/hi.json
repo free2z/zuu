@@ -1,0 +1,61 @@
+{
+  "navigation": {
+    "home": "मुखपृष्ठ",
+    "explore": "खोजें",
+    "create": "बनाएँ",
+    "signIn": "साइन इन",
+    "signUp": "खाता बनाएँ",
+    "menu": "मेनू",
+    "preferences": "प्राथमिकताएँ"
+  },
+  "auth": {
+    "welcome": "Free2Z में आपका स्वागत है",
+    "loginDescription": "अपने खाते में साइन इन करें या नया खाता बनाएँ",
+    "username": "उपयोगकर्ता नाम",
+    "password": "पासवर्ड",
+    "email": "ईमेल",
+    "signIn": "साइन इन",
+    "signUp": "खाता बनाएँ",
+    "forgotPassword": "पासवर्ड भूल गए?",
+    "signInToContinue": "जारी रखने के लिए साइन इन करें।",
+    "privacyPolicy": "गोपनीयता नीति",
+    "settings": "सेटिंग",
+    "billing": "क्रेडिट",
+    "logout": "साइन आउट"
+  },
+  "editor": {
+    "title": "लेख लिखें",
+    "save": "सहेजें",
+    "preview": "पूर्वावलोकन",
+    "unsaved": "बिना सहेजे बदलाव",
+    "deletePageConfirm": "हमेशा के लिए मिटाएँ"
+  },
+  "dashboard": {
+    "billing": {
+      "balance": "उपयोग क्रेडिट",
+      "description": "अपने क्रेडिट, निर्माता की आय और सदस्यताएँ प्रबंधित करें।"
+    }
+  },
+  "settings": {
+    "account": {
+      "appearance": "दिखावट",
+      "deleteAccount": "खाता मिटाएँ",
+      "deleteAccountDescription": "इस खाते को हमेशा के लिए मिटाएँ और सभी उपकरणों से साइन आउट करें।"
+    }
+  },
+  "privacy": {
+    "embedWarningShort": "यह सामग्री लोड करने पर आपका IP पता और ब्राउज़र विवरण प्रदाता के साथ साझा हो सकता है।",
+    "loadOnce": "एक बार लोड करें"
+  },
+  "account": {
+    "delete": {
+      "title": "अपना Free2Z खाता मिटाएँ",
+      "content": "आपके पेज, पोस्ट और अपलोड मिटा दिए जाएँगे।",
+      "submit": "खाता मिटाएँ"
+    }
+  },
+  "common": {
+    "cancel": "रद्द करें",
+    "close": "बंद करें"
+  }
+}

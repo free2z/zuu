@@ -1,6 +1,6 @@
 export const DEFAULT_LOCALE = "en";
-// Availability describes the existing shipped UI, not translation review approval.
-/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "stable" | "beta" | "disabled" | "test"}[]} */
+// Availability controls exposure; it does not itself establish review approval.
+/** @type {readonly {code: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB" | "ar" | "pl" | "ja" | "hi" | "de", label: string, script: string, direction: "ltr" | "rtl", formattingLocale: string, fallback: string | null, availability: "stable" | "beta" | "disabled" | "test"}[]} */
 export const LOCALE_REGISTRY = Object.freeze([
   {
     code: "en",
@@ -38,6 +38,55 @@ export const LOCALE_REGISTRY = Object.freeze([
     fallback: "en",
     availability: "beta",
   },
+  ...(typeof __PILOT_LOCALES__ !== "undefined" && __PILOT_LOCALES__
+    ? /** @type {const} */ ([
+        {
+          code: "ar",
+          label: "العربية (draft)",
+          script: "Arab",
+          direction: "rtl",
+          formattingLocale: "ar",
+          fallback: "en",
+          availability: "test",
+        },
+        {
+          code: "pl",
+          label: "Polski (draft)",
+          script: "Latn",
+          direction: "ltr",
+          formattingLocale: "pl",
+          fallback: "en",
+          availability: "test",
+        },
+        {
+          code: "ja",
+          label: "日本語 (draft)",
+          script: "Jpan",
+          direction: "ltr",
+          formattingLocale: "ja",
+          fallback: "en",
+          availability: "test",
+        },
+        {
+          code: "hi",
+          label: "हिन्दी (draft)",
+          script: "Deva",
+          direction: "ltr",
+          formattingLocale: "hi",
+          fallback: "en",
+          availability: "test",
+        },
+        {
+          code: "de",
+          label: "Deutsch (draft)",
+          script: "Latn",
+          direction: "ltr",
+          formattingLocale: "de",
+          fallback: "en",
+          availability: "test",
+        },
+      ])
+    : []),
   ...(typeof __PSEUDO_LOCALES__ !== "undefined" && __PSEUDO_LOCALES__
     ? /** @type {const} */ ([
         {

@@ -1,0 +1,61 @@
+{
+  "navigation": {
+    "home": "الرئيسية",
+    "explore": "استكشف",
+    "create": "إنشاء",
+    "signIn": "تسجيل الدخول",
+    "signUp": "إنشاء حساب",
+    "menu": "القائمة",
+    "preferences": "التفضيلات"
+  },
+  "auth": {
+    "welcome": "مرحبًا بك في Free2Z",
+    "loginDescription": "سجّل الدخول إلى حسابك أو أنشئ حسابًا جديدًا",
+    "username": "اسم المستخدم",
+    "password": "كلمة المرور",
+    "email": "البريد الإلكتروني",
+    "signIn": "تسجيل الدخول",
+    "signUp": "إنشاء حساب",
+    "forgotPassword": "هل نسيت كلمة المرور؟",
+    "signInToContinue": "يرجى تسجيل الدخول للمتابعة.",
+    "privacyPolicy": "سياسة الخصوصية",
+    "settings": "الإعدادات",
+    "billing": "الرصيد",
+    "logout": "تسجيل الخروج"
+  },
+  "editor": {
+    "title": "كتابة مقال",
+    "save": "حفظ",
+    "preview": "معاينة",
+    "unsaved": "تغييرات غير محفوظة",
+    "deletePageConfirm": "حذف نهائي"
+  },
+  "dashboard": {
+    "billing": {
+      "balance": "رصيد الاستخدام",
+      "description": "إدارة الرصيد وأرباح المنشئ والاشتراكات."
+    }
+  },
+  "settings": {
+    "account": {
+      "appearance": "المظهر",
+      "deleteAccount": "حذف الحساب",
+      "deleteAccountDescription": "احذف هذا الحساب نهائيًا وسجّل الخروج من جميع الأجهزة."
+    }
+  },
+  "privacy": {
+    "embedWarningShort": "قد يؤدي تحميل هذا المحتوى إلى مشاركة عنوان IP وتفاصيل المتصفح مع المزوّد.",
+    "loadOnce": "تحميل مرة واحدة"
+  },
+  "account": {
+    "delete": {
+      "title": "حذف حسابك في Free2Z",
+      "content": "سيتم حذف صفحاتك ومنشوراتك وملفاتك المرفوعة.",
+      "submit": "حذف الحساب"
+    }
+  },
+  "common": {
+    "cancel": "إلغاء",
+    "close": "إغلاق"
+  }
+}

@@ -27,3 +27,5 @@ locale-built-runtime.spec.ts
 formatting-runtime.spec.ts
 pseudo-locales.spec.ts
 locale-disabled.spec.ts
+pilot-locales.spec.ts
+pilot-production.spec.ts

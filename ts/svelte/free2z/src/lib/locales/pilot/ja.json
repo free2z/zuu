@@ -1,0 +1,61 @@
+{
+  "navigation": {
+    "home": "ホーム",
+    "explore": "探す",
+    "create": "作成",
+    "signIn": "ログイン",
+    "signUp": "新規登録",
+    "menu": "メニュー",
+    "preferences": "設定"
+  },
+  "auth": {
+    "welcome": "Free2Zへようこそ",
+    "loginDescription": "アカウントにログインするか、新規作成してください",
+    "username": "ユーザー名",
+    "password": "パスワード",
+    "email": "メールアドレス",
+    "signIn": "ログイン",
+    "signUp": "新規登録",
+    "forgotPassword": "パスワードをお忘れですか？",
+    "signInToContinue": "続行するにはログインしてください。",
+    "privacyPolicy": "プライバシーポリシー",
+    "settings": "設定",
+    "billing": "クレジット",
+    "logout": "ログアウト"
+  },
+  "editor": {
+    "title": "記事を書く",
+    "save": "保存",
+    "preview": "プレビュー",
+    "unsaved": "未保存の変更",
+    "deletePageConfirm": "完全に削除"
+  },
+  "dashboard": {
+    "billing": {
+      "balance": "利用クレジット",
+      "description": "クレジット、クリエイター収益、サブスクリプションを管理します。"
+    }
+  },
+  "settings": {
+    "account": {
+      "appearance": "外観",
+      "deleteAccount": "アカウントを削除",
+      "deleteAccountDescription": "このアカウントを完全に削除し、すべての端末からログアウトします。"
+    }
+  },
+  "privacy": {
+    "embedWarningShort": "この埋め込みを読み込むと、IPアドレスやブラウザー情報が提供元に共有される場合があります。",
+    "loadOnce": "今回のみ読み込む"
+  },
+  "account": {
+    "delete": {
+      "title": "Free2Zアカウントを削除",
+      "content": "ページ、投稿、アップロードしたファイルが削除されます。",
+      "submit": "アカウントを削除"
+    }
+  },
+  "common": {
+    "cancel": "キャンセル",
+    "close": "閉じる"
+  }
+}

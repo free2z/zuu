@@ -113,9 +113,12 @@ if (testOutput)
     rmSync(testOutput, { recursive: true, force: true }),
   );
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
   define: {
     __PSEUDO_LOCALES__: JSON.stringify(process.env.FREE2Z_PSEUDO_TEST === "1"),
+    __PILOT_LOCALES__: JSON.stringify(
+      process.env.FREE2Z_PILOT_TEST === "1" && command === "serve",
+    ),
   },
   cacheDir: testOutput ? `${testOutput}/vite-cache` : undefined,
   resolve: {
@@ -223,4 +226,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

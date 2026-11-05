@@ -11,6 +11,15 @@ const loaders = {
   es: () => import("./locales/es.json"),
   fr: () => import("./locales/fr.json"),
   "pt-BR": () => import("./locales/pt-BR.json"),
+  ...(typeof __PILOT_LOCALES__ !== "undefined" && __PILOT_LOCALES__
+    ? {
+        ar: () => import("./locales/pilot/ar.json"),
+        pl: () => import("./locales/pilot/pl.json"),
+        ja: () => import("./locales/pilot/ja.json"),
+        hi: () => import("./locales/pilot/hi.json"),
+        de: () => import("./locales/pilot/de.json"),
+      }
+    : {}),
   ...(pseudoEnabled
     ? Object.fromEntries(
         [

@@ -39,8 +39,8 @@ function icuArguments(pattern, locale) {
   );
   return [...result].sort().join(",");
 }
-const sensitive = (key) =>
-  /(^|\.)(auth|login|logout|password|payment|billing|privacy|delete|remove|unsubscribe|account)(\.|$)/i.test(
+export const sensitive = (key) =>
+  /auth|login|logout|password|payment|billing|checkout|credit|privacy|delete|deletion|remove|unsubscribe|account/i.test(
     key,
   );
 function approvedIdentical(entry) {

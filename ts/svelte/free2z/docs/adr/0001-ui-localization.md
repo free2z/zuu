@@ -111,3 +111,39 @@ zh-Hant. None is currently available or reviewed. Prioritization beyond the
 pilot requires actual translator/reviewer capacity, glossary, regional demand,
 and sensitive-copy approval; no machine-generated catalog is represented as
 production-ready.
+
+### Difficult-language draft pilot
+
+Arabic, Polish, Japanese, Hindi and German have **37 unreviewed local-model
+translations each**, with 2,953 English source fallbacks each. They are partial
+review material, not approved translations or selectable production languages.
+`FREE2Z_PILOT_TEST=1` enables the five registry entries and lazy loaders only
+when running the development server for tests; builds exclude them even when
+the flag is set. The
+English fallback is retained, and account-authentication, billing, privacy and
+irreversible-action drafts are never represented as approved.
+
+The review pack is `tests/pilot/drafts.json`, the five source/translation-hash
+metadata files alongside it, and the corresponding
+`src/lib/locales/pilot/*.json` catalogs. Each record says “Local model-produced
+draft; human review pending”. The original batch was passed through the
+`importPilot` validator used by `pilot-import`; `node
+scripts/check-pilot-drafts.mjs` revalidates each recorded source hash, value,
+placeholder contract, provenance and catalog against that import path. It does
+not rewrite freshness when source text changes. `node
+scripts/pilot-work-queue.mjs > pilot-queue.json` produces a deterministic
+per-locale, per-key queue: 37 draft and 2,953 missing per locale at this commit.
+A conservative key-name classification marks 24 drafted and 687 missing messages
+per locale as sensitive; this classification is a review aid, not a guarantee
+that remaining copy is non-sensitive. Reviewers must check every message in
+context. No reviewed entries are claimed.
+
+Before a pilot can be offered to real users, its owner must obtain native-language
+review and attributable human review evidence, especially for authentication,
+payment, privacy and destructive actions; resolve identical-text exceptions;
+complete and revalidate catalogs and source hashes; assess the English fallback
+policy in context; and explicitly promote its registry state. The test-only ICU
+fixture exercises locale plural, select and ordinal behavior but is not a shipped
+product message or additional catalog coverage. Production readiness for more
+than 50 locales additionally requires actual translation and review capacity,
+regional language decisions and sustained ownership for each locale.

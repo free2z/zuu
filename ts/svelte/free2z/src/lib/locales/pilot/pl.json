@@ -1,0 +1,61 @@
+{
+  "navigation": {
+    "home": "Strona główna",
+    "explore": "Odkrywaj",
+    "create": "Utwórz",
+    "signIn": "Zaloguj się",
+    "signUp": "Zarejestruj się",
+    "menu": "Menu nawigacji",
+    "preferences": "Preferencje"
+  },
+  "auth": {
+    "welcome": "Witamy w Free2Z",
+    "loginDescription": "Zaloguj się na swoje konto lub utwórz nowe",
+    "username": "Nazwa użytkownika",
+    "password": "Hasło",
+    "email": "Adres e-mail",
+    "signIn": "Zaloguj się",
+    "signUp": "Zarejestruj się",
+    "forgotPassword": "Nie pamiętasz hasła?",
+    "signInToContinue": "Zaloguj się, aby kontynuować.",
+    "privacyPolicy": "Polityka prywatności",
+    "settings": "Ustawienia",
+    "billing": "Środki",
+    "logout": "Wyloguj się"
+  },
+  "editor": {
+    "title": "Napisz artykuł",
+    "save": "Zapisz",
+    "preview": "Podgląd",
+    "unsaved": "Niezapisane zmiany",
+    "deletePageConfirm": "Usuń trwale"
+  },
+  "dashboard": {
+    "billing": {
+      "balance": "Środki na korzystanie",
+      "description": "Zarządzaj środkami, zarobkami twórcy i subskrypcjami."
+    }
+  },
+  "settings": {
+    "account": {
+      "appearance": "Wygląd",
+      "deleteAccount": "Usuń konto",
+      "deleteAccountDescription": "Trwale usuń to konto i wyloguj się na wszystkich urządzeniach."
+    }
+  },
+  "privacy": {
+    "embedWarningShort": "Wczytanie tej treści może udostępnić dostawcy Twój adres IP i dane przeglądarki.",
+    "loadOnce": "Wczytaj raz"
+  },
+  "account": {
+    "delete": {
+      "title": "Usuń swoje konto Free2Z",
+      "content": "Twoje strony, wpisy i przesłane pliki zostaną usunięte.",
+      "submit": "Usuń konto"
+    }
+  },
+  "common": {
+    "cancel": "Anuluj",
+    "close": "Zamknij"
+  }
+}

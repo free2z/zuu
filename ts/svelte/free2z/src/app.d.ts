@@ -2,9 +2,22 @@
 // for information about these interfaces
 declare global {
   const __PSEUDO_LOCALES__: boolean;
+  const __PILOT_LOCALES__: boolean;
   namespace App {
     interface Locals {
-      locale: "en" | "es" | "fr" | "pt-BR" | "en-XA" | "en-XB" | "ar-XB";
+      locale:
+        | "en"
+        | "es"
+        | "fr"
+        | "pt-BR"
+        | "en-XA"
+        | "en-XB"
+        | "ar-XB"
+        | "ar"
+        | "pl"
+        | "ja"
+        | "hi"
+        | "de";
       localePersisted: boolean;
       disabledLocales: string[];
       localeCatalogs: Record<string, unknown>;

@@ -1,0 +1,61 @@
+{
+  "navigation": {
+    "home": "Startseite",
+    "explore": "Entdecken",
+    "create": "Erstellen",
+    "signIn": "Anmelden",
+    "signUp": "Registrieren",
+    "menu": "Navigationsmenü",
+    "preferences": "Einstellungen"
+  },
+  "auth": {
+    "welcome": "Willkommen bei Free2Z",
+    "loginDescription": "Melde dich an oder erstelle ein neues Konto",
+    "username": "Benutzername",
+    "password": "Passwort",
+    "email": "E-Mail-Adresse",
+    "signIn": "Anmelden",
+    "signUp": "Registrieren",
+    "forgotPassword": "Passwort vergessen?",
+    "signInToContinue": "Bitte melde dich an, um fortzufahren.",
+    "privacyPolicy": "Datenschutzerklärung",
+    "settings": "Einstellungen",
+    "billing": "Guthaben",
+    "logout": "Abmelden"
+  },
+  "editor": {
+    "title": "Artikel schreiben",
+    "save": "Speichern",
+    "preview": "Vorschau",
+    "unsaved": "Ungespeicherte Änderungen",
+    "deletePageConfirm": "Endgültig löschen"
+  },
+  "dashboard": {
+    "billing": {
+      "balance": "Nutzungsguthaben",
+      "description": "Verwalte dein Guthaben, deine Creator-Einnahmen und Abonnements."
+    }
+  },
+  "settings": {
+    "account": {
+      "appearance": "Darstellung",
+      "deleteAccount": "Konto löschen",
+      "deleteAccountDescription": "Lösche dieses Konto dauerhaft und melde dich auf allen Geräten ab."
+    }
+  },
+  "privacy": {
+    "embedWarningShort": "Beim Laden dieser Einbettung können deine IP-Adresse und Browserdaten an den Anbieter übertragen werden.",
+    "loadOnce": "Einmal laden"
+  },
+  "account": {
+    "delete": {
+      "title": "Dein Free2Z-Konto löschen",
+      "content": "Deine Seiten, Beiträge und hochgeladenen Dateien werden gelöscht.",
+      "submit": "Konto löschen"
+    }
+  },
+  "common": {
+    "cancel": "Abbrechen",
+    "close": "Schließen"
+  }
+}
