@@ -42,7 +42,7 @@ env:
 jobs:
   changes:
     name: rs / changes
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       rs: ${{ steps.filter.outputs.rs }}
@@ -251,7 +251,7 @@ jobs:
     name: rs / Zcash Payment Hooks
     needs: changes
     if: needs.changes.outputs.payment_hooks == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Select verified CI trust before clients
@@ -301,7 +301,7 @@ jobs:
     name: rs / rustfmt
     needs: changes
     if: needs.changes.outputs.rs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Select verified CI trust before clients
@@ -355,7 +355,7 @@ jobs:
     name: rs / clippy
     needs: changes
     if: needs.changes.outputs.rs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - name: Select verified CI trust before clients
@@ -416,7 +416,7 @@ jobs:
     name: rs / cargo-deny
     needs: changes
     if: needs.changes.outputs.rs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Select verified CI trust before clients
@@ -468,7 +468,7 @@ jobs:
     name: rs / tests
     needs: changes
     if: needs.changes.outputs.rs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     # Start the real Redis only after TLS bootstrap, so its registry pull uses
     # the refreshed daemon. Required auth tests cannot skip this service.
@@ -736,7 +736,7 @@ jobs:
     name: rs / wasm32
     needs: changes
     if: needs.changes.outputs.rs == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Select verified CI trust before clients
@@ -939,7 +939,7 @@ jobs:
     name: rs / gate
     needs: [changes, rs_fmt, rs_clippy, rs_deny, rs_test, rs_crypto_kat_arm, rs_wasm, payment_hooks]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Select verified CI trust before clients
