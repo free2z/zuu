@@ -10764,7 +10764,8 @@ components:
           allOf:
           - $ref: '#/components/schemas/CatalogModelCapabilities'
           description: Signed capability policy, always emitted. Absent vision/tools/reasoning
-            mean false; absent structured_output/strict_tools means undeclared.
+            mean false; absent structured_output/strict_tools means undeclared; absent
+            forced_tool_choice preserves legacy tools/adapter admission.
         controls:
           allOf:
           - $ref: '#/components/schemas/CatalogModelControls'
