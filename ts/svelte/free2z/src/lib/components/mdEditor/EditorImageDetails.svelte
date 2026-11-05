@@ -58,7 +58,7 @@
 </script>
 
 <Dialog.Root bind:open onOpenChange={changed}>
-  <Dialog.Content class="max-w-lg">
+  <Dialog.Content class="z-[60] max-w-lg">
     <Dialog.Header>
       <Dialog.Title
         >{$t("editor.imageDetailsTitle", "Image details")}</Dialog.Title

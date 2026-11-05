@@ -339,3 +339,48 @@ test("cloud image collects separate alt and caption before insertion", async ({
   await page.getByRole("button", { name: "Apply" }).click();
   await expect(body).toHaveValue(/!\[A bird\].*::caption\["雪\\ncaption"\]/s);
 });
+
+test("upload details can be cancelled or inserted with a visible caption", async ({
+  page,
+}) => {
+  const { body, saves } = await setup(page, "png", "image/png");
+  await chooseAction(page, "Image");
+  await page
+    .locator('input[type="file"]')
+    .last()
+    .setInputFiles({
+      name: "fixture.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("fixture"),
+    });
+  await page.getByRole("button", { name: "Insert Selected" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Image details" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Cancel", exact: true })
+    .last()
+    .click();
+  await expect(body).toHaveValue(initial);
+  await page.getByRole("button", { name: "Insert Selected" }).click();
+  await page.getByLabel("Alt text (image description)").fill("Bird");
+  await page.getByLabel("Visible caption").fill("雪\n<script>unsafe</script>");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(
+    /!\[Bird\].*::caption\["雪\\n<script>unsafe<\/script>"\]/s,
+  );
+  await expect
+    .poll(() => saves.at(-1), { timeout: 15000 })
+    .toMatch(/!\[Bird\].*::caption/s);
+  await page.reload();
+  await expect(body).toHaveValue(/!\[Bird\].*::caption/s);
+  await page
+    .getByRole("button", { name: "Preview", exact: true })
+    .last()
+    .click();
+  await expect(page.locator("figcaption")).toHaveText(
+    "雪<script>unsafe</script>",
+  );
+  await expect(page.locator("figcaption script")).toHaveCount(0);
+  await expect(page.locator('figure img[alt="Bird"]')).toHaveCount(1);
+});
