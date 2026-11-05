@@ -54,7 +54,9 @@
      */
     free2zaddr?: string;
     /** Forwarded to TagSuggestions: the server just rewrote tags. */
-    onTagSuggestionWrite?: () => void;
+    onTagSuggestionWrite?: (
+      decision: import("$lib/api/f2z.schemas").ZPageTagDecision,
+    ) => Promise<import("$lib/api/f2z.schemas").ZPageTagDecisionResult>;
     zcashAddress: string;
     /**
      * The article body, read ONLY to spot upload paths that a logged-out
@@ -542,7 +544,7 @@
           <TagSuggestions
             {free2zaddr}
             bind:tags
-            onServerWrote={onTagSuggestionWrite}
+            onDecide={onTagSuggestionWrite}
           />
         </div>
       {/if}

@@ -101,48 +101,56 @@ async function fetchOwnedZPage(
  * `translation_language` in context, the same call `?lang=` makes — with that
  * variant's own `ETag`. One request, one consistent snapshot.
  *
- * `null` on anything other than a 200, which includes the 404 for a language
- * with no variant yet. The caller falls back to the article read, exactly as
- * before this feature existed; a missing validator must never block the editor
- * from opening.
+ * Only a 404 means absent. Other failures block opening the editor so they
+ * cannot turn an existing translation into an unconditioned write.
  */
 async function fetchOwnedVariant(
   fetchFn: typeof fetch,
   identifier: string,
   language: string,
+  returnTo: string,
 ): Promise<{ zpage: ZPage; etag: string | null } | null> {
-  try {
-    const response = await fetchFn(
-      `/api/zpage/${encodeURIComponent(identifier)}/variants/${encodeURIComponent(language)}/?mine=true`,
-      { credentials: "include" },
+  const response = await fetchFn(
+    `/api/zpage/${encodeURIComponent(identifier)}/variants/${encodeURIComponent(language)}/?mine=true`,
+    { credentials: "include" },
+  );
+  if (response.status === 401 || response.status === 403)
+    throw redirect(302, loginDestination(returnTo));
+  if (response.status === 404) return null;
+  if (!response.ok)
+    throw error(
+      502,
+      t(
+        "editor.variantLoadFailed",
+        "Could not safely load this version. Please reload to try again.",
+      ),
     );
-    if (!response.ok) return null;
-    const zpage = (await response.json()) as ZPage;
-    // A 200 is not proof this is the variant we asked for. An older pod
-    // without the route, a proxy, a service worker or a stale cache can all
-    // answer 200 with something else entirely, and whatever comes back here
-    // is hydrated straight into the composer -- so a body that is not this
-    // article's variant empties the editor rather than failing loudly. Check
-    // the identity and the language the response claims, and fall back to the
-    // article read when either disagrees.
-    // The identifier may be either form the route accepts — the `free2zaddr`
-    // UUID or the vanity slug — and the editor rewrites its own URL to the
-    // vanity after a save, so the vanity is the COMMON case here. Comparing
-    // only against `free2zaddr` rejected every correct response for a
-    // vanity-addressed article and quietly fell back to the unprotected path.
-    // (codex adversarial review.)
-    const addressesThisPage =
-      zpage?.free2zaddr === identifier || zpage?.vanity === identifier;
-    if (
-      !addressesThisPage ||
-      (zpage.actual_language && zpage.actual_language !== language)
-    ) {
-      return null;
-    }
-    return { zpage, etag: response.headers?.get?.("ETag") || null };
-  } catch {
-    return null;
+  const zpage = (await response.json()) as ZPage;
+  // A 200 is not proof this is the variant we asked for. An older pod
+  // without the route, a proxy, a service worker or a stale cache can all
+  // answer 200 with something else entirely, and whatever comes back here
+  // is hydrated straight into the composer -- so a body that is not this
+  // article's variant empties the editor rather than failing loudly. Check
+  // the identity and the language the response claims, and block editing
+  // when either disagrees.
+  // The identifier may be either form the route accepts — the `free2zaddr`
+  // UUID or the vanity slug — and the editor rewrites its own URL to the
+  // vanity after a save, so the vanity is the COMMON case here. Comparing
+  // only against `free2zaddr` rejected every correct response for a
+  // vanity-addressed article and quietly fell back to the unprotected path.
+  // (codex adversarial review.)
+  const addressesThisPage =
+    zpage?.free2zaddr === identifier || zpage?.vanity === identifier;
+  if (!addressesThisPage || zpage.actual_language !== language) {
+    throw error(
+      502,
+      t(
+        "editor.variantLoadFailed",
+        "Could not safely load this version. Please reload to try again.",
+      ),
+    );
   }
+  return { zpage, etag: response.headers?.get?.("ETag") || null };
 }
 
 export const load: PageLoad = async ({ fetch, url, parent }) => {
@@ -176,11 +184,21 @@ export const load: PageLoad = async ({ fetch, url, parent }) => {
     // One request wherever possible, and never a body from one request paired
     // with a validator from another.
     const exact = explicitLanguage
-      ? await fetchOwnedVariant(fetch, requestedId, explicitLanguage)
+      ? await fetchOwnedVariant(fetch, requestedId, explicitLanguage, returnTo)
       : null;
     const { zpage, etag } =
       exact ??
       (await fetchOwnedZPage(fetch, requestedId, explicitLanguage, returnTo));
+    // A 404 and a rendered translation cannot describe one consistent read.
+    // Never pair that text with the canonical validator as a variant save.
+    if (
+      explicitLanguage &&
+      !exact &&
+      zpage.source_language !== explicitLanguage &&
+      zpage.actual_language === explicitLanguage
+    ) {
+      throw error(502, t("editor.variantLoadFailed"));
+    }
     const requestedLanguage =
       explicitLanguage ||
       zpage.actual_language ||

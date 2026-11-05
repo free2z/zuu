@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.contrib.contenttypes.models import ContentType
 from django.http import JsonResponse
 from django.db.models import Count, IntegerField, OuterRef, Q, Subquery
@@ -16,7 +17,11 @@ from drf_spectacular.utils import (
 
 from taggit.models import Tag, TaggedItem
 
-from dj.apps.g12f.models import zPage
+from dj.apps.g12f.models import zPage, ZPageTranslation, ZPageVariant
+from dj.apps.g12f.localization import normalize_zpage_language
+from dj.apps.g12f.preconditions import (
+    canonical_etag, variant_etag, check_if_match, PreconditionFailedSerializer,
+)
 from dj.apps.comments.models import Comment
 from dj.apps.comments.visibility import scope_comments_to_visible_parents
 
@@ -560,7 +565,12 @@ def zpage_tag_suggestions(request, free2zaddr):
 
 @extend_schema(
     request=ZPageTagDecisionSerializer,
-    responses={200: ZPageTagDecisionResultSerializer},
+    responses={200: ZPageTagDecisionResultSerializer, 412: PreconditionFailedSerializer},
+    parameters=[
+        OpenApiParameter(name="If-Match", type=str, location=OpenApiParameter.HEADER, required=False, description="Optional strong ETag of the article, or of lang when supplied. Checked atomically with the decision."),
+        OpenApiParameter(name="lang", type=str, location=OpenApiParameter.QUERY, required=False, description="Variant whose validator is supplied and returned; omit for canonical article."),
+        OpenApiParameter(name="ETag", type=str, location=OpenApiParameter.HEADER, response=[200], description="New strong validator for the selected resource."),
+    ],
     description=(
         "Accept or dismiss pending AI tag suggestions on your own zPage"
         ".\n\n"
@@ -575,25 +585,45 @@ def zpage_tag_suggestions(request, free2zaddr):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def decide_zpage_tag_suggestions(request, free2zaddr):
-    zpage = _owned_zpage(request, free2zaddr)
     serializer = ZPageTagDecisionSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
+    language = request.query_params.get("lang")
+    if language:
+        language = normalize_zpage_language(language, allow_missing=False)
+    with transaction.atomic():
+        zpage = get_object_or_404(
+            zPage.objects.select_for_update(), free2zaddr=free2zaddr,
+            creator=request.user,
+        )
 
-    accepted, dismissed = decide_suggestions(
-        zpage,
-        accept=serializer.validated_data.get("accept", []),
-        dismiss=serializer.validated_data.get("dismiss", []),
-        user=request.user,
-    )
-    return Response(
-        {
-            "accepted": accepted,
-            "dismissed": dismissed,
-            "tags": list(zpage.tags.names()),
-            "suggestions": _suggestion_payload(zpage),
-        },
-        status=status.HTTP_200_OK,
-    )
+        def validator():
+            if language and language != zpage.source_language:
+                return variant_etag(
+                    zpage, language,
+                    translation_model=ZPageTranslation,
+                    variant_model=ZPageVariant,
+                )
+            return canonical_etag(zpage)
+
+        current_etag = validator()
+        check_if_match(request, current_etag)
+        if current_etag is None:
+            raise NotFound("No version in this language.")
+        accepted, dismissed = decide_suggestions(
+            zpage,
+            accept=serializer.validated_data.get("accept", []),
+            dismiss=serializer.validated_data.get("dismiss", []),
+            user=request.user,
+        )
+        return Response(
+            {
+                "accepted": accepted, "dismissed": dismissed,
+                "tags": list(zpage.tags.names()),
+                "suggestions": _suggestion_payload(zpage),
+            },
+            headers={"ETag": validator()},
+            status=status.HTTP_200_OK,
+        )
 
 
 # --- the tag hub -----------------------------------------------------------

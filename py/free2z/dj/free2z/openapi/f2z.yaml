@@ -7209,11 +7209,23 @@ paths:
 
         The response carries the page's full tag list afterwards and whatever is still pending, so a client needs no follow-up read.
       parameters:
+      - in: header
+        name: If-Match
+        schema:
+          type: string
+        description: Optional strong ETag of the article, or of lang when supplied.
+          Checked atomically with the decision.
       - in: path
         name: free2zaddr
         schema:
           type: string
         required: true
+      - in: query
+        name: lang
+        schema:
+          type: string
+        description: Variant whose validator is supplied and returned; omit for canonical
+          article.
       tags:
       - tagging
       requestBody:
@@ -7232,10 +7244,21 @@ paths:
       - knoxApiToken: []
       responses:
         '200':
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: New strong validator for the selected resource.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ZPageTagDecisionResult'
+          description: ''
+        '412':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreconditionFailed'
           description: ''
   /api/token/login/:
     post:

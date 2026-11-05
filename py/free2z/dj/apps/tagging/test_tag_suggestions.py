@@ -600,3 +600,48 @@ def test_a_casefold_expanding_tag_does_not_blow_up_the_key_column(
     created = services.suggest_tags_for_zpage(page)
 
     assert {row.name for row in created} == {"\u00df" * 100, "halo2 recursion"}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('language', [None, 'fr'])
+def test_decision_precondition_rejects_stale_without_mutation(
+    api_client, creator_factory, fake_tagger, language
+):
+    from dj.apps.g12f.models import ZPageTranslation, ZPageVariant
+    from dj.apps.g12f.preconditions import canonical_etag, variant_etag
+
+    creator = creator_factory()
+    page = _page(creator, tags=['original'])
+    page.source_language = 'en'
+    page.save()
+    if language:
+        ZPageTranslation.objects.create(zpage=page, language=language, title='Titre', content='Texte')
+    services.suggest_tags_for_zpage(page)
+    api_client.force_authenticate(user=creator)
+
+    def validator():
+        page.refresh_from_db()
+        return variant_etag(page, language, translation_model=ZPageTranslation, variant_model=ZPageVariant) if language else canonical_etag(page)
+
+    stale = validator()
+    page.title = 'Concurrent article change'
+    page.save()
+    url = f'/api/tagging/zpage/{page.free2zaddr}/suggestions/decide'
+    if language:
+        url += f'?lang={language}'
+    body = {'accept': ['halo2 recursion'], 'dismiss': ['cryptography']}
+    response = api_client.post(url, body, format='json', HTTP_IF_MATCH=stale)
+    assert response.status_code == 412
+    assert set(page.tags.names()) == {'original'}
+    assert page.tag_suggestions.filter(status=TagSuggestion.PENDING).count() == 3
+    current = validator()
+    response = api_client.post(url, body, format='json', HTTP_IF_MATCH=current)
+    assert response.status_code == 200, response.content
+    assert response['ETag'] == validator()
+    assert response['ETag'] != current
+    assert response['ETag'].startswith('"')
+    assert set(page.tags.names()) == {'original', 'halo2 recursion'}
+    assert page.tag_suggestions.get(name_key='cryptography').status == TagSuggestion.DISMISSED
+    response = api_client.post(url, {'accept': ['zero-knowledge proofs']}, format='json', HTTP_IF_MATCH=current)
+    assert response.status_code == 412
+    assert 'zero-knowledge proofs' not in page.tags.names()

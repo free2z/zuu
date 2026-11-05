@@ -756,6 +756,22 @@ ALLOWED_METADATA_IN_WRITE = {
         "request.GET['code']",
     ): "The authorization code, exchanged with Twitter for tokens. What gets "
        "persisted is the provider's response, not the query parameter.",
+    (
+        "dj/apps/tagging/views.py::decide_zpage_tag_suggestions",
+        "request.query_params['lang']",
+    ): "`lang` selects which already-stored article or variant ETag is "
+       "checked before the tag decision. The decision itself comes from the "
+       "body and is written on the owned page; the query value is not "
+       "persisted. Declared as an OpenApiParameter, and a language with no "
+       "version is 404.",
+    (
+        "dj/apps/tagging/views.py::decide_zpage_tag_suggestions -> "
+        "dj/apps/g12f/preconditions.py::check_if_match",
+        "request.headers['If-Match']",
+    ): "The If-Match precondition (#1039). It cannot supply a value to "
+       "persist -- it only decides whether the write happens at all -- and "
+       "it is declared in f2z.yaml as an OpenApiParameter with the 412 "
+       "spelled out.",
 }
 
 #Rule B exceptions: reads that legitimately write.
