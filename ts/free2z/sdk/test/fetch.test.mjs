@@ -1543,6 +1543,53 @@ test("the deprecated purchase API still creates, opens and polls a card intent",
   assert.deepEqual(sent[0], ["POST", "/api/sdk/v1/purchases"]);
 });
 
+test("sampling controls reach HTTP with exact signed seed and reject invalid values", async () => {
+  const mock = issuer(),
+    transport = new FetchTransport(mock.config);
+  await transport.signIn();
+  const bodies = [];
+  mock.api = (path, init) => {
+    bodies.push(init.body);
+    return new Response(
+      '{"model":"test","input_tokens":1,"max_output_tokens":64,"hold_2z":1}',
+      { headers: { "content-type": "application/json" } },
+    );
+  };
+  const controls = {
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    stop: ["END"],
+    seed: -(1n << 63n),
+    logprobs: true,
+    top_logprobs: 3,
+    frequency_penalty: -0.5,
+    presence_penalty: 0.5,
+    n: 1,
+  };
+  await transport.estimate({ ...request, ...controls });
+  assert.ok(bodies[0].includes('"seed":-9223372036854775808'));
+  const decoded = JSON.parse(bodies[0]);
+  for (const [key, value] of Object.entries(controls))
+    if (key !== "seed") assert.deepEqual(decoded[key], value);
+  const sent = bodies.length;
+  for (const field of Object.keys(controls))
+    await assert.rejects(transport.estimate({ ...request, [field]: null }), {
+      code: "invalid_request",
+    });
+  for (const bad of [
+    { temperature: 2.1 },
+    { n: 2 },
+    { logit_bias: {} },
+    { stop: ["1", "2", "3", "4", "5"] },
+    { top_logprobs: 21, logprobs: true },
+  ])
+    await assert.rejects(transport.estimate({ ...request, ...bad }), {
+      code: "invalid_request",
+    });
+  assert.equal(bodies.length, sent);
+});
+
 test("public usage preserves the hourly subset as an exact unsigned count", async () => {
   const { event } = await import("../dist/decode.js");
   const { parseJson } = await import("../dist/json.js");

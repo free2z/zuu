@@ -366,6 +366,10 @@ const capabilityKeys = [
   "strict_tools",
   "forced_tool_choice",
   "reasoning_effort",
+  "top_k",
+  "seed",
+  "logprobs",
+  "penalties",
 ] as const;
 /** Absent or `null` is `{}`: nothing declared, so nothing supported. A
  * declared member must be a boolean — a string `"true"` would otherwise read
@@ -404,6 +408,12 @@ function controls(value: Json | undefined): ModelControls {
   if (value == null) return result;
   for (const [key, member] of Object.entries(object(value))) {
     if (member === undefined) continue;
+    if (
+      ["temperature", "top_p", "temperature_top_p_exclusive"].includes(key) &&
+      member != null &&
+      typeof member !== "boolean"
+    )
+      failure("invalid_response");
     if (key === "effort_levels") {
       if (member === null) continue;
       if (
@@ -521,7 +531,11 @@ export function event(type: string, value: unknown): ChatEvent | undefined {
         hold_2z: uint(d.hold_2z),
       };
     case "delta":
-      return { type, text: string(d.text) };
+      return {
+        type,
+        text: string(d.text),
+        ...(d.logprobs == null ? {} : { logprobs: d.logprobs }),
+      };
     case "tool_call_delta": {
       const fragment: { type: "tool_call_delta" } & ToolCallDelta = {
         type,

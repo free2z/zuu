@@ -418,6 +418,29 @@ pub fn chat_request(mut input: Value) -> Result<f2z_sdk::proto::ChatRequest> {
                 .ok_or_else(|| NativeError::new("invalid_integer"))?
         )?);
     }
+    // Sampling counts use ordinary JS numbers, unlike the signed seed's
+    // decimal DTO. Refuse any count that IPC could already have rounded.
+    for field in ["top_k", "top_logprobs", "n"] {
+        if let Some(value) = input.get(field)
+            && value
+                .as_u64()
+                .is_none_or(|value| value > 9_007_199_254_740_991)
+        {
+            return Err(NativeError::new("invalid_integer"));
+        }
+    }
+    if let Some(seed) = input.get_mut("seed") {
+        let text = seed
+            .as_str()
+            .ok_or_else(|| NativeError::new("invalid_integer"))?;
+        let number = text
+            .parse::<i64>()
+            .map_err(|_| NativeError::new("invalid_integer"))?;
+        if number.to_string() != text {
+            return Err(NativeError::new("invalid_integer"));
+        }
+        *seed = json!(number);
+    }
     let request: f2z_sdk::proto::ChatRequest =
         serde_json::from_value(input).map_err(|_| NativeError::new("invalid_request"))?;
     // The gateway's limits, before the call is registered or sent.
@@ -802,6 +825,31 @@ mod tests {
                     .unwrap()
                     .contains("SECRET")
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod sampling_tests {
+    use super::*;
+    #[test]
+    fn signed_seed_and_fractional_controls_cross_native_codec() {
+        let body = json!({"model":"m","messages":[],"temperature":0.7,"top_p":0.8,"top_k":20,"seed":"-9223372036854775808","stop":["END"],"logprobs":true,"top_logprobs":3,"frequency_penalty":-0.5,"presence_penalty":0.5,"n":1});
+        let request = chat_request(body).unwrap();
+        assert_eq!(request.seed, Some(i64::MIN));
+        assert_eq!(request.temperature, Some(0.7));
+        assert_eq!(
+            serde_json::to_value(request).unwrap()["seed"],
+            json!(i64::MIN)
+        );
+        for bad in [
+            json!(42),
+            json!("+1"),
+            json!("01"),
+            json!("9223372036854775808"),
+            Value::Null,
+        ] {
+            assert!(chat_request(json!({"model":"m","messages":[],"seed":bad})).is_err());
         }
     }
 }

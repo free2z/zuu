@@ -1,7 +1,8 @@
 """0006_call_features: a content-free ``features`` object on claim metadata.
 
 Real PostgreSQL. ``gateway_metadata_valid`` accepts an OPTIONAL ``features``
-object on the request metadata with exactly eight typed members, keeps every
+object on the request metadata with eight required typed members and the
+0007 optional sampling-name list, keeps every
 0004 rule, and the stored object is visible on the call record
 (``record.request.features``) through both ``call_claim`` and ``call_read``.
 """
@@ -131,3 +132,54 @@ def test_reverse_sql_is_the_0004_body_verbatim():
     stripped = re.sub(r"   ELSIF k='features'.*?     END LOOP;\n", '', forward, flags=re.S)
     assert stripped.replace('DECLARE k text;v jsonb;fk text;fv jsonb;', 'DECLARE k text;v jsonb;') == \
         body.search(_gateway_calls.SQL).group(0)
+
+
+def test_sampling_metadata_contains_only_closed_field_names():
+    assert valid(with_features(sampling=['temperature', 'stop', 'seed']))
+    assert valid(with_features(sampling=[]))
+    for value in [None, {}, 'temperature', [0.7], ['prompt'], [{'temperature': 0.7}], ['temperature'] * 12]:
+        assert not valid(with_features(sampling=value))
+
+
+SAMPLING_NAMES = [
+    'temperature', 'top_p', 'top_k', 'stop', 'seed', 'logprobs', 'top_logprobs',
+    'frequency_penalty', 'presence_penalty', 'n', 'logit_bias',
+]
+
+
+@pytest.mark.parametrize('name', SAMPLING_NAMES)
+def test_each_sampling_field_name_is_accepted_by_the_database(name):
+    assert valid(with_features(sampling=[name])) is True
+
+
+def test_sampling_features_survive_claim_read_and_replay(holder, third_party):
+    request = with_features(sampling=SAMPLING_NAMES)
+    first = claim(holder, third_party, request=request)
+    assert first['status'] == 'claimed'
+    assert read(holder, third_party, first['call_id'])['record']['request'] == request
+    replay = claim(holder, third_party, request=request)
+    assert replay['call_id'] == first['call_id']
+    assert replay['record']['request']['features']['sampling'] == SAMPLING_NAMES
+
+
+def test_sampling_validator_rollout_and_downgrade_order(holder, third_party):
+    """Execute 0007's actual reverse SQL against PostgreSQL, then roll it back."""
+    from importlib import import_module
+
+    migration = import_module('dj.apps.ledger.migrations.0007_sampling_features')
+    request = with_features(sampling=['temperature', 'stop'])
+    assert valid(request) is True
+    assert valid(with_features()) is True
+    assert valid(REQUEST) is True
+    assert valid(dict(COMPLETE, features=request['features']), completion=True) is False
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute(migration.Migration.operations[0].reverse_sql)
+        # An already-enabled flag is safe on 0006 only without sampling metadata.
+        assert valid(with_features()) is True
+        assert valid(REQUEST) is True
+        assert valid(request) is False
+        with pytest.raises(DatabaseError, match='invalid gateway call claim'), transaction.atomic():
+            claim(holder, third_party, request=request)
+        transaction.set_rollback(True)
+    assert valid(request) is True

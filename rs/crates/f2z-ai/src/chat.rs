@@ -759,6 +759,12 @@ fn decode(bytes: &[u8], text_limit: usize) -> Result<ChatRequest, ApiFailure> {
             {
                 return Err(refusal);
             }
+            if let Some(refusal) = serde_json::from_slice(bytes)
+                .ok()
+                .and_then(|v| crate::provider::sampling::shape(&v))
+            {
+                return Err(refusal);
+            }
             if let Some(refusal) = reasoning_effort_refusal(bytes) {
                 return Err(refusal);
             }

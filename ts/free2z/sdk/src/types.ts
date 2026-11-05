@@ -227,6 +227,17 @@ export interface ChatRequest {
    * `max_output_tokens`: leave room for it.
    */
   reasoning_effort?: ReasoningEffort;
+  /** Sampling controls are never silently dropped. Unsupported controls fail before a hold. */
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  stop?: string[];
+  seed?: bigint;
+  logprobs?: boolean;
+  top_logprobs?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  n?: 1;
 }
 export interface OperationOptions {
   /** Create and persist this before calling; reuse only to reconcile this operation. */
@@ -379,11 +390,18 @@ export interface ModelCapabilities {
    * implied by `reasoning`. Absent (an older gateway): unsupported.
    */
   reasoning_effort?: boolean;
+  top_k?: boolean;
+  seed?: boolean;
+  logprobs?: boolean;
+  penalties?: boolean;
   /** Capabilities newer than this SDK pass through undeclared. */
   [key: string]: Json | undefined;
 }
 /** A model's signed `controls`. Members newer than this SDK pass through. */
 export interface ModelControls {
+  temperature?: boolean;
+  top_p?: boolean;
+  temperature_top_p_exclusive?: boolean;
   /** The `reasoning_effort` levels the model takes, as wire strings. */
   effort_levels?: string[];
   [key: string]: Json | undefined;
@@ -540,7 +558,7 @@ export type ChatEvent =
       input_tokens_estimate?: bigint;
       created_at?: string;
     } & ObjectData)
-  | { type: "delta"; text: string }
+  | { type: "delta"; text: string; logprobs?: Json }
   | ({ type: "tool_call_delta" } & ToolCallDelta)
   | ({ type: "tool_call" } & ToolCall)
   | ({ type: "usage"; usage: Usage; source: string } & ObjectData)

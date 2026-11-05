@@ -121,6 +121,9 @@ impl Meta {
 /// The `delta` event.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Delta {
+    /// Provider token probabilities, only when requested.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logprobs: Option<serde_json::Value>,
     /// Text to append to the assistant's reply.
     pub text: String,
 }

@@ -36,3 +36,4 @@ export {
 } from "./browser.js";
 export { DEFAULT_SCOPES, type FetchConfig } from "./oauth.js";
 export type * from "./types.js";
+export { withSampling, type SamplingControls } from "./sampling.js";

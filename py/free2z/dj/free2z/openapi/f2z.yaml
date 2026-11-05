@@ -10634,11 +10634,25 @@ components:
           default: false
           description: '`reasoning_effort` is supported (zuu#1170); not implied by
             `reasoning`. Always emitted by this signer; absent reads as false.'
+        top_k:
+          type: boolean
+        seed:
+          type: boolean
+        logprobs:
+          type: boolean
+        penalties:
+          type: boolean
     CatalogModelControls:
       type: object
       description: 'Crate ``ModelControls``: signed narrowing of what a capability
         admits.'
       properties:
+        temperature:
+          type: boolean
+        top_p:
+          type: boolean
+        temperature_top_p_exclusive:
+          type: boolean
         tools_require_effort_none:
           type: boolean
           description: With tools, explicit non-none reasoning effort is refused before

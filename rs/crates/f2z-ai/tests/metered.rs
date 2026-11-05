@@ -3496,6 +3496,55 @@ async fn signed_tools_effort_control_preserves_supported_requests() {
     }
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sampling_refusals_are_terminal_without_holds_or_upstream_calls() {
+    let cases = [
+        ("temperature", json!(1.5), "range", true),
+        ("temperature", json!(null), "null", false),
+        ("n", json!(null), "null", false),
+        ("n", json!(2), "n_unsupported", false),
+        ("logit_bias", json!({"SECRET":1}), "unsupported", false),
+        ("top_logprobs", json!(3), "requires_logprobs", false),
+        ("top_logprobs", json!(21), "range", false),
+        ("seed", json!(42), "unsupported", false),
+    ];
+    for (field, value, reason, anthropic) in cases {
+        let db = Arc::new(Database::new());
+        let mut catalog = tool_catalog().catalog().clone();
+        for model in &mut catalog.models {
+            model.capabilities.seed = false;
+            if anthropic {
+                model.api_style = f2z_ai_proto::catalog::ApiStyle::AnthropicMessages;
+            }
+        }
+        let catalog = f2z_ai::catalog::VerifiedCatalog::from_verified(catalog).unwrap();
+        let (r, mock) = launch_catalog(db.clone(), Scenario::default(), None, catalog).await;
+        let mut body = request();
+        body["model"] = json!("m-chat");
+        body[field] = value;
+        let (status, refused) = post(&r, "/v1/chat", &body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{refused}");
+        assert_eq!(refused["error"]["code"], "invalid_request");
+        assert_eq!(refused["error"]["details"]["field"], field);
+        assert_eq!(refused["error"]["details"]["reason"], reason);
+        if reason != "null" {
+            // Plan-time typed refusals persist as the operation's terminal answer.
+            // Decoder failures follow the existing decoder policy.
+            if field != "logit_bias" || !body[field].is_null() {
+                final_state(&db).await;
+                let (_, replay) = post(&r, "/v1/chat", &body).await;
+                assert_eq!(replay["replayed"], true, "{replay}");
+                assert_eq!(replay["error"]["code"], "invalid_request");
+                // Like existing response_format refusals, the ledger retains code/message only.
+            }
+        }
+        assert_eq!(db.0.lock().unwrap().hold_requests, 0);
+        assert_eq!(db.0.lock().unwrap().charges, 0);
+        assert_eq!(mock.request_count(), 0);
+        mock.shutdown().await;
+    }
+}
+
 // zuu#1144: the same controls cross admission, the ledger and real adapters.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn forced_tool_choice_signed_policy_precedes_holds_and_provider_io() {

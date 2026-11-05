@@ -81,12 +81,33 @@ checked by each terminal type's `check()`.
 | `fallback` | array of model ids | Opt-in, **ordered**: tried in order, at most once each. If the current model fails with a provider-side error **before the gateway has committed to it** — that is, before its first content event, which is also when `meta` is sent (§3.2) — the gateway releases that attempt's hold, takes a new hold at the next model's price, and tries it; a hold it cannot take ends the call with that code ([metering.md](./metering.md) §5.7). Never after `meta`. The model actually used is in `meta` |
 | `metadata` | object | **Refused for every app** (zuu#1225): a non-empty object is `400 invalid_request`, `field: "metadata"`, `reason: "privacy_baseline"`, on `/v1/chat` and `/v1/chat/estimate`, before any hold or provider request; `{}` or absent is accepted. Call records keep no caller-chosen text, so there is nothing to store it in. Records of calls made before then may still return what was sent then (§7). The same baseline applies to every call whatever the app's audience: `model` and every `fallback` must be catalogue ids (`404 model_not_found` before anything is recorded); the gateway routes only to providers it sends `store: false` to — OpenAI; and the request fingerprint and `Idempotency-Key` are stored only as keyed HMACs. The `child_directed` access-token claim ([CHILD-DIRECTED.md](../CHILD-DIRECTED.md)) changes none of this; it is an audience classification |
 | `response_format` | object | Optional, opt-in structured output; omitted when absent. `{"type":"json_schema","json_schema":{"name":…,"schema":{…},"strict":true}}` constrains the reply to JSON matching `schema`; `{"type":"json_object"}` to any JSON object (OpenAI also requires the word "JSON" in the messages). `name`: 1–64 characters of `A-Z a-z 0-9 _ -`; `schema`: a JSON Schema **object** of at most 32 768 bytes serialized; `strict`: optional boolean (absent = the provider's default; `null` refused); no other members. The schema's object members reach the provider in the order sent (as do a tool's `parameters`, and on Anthropic the forced tool's `input_schema`), so a provider that emits keys in schema order (OpenAI) replies in the declared order; a repeated member name keeps its first position and its last value. A present `"response_format": null` is refused (`field: "response_format"`, `reason: "null"`), never read as absent. Any other `type` (including `text`, the default — omit the field instead) → `400 invalid_request`, `field: "response_format.type"`, `reason: "unsupported"`; a limit broken → `400 invalid_request` naming the field. On a model without `capabilities.structured_output` → `400 invalid_request`, `field: "response_format"`, `reason: "response_format_unsupported"`, before any hold, charge or provider request — never sent without the constraint. On Anthropic Messages the model must be declared (absence is not support) and the format is sent as a forced single tool whose `input_schema` is the schema (`strict` carried onto the tool), unwrapped back into `delta` text with `finish_reason: "stop"`; there it cannot be combined with `tools`, `tool_choice` or `parallel_tool_calls` (`reason: "response_format_unsupported"`, `details.conflict` naming the field), since the forced tool would leave the caller's tools uncallable. The reply is ordinary `delta` text (a provider refusal arrives as text too); `finish_reason: "length"` means truncated JSON. Pricing is unchanged: the schema is input the provider reads, so it enters the input reservation like a tool definition, and the charge is provider-reported usage |
+| `temperature` | number | Optional 0–2; Anthropic 0–1 (above 1 is `range`, never clamped). Signed `controls.temperature: false` refuses it |
+| `top_p` | number | Optional 0–1. Signed `controls.top_p: false` refuses it. If `controls.temperature_top_p_exclusive: true`, setting both temperature and top_p refuses with `field: controls`, `reason: conflict` |
+| `top_k` | integer | Positive. Anthropic translates directly; Chat Completions requires signed `capabilities.top_k`; Responses refuses |
+| `stop` | string array | At most four strings. Chat Completions forwards it, Anthropic translates to `stop_sequences`; Responses refuses. A matched stop finishes with `finish_reason: stop` |
+| `seed` | signed 64-bit integer | Best effort reproducibility; Chat Completions only, requiring signed `capabilities.seed`. SDK uses bigint; native IPC uses a canonical signed decimal string |
+| `logprobs` | boolean | Requires signed `capabilities.logprobs`. Chat Completions forwards; Responses uses `include: ["message.output_text.logprobs"]` when true. Anthropic refuses. Requested probability chunks are additive `delta.logprobs`; nonstreaming returns `message.logprobs` in chunk order. Usage is unchanged |
+| `top_logprobs` | integer | 0–20, requires `logprobs: true`; same capability and style restrictions |
+| `frequency_penalty`, `presence_penalty` | number | −2 to 2, Chat Completions only, requiring signed `capabilities.penalties` |
+| `n` | integer | Only 1. Other values refuse with `n_unsupported`; no extra completion or hold is created |
+| `logit_bias` | any | Always refused (`unsupported`); tokeniser-specific |
 | `reasoning_effort` | string | Optional, OpenAI's `reasoning_effort`; omitted when absent (the provider's default). Exactly `"minimal"`, `"low"`, `"medium"` or `"high"`; any other value (including provider extensions such as `"none"` or `"xhigh"`) → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "unsupported"`; a present `null` → `reason: "null"`. On a model without `capabilities.reasoning_effort`, or at a level outside its `controls.effort_levels` when the catalogue lists them, → `400 invalid_request`, `field: "reasoning_effort"`, `reason: "reasoning_effort_unsupported"` (with `details.effort_levels` for a level outside the list), before any hold, charge or provider request — never sent without it. Translated by Chat Completions as `reasoning_effort` (OpenAI and xAI) and by Responses as `reasoning.effort`; Anthropic Messages has no effort control (its `thinking` takes a budget) and refuses it. OpenAI documents that from GPT-5.4 on, Chat Completions does not combine function tools with a `reasoning_effort` other than `none`; the signed `controls.tools_require_effort_none: true` on affected tool-enabled rows rejects such a call locally with `400 invalid_request`, `reason: "reasoning_effort_unsupported"`, `field: "reasoning_effort"`, `conflict: "tools"`, before any hold or provider call. Omitted effort retains the provider default (`none` on those rows). Pricing and the hold are unchanged: reasoning tokens are billed as output tokens and the hold already reserves the whole output cap. On OpenAI that cap (`max_completion_tokens` / `max_output_tokens`) **includes** reasoning, so a small `max_output_tokens` can be spent thinking before any text (`finish_reason: "length"`); leave room. On xAI it does **not** (docs.x.ai: `max_completion_tokens` "only applies to visible output tokens"), so an xAI reasoning model's charge can exceed its hold — a pre-existing property of every xAI reasoning model, effort or not (xAI's default effort is already `high`); the shortfall is written off, never debt (metering.md) |
+
+Sampling fields are additive and omitted when absent: requests without them keep
+exact pre-sampling bytes and idempotency fingerprints. A present null is refused
+with its field and `reason: null`. Other sampling refusals use `range`,
+`unsupported`, `requires_logprobs`, `conflict`, or `n_unsupported`, with
+`400 invalid_request`. Model support comes only from the signed catalogue and
+adapter style, never the model name. Missing new capability flags mean false.
+All plan-time refusals happen before hold or provider I/O and persist as the
+idempotency key's terminal answer. As for response-format refusals, replay
+retains code/message; field/reason details appear on the initial refusal.
+Pricing and usage semantics do not change.
+
 
 Anything not listed is rejected with `400 invalid_request` naming the field;
 the gateway does not pass unknown fields through. **Not in v1**, and
-therefore refused rather than ignored: `temperature` and other sampling
-controls, audio and file parts.
+therefore refused rather than ignored: audio and file parts.
 Each arrives, if it does, as a priced, documented addition.
 
 ### 2.2 What happens before the first byte
@@ -778,6 +799,7 @@ contained, not even the schema name (`null` on every call since zuu#1225):
 
 | Field | Meaning |
 |---|---|
+| `sampling` | Optional array of sampling field names explicitly set (including `n`); never values, stop strings, seeds or prompt content. Absent when none were set |
 | `response_format` | `"json_schema"`, `"json_object"`, or `null` when the request sent none |
 | `response_format_strict` | `json_schema.strict` as sent; `null` when absent |
 | `response_format_schema_name` | Always `null` since zuu#1225 (the name is caller-chosen text). Records of earlier calls may carry `json_schema.name` (`[A-Za-z0-9_-]{1,64}`) |
@@ -791,6 +813,16 @@ after the fact. It holds no schema body, prompt or tool definition. It is
 deployment has it switched off — a client must treat absence as "not
 recorded", never as "not requested", and must ignore members it does not
 know.
+
+Deployment order: `ledger.0007_sampling_features` MUST be live before updated
+gateways send `features.sampling` with `ledger_features_meta = true`.
+`ledger.0006_call_features` alone is insufficient, including when the flag was
+already enabled for an older gateway. Until 0007 is deployed, operators MUST
+hold sampling traffic or disable that flag on updated gateways; disabling it
+omits claim features without changing sampling validation or billing. Before
+reversing 0007, apply the same restriction. Its reverse rejects sampling metadata
+but continues accepting the original feature shape and omitted features. Existing
+call records are not rewritten in either direction; older clients remain valid.
 
 `404 call_not_found` for an id that does not exist or belongs to another
 (user, app).

@@ -67,6 +67,17 @@ export interface ChatRequest {
    * `reasoning_effort_unsupported`).
    */
   reasoning_effort?: ReasoningEffort;
+  /** Sampling controls are never silently dropped. Unsupported controls fail before a hold. */
+  temperature?: number;
+  top_p?: number;
+  top_k?: number;
+  stop?: string[];
+  seed?: string;
+  logprobs?: boolean;
+  top_logprobs?: number;
+  frequency_penalty?: number;
+  presence_penalty?: number;
+  n?: 1;
   stream?: true;
 }
 export interface Session {
@@ -138,7 +149,7 @@ export interface CallRecord {
 }
 export type StreamEvent =
   | { type: 'meta'; call_id: string; model: string; hold_2z: Decimal; [key: string]: unknown }
-  | { type: 'delta'; text: string }
+  | { type: 'delta'; text: string; logprobs?: unknown }
   | ({ type: 'tool_call_delta' } & ToolCallDelta)
   | ({ type: 'tool_call' } & ToolCall)
   | { type: 'usage'; usage: Usage; source?: string }
@@ -157,10 +168,17 @@ export interface ModelCapabilities {
   strict_tools?: boolean;
   /** Precondition for `ChatRequest.reasoning_effort`; not implied by `reasoning`. */
   reasoning_effort?: boolean;
+  top_k?: boolean;
+  seed?: boolean;
+  logprobs?: boolean;
+  penalties?: boolean;
   [key: string]: unknown;
 }
 /** Signed narrowing of a capability; absent members are not narrowed. */
 export interface ModelControls {
+  temperature?: boolean;
+  top_p?: boolean;
+  temperature_top_p_exclusive?: boolean;
   /** The `reasoning_effort` levels the model takes. */
   effort_levels?: string[];
   [key: string]: unknown;

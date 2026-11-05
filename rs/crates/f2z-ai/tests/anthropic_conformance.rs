@@ -124,6 +124,7 @@ fn parse(request: &ChatRequest, sse: &str) -> Parsed {
             // Fragments are informational (zuu#1128); the complete call is
             // what this conformance pins.
             Content::ToolCallDelta(_) => {}
+            Content::Logprobs(_) => panic!("Anthropic emitted unsupported logprobs"),
         }
     }
     parsed

@@ -1,0 +1,50 @@
+{
+  "name": "openai_chat_top_k_undeclared",
+  "feature": "sampling",
+  "source": "Synthetic documented-shape sampling fixture. Official references: https://developers.openai.com/api/reference/resources/chat ; https://developers.openai.com/api/reference/resources/responses ; https://platform.claude.com/docs/en/api/messages ; https://docs.x.ai/developers/model-capabilities/text/generate-text . No live provider data.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "capabilities": {
+      "seed": true,
+      "logprobs": true,
+      "penalties": true
+    }
+  },
+  "request": {
+    "model": "m-openai-chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Be brief."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is half of a pie?"
+          }
+        ]
+      }
+    ],
+    "max_output_tokens": 64,
+    "top_k": 20
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "field": "top_k",
+        "reason": "unsupported"
+      }
+    },
+    "encodings": {}
+  }
+}

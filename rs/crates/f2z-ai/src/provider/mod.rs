@@ -47,6 +47,8 @@ pub mod resilience;
 pub mod sse;
 pub mod upstream;
 
+pub(crate) mod sampling;
+
 use std::fmt;
 use std::time::Duration;
 
@@ -205,6 +207,8 @@ pub struct ProviderOutcome {
 pub enum Content {
     /// Assistant text, never empty.
     Text(String),
+    /// Requested token probabilities.
+    Logprobs(Value),
     /// A fragment of a function call still being generated, as the provider
     /// streamed it. The adapter still emits the complete
     /// [`Content::ToolCall`] once the call is whole; a fragment is only for

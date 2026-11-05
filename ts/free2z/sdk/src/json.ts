@@ -227,6 +227,7 @@ const REASONING_EFFORTS: readonly string[] = [
 export function reasoningEffort<
   T extends { reasoning_effort?: ReasoningEffort },
 >(request: T): T {
+  request = sampling(request);
   const { reasoning_effort: effort, ...rest } = request;
   if (effort === undefined) return rest as T;
   if (typeof effort !== "string" || !REASONING_EFFORTS.includes(effort))
@@ -322,4 +323,54 @@ export function toolOptions<
     result.parallel_tool_calls = parallel;
   }
   return result;
+}
+
+/** Validate sampling shape before any transport. Integers here are not monetary amounts. */
+export function sampling<T extends object>(request: T): T {
+  const value = request as Record<string, unknown>;
+  for (const [field, min, max] of [
+    ["temperature", 0, 2],
+    ["top_p", 0, 1],
+    ["frequency_penalty", -2, 2],
+    ["presence_penalty", -2, 2],
+  ] as const) {
+    const v = value[field];
+    if (
+      v !== undefined &&
+      (typeof v !== "number" || !Number.isFinite(v) || v < min || v > max)
+    )
+      failure("invalid_request");
+  }
+  for (const field of ["top_k", "top_logprobs", "n"] as const) {
+    const v = value[field];
+    if (
+      v !== undefined &&
+      (typeof v !== "number" ||
+        !Number.isSafeInteger(v) ||
+        v < (field === "top_logprobs" ? 0 : 1) ||
+        (field === "top_logprobs" && v > 20) ||
+        (field === "n" && v !== 1))
+    )
+      failure("invalid_request");
+  }
+  if (
+    value.seed !== undefined &&
+    (typeof value.seed !== "bigint" ||
+      value.seed < -(1n << 63n) ||
+      value.seed >= 1n << 63n)
+  )
+    failure("invalid_request");
+  if (value.logprobs !== undefined && typeof value.logprobs !== "boolean")
+    failure("invalid_request");
+  if (value.top_logprobs !== undefined && value.logprobs !== true)
+    failure("invalid_request");
+  if (
+    value.stop !== undefined &&
+    (!Array.isArray(value.stop) ||
+      value.stop.length > 4 ||
+      !value.stop.every((v: unknown) => typeof v === "string"))
+  )
+    failure("invalid_request");
+  if (value.logit_bias !== undefined) failure("invalid_request");
+  return request;
 }

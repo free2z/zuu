@@ -988,3 +988,45 @@ test("billing goes through native, takes no URL from JavaScript and is refused b
   );
   await assert.rejects(denied.openBilling(), { code: "native_error" });
 });
+
+test("native sampling controls preserve fractions and exact signed seed", async () => {
+  const seen = [];
+  const transport = new NativeTransport(
+    bridge({
+      estimate: async (r) => {
+        seen.push(r);
+        return {
+          model: "test",
+          input_tokens: "1",
+          max_output_tokens: "64",
+          hold_2z: "1",
+        };
+      },
+    }),
+  );
+  const controls = {
+    temperature: 0.7,
+    top_p: 0.8,
+    top_k: 20,
+    stop: ["END"],
+    seed: -(1n << 63n),
+    logprobs: true,
+    top_logprobs: 3,
+    frequency_penalty: -0.5,
+    presence_penalty: 0.5,
+    n: 1,
+  };
+  await transport.estimate({ ...request, ...controls });
+  for (const [key, value] of Object.entries(controls))
+    assert.deepEqual(seen[0][key], key === "seed" ? value.toString() : value);
+  const sent = seen.length;
+  for (const [field, value] of Object.entries(controls)) {
+    await assert.rejects(transport.estimate({ ...request, [field]: null }), {
+      code: "invalid_request",
+    });
+  }
+  await assert.rejects(transport.estimate({ ...request, top_logprobs: 2 }), {
+    code: "invalid_request",
+  });
+  assert.equal(seen.length, sent);
+});

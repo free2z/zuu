@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   Client,
+  withSampling,
   NativeTransport,
   SdkError,
   errorHint,
@@ -204,4 +205,17 @@ test("formatMilli2z is exact display text", () => {
   assert.equal(formatMilli2z(0n), "0.000");
   assert.equal(formatMilli2z(-1_250n), "-1.250");
   assert.equal(formatMilli2z(18446744073709551615n), "18446744073709551.615");
+});
+
+test("sampling builder validates shape and keeps absent requests unchanged", () => {
+  const plain = { model: "m", messages: [] };
+  assert.deepEqual(withSampling(plain, {}), plain);
+  assert.deepEqual(withSampling(plain, { temperature: 0.7, seed: -42n }), {
+    ...plain,
+    temperature: 0.7,
+    seed: -42n,
+  });
+  assert.throws(() => withSampling(plain, { temperature: 3 }), {
+    code: "invalid_request",
+  });
 });

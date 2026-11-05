@@ -113,15 +113,34 @@ ledger_max_connections = 4
 log line carries a content-free description of what the request asked for:
 `response_format` (`json_schema`/`json_object`, absent when none),
 `response_format_strict`, `response_format_schema_bytes`, `tools` and
-`fallback` (counts), `max_output_tokens_strict`, `stream`, and `call_id` once
+`fallback` (counts), `sampling` (only the names of controls set, never their
+values), `max_output_tokens_strict`, `stream`, and `call_id` once
 one is known. Never a schema body, a prompt, a tool definition — nor the
 schema's client-chosen *name*, which like `metadata` never reaches a log line
 (`src/features.rs`). With `ledger_features_meta = true`
 (`F2Z_AI_LEDGER_FEATURES_META=true`) the same object is stored on the ledger
 call claim as `features` and returned on `GET /v1/calls/{id}` — with the schema
-name `null`, for every app (zuu#1225). It is **off by default**: a ledger without tuzi migration
-`ledger.0006_call_features` refuses the unknown key and would fail every paid
-call, so the flag is flipped only after that migration is live.
+name `null`, for every app (zuu#1225). It is **off by default**.
+`ledger.0006_call_features` admits the original feature object;
+**`ledger.0007_sampling_features` must be deployed before updated gateways
+send sampling metadata with this flag enabled**. The 0006 validator rejects
+`features.sampling`, even if the flag was already enabled successfully for an
+older gateway.
+
+Deploy 0007 first, then allow updated gateways to send sampling claims. Until
+that validator is live, either hold traffic that sets sampling controls, or
+keep `ledger_features_meta = false` on every updated gateway (including
+disabling an already-enabled flag before admitting that traffic). Disabling
+the flag omits the entire claim feature object; sampling validation and billing
+remain unchanged. Enable it only after confirming the database migration.
+Requests without sampling retain the old feature shape, and clients omitting
+`features` remain compatible.
+
+Before reversing 0007, again hold sampling traffic or disable the flag on all
+updated gateways. Its reverse restores the 0006 validator: old feature objects
+and omitted features still pass, but sampling feature objects are rejected.
+Neither direction rewrites existing call records. These are deployment-order
+requirements; this change does not flip any deployment flag.
 
 The trust file is a JSON object mapping key IDs to 64-character lower-case
 Ed25519 public-key hex strings. Trust never comes from the catalogue endpoint.

@@ -35,7 +35,9 @@ pytestmark = pytest.mark.django_db
 NEW_COLUMNS = {"provider_model_id", "api_style", "ttfb_timeout_ms", "idle_timeout_ms", "safety_factor_bps",
                "supports_tools", "supports_vision", "supports_reasoning",
                "supports_structured_output", "supports_strict_tools", "supports_forced_tool_choice",
-               "supports_reasoning_effort", "reasoning_effort_levels", "tools_require_effort_none"}
+               "supports_reasoning_effort", "reasoning_effort_levels", "tools_require_effort_none",
+               "supports_top_k", "supports_seed", "supports_logprobs", "supports_penalties",
+               "temperature_top_p_exclusive", "sampling_temperature", "sampling_top_p"}
 
 # The serializer's keys before  (fields='__all__' over the old columns).
 PRE_2222_SERIALIZED_KEYS = {
@@ -84,6 +86,12 @@ def test_an_old_pods_insert_still_succeeds_and_gets_the_defaults():
             row.supports_structured_output, row.supports_strict_tools,
             row.supports_reasoning_effort) == (False, False, False, False, False, False)
     assert row.reasoning_effort_levels == []
+    assert (row.supports_top_k, row.supports_seed, row.supports_logprobs,
+            row.supports_penalties, row.temperature_top_p_exclusive) == (
+                False, False, False, False, False)
+    # NULL is "not declared", which is what an old pod leaves behind.
+    assert row.sampling_temperature is None
+    assert row.sampling_top_p is None
     assert row.effective_api_style == "anthropic_messages"
     assert row.upstream_model_id == "old-pod-model"
 

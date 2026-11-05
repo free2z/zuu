@@ -167,6 +167,7 @@ impl ChatBackend for StallingBackend {
 pub fn delta(text: &str) -> Event {
     Event::Delta(Delta {
         text: text.to_owned(),
+        logprobs: None,
     })
 }
 
