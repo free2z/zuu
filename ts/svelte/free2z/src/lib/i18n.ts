@@ -182,6 +182,118 @@ export function formatLocalizedNumber(
   ).format(value);
 }
 
+/** Finite numeric major units. Decimal strings must be plain decimal and are
+ * formatted as exact mathematical values; no string is coerced to Number. */
+export function formatCurrencyMajor(
+  amount: number | bigint | string,
+  currency: string,
+  requestedLocale: string = getCurrentLocale(),
+  options: Intl.NumberFormatOptions = {},
+): string {
+  const code = currency.toUpperCase();
+  if (!Intl.supportedValuesOf("currency").includes(code) || code === "ZEC")
+    throw new RangeError("Unsupported fiat currency");
+  return formatExact(amount, requestedLocale, {
+    ...options,
+    style: "currency",
+    currency: code,
+  });
+}
+
+/** Integer minor units with caller-specified decimal scale, e.g. cents = 2. */
+export function formatCurrencyMinor(
+  amount: bigint,
+  scale: number,
+  currency: string,
+  requestedLocale: string = getCurrentLocale(),
+  options: Intl.NumberFormatOptions = {},
+): string {
+  return formatCurrencyMajor(
+    scaledInteger(amount, scale),
+    currency,
+    requestedLocale,
+    {
+      minimumFractionDigits: Math.min(
+        scale,
+        options.maximumFractionDigits ?? scale,
+      ),
+      maximumFractionDigits: Math.max(
+        scale,
+        options.minimumFractionDigits ?? scale,
+      ),
+      ...options,
+    },
+  );
+}
+
+/** Exact integer denominations: 2Z/m2Z and ZEC/zatoshi are not fiat. */
+export function formatScaledAsset(
+  amount: bigint,
+  scale: number,
+  symbol: "2Z" | "ZEC",
+  requestedLocale: string = getCurrentLocale(),
+  options: Intl.NumberFormatOptions = {},
+): string {
+  if (symbol !== "2Z" && symbol !== "ZEC")
+    throw new RangeError("Unsupported asset");
+  return `${formatExact(scaledInteger(amount, scale), requestedLocale, { maximumFractionDigits: Math.max(scale, options.minimumFractionDigits ?? scale), ...options, style: "decimal" })} ${symbol}`;
+}
+
+export function formatLocalizedUnit(
+  amount: number | bigint,
+  unit: string,
+  requestedLocale: string = getCurrentLocale(),
+  options: Intl.NumberFormatOptions = {},
+): string {
+  return formatExact(amount, requestedLocale, {
+    ...options,
+    style: "unit",
+    unit,
+  });
+}
+
+function scaledInteger(amount: bigint, scale: number): string {
+  if (typeof amount !== "bigint") throw new TypeError("Amount must be bigint");
+  if (!Number.isInteger(scale) || scale < 0 || scale > 100)
+    throw new RangeError("Invalid scale");
+  const negative = amount < 0n;
+  const digits = (negative ? -amount : amount)
+    .toString()
+    .padStart(scale + 1, "0");
+  return `${negative ? "-" : ""}${scale ? `${digits.slice(0, -scale)}.${digits.slice(-scale)}` : digits}`;
+}
+
+function formatExact(
+  amount: number | bigint | string,
+  requestedLocale: string,
+  options: Intl.NumberFormatOptions,
+): string {
+  const locale = resolveSupportedLocale(requestedLocale);
+  if (!locale) throw new RangeError("Unsupported locale");
+  if (!["number", "bigint", "string"].includes(typeof amount))
+    throw new TypeError("Invalid amount");
+  if (typeof amount === "number" && !Number.isFinite(amount))
+    throw new RangeError("Amount must be finite");
+  if (typeof amount === "string" && !/^[+-]?\d+(?:\.\d+)?$/.test(amount))
+    throw new TypeError("Invalid decimal");
+  if (typeof amount === "string") {
+    // Older engines coerced strings to doubles. Refuse silent precision loss.
+    const probe = new Intl.NumberFormat("en", {
+      useGrouping: false,
+      maximumFractionDigits: 0,
+    });
+    if (
+      (probe.format as (value: string) => string)("9007199254740993") !==
+      "9007199254740993"
+    )
+      throw new Error("Exact decimal formatting unavailable");
+  }
+  const formatter = new Intl.NumberFormat(locale, options);
+  return (formatter.format as (value: number | bigint | string) => string)(
+    amount,
+  );
+}
+
 export function formatLocalizedList(
   values: readonly string[],
   requestedLocale: string = getCurrentLocale(),

@@ -328,10 +328,10 @@ items.sort((a, b) =>
   if (
     !process.env.FORMATTING_BASELINE &&
     (baseline.length > 105 ||
-      baseline.filter((item) => item.classification === "legacy").length > 53)
+      baseline.filter((item) => item.classification === "legacy").length > 51)
   ) {
     console.error(
-      "Formatting inventory may only shrink: maximum 105 sites and 53 legacy sites.",
+      "Formatting inventory may only shrink: maximum 105 sites and 51 legacy sites.",
     );
     process.exitCode = 1;
   }

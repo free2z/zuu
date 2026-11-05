@@ -299,8 +299,26 @@
   {
     "file": "src/lib/i18n.ts",
     "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(\"en\", { useGrouping: false, maximumFractionDigits: 0, })",
+    "fingerprint": "00d663da3df16eef",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/i18n.ts",
+    "kind": "Intl.NumberFormat",
     "context": "new Intl.NumberFormat( resolveSupportedLocale(requestedLocale) ?? defaultLocale, options, )",
     "fingerprint": "54932139f4b3b76a",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/i18n.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale, options)",
+    "fingerprint": "54d2bd6df87ab176",
     "classification": "shared",
     "owner": "Free2Z UI",
     "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
@@ -713,15 +731,6 @@
   {
     "file": "src/routes/[username]/dashboard/billing/+page.svelte",
     "kind": "toLocaleString",
-    "context": "(cents / 100).toLocaleString($locale, { style: \"currency\", currency: \"USD\", })",
-    "fingerprint": "61b8766daad8f3ef",
-    "classification": "legacy",
-    "owner": "Free2Z UI",
-    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
-  },
-  {
-    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
-    "kind": "toLocaleString",
     "context": "reviewedCheckout.quote.tuzis.toLocaleString( $locale, )",
     "fingerprint": "823199fad98a7377",
     "classification": "legacy",
@@ -808,15 +817,6 @@
     "classification": "legacy",
     "owner": "Free2Z UI",
     "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
-  },
-  {
-    "file": "src/routes/[username]/dashboard/media/+page.svelte",
-    "kind": "Intl.NumberFormat",
-    "context": "new Intl.NumberFormat($locale, { style: \"unit\", unit: units[unitIndex], unitDisplay: \"short\", maximumFractionDigits: value >= 10 || value % 1 === 0 ? 0 : 1, })",
-    "fingerprint": "f616d88b477f1ef2",
-    "classification": "legacy",
-    "owner": "Free2Z UI",
-    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
   },
   {
     "file": "src/routes/[username]/dashboard/notifications/+page.svelte",

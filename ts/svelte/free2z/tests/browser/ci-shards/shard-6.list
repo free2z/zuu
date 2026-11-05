@@ -24,3 +24,4 @@ zpage-hero.spec.ts › expanding the outline re-measures the reading progress
 icu-render.spec.ts
 locale-runtime.spec.ts
 locale-built-runtime.spec.ts
+formatting-runtime.spec.ts

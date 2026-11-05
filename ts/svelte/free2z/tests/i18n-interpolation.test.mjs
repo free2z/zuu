@@ -235,3 +235,105 @@ test("list and collation helpers follow concurrent request locales", async () =>
     ]);
   }
 });
+
+test("currency, scaled assets and units preserve exact values and Intl semantics", async () => {
+  const {
+    formatCurrencyMajor: major,
+    formatCurrencyMinor: minor,
+    formatScaledAsset: asset,
+    formatLocalizedUnit: unit,
+  } = i18n;
+  for (const locale of ["en", "fr"]) {
+    const currency = new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency: "USD",
+    });
+    for (const cents of [0, 1, -1, 100, 12345])
+      assert.equal(
+        major(cents / 100, "USD", locale),
+        currency.format(cents / 100),
+      );
+    assert.equal(
+      minor(900719925474099301n, 2, "USD", locale),
+      currency.format("9007199254740993.01"),
+    );
+    assert.equal(
+      major("-0.00", "USD", locale, { currencySign: "accounting" }),
+      new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: "USD",
+        currencySign: "accounting",
+      }).format(-0),
+    );
+    assert.equal(
+      minor(1n, 3, "USD", locale),
+      new Intl.NumberFormat(locale, {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 3,
+        maximumFractionDigits: 3,
+      }).format(0.001),
+    );
+    assert.equal(
+      asset(1n, 8, "ZEC", locale),
+      `${new Intl.NumberFormat(locale, { maximumFractionDigits: 8 }).format(0.00000001)} ZEC`,
+    );
+    assert.equal(
+      asset(-1n, 3, "2Z", locale, { minimumFractionDigits: 3 }),
+      `${new Intl.NumberFormat(locale, { minimumFractionDigits: 3, maximumFractionDigits: 3 }).format(-0.001)} 2Z`,
+    );
+    assert.equal(minor(-1n, 2, "USD", locale), currency.format(-0.01));
+    assert.equal(
+      minor(12345n, 3, "USD", locale, { maximumFractionDigits: 2 }),
+      currency.format(12.345),
+    );
+    assert.equal(
+      asset(1n, 3, "2Z", locale),
+      `${new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(0.001)} 2Z`,
+    );
+    assert.equal(
+      unit(9007199254740993n, "byte", locale, { unitDisplay: "short" }),
+      new Intl.NumberFormat(locale, {
+        style: "unit",
+        unit: "byte",
+        unitDisplay: "short",
+      }).format(9007199254740993n),
+    );
+    assert.equal(
+      unit(1.5, "megabyte", locale, {
+        unitDisplay: "short",
+        maximumFractionDigits: 1,
+      }),
+      new Intl.NumberFormat(locale, {
+        style: "unit",
+        unit: "megabyte",
+        unitDisplay: "short",
+        maximumFractionDigits: 1,
+      }).format(1.5),
+    );
+  }
+  assert.throws(() => major("NaN", "USD", "en"));
+  assert.throws(() => major({}, "USD", "en"));
+  assert.throws(() => minor(1, 2, "USD", "en"));
+  assert.throws(() => major(Infinity, "USD", "en"));
+  assert.throws(() => major(1, "ZEC", "en"));
+  assert.throws(() => major(1, "ZZZ", "en"));
+  assert.throws(() => unit(1, "invalid-unit", "en"));
+  assert.throws(() => unit(1, "byte", "pt-PT"));
+  assert.throws(() => minor(1n, -1, "USD", "en"));
+  const { withRequestLocale } = await vite.ssrLoadModule(
+    "/src/lib/server/request-locale.js",
+  );
+  const run = (locale) =>
+    withRequestLocale(locale, async () => {
+      await Promise.resolve();
+      return [major(1234.5, "USD"), unit(5, "byte")];
+    });
+  assert.deepEqual(
+    await Promise.all([run("en"), run("fr")]),
+    ["en", "fr"].map((locale) => [
+      major(1234.5, "USD", locale),
+      unit(5, "byte", locale),
+    ]),
+  );
+});

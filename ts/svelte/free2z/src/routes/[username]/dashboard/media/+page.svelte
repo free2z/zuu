@@ -5,7 +5,7 @@
   import { fade } from "svelte/transition";
   import { page } from "$lib/kit-stores";
   import { toast, captureAccountToast } from "$lib/toast.js";
-  import { locale, tStore as t } from "$lib/i18n";
+  import { locale, formatLocalizedUnit, tStore as t } from "$lib/i18n";
   import MediaUploader from "$lib/components/media/MediaUploader.svelte";
   import MediaPreviewDialog from "$lib/components/media/MediaPreviewDialog.svelte";
   import {
@@ -121,12 +121,10 @@
       value /= 1024;
       unitIndex += 1;
     }
-    return new Intl.NumberFormat($locale, {
-      style: "unit",
-      unit: units[unitIndex],
+    return formatLocalizedUnit(value, units[unitIndex], $locale, {
       unitDisplay: "short",
       maximumFractionDigits: value >= 10 || value % 1 === 0 ? 0 : 1,
-    }).format(value);
+    });
   };
 
   const formatDate = (dateString: string) =>

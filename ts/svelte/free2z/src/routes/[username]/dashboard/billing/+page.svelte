@@ -5,7 +5,12 @@
   import { get } from "svelte/store";
   import { browser } from "$app/env";
   import * as env from "$app/env/public";
-  import { formatLocalizedNumber, locale, tStore as t } from "$lib/i18n";
+  import {
+    formatCurrencyMajor,
+    formatLocalizedNumber,
+    locale,
+    tStore as t,
+  } from "$lib/i18n";
   import {
     cardFeeCents,
     estimatedCardCents,
@@ -823,10 +828,7 @@
   }
 
   function asCurrency(cents: number) {
-    return (cents / 100).toLocaleString($locale, {
-      style: "currency",
-      currency: "USD",
-    });
+    return formatCurrencyMajor(cents / 100, "USD", $locale);
   }
 
   async function copyZcashUri() {
