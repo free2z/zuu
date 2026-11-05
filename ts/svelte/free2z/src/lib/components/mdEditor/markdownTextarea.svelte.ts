@@ -22,6 +22,11 @@
  * Must be constructed during component initialisation (it registers an
  * `$effect`), and `attach()` must be called from `onMount`.
  */
+import { marked } from "marked";
+import {
+  parseCaptionedImage,
+  serializeCaptionedImage,
+} from "$lib/utils/image-caption";
 import { toast, captureAccountToast } from "$lib/toast.js";
 import { apiFetch } from "$lib/api/config";
 import { creatorList } from "$lib/api/creator/creator";
@@ -1143,6 +1148,62 @@ export class MarkdownTextareaController {
         );
       }
     });
+  };
+
+  /** Capture a standalone image at the caret. The full-document lexer keeps
+   * fenced examples inert; the original source is checked again at apply. */
+  captureImageDetails = () => {
+    const textarea = this.#textarea;
+    if (!textarea) return null;
+    const value = this.#value;
+    const caret = textarea.selectionStart;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+    const lineEnd = value.indexOf("\n", lineStart);
+    const end = lineEnd < 0 ? value.length : lineEnd;
+    const image = value.slice(lineStart, end).trim();
+    const inline = marked.Lexer.lexInline(image);
+    if (
+      inline.length !== 1 ||
+      inline[0].type !== "image" ||
+      inline[0].raw !== image
+    )
+      return null;
+    let offset = 0;
+    const blocks = marked.lexer(value);
+    const block = blocks.find((token) => {
+      const start = offset;
+      offset += token.raw.length;
+      return lineStart >= start && lineStart < offset;
+    });
+    if (!block || block.type !== "paragraph") return null;
+    const parsed = parseCaptionedImage(value.slice(lineStart));
+    const captionLine = parsed
+      ? (value.slice(end + 1).match(/^[^\n]*/)?.[0] ?? "")
+      : "";
+    const replaceEnd = parsed ? end + 1 + captionLine.length : end;
+    const token = inline[0];
+    return {
+      alt: token.text,
+      caption: parsed?.caption ?? "",
+      apply: (alt: string, caption: string) => {
+        if (this.#options.isAbandoned() || this.#value !== value) return false;
+        // Keep the destination and title byte-for-byte; escape Markdown label delimiters.
+        const closing = image.indexOf("](");
+        if (closing < 0) return false;
+        const safeAlt = alt
+          .replace(/\\/g, "\\\\")
+          .replace(/\[/g, "\\[")
+          .replace(/\]/g, "\\]")
+          .replace(/[\r\n]+/g, " ");
+        const next = serializeCaptionedImage(
+          `![${safeAlt}${image.slice(closing)}`,
+          caption,
+        );
+        this.#splice(lineStart, replaceEnd, next, "end");
+        this.#textarea?.focus();
+        return true;
+      },
+    };
   };
 
   // -------------------------------------------------------------------------

@@ -7,6 +7,7 @@
   import EditorEmbedLink from "./EditorEmbedLink.svelte";
   import type { EditorMediaKind } from "./editorMedia";
   import EditorImagePicker from "./EditorImagePicker.svelte";
+  import EditorImageDetails from "./EditorImageDetails.svelte";
   import EditorMentionMenu from "./EditorMentionMenu.svelte";
   import EditorSlashMenu from "./EditorSlashMenu.svelte";
   import { detectMacPlatform } from "./shortcuts";
@@ -111,6 +112,17 @@
   const editorAbandoned = () => isAbandoned?.() === true;
 
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
+  let imageDetailsRef = $state<{
+    show: (alt: string, caption: string) => void;
+  } | null>(null);
+  let applyImageDetails: ((alt: string, caption: string) => boolean) | null =
+    null;
+  function editImageDetails() {
+    const captured = editor.captureImageDetails();
+    if (!captured) return;
+    applyImageDetails = captured.apply;
+    imageDetailsRef?.show(captured.alt, captured.caption);
+  }
   let imagePickerRef = $state<{
     openPicker: (defaultTab?: "device" | "cloud") => void;
   } | null>(null);
@@ -326,6 +338,12 @@
   show={editor.showFloatingToolbar}
 />
 
+<EditorImageDetails
+  bind:this={imageDetailsRef}
+  {direction}
+  onSave={(alt, caption) => applyImageDetails?.(alt, caption) ?? false}
+/>
+
 <EditorImagePicker
   bind:this={imagePickerRef}
   onChooseCloudImage={editor.insertCloudImage}
@@ -419,6 +437,12 @@
     </Button>
   </div>
 
+  <button
+    type="button"
+    class="cursor-pointer rounded-md px-2 py-1 text-sm underline"
+    onclick={editImageDetails}
+    >{$t("editor.editImageDetails", "Edit image at cursor")}</button
+  >
   <textarea
     bind:this={textareaRef}
     bind:value

@@ -285,3 +285,41 @@ test("Audio device upload uses the native preview player", async ({ page }) => {
     .click();
   await expect(page.locator("audio")).toBeVisible();
 });
+
+test("image details edit alt and caption, cancel and remove", async ({
+  page,
+}) => {
+  const { body } = await setup(page, "png", "image/png");
+  await body.fill('![old](/uploadz/public/media-owner/fixture.png "title")');
+  await body.evaluate((element: HTMLTextAreaElement) => {
+    element.focus();
+    element.setSelectionRange(4, 4);
+  });
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Image details" }),
+  ).toBeVisible();
+  await page.getByLabel("Alt text (image description)").fill("A bird");
+  await page.getByLabel("Visible caption").fill("雪\nA caption");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(body).toHaveValue(
+    '![old](/uploadz/public/media-owner/fixture.png "title")',
+  );
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await page.getByLabel("Alt text (image description)").fill("A bird");
+  await page.getByLabel("Visible caption").fill("雪\nA caption");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(
+    '![A bird](/uploadz/public/media-owner/fixture.png "title")\n::caption["雪\\nA caption"]',
+  );
+  await body.evaluate((element: HTMLTextAreaElement) => {
+    element.focus();
+    element.setSelectionRange(3, 3);
+  });
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await page.getByLabel("Visible caption").fill("");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(
+    '![A bird](/uploadz/public/media-owner/fixture.png "title")',
+  );
+});
