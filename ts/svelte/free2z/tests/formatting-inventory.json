@@ -1,0 +1,965 @@
+[
+  {
+    "file": "src/lib/components/converse/utils.ts",
+    "kind": "Intl.object",
+    "context": "typeof Intl",
+    "fingerprint": "2c5f7c4091344322",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Feature detection for grapheme segmentation; preserve capability fallback."
+  },
+  {
+    "file": "src/lib/components/converse/utils.ts",
+    "kind": "Intl.object",
+    "context": "\"Segmenter\" in Intl",
+    "fingerprint": "8a16ab87188a9e8b",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Feature detection for grapheme segmentation; preserve capability fallback."
+  },
+  {
+    "file": "src/lib/components/converse/utils.ts",
+    "kind": "Intl.Segmenter",
+    "context": "new Intl.Segmenter(undefined, { granularity: \"grapheme\" })",
+    "fingerprint": "a8e03b6881c3babe",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Grapheme segmentation protects text boundaries rather than formatting displayed dates or numbers."
+  },
+  {
+    "file": "src/lib/components/dashboard/CreatorEarnings.svelte",
+    "kind": "Intl.DateTimeFormat",
+    "context": "new Intl.DateTimeFormat($locale, { dateStyle: \"medium\", timeStyle: \"short\", })",
+    "fingerprint": "173b3c18c50db996",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.DateTimeFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/layout/ClassicUiBanner.svelte",
+    "kind": "toISOString",
+    "context": "new Date().toISOString()",
+    "fingerprint": "c3b9a00586a0c69c",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/lib/components/mdEditor/inlineUploads.ts",
+    "kind": "toLocaleString",
+    "context": "tier.min_tuzis.toLocaleString(locale)",
+    "fingerprint": "2f5074ce717c1b2a",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/mdEditor/mentionContext.ts",
+    "kind": "toLocaleLowerCase",
+    "context": "handle.toLocaleLowerCase()",
+    "fingerprint": "5cafa9846c2f1df3",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/components/mdEditor/mentionContext.ts",
+    "kind": "toLocaleLowerCase",
+    "context": "`/${handle}`.toLocaleLowerCase()",
+    "fingerprint": "9f0251e8cb6d8b52",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/components/mdEditor/mentionContext.ts",
+    "kind": "toLocaleLowerCase",
+    "context": "url.replace(/\\/+$/u, \"\").toLocaleLowerCase()",
+    "fingerprint": "bf037131b5d9f065",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/components/mdEditor/utils.ts",
+    "kind": "Intl.DateTimeFormat",
+    "context": "Intl.DateTimeFormat()",
+    "fingerprint": "2834c30c6601c1d3",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Detects the device time-zone identifier; this is not a formatted UI date."
+  },
+  {
+    "file": "src/lib/components/mdEditor/utils.ts",
+    "kind": "toISOString",
+    "context": "new Date().toISOString()",
+    "fingerprint": "c3b9a00586a0c69c",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/lib/components/media/MediaUploader.svelte",
+    "kind": "toLocaleString",
+    "context": "tier.min_tuzis.toLocaleString(locale)",
+    "fingerprint": "2f5074ce717c1b2a",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/media/uploadLimit.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale, { style: \"unit\", unit: units[unitIndex], // `short` renders raw bytes as the word \"byte\" (\"900 byte\"); `narrow` is // the symbol form (\"900B\"). Every other unit reads better with the space, // and both stay localized — `narrow` is \"900o\" in French, not \"900B\". unitDisplay: unitIndex === 0 ? \"narrow\" : \"short\", maximumFractionDigits: fractionDigits, })",
+    "fingerprint": "5ebc29a1378ace83",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/media/uploadRequest.ts",
+    "kind": "toLocaleString",
+    "context": "tier.min_tuzis.toLocaleString(locale)",
+    "fingerprint": "2f5074ce717c1b2a",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/SearchResultCard.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(currentLocale, { maximumFractionDigits: 0, })",
+    "fingerprint": "ea33b7b0550ad495",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/SeriesEditor.svelte",
+    "kind": "localeCompare",
+    "context": "left.id.localeCompare(right.id)",
+    "fingerprint": "48937c07e13d2f79",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "Stable identifier or protocol ordering/segmentation, independent of viewer UI language."
+  },
+  {
+    "file": "src/lib/components/SeriesEditor.svelte",
+    "kind": "localeCompare",
+    "context": "(left.created_at || \"\").localeCompare( right.created_at || \"\", )",
+    "fingerprint": "d80ee7036e683c97",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "Stable identifier or protocol ordering/segmentation, independent of viewer UI language."
+  },
+  {
+    "file": "src/lib/components/stream/AudioRecorder.svelte",
+    "kind": "toISOString",
+    "context": "new Date().toISOString()",
+    "fingerprint": "c3b9a00586a0c69c",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/lib/components/stream/StreamSelectionModal.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat($locale, { maximumFractionDigits: 2 })",
+    "fingerprint": "a1ee470030a7899d",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/zpageActions/BoostButton.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(\"en\", { notation: \"compact\", maximumFractionDigits: 1, })",
+    "fingerprint": "961d7e657a11a429",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/zpageLanguage/TranslateIntoDialog.svelte",
+    "kind": "localeCompare",
+    "context": "a.name.localeCompare(b.name, viewerLocale)",
+    "fingerprint": "cdba61b77b1d3e15",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate localeCompare at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/components/zpageLanguage/TranslationReviewBar.svelte",
+    "kind": "toLocaleLowerCase",
+    "context": "item.toLocaleLowerCase()",
+    "fingerprint": "83feed9faed6f9a8",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/components/zpageLanguage/TranslationReviewBar.svelte",
+    "kind": "toLocaleLowerCase",
+    "context": "text.toLocaleLowerCase()",
+    "fingerprint": "c2db3d14f1f1262d",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/components/zpageLanguage/TranslationTray.svelte",
+    "kind": "localeCompare",
+    "context": "label(a.language).localeCompare(label(b.language))",
+    "fingerprint": "ea0e11e51b28e53b",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate localeCompare at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/content-direction.js",
+    "kind": "Intl.Locale",
+    "context": "new Intl.Locale(normalized)",
+    "fingerprint": "5331541c879055e1",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/converse/feed-filters.ts",
+    "kind": "toLocaleLowerCase",
+    "context": "value.trim().toLocaleLowerCase()",
+    "fingerprint": "920c399a2e3113df",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/converse/feed-filters.ts",
+    "kind": "toLocaleLowerCase",
+    "context": "params.get(\"view\")?.trim().toLocaleLowerCase()",
+    "fingerprint": "ba6490300247ec46",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/converse/feed-filters.ts",
+    "kind": "toLocaleLowerCase",
+    "context": "params.get(\"sort\")?.trim().toLocaleLowerCase()",
+    "fingerprint": "bdfc8a684458ca95",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/converse/feed-filters.ts",
+    "kind": "toLocaleLowerCase",
+    "context": "tag.toLocaleLowerCase()",
+    "fingerprint": "e4d475bb23a72917",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/economy-values.js",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale)",
+    "fingerprint": "8a2ea7deb86b31ad",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/economy-values.js",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale)",
+    "fingerprint": "8a2ea7deb86b31ad",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/economy-values.js",
+    "kind": "toLocaleString",
+    "context": "BigInt(whole).toLocaleString(locale)",
+    "fingerprint": "47321c20ecf63216",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/economy-values.js",
+    "kind": "toLocaleString",
+    "context": "(amount / 1000n).toLocaleString(locale)",
+    "fingerprint": "515639a5f0199472",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/i18n.ts",
+    "kind": "Intl.Collator",
+    "context": "new Intl.Collator( resolveSupportedLocale(requestedLocale) ?? defaultLocale, options, )",
+    "fingerprint": "d31e1b785fc1cd89",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/i18n.ts",
+    "kind": "Intl.ListFormat",
+    "context": "new Intl.ListFormat( resolveSupportedLocale(requestedLocale) ?? defaultLocale, options, )",
+    "fingerprint": "31b7df22bd27999b",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/i18n.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat( resolveSupportedLocale(requestedLocale) ?? defaultLocale, options, )",
+    "fingerprint": "54932139f4b3b76a",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/i18n.ts",
+    "kind": "Intl.PluralRules",
+    "context": "new Intl.PluralRules( resolveSupportedLocale(requestedLocale) ?? defaultLocale, )",
+    "fingerprint": "19f7f7d867cc15de",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/insufficient-funds.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(localeCode, { useGrouping: false })",
+    "fingerprint": "48ba06d703b7db2c",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/insufficient-funds.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(localeCode, { useGrouping: true, minimumFractionDigits: 1, maximumFractionDigits: Math.max(1, fractionDigits), })",
+    "fingerprint": "66ab4a52fd38c003",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/kyc/camera.js",
+    "kind": "toISOString",
+    "context": "now.toISOString()",
+    "fingerprint": "a2b4153874db9473",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/lib/language-catalog.js",
+    "kind": "Intl.Locale",
+    "context": "new Intl.Locale(tag)",
+    "fingerprint": "d5ee4b64af3fa989",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/language-catalog.js",
+    "kind": "localeCompare",
+    "context": "(a.name ?? a.tag).localeCompare(b.name ?? b.tag, viewer)",
+    "fingerprint": "6ad7d3eb4459f848",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Content-language names or ordering: preserve arbitrary language tags while migrating to shared locale-aware formatting."
+  },
+  {
+    "file": "src/lib/language-picker.js",
+    "kind": "Intl.Collator",
+    "context": "new Intl.Collator(viewerLocale || \"en\", { sensitivity: \"base\", })",
+    "fingerprint": "dcde611b6d520b44",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Content-language names or ordering: preserve arbitrary language tags while migrating to shared locale-aware formatting."
+  },
+  {
+    "file": "src/lib/language-picker.js",
+    "kind": "Intl.DisplayNames",
+    "context": "new Intl.DisplayNames(locales, { type, fallback: \"none\", })",
+    "fingerprint": "3f882fd172c6265f",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Content-language names or ordering: preserve arbitrary language tags while migrating to shared locale-aware formatting."
+  },
+  {
+    "file": "src/lib/language-picker.js",
+    "kind": "Intl.DisplayNames",
+    "context": "new Intl.DisplayNames([viewerLocale || \"en\", \"en\"], { type: \"language\", fallback: \"none\", })",
+    "fingerprint": "d5cfaa5de8e10278",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Content-language names or ordering: preserve arbitrary language tags while migrating to shared locale-aware formatting."
+  },
+  {
+    "file": "src/lib/language-picker.js",
+    "kind": "Intl.Locale",
+    "context": "new Intl.Locale(tag)",
+    "fingerprint": "d5ee4b64af3fa989",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/locale.js",
+    "kind": "Intl.getCanonicalLocales",
+    "context": "Intl.getCanonicalLocales(value.trim().replaceAll(\"_\", \"-\"))",
+    "fingerprint": "a5776a3f907302d4",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/meta.ts",
+    "kind": "Intl.Locale",
+    "context": "new Intl.Locale(tag)",
+    "fingerprint": "d5ee4b64af3fa989",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/oidc/consent.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale || \"en\", { maximumFractionDigits: 2, })",
+    "fingerprint": "010f737658371053",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/server/homepage.js",
+    "kind": "toISOString",
+    "context": "d.toISOString()",
+    "fingerprint": "baa6bfdaf9c0a164",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/lib/server/sitemap.ts",
+    "kind": "toISOString",
+    "context": "date.toISOString()",
+    "fingerprint": "9a465563780b4a3c",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/lib/social-card-text.ts",
+    "kind": "Intl.Segmenter",
+    "context": "new Intl.Segmenter(\"en\", { granularity: \"grapheme\", })",
+    "fingerprint": "490ffd3e05050da2",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Grapheme segmentation protects text boundaries rather than formatting displayed dates or numbers."
+  },
+  {
+    "file": "src/lib/tags.js",
+    "kind": "toLocaleLowerCase",
+    "context": "normalizeTag(raw).toLocaleLowerCase()",
+    "fingerprint": "53cfc3cc80e2e08f",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/lib/toast.ts",
+    "kind": "toLocaleString",
+    "context": "omitted.toLocaleString(get(locale))",
+    "fingerprint": "98110c8e8893f435",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/utils/date.ts",
+    "kind": "Intl.DateTimeFormat",
+    "context": "new Intl.DateTimeFormat( resolveLocale(requestedLocale), resolved, )",
+    "fingerprint": "7885f9b1b54adaeb",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/utils/date.ts",
+    "kind": "Intl.RelativeTimeFormat",
+    "context": "new Intl.RelativeTimeFormat(locale, { numeric: \"auto\" })",
+    "fingerprint": "f854082211487711",
+    "classification": "shared",
+    "owner": "Free2Z UI",
+    "rationale": "Shared request-aware formatting implementation; changes require review of all callers."
+  },
+  {
+    "file": "src/lib/utils/date.ts",
+    "kind": "toISOString",
+    "context": "date.toISOString()",
+    "fingerprint": "9a465563780b4a3c",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Fallback for invalid formatter options returns an ISO representation; preserve date failure behavior."
+  },
+  {
+    "file": "src/lib/utils/format-tuzis.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale, { minimumFractionDigits: 1 })",
+    "fingerprint": "50010ad31aa776bd",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/utils/format-tuzis.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale)",
+    "fingerprint": "8a2ea7deb86b31ad",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/utils/format-tuzis.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(locale, { useGrouping: true, maximumFractionDigits: 0, })",
+    "fingerprint": "db6544b04ffb1763",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/utils/format-tuzis.ts",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(\"en-US\", { useGrouping: false, maximumFractionDigits: 20, })",
+    "fingerprint": "f8940ba1831b37a2",
+    "classification": "fixed-precision",
+    "owner": "Free2Z UI",
+    "rationale": "Preserves decimal-string or BigInt value and locale separators; migrate only with exact-value regression coverage."
+  },
+  {
+    "file": "src/lib/utils/member-price.ts",
+    "kind": "toLocaleString",
+    "context": "MEMBER_PRICE_MAX.toLocaleString(locale)",
+    "fingerprint": "19150af868ea0dc0",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/utils/member-price.ts",
+    "kind": "toLocaleString",
+    "context": "MEMBER_PRICE_MIN.toLocaleString(locale)",
+    "fingerprint": "d732576e9c6d878a",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/lib/zpage-language.js",
+    "kind": "Intl.DisplayNames",
+    "context": "new Intl.DisplayNames( [viewerLocale || DEFAULT_LOCALE, DEFAULT_LOCALE], { type: \"language\", fallback: \"none\" }, )",
+    "fingerprint": "1cfd096e81fb577c",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Content-language names or ordering: preserve arbitrary language tags while migrating to shared locale-aware formatting."
+  },
+  {
+    "file": "src/lib/zpage-language.js",
+    "kind": "Intl.getCanonicalLocales",
+    "context": "Intl.getCanonicalLocales(raw)",
+    "fingerprint": "4d8643cb7690e1e9",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/zpage-language.js",
+    "kind": "Intl.getCanonicalLocales",
+    "context": "Intl.getCanonicalLocales(`${canonicalPrimary}${rawSuffix}`)",
+    "fingerprint": "7853bfa69917ec5c",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/zpage-language.js",
+    "kind": "Intl.getCanonicalLocales",
+    "context": "Intl.getCanonicalLocales(trimmed)",
+    "fingerprint": "b34fede4df1acba2",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Canonicalizes or inspects a language tag rather than formatting product copy."
+  },
+  {
+    "file": "src/lib/zpage-language.js",
+    "kind": "localeCompare",
+    "context": "a.language.localeCompare(b.language)",
+    "fingerprint": "77a92430198fae1c",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Content-language names or ordering: preserve arbitrary language tags while migrating to shared locale-aware formatting."
+  },
+  {
+    "file": "src/routes/(public)/projects/campaign-demo/+page.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat(\"es\", { maximumFractionDigits: 8 })",
+    "fingerprint": "be5857b3a0f22452",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "value.toLocaleString($locale)",
+    "fingerprint": "e63e64849880b9a9",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat($locale, { style: \"percent\", })",
+    "fingerprint": "160ab485cab95ffc",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat($locale, { style: \"percent\", })",
+    "fingerprint": "160ab485cab95ffc",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "( Number( zcashPolicy.zec_funding_capacity .remaining_sale_nusd, ) / 1_000_000_000 ).toLocaleString($locale, { minimumFractionDigits: 2, maximumFractionDigits: 9, })",
+    "fingerprint": "0bd49350f02a62c6",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "transactionsCount.toLocaleString($locale)",
+    "fingerprint": "1566b6349777f1e1",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "quantity.toLocaleString($locale)",
+    "fingerprint": "191903300787be9d",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "maxPrice.toLocaleString($locale)",
+    "fingerprint": "1a8a5d49ba6c0d42",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "fanTotalPages.toLocaleString($locale)",
+    "fingerprint": "2175d9fb8468b2a2",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "txTotalPages.toLocaleString($locale)",
+    "fingerprint": "3b7e47d27a82c6d6",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "zecAmount.toLocaleString($locale, { minimumFractionDigits: 0, maximumFractionDigits: 8, })",
+    "fingerprint": "45df9f3d5a6ac12e",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "Math.round(liveTuzisPerZec).toLocaleString($locale)",
+    "fingerprint": "4db29167d672c1ec",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "subscriptionsPage.toLocaleString($locale)",
+    "fingerprint": "542745fae793e830",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "(cents / 100).toLocaleString($locale, { style: \"currency\", currency: \"USD\", })",
+    "fingerprint": "61b8766daad8f3ef",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "reviewedCheckout.quote.tuzis.toLocaleString( $locale, )",
+    "fingerprint": "823199fad98a7377",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "subTotalPages.toLocaleString($locale)",
+    "fingerprint": "88be8484b033785c",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "MAX_CHECKOUT_QUANTITY.toLocaleString($locale)",
+    "fingerprint": "a21c20d1fc140a26",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "transactionsPage.toLocaleString($locale)",
+    "fingerprint": "a2489c17378615fd",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "Number( livePricing.zec_usd, ).toLocaleString($locale, { maximumFractionDigits: 2 })",
+    "fingerprint": "a2bf5f9aef48c23a",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "( Number(capacityPreview.projected_sale_nusd) / 1_000_000_000 ).toLocaleString($locale, { minimumFractionDigits: 2, maximumFractionDigits: 9, })",
+    "fingerprint": "be655f8d1ca47040",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "subscribersPage.toLocaleString($locale)",
+    "fingerprint": "cffe824e8f8fa925",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "subscriptionsCount.toLocaleString($locale)",
+    "fingerprint": "d930594dbe6c636a",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "value.toLocaleString($locale)",
+    "fingerprint": "e63e64849880b9a9",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/billing/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "subscribersCount.toLocaleString($locale)",
+    "fingerprint": "fff67c1c9ed4ae19",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/media/+page.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat($locale, { style: \"unit\", unit: units[unitIndex], unitDisplay: \"short\", maximumFractionDigits: value >= 10 || value % 1 === 0 ? 0 : 1, })",
+    "fingerprint": "f616d88b477f1ef2",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/notifications/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "unreadCount.toLocaleString($locale)",
+    "fingerprint": "0be06b49d2897b9b",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/notifications/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "unreadCount.toLocaleString($locale)",
+    "fingerprint": "0be06b49d2897b9b",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/notifications/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "amount.toLocaleString($locale)",
+    "fingerprint": "9ca9ee212f7215c9",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/profile/+page.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat($locale, { useGrouping: true, maximumFractionDigits: 0, })",
+    "fingerprint": "745dcc5b829fb0f1",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/profile/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "Number(creator.member_price).toLocaleString( $locale, )",
+    "fingerprint": "28388e1245676438",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/settings/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "MEMBER_PRICE_MAX.toLocaleString( getCurrentLocale(), )",
+    "fingerprint": "8474a1c8ec730d90",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/settings/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "MEMBER_PRICE_MIN.toLocaleString( getCurrentLocale(), )",
+    "fingerprint": "c845f3becbba7e76",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/[username]/dashboard/stream/+page.svelte",
+    "kind": "Intl.NumberFormat",
+    "context": "new Intl.NumberFormat($locale, { minimumFractionDigits: 1, maximumFractionDigits: 1, })",
+    "fingerprint": "3c685a826be33898",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate Intl.NumberFormat at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/+layout.svelte",
+    "kind": "toLocaleString",
+    "context": "event.amount.toLocaleString($locale, { maximumFractionDigits: 3, })",
+    "fingerprint": "bbe7c011bf387077",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/article/[id]/+page.svelte",
+    "kind": "toLocaleString",
+    "context": "value.toLocaleString($locale)",
+    "fingerprint": "e63e64849880b9a9",
+    "classification": "legacy",
+    "owner": "Free2Z UI",
+    "rationale": "Migrate toLocaleString at this exact call to a shared locale-aware helper; preserve its arguments, options and precision."
+  },
+  {
+    "file": "src/routes/edit/+page.svelte",
+    "kind": "toISOString",
+    "context": "new Date(scheduleValue).toISOString()",
+    "fingerprint": "8e281d9ea19d5066",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/routes/edit/+page.svelte",
+    "kind": "toISOString",
+    "context": "new Date(publishAt).toISOString()",
+    "fingerprint": "d76802c68ecb1f1b",
+    "classification": "machine",
+    "owner": "Free2Z UI",
+    "rationale": "ISO timestamp is a machine protocol value; retain canonical UTC serialization."
+  },
+  {
+    "file": "src/routes/search/+page.svelte",
+    "kind": "toLocaleLowerCase",
+    "context": "query.trim().toLocaleLowerCase()",
+    "fingerprint": "7a99bcf84906a7ad",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  },
+  {
+    "file": "src/routes/search/+page.svelte",
+    "kind": "toLocaleLowerCase",
+    "context": "(value || \"\").trim().toLocaleLowerCase()",
+    "fingerprint": "a24baa34150fc8d9",
+    "classification": "specialized",
+    "owner": "Free2Z UI",
+    "rationale": "Case normalization for comparison or identifier matching; audit locale dependence before changing matching semantics."
+  }
+]
