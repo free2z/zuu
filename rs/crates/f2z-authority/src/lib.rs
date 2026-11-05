@@ -1,17 +1,29 @@
 //! Handle-ownership assertions for the free2z key-transparency log.
 //!
-//! The v1 `HandleAssertion` and `AssertionBindingTBS` encodings are the
-//! ratified Contract C. The additional `InitialBindBindingTBS` used to commit
-//! first-entry evidence into `DirectoryEntry` is a #649 future-wire proposal
-//! for maintainer review and is not yet ratified. The no-authority behavior
-//! remains the existing implementation contract.
+//! **The current v1 assertion wire format is ratified as-implemented.**
+//! [`HandleAssertionTBS`], [`HandleAssertion`], and [`AssertionBindingTBS`]
+//! are specified in `KT.md` §4.5. That ratification binds the current v1 wire
+//! shape. The additional `InitialBindBindingTBS` used to commit first-entry
+//! evidence into `DirectoryEntry` is a #649 future-wire proposal for maintainer
+//! review and is not yet ratified. The no-authority behavior remains the
+//! existing implementation contract.
 //!
-//! **One exception, and it is scoped.** ADR 0017 ratifies this crate's
+//! The crate checks only the assertion layer, not the complete directory
+//! authorization described by `KT.md` §4.4. In particular, its
+//! [`EntryKind::InitialBind`] is an internal model, not a `KT.md` v1
+//! `EntryKind`. Whether a distinct wire discriminator should represent
+//! first-entry authorization is an unresolved #649 choice; any such wire
+//! change remains unratified.
+//!
+//! [issue #649]: https://github.com/free2z/zuu/issues/649
+//!
+//! **Deployment-specific contract.** ADR 0017 also binds this crate's
 //! `HandleAssertion` bytes as Contract C for the *disposable internal*
 //! directory: the free2z backend issues them, and the shared vectors in
 //! `tests/fixtures/handle-assertion-v1.vectors` are what that issuer is held
 //! to. A format change is therefore a wire change for the backend, and
-//! `tests/contract_c_vectors.rs` fails until the vectors are regenerated.
+//! `tests/contract_c_vectors.rs` detects a mismatch. This deployment decision
+//! does not settle the open public-log questions in `KT.md` §12.
 //!
 //! # Why this is a crate and not a module
 //!

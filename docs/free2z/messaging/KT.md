@@ -825,12 +825,17 @@ limit and the proposal remains subject to protocol ratification.
 > distinction is the whole reason §4.5 exists as encoding-and-rules and §4.7
 > exists as an honest accounting of what the decision costs.
 >
-> **The existing v1 assertion and binding are ratified Contract C.** The
-> `HandleAssertion` and `AssertionBindingTBS` structures and their v1
-> transcripts remain unchanged by #649. The `initial_bind` authorization and
-> `InitialBindBindingTBS` below are a separate future-wire proposal implemented
-> for maintainer review; they are not ratified and must not be treated as a
-> production protocol until the versioning and issuer rollout are coordinated.
+> **The existing v1 assertion and binding are ratified Contract C, as implemented.**
+> The `HandleAssertion` and `AssertionBindingTBS` structures, transcripts, and
+> rules in §4.5 are what two independent implementations already agreed on — the
+> Rust verification crate offered against
+> [#593](https://github.com/free2z/zuu/issues/593)/[#626](https://github.com/free2z/zuu/pull/626)
+> and the issuing endpoint operated by the party that runs the user directory.
+> That ratification binds the current v1 wire shape. It does not pre-approve the
+> `initial_bind` authorization or `InitialBindBindingTBS` below: those are a
+> separate #649 future-wire proposal implemented for maintainer review, and they
+> must not be treated as a production protocol until the versioning and issuer
+> rollout are coordinated.
 >
 > **The `initial_bind` row is a proposed future-wire change.** Existing v1
 > implementations use the frozen `same_key(1)`, `key_change(2)` and

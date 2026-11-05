@@ -1,10 +1,12 @@
 //! The two signed structures: what an authority says, and what the identity
 //! key it names says back.
 //!
-//! `HandleAssertion` and `AssertionBindingTBS` are the existing ratified v1
-//! Contract C. `InitialBindBindingTBS` is the additional #649 future-wire
-//! proposal, kept separate so this change does not alter the v1 binding or its
-//! `AkdValue` meaning.
+//! `HandleAssertion` and `AssertionBindingTBS` are the ratified `KT.md` v1
+//! wire format (§4.5) and Contract C: their fields, encoding, and signing
+//! transcripts are frozen. The vectors in this module pin that encoding.
+//! `InitialBindBindingTBS` is the additional #649 future-wire proposal, kept
+//! separate so it does not alter the v1 binding or its `AkdValue` meaning.
+//! That proposal is not ratified.
 //!
 //! ```text
 //! struct {
