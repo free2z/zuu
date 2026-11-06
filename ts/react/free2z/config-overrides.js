@@ -1,4 +1,5 @@
 const path = require("path");
+const { DefinePlugin } = require("webpack");
 
 const ios15RegexCompatLoader = path.resolve(
   __dirname,
@@ -11,7 +12,14 @@ const gfmAutolinkSource = path.join(
 );
 
 module.exports = function override(config, env) {
-  // New config, e.g. config.plugins.push...
+  // MathJax uses this build constant to avoid its Node-only runtime fallback.
+  config.plugins.push(
+    new DefinePlugin({
+      PACKAGE_VERSION: JSON.stringify(
+        require("mathjax-full/package.json").version
+      ),
+    })
+  );
 
   console.log(config.resolve);
   config.resolve.fallback = {
