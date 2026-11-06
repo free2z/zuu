@@ -602,7 +602,7 @@ def test_a_takeover_kicks_the_previous_host_at_the_provider(
     assert cm.host_participant_id == 'participant-b'
 
 
-def test_a_failed_kick_never_blocks_the_takeover(api_client, provider, host):
+def test_a_failed_kick_never_blocks_the_takeover(api_client, provider, host, mocker):
     provider.add_participant.return_value = _FakeResponse(
         {'data': {'token': 'auth-token', 'id': 'participant-a'}})
     _start(api_client, host, session=uuid.uuid4())
@@ -618,11 +618,18 @@ def test_a_failed_kick_never_blocks_the_takeover(api_client, provider, host):
     assert [e['participant_id'] for e in cm.host_evictions] == ['participant-a']
     _run_evictions(host)
 
-    # The new holder's heartbeats keep retrying it until the provider confirms.
+    # Heartbeats preserve the retry deadline instead of defeating backoff.
     _seat(api_client, host, tab_b, 'heartbeat')
     _run_evictions(host)
     cm.refresh_from_db()
+    assert cm.host_evictions[0]['attempts'] == 1
+    mocker.patch('dj.apps.dyte.views.timezone.now', return_value=timezone.datetime.fromtimestamp(
+        cm.host_evictions[0]['retry_after'] + 1, tz=timezone.get_current_timezone()))
+    _run_evictions(host)
+    cm.refresh_from_db()
     assert cm.host_evictions[0]['attempts'] == 2
+    mocker.patch('dj.apps.dyte.views.timezone.now', return_value=timezone.datetime.fromtimestamp(
+        cm.host_evictions[0]['retry_after'] + 1, tz=timezone.get_current_timezone()))
     provider.retire_participant.return_value = True
     _seat(api_client, host, tab_b, 'heartbeat')
     _run_evictions(host)
@@ -1106,7 +1113,7 @@ def test_actionable_retirement_is_runnable_before_queued_claim_expiry(
     assert first.status_code == 200
     delayed = ProcrastinateJob.objects.get(task_name='dyte.retire_host_evictions')
     assert delayed.scheduled_at > timezone.now() + timedelta(seconds=240)
-    assert delayed.queueing_lock.endswith(':claim')
+    assert ':claim:' in delayed.queueing_lock
     assert _start(api_client, host, takeover=True).status_code == 200
     cm = CreatorMeeting.objects.get(creator=host)
     jobs = ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions')
@@ -1167,7 +1174,8 @@ def test_retirement_prioritizes_fresh_entries_and_preserves_old_failure_budget(
     from .tasks import retire_host_evictions
 
     old = {'meeting_id': 'room', 'participant_id': 'old',
-           'state': old_state, 'attempts': old_attempts}
+           'state': old_state, 'attempts': old_attempts,
+           'retry_after': (timezone.now() + timedelta(seconds=900)).timestamp()}
     fresh = [{'meeting_id': 'room', 'participant_id': str(i),
               'state': 'pending', 'attempts': 0} for i in range(2)]
     cm = CreatorMeeting.objects.create(creator=host, meeting_id='room',
@@ -1178,7 +1186,8 @@ def test_retirement_prioritizes_fresh_entries_and_preserves_old_failure_budget(
     cm.refresh_from_db()
     assert cm.host_evictions == [old, fresh[1]]
     provider.retire_participant.assert_called_once_with('room', '0')
-    job = ProcrastinateJob.objects.get(task_name='dyte.retire_host_evictions')
+    job = ProcrastinateJob.objects.get(task_name='dyte.retire_host_evictions',
+                                      queueing_lock=f'dyte-host-evictions-{cm.pk}:fresh')
     assert before <= job.scheduled_at <= timezone.now()
 
 
@@ -1189,6 +1198,81 @@ def test_disabled_eviction_catchup_never_reads_obligation_table(settings, mocker
     query = mocker.patch('dj.apps.dyte.models.CreatorMeeting.objects.exclude')
     _enqueue_deferred_host_evictions()
     query.assert_not_called()
+
+
+def test_due_retries_drain_without_another_backoff(provider, host):
+    from .tasks import retire_host_evictions
+
+    past = (timezone.now() - timedelta(seconds=1)).timestamp()
+    entries = [{'meeting_id': 'room', 'participant_id': str(i), 'state': 'pending',
+                'attempts': 6, 'retry_after': past} for i in range(3)]
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room', host_evictions=entries)
+    provider.retire_participant.return_value = True
+    for index in range(3):
+        retire_host_evictions(host.pk, cm.pk)
+        cm.refresh_from_db()
+        assert cm.host_evictions == entries[index + 1:]
+        assert provider.retire_participant.call_count == index + 1
+        assert not ProcrastinateJob.objects.filter(
+            task_name='dyte.retire_host_evictions', scheduled_at__gt=timezone.now(),
+        ).exists()
+
+
+def test_fresh_failure_keeps_its_deadline_beside_older_retry(provider, host, mocker):
+    from .tasks import retire_host_evictions
+    from .views import _defer_host_evictions
+
+    now = timezone.now()
+    clock = mocker.patch('dj.apps.dyte.views.timezone.now', return_value=now)
+    old = {'meeting_id': 'room', 'participant_id': 'old', 'state': 'pending',
+           'attempts': 10, 'retry_after': (now + timedelta(seconds=900)).timestamp()}
+    fresh = {'meeting_id': 'room', 'participant_id': 'fresh', 'state': 'pending', 'attempts': 0}
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room', host_evictions=[old, fresh])
+    _defer_host_evictions(cm, entries=[old])
+    provider.retire_participant.return_value = False
+    retire_host_evictions(host.pk, cm.pk)
+    cm.refresh_from_db()
+    assert cm.host_evictions[0] == old
+    assert cm.host_evictions[1]['attempts'] == 1
+    assert cm.host_evictions[1]['retry_after'] == (now + timedelta(seconds=30)).timestamp()
+    _defer_host_evictions(cm)
+    jobs = ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions')
+    assert set(jobs.values_list('scheduled_at', flat=True)) == {
+        now + timedelta(seconds=30), now + timedelta(seconds=900)}
+    assert jobs.count() == 2
+    retire_host_evictions(host.pk, cm.pk)
+    assert provider.retire_participant.call_count == 1
+    clock.return_value = now + timedelta(seconds=31)
+    provider.retire_participant.return_value = True
+    retire_host_evictions(host.pk, cm.pk)
+    cm.refresh_from_db()
+    assert cm.host_evictions == [old]
+
+
+@pytest.mark.parametrize('deadline', [None, 'tomorrow', True, -1, float('inf'), float('nan'), 10 ** 1000, 10 ** 12])
+def test_malformed_retry_deadline_is_due(deadline):
+    from .views import _host_eviction_retry_deadline
+
+    assert _host_eviction_retry_deadline({'retry_after': deadline}, timezone.now().timestamp()) == 0
+
+
+def test_provider_completion_preserves_concurrently_added_obligation(provider, host):
+    from .tasks import retire_host_evictions
+
+    old = {'meeting_id': 'room', 'participant_id': 'old', 'state': 'pending', 'attempts': 0}
+    fresh = {'meeting_id': 'room', 'participant_id': 'fresh', 'state': 'pending', 'attempts': 0}
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room', host_evictions=[old])
+    def new_obligation_during_provider_call(*args):
+        CreatorMeeting.objects.filter(pk=cm.pk).update(host_evictions=[old, fresh])
+        return False
+    provider.retire_participant.side_effect = new_obligation_during_provider_call
+    retire_host_evictions(host.pk, cm.pk)
+    cm.refresh_from_db()
+    assert cm.host_evictions[0] == fresh
+    assert cm.host_evictions[1]['participant_id'] == 'old'
+    assert cm.host_evictions[1]['attempts'] == 1
+    job = ProcrastinateJob.objects.get(task_name='dyte.retire_host_evictions')
+    assert job.scheduled_at <= timezone.now()
 
 
 

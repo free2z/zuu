@@ -54,11 +54,11 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
         return
 
     from django.db import transaction
-    from procrastinate.exceptions import AlreadyEnqueued
 
     from .models import CreatorMeeting
     from .views import (
         HOST_EVICTION_MAX_ATTEMPTS, HOST_START_CLAIM_TTL, _lock_host_seat,
+        _defer_host_evictions, _host_eviction_retry_deadline,
     )
 
     cm = CreatorMeeting.objects.filter(
@@ -87,20 +87,10 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
         and entry.get('claim_id') == str(claim)
     )]
     waiting = [entry for entry in snapshot if (
-        entry.get('state') == 'start_pending'
-        and entry.get('retry_after', 0) > now_epoch
+        _host_eviction_retry_deadline(entry, now_epoch) > now_epoch
     )]
     if waiting:
-        try:
-            with transaction.atomic():
-                retire_host_evictions.configure(
-                    queueing_lock=f"dyte-host-evictions-{meeting_id}:claim",
-                    schedule_at=timezone.datetime.fromtimestamp(
-                        min(entry['retry_after'] for entry in waiting),
-                        tz=timezone.get_current_timezone()),
-                ).defer(creator_id=creator_id, meeting_id=meeting_id)
-        except AlreadyEnqueued:
-            pass
+        _defer_host_evictions(cm, entries=waiting)
     expired = [entry for entry in snapshot if (
         entry.get('state') == 'start_pending'
         and entry not in active and entry not in waiting
@@ -145,8 +135,8 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     snapshot = [entry for entry in snapshot if entry not in active and entry not in waiting]
     if not snapshot:
         return
-    # A repeatedly failing old participant cannot postpone a fresh revocation.
-    snapshot.sort(key=lambda entry: int(entry.get('attempts') or 0))
+    # Preserve durable queue order among due entries. A failed attempt moves to
+    # the tail with its own deadline, so fresh arrivals cannot starve old work.
     from .client import DyteClient
     dc = DyteClient(settings.DYTE_ORG)
     outcomes = []
@@ -191,27 +181,14 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
                               else 'pending'),
                     'claim_id': None,
                     'attempts': attempts,
+                    'retry_after': (timezone.now() + timedelta(seconds=min(
+                        15 * (2 ** min(attempts, 6)), 15 * 60))).timestamp(),
                 })
         current.host_evictions = current_entries
         current.save(update_fields=['host_evictions'])
-        retry_entries = [entry for entry in current_entries
-                         if entry.get('state') not in ('manual_review', 'start_pending')]
-        if retry_entries:
-            # Retry outside this transaction, but retain the durable queue
-            # handoff if this worker dies after committing the updated state.
-            attempts = min(int(entry.get('attempts') or 0)
-                           for entry in retry_entries)
-            delay = 0 if attempts == 0 else min(15 * (2 ** min(attempts, 6)), 15 * 60)
-            try:
-                with transaction.atomic():
-                    retire_host_evictions.configure(
-                        queueing_lock=f"dyte-host-evictions-{meeting_id}" + (':fresh' if attempts == 0 else ''),
-                        schedule_at=timezone.now() + timedelta(seconds=delay),
-                    ).defer(creator_id=creator_id, meeting_id=meeting_id)
-            except AlreadyEnqueued:
-                # A heartbeat may have queued this meeting while the provider
-                # call was in flight. That job will observe the updated state.
-                pass
+        # Commit state and its next durable handoff together. Only the entry
+        # actually attempted receives a new deadline; other due work runs now.
+        _defer_host_evictions(current)
 
 
 # Registered, deliberately NOT periodic ( review). Every worker lane

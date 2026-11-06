@@ -1653,30 +1653,47 @@ def _lock_host_seat(creator):
 HOST_EVICTION_MAX_ATTEMPTS = 40
 
 
-def _defer_host_evictions(cm):
+def _host_eviction_retry_deadline(entry, now_epoch):
+    """Malformed/missing deadlines are due; never strand persisted work."""
+    value = entry.get('retry_after', 0)
+    if type(value) not in (int, float):
+        return 0
+    try:
+        deadline = float(value)
+    except (OverflowError, ValueError):
+        return 0
+    maximum_delay = max(900, HOST_START_CLAIM_TTL.total_seconds()) + 60
+    if not math.isfinite(deadline) or not 0 <= deadline <= now_epoch + maximum_delay:
+        return 0
+    return deadline
+
+
+def _defer_host_evictions(cm, *, entries=None):
     """Persist a retry job when the registered consumer is deployed everywhere."""
     if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
         return
-    if not any(entry.get('state') != 'manual_review'
-               for entry in (cm.host_evictions or [])):
+    entries = [entry for entry in (cm.host_evictions if entries is None else entries) or []
+               if entry.get('state') != 'manual_review']
+    if not entries:
         return
     from .tasks import retire_host_evictions
     from procrastinate.exceptions import AlreadyEnqueued
 
     try:
-        retry_after = [entry.get('retry_after') for entry in cm.host_evictions
-                       if entry.get('state') == 'start_pending'
-                       and entry.get('retry_after')]
-        schedule_at = None
-        if retry_after and all(entry.get('state') == 'start_pending'
-                               for entry in cm.host_evictions):
+        now = timezone.now()
+        due = [entry for entry in entries
+               if _host_eviction_retry_deadline(entry, now.timestamp()) <= now.timestamp()]
+        schedule_at = now
+        if not due:
+            deadline = min(_host_eviction_retry_deadline(entry, now.timestamp()) for entry in entries)
             schedule_at = timezone.datetime.fromtimestamp(
-                min(retry_after), tz=timezone.get_current_timezone())
-        # Neither claim expiry nor an older participant's backoff may delay a
-        # fresh revocation. Repeated heartbeats coalesce within each lane.
-        fresh = any(entry.get('state') not in ('manual_review', 'start_pending')
-                    and not entry.get('attempts') for entry in cm.host_evictions)
-        lock_suffix = ':claim' if schedule_at is not None else ':fresh' if fresh else ''
+                deadline, tz=timezone.get_current_timezone())
+            lane = 'claim' if all(entry.get('state') == 'start_pending' for entry in entries) else 'retry'
+            lock_suffix = f':{lane}:{int(deadline * 1000000)}'
+        else:
+            lock_suffix = ':fresh' if any(not entry.get('attempts') for entry in due) else ':due'
+        # Deadlines belong to individual obligations. A shorter retry cannot
+        # collide with an older, later retry; heartbeats coalesce by deadline.
         with transaction.atomic():
             retire_host_evictions.configure(
                 queueing_lock=f"dyte-host-evictions-{cm.pk}{lock_suffix}",

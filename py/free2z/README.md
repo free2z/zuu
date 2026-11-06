@@ -266,7 +266,10 @@ After enablement, the existing live-room sweep inspects up to 100 obligation
 rows and queues at most one retirement job per tick using a shared,
 database-scoped primary-key cursor, including released and non-live meetings.
 Each retirement invocation attempts one provider obligation and retains the
-rest for later jobs. Cursor progress is independent of cron cadence; cache
+rest for later jobs. Backoff belongs only to the obligation that failed; other
+due obligations receive an immediate follow-up. Persisted retry deadlines
+coalesce matching work without delaying a shorter retry behind a longer one.
+Cursor progress is independent of cron cadence; cache
 failures are logged and leave the obligations for a later tick. It coalesces
 retirement jobs by meeting and preserves manual review states. Delayed
 start-claim recovery, fresh revocations and failed-attempt retries use separate
