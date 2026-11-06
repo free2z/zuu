@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.http import HttpResponse, HttpRequest
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Exists, F, Max, Prefetch, Subquery
+from django.db.models import Exists, F, Max, Prefetch, Q, Subquery
 
 from rest_framework.decorators import (
     action, api_view, permission_classes, throttle_classes
@@ -1653,28 +1653,50 @@ def _lock_host_seat(creator):
 HOST_EVICTION_MAX_ATTEMPTS = 40
 
 
-def _defer_host_evictions(cm):
-    """Persist a retry job in the caller's transaction when evictions exist."""
-    if not any(entry.get('state') != 'manual_review'
-               for entry in (cm.host_evictions or [])):
+def _host_eviction_retry_deadline(entry, now_epoch):
+    """Malformed/missing deadlines are due; never strand persisted work."""
+    value = entry.get('retry_after', 0)
+    if type(value) not in (int, float):
+        return 0
+    try:
+        deadline = float(value)
+    except (OverflowError, ValueError):
+        return 0
+    maximum_delay = max(900, HOST_START_CLAIM_TTL.total_seconds()) + 60
+    if not math.isfinite(deadline) or not 0 <= deadline <= now_epoch + maximum_delay:
+        return 0
+    return deadline
+
+
+def _defer_host_evictions(cm, *, entries=None):
+    """Persist a retry job when the registered consumer is deployed everywhere."""
+    if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
+        return
+    entries = [entry for entry in (cm.host_evictions if entries is None else entries) or []
+               if entry.get('state') != 'manual_review']
+    if not entries:
         return
     from .tasks import retire_host_evictions
     from procrastinate.exceptions import AlreadyEnqueued
 
     try:
-        retry_after = [entry.get('retry_after') for entry in cm.host_evictions
-                       if entry.get('state') == 'start_pending'
-                       and entry.get('retry_after')]
-        schedule_at = None
-        if retry_after and all(entry.get('state') == 'start_pending'
-                               for entry in cm.host_evictions):
+        now = timezone.now()
+        due = [entry for entry in entries
+               if _host_eviction_retry_deadline(entry, now.timestamp()) <= now.timestamp()]
+        schedule_at = now
+        if not due:
+            deadline = min(_host_eviction_retry_deadline(entry, now.timestamp()) for entry in entries)
             schedule_at = timezone.datetime.fromtimestamp(
-                min(retry_after), tz=timezone.get_current_timezone())
-        # One pending job per meeting coalesces repeated heartbeats without
-        # defeating the worker's retry backoff.
+                deadline, tz=timezone.get_current_timezone())
+            lane = 'claim' if all(entry.get('state') == 'start_pending' for entry in entries) else 'retry'
+            lock_suffix = f':{lane}:{int(deadline * 1000000)}'
+        else:
+            lock_suffix = ':fresh' if any(not entry.get('attempts') for entry in due) else ':due'
+        # Deadlines belong to individual obligations. A shorter retry cannot
+        # collide with an older, later retry; heartbeats coalesce by deadline.
         with transaction.atomic():
             retire_host_evictions.configure(
-                queueing_lock=f"dyte-host-evictions-{cm.pk}",
+                queueing_lock=f"dyte-host-evictions-{cm.pk}{lock_suffix}",
                 schedule_at=schedule_at,
             ).defer(creator_id=cm.creator_id, meeting_id=cm.pk)
     except AlreadyEnqueued:
@@ -2395,6 +2417,18 @@ class DyteMeeting(APIView):
                         return Response({'code': 'livestream_compensation_integration_unavailable',
                             'error': 'Paid livestream compensation is unavailable.'}, status=409)
             _lock_host_seat(creator)
+            if (not settings.DYTE_HOST_EVICTION_JOBS_ENABLED
+                    and CreatorMeeting.objects.filter(creator=creator).filter(
+                        ~Q(host_participant_id='') | ~Q(host_evictions=[])
+                        | Q(host_start_claim__isnull=False)).exists()):
+                # Token refresh also mints a new provider participant. During
+                # registration-only rollout retain the existing host and all
+                # recovery state instead of minting a second unretirable host.
+                return Response({
+                    'code': 'host_retirement_temporarily_unavailable',
+                    'error': 'Host reconnection is temporarily unavailable. '
+                             'Keep the current broadcast open and retry shortly.',
+                }, status=503, headers={'Retry-After': '60'})
             held = _held_host_seat(creator)
             held_fresh = _seat_is_fresh(held, timezone.now())
             if held_fresh and held.host_session_id != host_session and not takeover:
@@ -2835,10 +2869,7 @@ class HostSession(APIView):
                     _held_host_seat(creator), code='host_session_superseded')
             held = mine.first()
             if held is not None and held.host_evictions:
-                from .tasks import retire_host_evictions
-                # The seat stamp and durable job are committed together; the
-                # provider work happens later in a worker with no seat lock.
-                retire_host_evictions.defer(
-                    creator_id=creator.pk, meeting_id=held.pk,
-                )
+                # Keep the obligation durable even during registration-only
+                # rollout. The enabled periodic sweep recovers deferred work.
+                _defer_host_evictions(held)
             return Response(_host_seat_status(creator, now))
