@@ -1,0 +1,48 @@
+{
+  "name": "@free2z/mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol server for the Free2Z API",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/free2z/zuu.git",
+    "directory": "ts/free2z/mcp"
+  },
+  "bin": {
+    "free2z-mcp": "dist/cli.js"
+  },
+  "exports": "./dist/server.js",
+  "files": [
+    "dist",
+    "schema.json",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "schema:update": "node scripts/schema.mjs",
+    "schema:check": "node scripts/schema.mjs --check",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepack": "npm run build",
+    "format:check": "prettier --check src test scripts package.json tsconfig.json",
+    "format": "prettier --write src test scripts package.json tsconfig.json",
+    "test:package": "node scripts/test-package.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "26.6.6",
+    "prettier": "3.9.10",
+    "typescript": "7.0.2",
+    "yaml": "2.9.1"
+  }
+}
