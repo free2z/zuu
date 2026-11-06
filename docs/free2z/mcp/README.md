@@ -219,7 +219,10 @@ These are arguments for `free2z_search_operations`,
 `free2z_read` permits GET operations. `free2z_execute` can call any catalog
 operation. Both accept `operation_id` and optional `path`, `query`, `headers`,
 `body`, `content_type`, and `files`; the described operation determines which
-are meaningful. Successful HTTP calls return an envelope with `operation_id`,
+are meaningful. Known query parameters are validated against the schema.
+Additional query parameters can contain strings, numbers, booleans, or arrays
+of these values for filters that the API supports but its schema omits.
+`zpage_list` discovery includes `search` and `username` filters. Successful HTTP calls return an envelope with `operation_id`,
 `status`, `ok`, `headers`, and `data`. Response header names are lowercase:
 read `headers.etag` for concurrency control and
 `headers["idempotency-key-honored"]` before relying on safe create retries.
@@ -328,7 +331,9 @@ E2E2Z messages, or bypass Free2Z permissions. Schema operations that depend on a
 external callback, a session-specific security ceremony, or a separately deployed
 service can require additional steps. Read their descriptions and API responses.
 Browser sign-in and checkout, WebSockets, and client-side encrypted messaging are
-outside this interface. AI event streams are buffered into a single response,
+outside this interface. Confidential OAuth client authentication is also outside
+its account-authentication modes: client-credentials exchanges and authenticated
+introspection require a separate OAuth client integration. AI event streams are buffered into a single response,
 subject to the request timeout and response-size cap. Returned credentials are
 redacted, so token acquisition belongs in the browser or a separate local setup
 step, not in an assistant tool response.
