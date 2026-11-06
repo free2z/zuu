@@ -12,7 +12,6 @@ import uuid
 import threading
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 from requests.auth import HTTPBasicAuth
 from django.core.cache import cache
 from django.core.cache import caches
@@ -28,8 +27,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# Reuse TCP/TLS connections across provider calls in each worker. Only GETs
-# are retried: POSTs create meetings/participants and must remain single-shot.
+# Reuse TCP/TLS connections without transport retries. Later polls can retry
+# failed reads; provider Retry-After headers must not extend a request's wait.
 _SESSION_LOCAL = threading.local()
 
 
@@ -41,12 +40,7 @@ def _session():
         session.mount("https://", HTTPAdapter(
             pool_connections=20,
             pool_maxsize=50,
-            max_retries=Retry(
-                total=2, connect=2, read=2, status=2, backoff_factor=0.2,
-                status_forcelist=(502, 503, 504),
-                allowed_methods=frozenset({"GET"}),
-                respect_retry_after_header=True,
-            ),
+            max_retries=0,
         ))
         _SESSION_LOCAL.session = session
     return session
@@ -99,8 +93,8 @@ return generation
 """
 _COUNT_WRITE_LUA = """
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[4])
-redis.call('SET', KEYS[3], ARGV[2], 'EX', ARGV[5])
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+redis.call('SET', KEYS[3], ARGV[2], 'EX', ARGV[4])
 return 1
 """
 
