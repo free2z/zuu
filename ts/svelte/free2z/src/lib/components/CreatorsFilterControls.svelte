@@ -201,6 +201,7 @@
       onValueChange={handleSortChange}
     >
       <Select.Trigger
+        aria-label={$t("creators.filters.sortBy", "Sort by")}
         class="w-full border-border/50 bg-background/50 {isMobile ? 'h-9' : ''}"
       >
         {#if isMobile}
@@ -260,6 +261,10 @@
       onValueChange={handleVerifiedChange}
     >
       <Select.Trigger
+        aria-label={$t(
+          "creators.filters.verificationStatus",
+          "Verification status",
+        )}
         class="w-full border-border/50 bg-background/50 {isMobile ? 'h-9' : ''}"
       >
         {#if isMobile}
@@ -308,6 +313,7 @@
       onValueChange={handleMembershipChange}
     >
       <Select.Trigger
+        aria-label={$t("creators.filters.membershipType", "Membership type")}
         class="w-full border-border/50 bg-background/50 {isMobile ? 'h-9' : ''}"
       >
         {#if isMobile}

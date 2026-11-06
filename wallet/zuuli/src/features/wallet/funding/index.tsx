@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Coins, Gift, Receipt } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -25,6 +26,10 @@ export default function FundingFeature() {
   const navigate = useNavigate();
   const user = useSession((state) => state.user);
   const tab = fundingTabForPath(location.pathname);
+  const requestedPath = useRef(location.pathname);
+  useLayoutEffect(() => {
+    requestedPath.current = location.pathname;
+  }, [location.pathname]);
 
   function selectTab(next: TabKey) {
     const destination =
@@ -33,7 +38,11 @@ export default function FundingFeature() {
         : next === "activity"
           ? "/wallet/fund/activity"
           : "/wallet/fund";
-    if (location.pathname !== destination) navigate(destination);
+    // Radix can activate the same tab from both focus and pointer-down before
+    // React commits the route. One interaction must create one history entry.
+    if (requestedPath.current === destination) return;
+    requestedPath.current = destination;
+    void navigate(destination);
   }
 
   return (

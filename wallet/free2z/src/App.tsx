@@ -218,7 +218,9 @@ export default function App() {
 
   return (
     <TooltipProvider delayDuration={200}>
-      <RouterProvider router={appRouter} />
+      {/* Draft editors and scroll restoration must commit with browser history.
+          Deferring the route can accept edits into the outgoing draft. */}
+      <RouterProvider router={appRouter} useTransitions={false} />
       <Toaster />
     </TooltipProvider>
   );

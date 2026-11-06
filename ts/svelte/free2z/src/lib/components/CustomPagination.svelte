@@ -3,12 +3,17 @@
   import { page } from "$lib/kit-stores";
   import { tStore as t } from "$lib/i18n";
 
-  let { count, currentPage, perPage, onPageChange } = $props<{
+  let {
+    count,
+    currentPage,
+    perPage,
+    onPageChange,
+  }: {
     count: number;
     currentPage: number;
     perPage: number;
     onPageChange: (page: number) => void;
-  }>();
+  } = $props();
 
   // The Pagination component from shadcn-svelte expects 1-based index for 'page' prop
   // and handles 'onPageChange' internally via binding or event.

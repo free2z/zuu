@@ -14,13 +14,13 @@
     holdPurchase = false,
     refusePurchase = false,
     refusalUrl,
-  } = $props<{
+  }: {
     bulk?: boolean;
     holdQuote?: boolean;
     holdPurchase?: boolean;
     refusePurchase?: boolean;
     refusalUrl?: string;
-  }>();
+  } = $props();
   import {
     beginAccountBalanceRead,
     recordQuotedBalanceRead,

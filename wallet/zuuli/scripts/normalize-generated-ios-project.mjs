@@ -15,10 +15,12 @@ const exemptEncryptionDeclaration = [
   "\t<key>ITSAppUsesNonExemptEncryption</key>",
   "\t<false/>",
 ].join("\n");
+// tauri-plugin-deep-link names each URL type with the bundle identifier and
+// custom scheme. Keep the generated name distinct from the scheme itself.
 const canonicalUrlTypeDictionary = [
   "\t\t<dict>",
   "\t\t\t<key>CFBundleURLName</key>",
-  "\t\t\t<string>cash.free2z.zuuli</string>",
+  "\t\t\t<string>$(PRODUCT_BUNDLE_IDENTIFIER).cash.free2z.zuuli</string>",
   "\t\t\t<key>CFBundleURLSchemes</key>",
   "\t\t\t<array>",
   "\t\t\t\t<string>cash.free2z.zuuli</string>",
@@ -32,7 +34,7 @@ const reversedUrlTypeDictionary = [
   "\t\t\t\t<string>cash.free2z.zuuli</string>",
   "\t\t\t</array>",
   "\t\t\t<key>CFBundleURLName</key>",
-  "\t\t\t<string>cash.free2z.zuuli</string>",
+  "\t\t\t<string>$(PRODUCT_BUNDLE_IDENTIFIER).cash.free2z.zuuli</string>",
   "\t\t</dict>",
 ].join("\n");
 const urlType = (dictionaries) =>
@@ -412,6 +414,13 @@ function selfTest() {
     throw new Error("iOS URL type ordering self-test failed");
   }
   for (const [fixtureLabel, unexpectedUrlType] of [
+    [
+      "URL name missing bundle identifier",
+      canonicalUrlType.replace(
+        "$(PRODUCT_BUNDLE_IDENTIFIER).cash.free2z.zuuli",
+        "cash.free2z.zuuli",
+      ),
+    ],
     [
       "three duplicate entries",
       urlType([

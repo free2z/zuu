@@ -16,7 +16,10 @@ async function report(
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Report" })).toBeVisible();
   await dialog.getByRole("button", { name: "Send report" }).click();
-  await expect(page.getByText("Report sent.")).toBeVisible();
+  // Article and comment controls keep independent confirmation messages.
+  const feedback = button.locator("..").locator("..").getByRole("status");
+  await expect(feedback).toHaveText("Report sent.");
+  await expect(feedback).toBeVisible();
 }
 
 test("article card, reader, comment and creator expose report and block", async ({

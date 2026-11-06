@@ -10,37 +10,8 @@ const {
   javascriptFiles,
 } = require("./check-ios15-bundle");
 
-const fixture = `const email = ${loader.unsupportedEmailPattern}\nif (${loader.existingBoundaryGuard}) return false`;
-const rewritten = loader(fixture);
-
-function compile(pattern) {
-  return Function(`return ${pattern}`)();
-}
-
-function guardedMatches(pattern, input) {
-  const matches = [];
-  pattern.lastIndex = 0;
-  let match = pattern.exec(input);
-
-  while (match) {
-    const code = input.charCodeAt(match.index - 1);
-    const previous = String.fromCharCode(code);
-    const accepted =
-      (match.index === 0 || /[\s\p{P}\p{S}]/u.test(previous)) && code !== 47;
-
-    if (accepted) {
-      matches.push(match[0]);
-    } else {
-      // mdast-util-find-and-replace retries one character after a rejected
-      // match, so a later valid candidate inside that match is not skipped.
-      pattern.lastIndex = match.index + 1;
-    }
-
-    match = pattern.exec(input);
-  }
-
-  return matches;
-}
+const { pathToFileURL } = require("node:url");
+const fixture = "const positive = /(?<=prefix)value/;";
 
 function runScanner(...args) {
   return childProcess.spawnSync(
@@ -50,12 +21,7 @@ function runScanner(...args) {
   );
 }
 
-assert.equal(
-  rewritten,
-  `const email = ${loader.compatibleEmailPattern}\nif (${loader.existingBoundaryGuard}) return false`
-);
-assert.deepEqual(findLookbehindRegexLiterals(fixture), ["<source>:1:15"]);
-assert.deepEqual(findLookbehindRegexLiterals(rewritten), []);
+assert.deepEqual(findLookbehindRegexLiterals(fixture), ["<source>:1:18"]);
 assert.deepEqual(
   findLookbehindRegexLiterals(
     'const text = "/(?<=not executable)/"; const named = /(?<name>x)/'
@@ -67,35 +33,149 @@ assert.deepEqual(
   ["<source>:1:18"]
 );
 
-const unsupported = compile(loader.unsupportedEmailPattern);
-const compatible = compile(loader.compatibleEmailPattern);
-for (const [input, expected] of [
-  ["person@example.com", ["person@example.com"]],
-  ["Contact person@example.com today", ["person@example.com"]],
-  ["(person@example.com)", ["person@example.com"]],
-  ["$person@example.com", ["person@example.com"]],
-  ["first+last@example.com", ["first+last@example.com"]],
-  ["first.last@example.com", ["first.last@example.com"]],
-  ["first-last@example.com", ["first-last@example.com"]],
-  ["/person@example.com", []],
-  ["éperson@example.com", []],
-  ["🙂person@example.com", []],
-  ["é.foo@example.com", ["foo@example.com"]],
-  ["é-person@example.com", ["person@example.com"]],
-  ["é+person@example.com", ["person@example.com"]],
-]) {
-  assert.deepEqual(guardedMatches(unsupported, input), expected, input);
-  assert.deepEqual(guardedMatches(compatible, input), expected, input);
-}
+async function verifyUpstreamAutolinks() {
+  const entry = require.resolve("mdast-util-gfm-autolink-literal");
+  const sourcePath = path.join(path.dirname(entry), "lib/index.js");
+  const source = fs.readFileSync(sourcePath, "utf8");
+  assert.equal(findLookbehindRegexLiterals(source).length, 4);
+  const rewritten = loader(source);
+  assert.deepEqual(findLookbehindRegexLiterals(rewritten), []);
+  assert.throws(() => loader(source + "\n" + source), /found 2/);
+  assert.throws(
+    () =>
+      loader(source.replace("function findEmail(", "function changedEmail(")),
+    /found 0/
+  );
 
-assert.throws(
-  () => loader(`const email = ${loader.unsupportedEmailPattern}`),
-  /found 1 lookbehind\(s\) and 0 guard\(s\)/
-);
-assert.throws(
-  () => loader(`${fixture}\n${fixture}`),
-  /found 2 lookbehind\(s\) and 2 guard\(s\)/
-);
+  // Load the rewritten dependency itself, with its actual installed imports.
+  // A data URL avoids modifying node_modules or resolving a test-only mock.
+  const executable = rewritten.replace(
+    /^(import .+ from )'([^']+)'/gm,
+    (_, prefix, specifier) =>
+      prefix +
+      JSON.stringify(
+        pathToFileURL(
+          require.resolve(specifier, { paths: [path.dirname(sourcePath)] })
+        ).href
+      )
+  );
+  const upstream = await import(pathToFileURL(sourcePath).href);
+  const compatible = await import(
+    "data:text/javascript;base64," + Buffer.from(executable).toString("base64")
+  );
+  const originalTransform =
+    upstream.gfmAutolinkLiteralFromMarkdown().transforms[0];
+  const compatibleTransform =
+    compatible.gfmAutolinkLiteralFromMarkdown().transforms[0];
+  function transformed(transform, input) {
+    const tree = {
+      type: "root",
+      children: [
+        { type: "paragraph", children: [{ type: "text", value: input }] },
+      ],
+    };
+    transform(tree);
+    return tree;
+  }
+  const prefixes = [
+    "",
+    " ",
+    "\n",
+    "\r\n",
+    "(",
+    "$",
+    "/",
+    "x",
+    "0",
+    "é",
+    "🙂",
+    ".",
+    "-",
+    "+",
+    "@",
+    "mailto:",
+    "xmpp:",
+    "xmailto:",
+    "@mailto:",
+    "éxmpp:",
+    "long-prefix-amailto:",
+    "long-prefix-.mailto:",
+    "long-prefix-axmpp:",
+    "long-prefix-.xmpp:",
+  ];
+  const values = [
+    "person@example.com",
+    "first+last@example.com",
+    "first.last@example.com",
+    "https://example.com",
+    "HTTP://example.com/a",
+    "www.example.com",
+    "mailto:person@example.com",
+    "xmpp:person@example.com",
+    "xmpp:person@example.com/room",
+    "xmpp:person@example.com/a.b",
+    "a@b.c",
+    "person@example.com-",
+    "person@example.c0",
+  ];
+  const suffixes = [
+    "",
+    " ",
+    ")",
+    ".",
+    "/",
+    "@",
+    "@tail.test",
+    "\nnext@example.com",
+    " http://example.org",
+  ];
+  for (const prefix of prefixes) {
+    for (const value of values) {
+      for (const suffix of suffixes) {
+        const input = prefix + value + suffix;
+        assert.deepEqual(
+          transformed(compatibleTransform, input),
+          transformed(originalTransform, input),
+          input
+        );
+      }
+    }
+  }
+  // Rejected long candidates must not be retried at every character. The
+  // original lookbehind rejects their boundary before consuming the suffix.
+  for (const input of [
+    ".mailto:" + "a".repeat(99_980) + "@b.co",
+    "x" + "https://example.com/".repeat(5_000),
+    "x" + "xmpp:person@example.com/".repeat(4_000),
+    " a@b.co ".repeat(12_000),
+  ]) {
+    const expected = transformed(originalTransform, input);
+    const started = performance.now();
+    const actual = transformed(compatibleTransform, input);
+    assert.ok(
+      performance.now() - started < 500,
+      "autolink boundary rejection exceeded 500ms"
+    );
+    assert.deepEqual(actual, expected);
+  }
+  for (const [input, urls] of [
+    ["person@example.com", ["mailto:person@example.com"]],
+    ["https://example.com", ["https://example.com"]],
+    ["mailto:person@example.com", ["mailto:person@example.com"]],
+    ["xmpp:person@example.com/room", ["xmpp:person@example.com/room"]],
+    ["xhttps://example.com", []],
+  ]) {
+    for (const transform of [originalTransform, compatibleTransform]) {
+      assert.deepEqual(
+        transformed(transform, input)
+          .children[0].children.filter((node) => node.type === "link")
+          .map((node) => node.url),
+        urls,
+        input
+      );
+    }
+  }
+}
 
 const temporaryRoot = fs.mkdtempSync(
   path.join(os.tmpdir(), "free2z-ios15-regex-")
@@ -188,4 +268,13 @@ assert.match(
   "the standard test command must enforce the production build hook contract"
 );
 
-console.log("iOS 15 regex compatibility self-test passed.");
+verifyUpstreamAutolinks()
+  .then(() => {
+    console.log(
+      "iOS 15 regex compatibility self-test and upstream autolink oracle passed."
+    );
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

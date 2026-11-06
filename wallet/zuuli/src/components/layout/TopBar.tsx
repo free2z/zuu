@@ -1,3 +1,4 @@
+import { forwardRef, type ComponentPropsWithoutRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -29,6 +30,17 @@ import { useWallet } from "@/store/wallet";
 import { formatTuzis, formatZecTrim, initials } from "@/lib/format";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 
+// These tooltips repeat each control's accessible name. Strip the redundant
+// description at the DOM boundary, after Radix composes its trigger props.
+const TooltipButton = forwardRef<HTMLButtonElement, ComponentPropsWithoutRef<typeof Button>>(
+  (props, ref) => <Button {...props} ref={ref} aria-describedby={undefined} />,
+);
+TooltipButton.displayName = "TooltipButton";
+const TooltipAccountButton = forwardRef<HTMLButtonElement, ComponentPropsWithoutRef<"button">>(
+  (props, ref) => <button {...props} ref={ref} aria-describedby={undefined} />,
+);
+TooltipAccountButton.displayName = "TooltipAccountButton";
+
 export function TopBar() {
   const { t } = useTranslation();
   const { user, tuzis, logout } = useSession();
@@ -54,8 +66,8 @@ export function TopBar() {
       {/* Global back — available on every screen inside the shell */}
       {canGoBack ? (
         <Tooltip>
-          <TooltipTrigger asChild aria-describedby={undefined}>
-            <Button
+          <TooltipTrigger asChild>
+            <TooltipButton
               variant="ghost"
               size="icon"
               onClick={() => navigate(-1)}
@@ -63,7 +75,7 @@ export function TopBar() {
               className="min-tap h-9 w-9 shrink-0"
             >
               <ArrowLeft className="rtl:-scale-x-100 h-5 w-5" aria-hidden />
-            </Button>
+            </TooltipButton>
           </TooltipTrigger>
           <TooltipContent side="bottom">
             {t(MESSAGE_KEYS.navBack)}
@@ -110,9 +122,9 @@ export function TopBar() {
       {user ? (
         <DropdownMenu>
           <Tooltip>
-            <TooltipTrigger asChild aria-describedby={undefined}>
+            <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
-                <button
+                <TooltipAccountButton
                   className="min-tap rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={t(MESSAGE_KEYS.navAccountMenu)}
                 >
@@ -124,7 +136,7 @@ export function TopBar() {
                       {initials(user.display_name || user.username)}
                     </AvatarFallback>
                   </Avatar>
-                </button>
+                </TooltipAccountButton>
               </DropdownMenuTrigger>
             </TooltipTrigger>
             <TooltipContent side="bottom">
@@ -156,8 +168,8 @@ export function TopBar() {
         </DropdownMenu>
       ) : (
         <Tooltip>
-          <TooltipTrigger asChild aria-describedby={undefined}>
-            <Button
+          <TooltipTrigger asChild>
+            <TooltipButton
               variant="ghost"
               size="icon"
               className="min-tap shrink-0 rounded-full"
@@ -165,7 +177,7 @@ export function TopBar() {
               aria-label={t(MESSAGE_KEYS.navLogin)}
             >
               <LogIn className="rtl:-scale-x-100 h-5 w-5" aria-hidden />
-            </Button>
+            </TooltipButton>
           </TooltipTrigger>
           <TooltipContent side="bottom">
             {t(MESSAGE_KEYS.navLogin)}

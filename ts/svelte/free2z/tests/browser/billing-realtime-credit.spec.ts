@@ -933,6 +933,8 @@ test("credit refresh preserves text typed after the editor's last autosave", asy
   await page.goto("/edit?id=event-draft");
   const body = page.locator("textarea.writing-area-textarea");
   await expect(body).toBeVisible({ timeout: 60_000 });
+  // Wait for the client to load this draft before entering the first revision.
+  await expect(body).toHaveValue("Saved original");
   await body.fill("Autosaved revision");
   await expect.poll(() => writes, { timeout: 15_000 }).toBeGreaterThan(0);
   const initialReads = reads;
@@ -4256,7 +4258,7 @@ test("oldest recovery fills offline gaps with paced visible traversal and no rou
       page.evaluate(() => Boolean((window as any).initialRecoverySettled)),
     )
     .toBe(true);
-  const sort = page.getByRole("button", { name: "Sort notifications" });
+  const sort = page.getByRole("combobox", { name: "Sort notifications" });
   await expect(sort).toBeVisible();
   holdOldPage = true;
   await sort.click();

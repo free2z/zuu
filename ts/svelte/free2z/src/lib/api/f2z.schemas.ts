@@ -5869,123 +5869,85 @@ export interface ZPageUpdate {
 }
 
 export type AiConversationsListParams = {
-ai_model__model?: string;
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
-user__username?: string;
+  ai_model__model?: string;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
+  user__username?: string;
 };
 
 export type AiConversationsPromptresponsesListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type AiModelsListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type AiPersonalitiesListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type AiPublicConversationsListParams = {
-ai_model__model?: string;
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
-user__username?: string;
+  ai_model__model?: string;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
+  user__username?: string;
 };
 
 export type AiPublicConversationsPromptresponsesListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type AuthSocialStartRetrieveParams = {
-/**
- * App-generated RFC 7636 S256 challenge; required only for the ZUULI mobile callback and rejected otherwise.
- * @pattern ^[A-Za-z0-9_-]{43}$
- */
-code_challenge?: string;
-/**
- * Exact configured web redirect, strict ZUULI desktop loopback URI, or cash.free2z.zuuli://oauth/callback.
- */
-redirect_uri: string;
+  /**
+   * App-generated RFC 7636 S256 challenge; required only for the ZUULI mobile callback and rejected otherwise.
+   * @pattern ^[A-Za-z0-9_-]{43}$
+   */
+  code_challenge?: string;
+  /** Exact configured web redirect, strict ZUULI desktop loopback URI, or cash.free2z.zuuli://oauth/callback. */
+  redirect_uri: string;
 };
 
 export type AuthSocialMobileCallbackRetrieveParams = {
-code?: string;
-error?: string;
-state: string;
+  code?: string;
+  error?: string;
+  state: string;
 };
 
 export type CommentsListParams = {
-author?: string;
-content_type__isnull?: boolean;
-/**
- * Opaque continuation token returned in `next`; use only with `pagination=cursor`.
- */
-cursor?: string;
-/**
- * Which field to use when ordering the results.
- */
-ordering?: string;
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
-/**
- * Opt into stable keyset pagination for the live stream, ordered on (-created_at, -uuid). Omit this parameter to retain the default page-number contract. Only `ordering=-created_at` (the default) is accepted in this mode: the Hot sort (`-tuzis`) is mutable and stays on page numbers.
- */
-pagination?: CommentsListPagination;
-parent__isnull?: boolean;
-/**
- * A search term.
- */
-search?: string;
-subscribed_to?: boolean;
-tags?: string;
+  author?: string;
+  content_type__isnull?: boolean;
+  /** Opaque continuation token returned in `next`; use only with `pagination=cursor`. */
+  cursor?: string;
+  /** Which field to use when ordering the results. */
+  ordering?: string;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
+  /** Opt into stable keyset pagination for the live stream, ordered on (-created_at, -uuid). Omit this parameter to retain the default page-number contract. Only `ordering=-created_at` (the default) is accepted in this mode: the Hot sort (`-tuzis`) is mutable and stays on page numbers. */
+  pagination?: CommentsListPagination;
+  parent__isnull?: boolean;
+  /** A search term. */
+  search?: string;
+  subscribed_to?: boolean;
+  tags?: string;
 };
 
 export type CommentsListPagination = typeof CommentsListPagination[keyof typeof CommentsListPagination];
@@ -5996,25 +5958,17 @@ export const CommentsListPagination = {
 } as const;
 
 export type CommentsList2Params = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type CommentsRepliesListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type CommentsVoteCreate200 = {
@@ -6024,115 +5978,81 @@ export type CommentsVoteCreate200 = {
 };
 
 export type CreatorListParams = {
-is_verified?: boolean;
-/**
- * Only return creators with at least this many currently-active subscribers. Counted from unexpired Subscription rows -- NOT from `total`, which is a cached ZEC page-support value.
- * @minimum 0
- */
-min_followers?: number;
-/**
- * Which field to use when ordering the results.
- */
-ordering?: string;
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
-/**
- * A search term.
- */
-search?: string;
+  is_verified?: boolean;
+  /**
+   * Only return creators with at least this many currently-active subscribers. Counted from unexpired Subscription rows -- NOT from `total`, which is a cached ZEC page-support value.
+   * @minimum 0
+   */
+  min_followers?: number;
+  /** Which field to use when ordering the results. */
+  ordering?: string;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
+  /** A search term. */
+  search?: string;
 };
 
 export type DyteRecordingRetrieveParams = {
-host_session: string;
+  host_session: string;
 };
 
 export type DytePublicListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type EconomyEarningsParams = {
-/**
- * Original displayed account ID. A mismatch refuses the private read with actor_changed; successful responses identify the authenticated actor.
- */
-expected_actor_id?: number;
+  /** Original displayed account ID. A mismatch refuses the private read with actor_changed; successful responses identify the authenticated actor. */
+  expected_actor_id?: number;
 };
 
 export type EconomyFundingResolutionsParams = {
-/**
- * Original displayed account ID. A mismatch refuses the private read with actor_changed; successful responses identify the authenticated actor.
- */
-expected_actor_id?: number;
+  /** Original displayed account ID. A mismatch refuses the private read with actor_changed; successful responses identify the authenticated actor. */
+  expected_actor_id?: number;
 };
 
 export type EconomyPaymentsListParams = {
-/**
- * Original displayed account ID. A mismatch refuses the private read with actor_changed; successful responses identify the authenticated actor.
- */
-expected_actor_id?: number;
+  /** Original displayed account ID. A mismatch refuses the private read with actor_changed; successful responses identify the authenticated actor. */
+  expected_actor_id?: number;
 };
 
 export type EconomyUsagePurchaseQuoteParams = {
-amount: string;
+  amount: string;
 };
 
 export type EmailsConfirmRetrieveParams = {
-/**
- * The single credential for this operation: the per-address token from the link we emailed.
- */
-token: string;
+  /** The single credential for this operation: the per-address token from the link we emailed. */
+  token: string;
 };
 
 export type EmailsConfirmCreateParams = {
-/**
- * Fallback for the body field of the same name.
- */
-token?: string;
+  /** Fallback for the body field of the same name. */
+  token?: string;
 };
 
 export type EmailsOptOutRetrieveParams = {
-/**
- * Legacy links only: the per-address token, which the deprecated URL shape carries here instead of in the path. Ignored when the path segment is a link token.
- */
-token?: string;
+  /** Legacy links only: the per-address token, which the deprecated URL shape carries here instead of in the path. Ignored when the path segment is a link token. */
+  token?: string;
 };
 
 export type EmailsOptOutCreateParams = {
-/**
- * Legacy links only: fallback for the body field of the same name. Ignored when the path carries a link token.
- */
-token?: string;
+  /** Legacy links only: fallback for the body field of the same name. Ignored when the path carries a link token. */
+  token?: string;
 };
 
 export type EventsListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
-/**
- * Opt-in full receipt recovery ordered by immutable creation time and UUID; restart from the beginning on every recovery.
- */
-recovery?: EventsListRecovery;
-/**
- * Signed current-scan continuation from next. Bound to the authenticated recipient; expires after two hours.
- */
-recovery_cursor?: string;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
+  /** Opt-in full receipt recovery ordered by immutable creation time and UUID; restart from the beginning on every recovery. */
+  recovery?: EventsListRecovery;
+  /** Signed current-scan continuation from next. Bound to the authenticated recipient; expires after two hours. */
+  recovery_cursor?: string;
 };
 
 export type EventsListRecovery = typeof EventsListRecovery[keyof typeof EventsListRecovery];
@@ -6143,10 +6063,8 @@ export const EventsListRecovery = {
 } as const;
 
 export type EventsUnreadCountRetrieveParams = {
-/**
- * Return the count with its recipient username.
- */
-include_recipient?: EventsUnreadCountRetrieveIncludeRecipient;
+  /** Return the count with its recipient username. */
+  include_recipient?: EventsUnreadCountRetrieveIncludeRecipient;
 };
 
 export type EventsUnreadCountRetrieveIncludeRecipient = typeof EventsUnreadCountRetrieveIncludeRecipient[keyof typeof EventsUnreadCountRetrieveIncludeRecipient];
@@ -6163,96 +6081,68 @@ export type EventsUnreadCountRetrieve200 = number | {
 };
 
 export type G12fBlocksMineListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type G12fFollowsMineListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type G12fSeriesClearZpageQueryDestroyParams = {
-/**
- * The target page's free2zaddr.
- */
-free2zaddr: string;
+  /** The target page's free2zaddr. */
+  free2zaddr: string;
 };
 
 export type G12fSeriesMineListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type LanguagesCatalogParams = {
-/**
- * BCP-47 locale to name the languages in. A pure representation selector: it changes nothing stored and **never fails the request**. A locale we have no name table for degrades to the closest one we do (`es-MX` -> `es`), and an unknown or malformed value degrades to `en` — never a 4xx. The locale actually used is returned as `locale`. Omit it to negotiate from `Accept-Language`.
- */
-locale?: string;
+  /** BCP-47 locale to name the languages in. A pure representation selector: it changes nothing stored and **never fails the request**. A locale we have no name table for degrades to the closest one we do (`es-MX` -> `es`), and an unknown or malformed value degrades to `en` — never a 4xx. The locale actually used is returned as `locale`. Omit it to negotiate from `Accept-Language`. */
+  locale?: string;
 };
 
 export type MyuploadsListParams = {
-access?: string;
-mime_type?: string;
-/**
- * Which field to use when ordering the results.
- */
-ordering?: string;
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * A search term.
- */
-search?: string;
+  access?: string;
+  mime_type?: string;
+  /** Which field to use when ordering the results. */
+  ordering?: string;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** A search term. */
+  search?: string;
 };
 
 export type OidcAuthorizeEvaluateParams = {
-acr_values?: string;
-client_id: string;
-code_challenge: string;
-code_challenge_method: string;
-/**
- * Not an OAuth parameter: the `login_ticket` of an earlier `login` answer, carried back after the sign-in it asked for. A sign-in at or after the ticket's time satisfies `prompt=login` and `max_age` (including `max_age=0`). An invalid or expired ticket is ignored, never an error.
- */
-f2z_login_ticket?: string;
-/**
- * Not an OAuth parameter: the app's SUGGESTED spend cap for `ai:invoke`, a whole number of 2Z from 1. The consent screen may pre-select it, but only its AMOUNT is ever clamped: a capped registration default, and the user's capped last grant for the app, each fix the period and bound the amount. A hint for another period than either is ignored (a period change is a raise: it starts a fresh spend window), so an applied hint never exceeds the registration's default nor needs a fresh sign-in. It is never recorded by itself: only the cap the user confirms in the consent POST's own `spend_cap_2z` / `cap_period` is. A silent (`approve`) authorization ignores it; send `prompt=consent` to ask the user again. A malformed value is ignored, never an error.
- */
-f2z_spend_cap?: string;
-/**
- * Not an OAuth parameter: the period of `f2z_spend_cap` -- `day`, `week`, `month` or `total` (never resets). Ignored without `f2z_spend_cap`; an unknown value makes the whole hint ignored. Absent, the hint keeps the period the screen would have pre-selected. Never rewritten: a period the registration's default or the user's capped grant does not have makes the hint ignored.
- */
-f2z_spend_period?: string;
-login_hint?: string;
-max_age?: string;
-nonce?: string;
-prompt?: string;
-redirect_uri: string;
-response_mode?: string;
-response_type: string;
-scope: string;
-state: string;
-ui_locales?: string;
+  acr_values?: string;
+  client_id: string;
+  code_challenge: string;
+  code_challenge_method: string;
+  /** Not an OAuth parameter: the `login_ticket` of an earlier `login` answer, carried back after the sign-in it asked for. A sign-in at or after the ticket's time satisfies `prompt=login` and `max_age` (including `max_age=0`). An invalid or expired ticket is ignored, never an error. */
+  f2z_login_ticket?: string;
+  /** Not an OAuth parameter: the app's SUGGESTED spend cap for `ai:invoke`, a whole number of 2Z from 1. The consent screen may pre-select it, but only its AMOUNT is ever clamped: a capped registration default, and the user's capped last grant for the app, each fix the period and bound the amount. A hint for another period than either is ignored (a period change is a raise: it starts a fresh spend window), so an applied hint never exceeds the registration's default nor needs a fresh sign-in. It is never recorded by itself: only the cap the user confirms in the consent POST's own `spend_cap_2z` / `cap_period` is. A silent (`approve`) authorization ignores it; send `prompt=consent` to ask the user again. A malformed value is ignored, never an error. */
+  f2z_spend_cap?: string;
+  /** Not an OAuth parameter: the period of `f2z_spend_cap` -- `day`, `week`, `month` or `total` (never resets). Ignored without `f2z_spend_cap`; an unknown value makes the whole hint ignored. Absent, the hint keeps the period the screen would have pre-selected. Never rewritten: a period the registration's default or the user's capped grant does not have makes the hint ignored. */
+  f2z_spend_period?: string;
+  login_hint?: string;
+  max_age?: string;
+  nonce?: string;
+  prompt?: string;
+  redirect_uri: string;
+  response_mode?: string;
+  response_type: string;
+  scope: string;
+  state: string;
+  ui_locales?: string;
 };
 
 export type OpenaiImageCreate200 = string | {
@@ -6275,26 +6165,20 @@ export type OpenaiImageCreate429 = {
 };
 
 export type PricingCurrentParams = {
-/**
- * Optional promotion code preview; does not lock payment pricing.
- */
-promo?: string;
+  /** Optional promotion code preview; does not lock payment pricing. */
+  promo?: string;
 };
 
 export type PricingQuoteParams = {
-/**
- * Optional current promotion preview; never locks pricing.
- */
-promo?: string;
-/**
- * Number of 2Z to price.
- */
-tuzis: number;
+  /** Optional current promotion preview; never locks pricing. */
+  promo?: string;
+  /** Number of 2Z to price. */
+  tuzis: number;
 };
 
 export type SchemaRetrieveParams = {
-format?: SchemaRetrieveFormat;
-lang?: SchemaRetrieveLang;
+  format?: SchemaRetrieveFormat;
+  lang?: SchemaRetrieveLang;
 };
 
 export type SchemaRetrieveFormat = typeof SchemaRetrieveFormat[keyof typeof SchemaRetrieveFormat];
@@ -6419,65 +6303,43 @@ export type SchemaRetrieve200Three = {[key: string]: unknown};
 export type SchemaRetrieve200Four = {[key: string]: unknown};
 
 export type StorytimeMystoriesListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type StripeNativeReturnCancelRetrieveParams = {
-state: string;
+  state: string;
 };
 
 export type StripeNativeReturnSuccessRetrieveParams = {
-session_id: string;
-state: string;
+  session_id: string;
+  state: string;
 };
 
 export type StripeTransactionsListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type TaggingAutocompleteListParams = {
-/**
- * For `type=zpage`, restrict counts to the authenticated caller's own zPages, including drafts. Anonymous callers are refused. When `username` is supplied too, it must match the caller's username (case-insensitive); a mismatch returns no rows.
- */
-mine?: boolean;
-/**
- * How many tags to return. Clamped to 1-100; a non-integer falls back to the default of 10.
- */
-num_results?: number;
-/**
- * Substring match on the tag name, case-insensitive.
- */
-query?: string;
-/**
- * Free-text filter applied to the *tagged objects* before counting, so counts describe a search result rather than the whole corpus. Requires `type`.
- */
-search?: string;
-/**
- * Comma-separated tags already chosen. They are excluded from the results, and — when `type` is given — the remaining counts are narrowed to objects carrying all of them, i.e. what can still be added. Without `type` the names are excluded but the counts are not narrowed. At most 50 entries are read; the rest are ignored.
- */
-selected_tags?: string;
-/**
- * Which corpus the counts describe. Omit to count both — visible zPages plus visible comments — which is a rough popularity signal across the platform. Every mode applies the caller's own visibility rules: drafts, pages by deactivated creators, and comments on parents the caller cannot see are never counted. Any other value is a 400.
- */
-type?: TaggingAutocompleteListType;
-/**
- * Restrict to tags used by one creator. Requires `type`; without it the filter is ignored.
- */
-username?: string;
+  /** For `type=zpage`, restrict counts to the authenticated caller's own zPages, including drafts. Anonymous callers are refused. When `username` is supplied too, it must match the caller's username (case-insensitive); a mismatch returns no rows. */
+  mine?: boolean;
+  /** How many tags to return. Clamped to 1-100; a non-integer falls back to the default of 10. */
+  num_results?: number;
+  /** Substring match on the tag name, case-insensitive. */
+  query?: string;
+  /** Free-text filter applied to the *tagged objects* before counting, so counts describe a search result rather than the whole corpus. Requires `type`. */
+  search?: string;
+  /** Comma-separated tags already chosen. They are excluded from the results, and — when `type` is given — the remaining counts are narrowed to objects carrying all of them, i.e. what can still be added. Without `type` the names are excluded but the counts are not narrowed. At most 50 entries are read; the rest are ignored. */
+  selected_tags?: string;
+  /** Which corpus the counts describe. Omit to count both — visible zPages plus visible comments — which is a rough popularity signal across the platform. Every mode applies the caller's own visibility rules: drafts, pages by deactivated creators, and comments on parents the caller cannot see are never counted. Any other value is a 400. */
+  type?: TaggingAutocompleteListType;
+  /** Restrict to tags used by one creator. Requires `type`; without it the filter is ignored. */
+  username?: string;
 };
 
 export type TaggingAutocompleteListType = typeof TaggingAutocompleteListType[keyof typeof TaggingAutocompleteListType];
@@ -6489,32 +6351,22 @@ export const TaggingAutocompleteListType = {
 } as const;
 
 export type TaggingZpageSuggestionsDecideCreateParams = {
-/**
- * Variant whose validator is supplied and returned; omit for canonical article.
- */
-lang?: string;
+  /** Variant whose validator is supplied and returned; omit for canonical article. */
+  lang?: string;
 };
 
 export type TuzisMySubscribersListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type TuzisMySubscriptionsListParams = {
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
 };
 
 export type TuzisSubscribeCreate200 = {
@@ -6549,46 +6401,26 @@ export type TuzisSubscribePartialUpdateBody = {
 };
 
 export type ZpageListParams = {
-/**
- * Tag names, **repeated** (`?any_tags=a&any_tags=b`) rather than comma-joined. A zPage matches if it carries **any** of them (OR). Matching is case-insensitive and alias-resolved, exactly like `tags`. Combining the two ANDs the groups: `?tags=zcash&any_tags=t-shirts&any_tags=t shirts` means *zcash* AND (*t-shirts* OR *t shirts*). Repeated rather than comma-separated because a tag name may itself contain a comma, and this parameter's reason to exist — the `/tag/<slug>` hub — is precisely the set of spellings that collide on one slug. At most 50 names are read; the rest are ignored rather than rejected.
- */
-any_tags?: string[];
-/**
- * Opaque continuation token returned in `next`; use only with `pagination=cursor`.
- */
-cursor?: string;
-/**
- * A public tag-hub slug. The server resolves the complete canonical component and filters by it, so the bounded `names` display list cannot strand pages from a hub with more than 50 spellings. This is the list counterpart to `GET /api/tagging/hub/{slug}`.
- */
-hub_slug?: string;
-/**
- * Which language variant to render. Any real BCP-47 language tag (`en`, `de`, `ja`, `pt-PT`); bare `pt` is accepted as `pt-BR`. A tag that is not a language at all is a 400. Omit to negotiate: the `Accept-Language` header is consulted next, and the article's source variant last.
- */
-lang?: string;
-/**
- * Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403.
- */
-mine?: boolean;
-/**
- * Which field to use when ordering the results.
- */
-ordering?: string;
-/**
- * A page number within the paginated result set.
- */
-page?: number;
-/**
- * Number of results to return per page.
- */
-page_size?: number;
-/**
- * Opt into stable keyset pagination for infinite feeds. Omit this parameter to retain the default page-number contract.
- */
-pagination?: ZpageListPagination;
-/**
- * Comma-separated tag names. A zPage matches only if it carries **all** of them (AND, not OR). Matching is case-insensitive, so `zcash` and `ZCASh` select the same pages. Tags are a free-form vocabulary (`django-taggit`) — there is no fixed list to choose from; `GET /api/tagging/autocomplete` enumerates the ones in use.
- */
-tags?: string;
+  /** Tag names, **repeated** (`?any_tags=a&any_tags=b`) rather than comma-joined. A zPage matches if it carries **any** of them (OR). Matching is case-insensitive and alias-resolved, exactly like `tags`. Combining the two ANDs the groups: `?tags=zcash&any_tags=t-shirts&any_tags=t shirts` means *zcash* AND (*t-shirts* OR *t shirts*). Repeated rather than comma-separated because a tag name may itself contain a comma, and this parameter's reason to exist — the `/tag/<slug>` hub — is precisely the set of spellings that collide on one slug. At most 50 names are read; the rest are ignored rather than rejected. */
+  any_tags?: string[];
+  /** Opaque continuation token returned in `next`; use only with `pagination=cursor`. */
+  cursor?: string;
+  /** A public tag-hub slug. The server resolves the complete canonical component and filters by it, so the bounded `names` display list cannot strand pages from a hub with more than 50 spellings. This is the list counterpart to `GET /api/tagging/hub/{slug}`. */
+  hub_slug?: string;
+  /** Which language variant to render. Any real BCP-47 language tag (`en`, `de`, `ja`, `pt-PT`); bare `pt` is accepted as `pt-BR`. A tag that is not a language at all is a 400. Omit to negotiate: the `Accept-Language` header is consulted next, and the article's source variant last. */
+  lang?: string;
+  /** Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403. */
+  mine?: boolean;
+  /** Which field to use when ordering the results. */
+  ordering?: string;
+  /** A page number within the paginated result set. */
+  page?: number;
+  /** Number of results to return per page. */
+  page_size?: number;
+  /** Opt into stable keyset pagination for infinite feeds. Omit this parameter to retain the default page-number contract. */
+  pagination?: ZpageListPagination;
+  /** Comma-separated tag names. A zPage matches only if it carries **all** of them (AND, not OR). Matching is case-insensitive, so `zcash` and `ZCASh` select the same pages. Tags are a free-form vocabulary (`django-taggit`) — there is no fixed list to choose from; `GET /api/tagging/autocomplete` enumerates the ones in use. */
+  tags?: string;
 };
 
 export type ZpageListPagination = typeof ZpageListPagination[keyof typeof ZpageListPagination];
@@ -6599,17 +6431,13 @@ export const ZpageListPagination = {
 } as const;
 
 export type ZpageCreateParams = {
-/**
- * Which language variant to render in the response body. Affects the representation only: it never sets or changes what is persisted. The source language comes from the `source_language` body field, on create and on update alike — it is mutable, and changing it to a language that already has a translation is a 409. An unsupported `lang` value here is ignored rather than failing the write. `Accept-Language` is NOT negotiated on a write: the response describes the variant that was written.
- */
-lang?: string;
+  /** Which language variant to render in the response body. Affects the representation only: it never sets or changes what is persisted. The source language comes from the `source_language` body field, on create and on update alike — it is mutable, and changing it to a language that already has a translation is a 409. An unsupported `lang` value here is ignored rather than failing the write. `Accept-Language` is NOT negotiated on a write: the response describes the variant that was written. */
+  lang?: string;
 };
 
 export type ZpageTranslationBatchQuoteParams = {
-/**
- * Comma-separated BCP-47 tags to quote, e.g. `fr,es,ja` (the parameter may also be repeated). Selects what to price; it changes nothing. At most `max_items` distinct languages after normalization.
- */
-languages: string;
+  /** Comma-separated BCP-47 tags to quote, e.g. `fr,es,ja` (the parameter may also be repeated). Selects what to price; it changes nothing. At most `max_items` distinct languages after normalization. */
+  languages: string;
 };
 
 export type ZpageVoteCreateBodyVote = typeof ZpageVoteCreateBodyVote[keyof typeof ZpageVoteCreateBodyVote];
@@ -6631,53 +6459,37 @@ export type ZpageVoteCreate200 = {
 };
 
 export type ZpageRetrieveParams = {
-/**
- * Which language variant to render. Any real BCP-47 language tag (`en`, `de`, `ja`, `pt-PT`); bare `pt` is accepted as `pt-BR`. A tag that is not a language at all is a 400. Omit to negotiate: the `Accept-Language` header is consulted next, and the article's source variant last.
- */
-lang?: string;
-/**
- * Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403.
- */
-mine?: boolean;
+  /** Which language variant to render. Any real BCP-47 language tag (`en`, `de`, `ja`, `pt-PT`); bare `pt` is accepted as `pt-BR`. A tag that is not a language at all is a 400. Omit to negotiate: the `Accept-Language` header is consulted next, and the article's source variant last. */
+  lang?: string;
+  /** Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403. */
+  mine?: boolean;
 };
 
 export type ZpageUpdateParams = {
-/**
- * Which language variant to render in the response body. Affects the representation only: it never sets or changes what is persisted. The source language comes from the `source_language` body field, on create and on update alike — it is mutable, and changing it to a language that already has a translation is a 409. An unsupported `lang` value here is ignored rather than failing the write. `Accept-Language` is NOT negotiated on a write: the response describes the variant that was written.
- */
-lang?: string;
+  /** Which language variant to render in the response body. Affects the representation only: it never sets or changes what is persisted. The source language comes from the `source_language` body field, on create and on update alike — it is mutable, and changing it to a language that already has a translation is a 409. An unsupported `lang` value here is ignored rather than failing the write. `Accept-Language` is NOT negotiated on a write: the response describes the variant that was written. */
+  lang?: string;
 };
 
 export type ZpagePartialUpdateParams = {
-/**
- * Which language variant to render in the response body. Affects the representation only: it never sets or changes what is persisted. The source language comes from the `source_language` body field, on create and on update alike — it is mutable, and changing it to a language that already has a translation is a 409. An unsupported `lang` value here is ignored rather than failing the write. `Accept-Language` is NOT negotiated on a write: the response describes the variant that was written.
- */
-lang?: string;
+  /** Which language variant to render in the response body. Affects the representation only: it never sets or changes what is persisted. The source language comes from the `source_language` body field, on create and on update alike — it is mutable, and changing it to a language that already has a translation is a 409. An unsupported `lang` value here is ignored rather than failing the write. `Accept-Language` is NOT negotiated on a write: the response describes the variant that was written. */
+  lang?: string;
 };
 
 export type ZpageRelatedListParams = {
-/**
- * Which language variant to render. Any real BCP-47 language tag (`en`, `de`, `ja`, `pt-PT`); bare `pt` is accepted as `pt-BR`. A tag that is not a language at all is a 400. Omit to negotiate: the `Accept-Language` header is consulted next, and the article's source variant last.
- */
-lang?: string;
-/**
- * Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403.
- */
-mine?: boolean;
+  /** Which language variant to render. Any real BCP-47 language tag (`en`, `de`, `ja`, `pt-PT`); bare `pt` is accepted as `pt-BR`. A tag that is not a language at all is a 400. Omit to negotiate: the `Accept-Language` header is consulted next, and the article's source variant last. */
+  lang?: string;
+  /** Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403. */
+  mine?: boolean;
 };
 
 export type ZpageVariantsListParams = {
-/**
- * Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403.
- */
-mine?: boolean;
+  /** Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403. */
+  mine?: boolean;
 };
 
 export type ZpageVariantsRetrieveParams = {
-/**
- * Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403.
- */
-mine?: boolean;
+  /** Owner-only draft access. Set this explicitly from the dashboard or editor; ordinary public profile and article reads are published-only and use the public paywall representation even for the owner. An anonymous request with `mine=true` is rejected with 403. */
+  mine?: boolean;
 };
 
 export type ZpageFundCreate200 = {
@@ -6686,15 +6498,13 @@ export type ZpageFundCreate200 = {
 };
 
 export type ZuuliCapabilitiesParams = {
-/**
- * Client platform; must be paired with version.
- */
-platform?: ZuuliCapabilitiesPlatform;
-/**
- * Canonical MAJOR.MINOR.PATCH app version; must be paired with platform.
- * @pattern ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$
- */
-version?: string;
+  /** Client platform; must be paired with version. */
+  platform?: ZuuliCapabilitiesPlatform;
+  /**
+   * Canonical MAJOR.MINOR.PATCH app version; must be paired with platform.
+   * @pattern ^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$
+   */
+  version?: string;
 };
 
 export type ZuuliCapabilitiesPlatform = typeof ZuuliCapabilitiesPlatform[keyof typeof ZuuliCapabilitiesPlatform];

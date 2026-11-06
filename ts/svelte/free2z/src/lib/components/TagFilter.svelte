@@ -20,13 +20,13 @@
     onSelect,
     username,
     mine = false,
-  } = $props<{
+  }: {
     availableTags: AvailableTag[];
     currentTag: string;
     onSelect: (tag: string) => void;
     username: string;
     mine?: boolean;
-  }>();
+  } = $props();
 
   let open = $state(false);
   let triggerRef = $state<HTMLButtonElement>(null!);
