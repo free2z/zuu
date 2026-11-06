@@ -11,7 +11,7 @@ test("creator Markdown renders an equation in the production browser bundle", as
       id: 2,
       username: "equations",
       full_name: "Equations",
-      description: "A right triangle satisfies $x^2 + y^2 = z^2$.",
+      description: "A right triangle satisfies:\n\n$$\nx^2 + y^2 = z^2\n$$",
       is_verified: false,
       total: 0,
       p2paddr: "",
@@ -27,13 +27,19 @@ test("creator Markdown renders an equation in the production browser bundle", as
       body: JSON.stringify(
         path === "/api/creator/equations/"
           ? creator
+          : path === "/api/dyte/equations/live-status"
+          ? {}
+          : path === "/api/events/has/"
+          ? false
+          : path === "/api/events/unread_count/"
+          ? 0
           : { count: 0, next: null, results: [] }
       ),
     });
   });
   await page.goto("/equations");
   const equation = page.locator("mjx-container svg");
-  await expect(equation).toBeVisible();
+  await expect(equation, errors.join("\n")).toBeVisible();
   await expect(equation.locator('[data-mml-node="msup"]')).toHaveCount(3);
   expect(errors).toEqual([]);
 });
