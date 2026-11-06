@@ -1672,11 +1672,12 @@ def _defer_host_evictions(cm):
                                for entry in cm.host_evictions):
             schedule_at = timezone.datetime.fromtimestamp(
                 min(retry_after), tz=timezone.get_current_timezone())
-        # One pending job per meeting coalesces repeated heartbeats without
-        # defeating the worker's retry backoff.
+        # Claim-expiry recovery must not delay an actionable retirement. Keep
+        # its future job separate from the coalesced eviction/retry job.
+        lock_suffix = ':claim' if schedule_at is not None else ''
         with transaction.atomic():
             retire_host_evictions.configure(
-                queueing_lock=f"dyte-host-evictions-{cm.pk}",
+                queueing_lock=f"dyte-host-evictions-{cm.pk}{lock_suffix}",
                 schedule_at=schedule_at,
             ).defer(creator_id=cm.creator_id, meeting_id=cm.pk)
     except AlreadyEnqueued:

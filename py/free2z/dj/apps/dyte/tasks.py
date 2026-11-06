@@ -94,7 +94,7 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
         try:
             with transaction.atomic():
                 retire_host_evictions.configure(
-                    queueing_lock=f"dyte-host-evictions-{meeting_id}",
+                    queueing_lock=f"dyte-host-evictions-{meeting_id}:claim",
                     schedule_at=timezone.datetime.fromtimestamp(
                         min(entry['retry_after'] for entry in waiting),
                         tz=timezone.get_current_timezone()),
@@ -148,7 +148,9 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     from .client import DyteClient
     dc = DyteClient(settings.DYTE_ORG)
     outcomes = []
-    for entry in snapshot:
+    # One provider operation per invocation bounds occupancy of the shared
+    # worker. Untouched entries retain their attempts and durable state.
+    for entry in snapshot[:1]:
         meeting = entry.get('meeting_id')
         participant = entry.get('participant_id')
         if not meeting or not participant:
@@ -527,7 +529,7 @@ HOST_EVICTION_CATCHUP_BATCH = 100
 
 
 def _enqueue_deferred_host_evictions():
-    """Revisit at most 100 durable obligations, including non-live meetings.
+    """Inspect at most 100 rows and enqueue at most one retirement per tick.
 
     A shared, database-scoped primary-key cursor advances by rows actually
     inspected, independently of cron cadence. Manual-review rows cannot hide
@@ -553,11 +555,16 @@ def _enqueue_deferred_host_evictions():
     if len(rows) < HOST_EVICTION_CATCHUP_BATCH:
         rows.extend(pending.filter(pk__lte=cursor)[
             :HOST_EVICTION_CATCHUP_BATCH - len(rows)])
+    inspected = []
     for cm in rows:
-        _defer_host_evictions(cm)
-    if rows:
+        inspected.append(cm)
+        if any(entry.get('state') != 'manual_review'
+               for entry in (cm.host_evictions or [])):
+            _defer_host_evictions(cm)
+            break
+    if inspected:
         try:
-            cache.set(key, rows[-1].pk, timeout=None)
+            cache.set(key, inspected[-1].pk, timeout=None)
         except Exception:
             logger.warning('host eviction catch-up: could not store cursor', exc_info=True)
 

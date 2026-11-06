@@ -258,10 +258,14 @@ no retained participant, in-flight claim or pending retirement. Reconnection
 mints a new provider participant, so reconnects and takeovers that require
 retirement return a retryable 503 while the gate is disabled.
 
-After enablement, the existing live-room sweep revisits up to 100 obligation
-rows per tick using a shared, database-scoped primary-key cursor, including
-released and non-live meetings. Cursor progress is independent of cron cadence;
-cache failures are logged and leave the obligations for a later tick. It coalesces retirement jobs by meeting and preserves manual
-review states. Disabling the gate again stops execution and retries without
+After enablement, the existing live-room sweep inspects up to 100 obligation
+rows and queues at most one retirement job per tick using a shared,
+database-scoped primary-key cursor, including released and non-live meetings.
+Each retirement invocation attempts one provider obligation and retains the
+rest for later jobs. Cursor progress is independent of cron cadence; cache
+failures are logged and leave the obligations for a later tick. It coalesces
+retirement jobs by meeting and preserves manual review states. Delayed
+start-claim recovery uses a separate queueing lock so it cannot delay a newly
+actionable eviction. Disabling the gate again stops execution and retries without
 clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
 to worker code without the task registration while queued jobs can still exist.

@@ -1091,12 +1091,49 @@ def test_eviction_catchup_rotates_past_manual_rows_and_bounds_each_tick(
         host_evictions=[{'state': 'manual_review' if i < 2 else 'pending'}],
     ) for i in range(5)]
     reached = set()
-    for tick in [0, 300, 600]:
+    for tick in [0, 300, 600, 900]:
         enqueue.reset_mock()
         sweep_live_meetings(tick)
-        assert enqueue.call_count <= 2
+        assert enqueue.call_count <= 1
         reached.update(call.args[0].pk for call in enqueue.call_args_list)
-    assert reached == {row.pk for row in rows}
+    assert reached == {row.pk for row in rows[2:]}
+
+
+def test_actionable_retirement_is_runnable_before_queued_claim_expiry(
+    api_client, provider, host,
+):
+    first = _start(api_client, host)
+    assert first.status_code == 200
+    delayed = ProcrastinateJob.objects.get(task_name='dyte.retire_host_evictions')
+    assert delayed.scheduled_at > timezone.now() + timedelta(seconds=240)
+    assert delayed.queueing_lock.endswith(':claim')
+    assert _start(api_client, host, takeover=True).status_code == 200
+    cm = CreatorMeeting.objects.get(creator=host)
+    jobs = ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions')
+    immediate = jobs.exclude(pk=delayed.pk).get()
+    assert immediate.queueing_lock == f'dyte-host-evictions-{cm.pk}'
+    assert immediate.scheduled_at is None or immediate.scheduled_at <= timezone.now()
+    delayed.refresh_from_db()
+    assert delayed.scheduled_at > timezone.now() + timedelta(seconds=240)
+
+
+def test_retirement_bounds_provider_work_without_losing_unprocessed_entries(
+    provider, host,
+):
+    from .tasks import retire_host_evictions
+
+    entries = [{'meeting_id': 'room', 'participant_id': str(i),
+                'state': 'pending', 'attempts': i} for i in range(4)]
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room',
+                                      host_evictions=entries)
+    provider.retire_participant.return_value = True
+    retire_host_evictions(host.pk, cm.pk)
+    cm.refresh_from_db()
+    assert cm.host_evictions == entries[1:]
+    provider.retire_participant.assert_called_once_with('room', '0')
+    assert ProcrastinateJob.objects.filter(
+        task_name='dyte.retire_host_evictions', args__meeting_id=cm.pk,
+    ).exists()
 
 
 def test_disabled_eviction_catchup_never_reads_obligation_table(settings, mocker):
