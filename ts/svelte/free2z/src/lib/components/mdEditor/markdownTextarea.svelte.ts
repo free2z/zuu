@@ -1216,7 +1216,7 @@ export class MarkdownTextareaController {
           .replace(/\]/g, "\\]")
           .replace(/[\r\n]+/g, " ");
         const next = serializeCaptionedImage(
-          `![${safeAlt}${image.slice(closing)}`,
+          alt === token.text ? image : `![${safeAlt}${image.slice(closing)}`,
           caption,
         );
         this.#splice(lineStart, replaceEnd, next, "end");

@@ -478,9 +478,7 @@ for (const width of [390, 1280]) {
       ).toBeVisible();
       await page.getByLabel("Visible caption").fill("caption");
       await page.getByRole("button", { name: "Apply" }).click();
-      await expect(body).toHaveValue(
-        /\]\(\/uploadz\/public\/example\.png "keep title"\)\n::caption\["caption"\]$/,
-      );
+      await expect(body).toHaveValue(`${source}\n::caption["caption"]`);
     }
   });
 }

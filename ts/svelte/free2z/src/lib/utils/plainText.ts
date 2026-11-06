@@ -9,7 +9,7 @@ export function stripMediaDirectivesFromSummary(value: string): string {
   let fence: { marker: "`" | "~"; length: number } | null = null;
 
   return lines
-    .map((line) => {
+    .map((line, index) => {
       const content = line.replace(/\r?\n$/, "");
       const fenceMatch = /^ {0,3}(`{3,}|~{3,})/.exec(content);
 
@@ -35,6 +35,12 @@ export function stripMediaDirectivesFromSummary(value: string): string {
           length: fenceMatch[1].length,
         };
         return line;
+      }
+
+      const previous = lines[index - 1] ?? "";
+      if (/^ {0,3}!\[/.test(previous)) {
+        const image = parseCaptionedImage(previous + line);
+        if (image) return image.caption + (line.endsWith("\n") ? "\n" : "");
       }
 
       return /^ {0,3}::(?:embed|iframe|qrcode)\[[^\]\n]+(?:\](?:\.{3}|…)?|\.{3}|…)[ \t]*\r?(?:\n)?$/i.test(
@@ -69,3 +75,4 @@ export function markdownToPlainText(value: string, maxLength = 200) {
   const lastSpace = cut.lastIndexOf(" ");
   return `${(lastSpace > maxLength * 0.6 ? cut.slice(0, lastSpace) : cut.slice(0, maxLength)).trim()}…`;
 }
+import { parseCaptionedImage } from "./image-caption.ts";

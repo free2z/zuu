@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test, before, after } from "node:test";
 import { createServer } from "vite";
 
-let server, render, captions;
+let server, render, captions, plainText;
 before(async () => {
   server = await createServer({
     appType: "custom",
@@ -13,6 +13,7 @@ before(async () => {
     "/src/lib/utils/markdown.ts",
   ));
   captions = await server.ssrLoadModule("/src/lib/utils/image-caption.ts");
+  plainText = await server.ssrLoadModule("/src/lib/utils/plainText.ts");
 });
 after(async () => {
   await server?.close();
@@ -51,6 +52,40 @@ test("legacy images and inline text remain ordinary markdown", () => {
   const fenced =
     "```\n" + captions.serializeCaptionedImage(image, "caption") + "\n```";
   assert.doesNotMatch(render(fenced), /<figure>/);
+  assert.doesNotMatch(
+    render(`    ${image}\n::caption["code example"]`),
+    /<figure>/,
+  );
+});
+
+test("captioned image lines interrupt preceding paragraphs", () => {
+  const image = '![alt](https://example.com/a.png "title")';
+  const html = render(
+    `Before\n${captions.serializeCaptionedImage(image, "Visible caption")}\nAfter`,
+  );
+  assert.match(html, /<p>Before<\/p>\s*<figure><img/);
+  assert.match(html, /<figcaption>Visible caption<\/figcaption><\/figure>/);
+  assert.match(html, /<p>After<\/p>/);
+  assert.doesNotMatch(html, /::caption/);
+});
+
+test("article summaries include caption text without its serialization", () => {
+  const source = captions.serializeCaptionedImage(
+    "![Bird](/image.png)",
+    'Snow\n"Bird" [detail]',
+  );
+  assert.equal(
+    plainText.markdownToPlainText(`${source}\n\nArticle prose.`),
+    'Bird Snow "Bird" [detail] Article prose.',
+  );
+  const fenced = `~~~\n${source}\n~~~`;
+  assert.equal(plainText.stripMediaDirectivesFromSummary(fenced), fenced);
+  assert.equal(
+    plainText.stripMediaDirectivesFromSummary(
+      'Ordinary prose\n::caption["literal"]',
+    ),
+    'Ordinary prose\n::caption["literal"]',
+  );
 });
 
 test("untrusted caption and image attributes cannot inject markup or scripts", () => {

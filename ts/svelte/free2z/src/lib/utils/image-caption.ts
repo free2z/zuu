@@ -15,7 +15,7 @@ export function serializeCaptionedImage(
 
 export function parseCaptionedImage(source: string): CaptionedImage | null {
   const match =
-    /^( {0,3}[^\n]+)\n {0,3}::caption\[("(?:[^"\\\n]|\\.)*")\][ \t]*(?:\n|$)/.exec(
+    /^( {0,3}!\[[^\n]+)\n {0,3}::caption\[("(?:[^"\\\n]|\\.)*")\][ \t]*(?:\n|$)/.exec(
       source,
     );
   if (!match) return null;

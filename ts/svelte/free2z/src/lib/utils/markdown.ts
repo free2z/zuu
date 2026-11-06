@@ -816,10 +816,20 @@ function configureMarkdown() {
       {
         name: "captionedImage",
         level: "block",
+        start(src) {
+          // Stop a preceding paragraph before an image/caption pair. Existing
+          // image lines need not have a blank line above them when edited.
+          return /^ {0,3}!\[[^\n]+\n {0,3}::caption\[/m.exec(src)?.index;
+        },
         tokenizer(src) {
           const parsed = parseCaptionedImage(src);
           if (!parsed) return undefined;
-          const tokens = marked.Lexer.lexInline(parsed.image);
+          // Explicit options give this nested lexer its own tokenizer, rather
+          // than replacing the outer lexer's shared tokenizer reference.
+          const tokens = marked.Lexer.lexInline(parsed.image, {
+            gfm: true,
+            breaks: true,
+          });
           if (
             tokens.length !== 1 ||
             tokens[0].type !== "image" ||
