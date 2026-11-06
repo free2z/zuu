@@ -1326,7 +1326,13 @@
                             )}</Label
                           >
                           <Select.Root type="single" bind:value={videoQuality}>
-                            <Select.Trigger class="w-full">
+                            <Select.Trigger
+                              aria-label={$t(
+                                "dashboard.stream.videoQuality",
+                                "Video Quality",
+                              )}
+                              class="w-full"
+                            >
                               {videoQualityLabel}
                             </Select.Trigger>
                             <Select.Content>
@@ -1385,7 +1391,13 @@
                             )}</Label
                           >
                           <Select.Root type="single" bind:value={videoQuality}>
-                            <Select.Trigger class="w-full">
+                            <Select.Trigger
+                              aria-label={$t(
+                                "dashboard.stream.videoQuality",
+                                "Video Quality",
+                              )}
+                              class="w-full"
+                            >
                               {videoQualityLabel}
                             </Select.Trigger>
                             <Select.Content>

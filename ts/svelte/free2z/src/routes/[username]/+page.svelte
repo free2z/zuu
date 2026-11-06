@@ -452,7 +452,10 @@
                 value={currentSort}
                 onValueChange={(v) => updateParams({ ordering: v })}
               >
-                <Select.Trigger class="h-9 w-full md:w-32">
+                <Select.Trigger
+                  aria-label={$t("profile.sort.label", "Sort by")}
+                  class="h-9 w-full md:w-32"
+                >
                   <span class="truncate">
                     {sortLabel(currentSort)}
                   </span>
@@ -607,7 +610,10 @@
                 value={currentSort}
                 onValueChange={(v) => updateParams({ ordering: v })}
               >
-                <Select.Trigger class="h-9 w-full md:w-32">
+                <Select.Trigger
+                  aria-label={$t("profile.sort.label", "Sort by")}
+                  class="h-9 w-full md:w-32"
+                >
                   <span class="truncate">
                     {sortLabel(currentSort)}
                   </span>
