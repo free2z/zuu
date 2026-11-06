@@ -76,7 +76,8 @@ fn prepare_two_observation_journals() -> Result<()> {
             AccountId::ZERO,
         )?
         .to_unified_full_viewing_key()
-        .encode(&MAIN_NETWORK);
+        .encode(&MAIN_NETWORK)
+        .unwrap();
         let mut secret = OpenOptions::new()
             .write(true)
             .create_new(true)

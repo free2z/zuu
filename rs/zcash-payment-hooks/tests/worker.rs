@@ -166,7 +166,8 @@ fn actual_worker_delivers_recorded_revoke_after_replacement_fetch_failure() -> R
     let output = dir.path().join("hook-events");
     let ufvk = UnifiedSpendingKey::from_seed(&MAIN_NETWORK, &[1; 32], AccountId::ZERO)?
         .to_unified_full_viewing_key()
-        .encode(&MAIN_NETWORK);
+        .encode(&MAIN_NETWORK)
+        .unwrap();
     let c = Config {
         network: "main".into(),
         rpc_url: node.url.clone(),

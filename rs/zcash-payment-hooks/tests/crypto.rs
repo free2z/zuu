@@ -2,15 +2,7 @@
 //! NEVER submit these transactions. They test parsing and viewing-key decryption;
 //! consensus validation remains the responsibility of the trusted Zakura node.
 //!
-//! Additional dev-dependencies:
-//! rand = "0.8"
-//! nonempty = "0.11"
-//! orchard = { version = "0.15", default-features = false }
-//! sapling = { package = "sapling-crypto", version = "0.7", default-features = false }
-//! zcash_note_encryption = "0.4.1"
-//! zip32 = "0.2"
-//! transparent = { package = "zcash_transparent", version = "0.10", default-features = false }
-//! zcash_script = "0.4"
+//! Dependency versions are declared in this project's Cargo.toml.
 
 use nonempty::NonEmpty;
 use orchard::{
@@ -85,7 +77,7 @@ fn sapling_bundle_with_recovery_key(
         cv.clone(),
         cmu,
         epk,
-        encryptor.encrypt_note_plaintext(),
+        encryptor.encrypt_note_plaintext().0,
         encryptor.encrypt_outgoing_plaintext(&cv, &cmu, &mut rng),
         [0; 192],
     );
