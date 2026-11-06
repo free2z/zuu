@@ -1195,9 +1195,17 @@ mod tests {
     fn generated_ios_plist_registers_mobile_scheme() {
         let plist = include_str!("../gen/apple/zuuli_iOS/Info.plist");
         assert_eq!(plist.matches("<key>CFBundleURLTypes</key>").count(), 1);
+        assert_eq!(plist.matches("<key>CFBundleURLSchemes</key>").count(), 1);
         assert_eq!(
             plist.matches("<string>cash.free2z.zuuli</string>").count(),
-            2
+            1
+        );
+        assert_eq!(plist.matches("<key>CFBundleURLName</key>").count(), 1);
+        assert_eq!(
+            plist
+                .matches("<string>$(PRODUCT_BUNDLE_IDENTIFIER).cash.free2z.zuuli</string>")
+                .count(),
+            1
         );
     }
 }
