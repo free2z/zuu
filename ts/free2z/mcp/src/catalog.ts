@@ -46,25 +46,23 @@ for (const [path, item] of Object.entries(document.paths) as [
 // The hand-written page queryset accepts these public filters; the generated
 // schema currently omits them. Keep discovery useful while allowing additional
 // primitive query parameters for server-side filters not described by OpenAPI.
-operations
-  .get("zpage_list")!
-  .spec.parameters.push(
-    {
-      in: "query",
-      name: "search",
-      schema: { type: "string" },
-      description: "Search page text.",
-    },
-    {
-      in: "query",
-      name: "username",
-      schema: { type: "string" },
-      description: "Filter by creator username.",
-    },
-    ...["unverified", "created_at__gte", "created_at__lte", "homeSort"].map(
-      (name) => ({ in: "query", name, schema: { type: "string" } }),
-    ),
-  );
+operations.get("zpage_list")!.spec.parameters.push(
+  {
+    in: "query",
+    name: "search",
+    schema: { type: "string" },
+    description: "Search page text.",
+  },
+  {
+    in: "query",
+    name: "username",
+    schema: { type: "string" },
+    description: "Filter by creator username.",
+  },
+  ...["unverified", "created_at__gte", "created_at__lte", "homeSort"].map(
+    (name) => ({ in: "query", name, schema: { type: "string" } }),
+  ),
+);
 const uploadMetadata = {
   type: "object",
   properties: {
