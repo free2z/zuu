@@ -241,3 +241,39 @@ The server intentionally retains its all-origin CORS policy and loopback bind.
 [Flask's release](https://github.com/pallets/flask/releases/tag/3.1.3) and
 [Flask-CORS advisory](https://github.com/advisories/GHSA-8vgw-p6qm-5gr7)
 describe fixes included by these versions.
+
+
+### Host participant retirement rollout
+
+`DYTE_HOST_EVICTION_JOBS_ENABLED` is a strict boolean environment setting that
+is false by default. First deploy the release with this setting false everywhere
+and verify that every worker which can consume the `default` queue registers
+`dyte.retire_host_evictions`. Only a later reviewed deployment may enable the
+setting for producers and workers. Do not combine these two release phases.
+
+While disabled, host eviction obligations remain in `CreatorMeeting.host_evictions`;
+HTTP handlers and task retries cannot enqueue retirement jobs. An existing host
+can keep broadcasting and send heartbeats. A first host can start when there is
+no retained participant, in-flight claim or pending retirement. Reconnection
+mints a new provider participant, so reconnects and takeovers that require
+retirement return a retryable 503 while the gate is disabled.
+Normal start–stop–start usage is also restricted after the first release of the
+seat. Treat this phase as a temporary broadcast maintenance interval: the
+separate enablement deployment is required to restore repeat starts and
+reconnections. A 60-second retry alone cannot end this maintenance restriction.
+
+After enablement, the existing live-room sweep inspects up to 100 obligation
+rows and queues at most one retirement job per tick using a shared,
+database-scoped primary-key cursor, including released and non-live meetings.
+Each retirement invocation attempts one provider obligation and retains the
+rest for later jobs. Backoff belongs only to the obligation that failed; other
+due obligations receive an immediate follow-up. Persisted retry deadlines
+coalesce matching work without delaying a shorter retry behind a longer one.
+Cursor progress is independent of cron cadence; cache
+failures are logged and leave the obligations for a later tick. It coalesces
+retirement jobs by meeting and preserves manual review states. Delayed
+start-claim recovery, fresh revocations and failed-attempt retries use separate
+queueing locks so delayed work cannot hold back a newly actionable eviction.
+Disabling the gate again stops execution and retries without
+clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
+to worker code without the task registration while queued jobs can still exist.
