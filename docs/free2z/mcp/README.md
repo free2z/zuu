@@ -216,8 +216,8 @@ the package, so discovery does not send requests to Free2Z. For example, invoke 
 These are arguments for `free2z_search_operations`,
 `free2z_describe_operation`, and `free2z_read`, respectively. Search results have
 `offset`/`limit` pagination, separate from the API's own list pagination.
-`free2z_read` permits GET operations. `free2z_execute` can call any catalog
-operation. Both accept `operation_id` and optional `path`, `query`, `headers`,
+`free2z_read` permits GET operations. `free2z_execute` accepts both GET and
+mutation operations. Both accept `operation_id` and optional `path`, `query`, `headers`,
 `body`, `content_type`, and `files`; the described operation determines which
 are meaningful. Known query parameters are validated against the schema.
 Additional query parameters can contain strings, numbers, booleans, or arrays
