@@ -178,11 +178,12 @@ fn encrypted_transaction(
     ufvk: &UnifiedFullViewingKey,
     scope: Scope,
     memo: [u8; 512],
+    height: u32,
 ) -> Transaction {
     let tx = TransactionData::<Authorized>::from_parts_v6(
-        BranchId::Nu6_3,
+        BranchId::for_height(&MAIN_NETWORK, height.into()),
         0,
-        BlockHeight::from_u32(HEIGHT + 40),
+        BlockHeight::from_u32(height + 40),
         None,
         Some(sapling_bundle(ufvk, scope, memo)),
         Some(orchard_bundle(ufvk, scope, memo, false)),
@@ -193,7 +194,11 @@ fn encrypted_transaction(
     // Exercise the same serialization/parser boundary as the node observer.
     let mut raw = vec![];
     tx.write(&mut raw).unwrap();
-    Transaction::read(raw.as_slice(), BranchId::Nu6_3).unwrap()
+    Transaction::read(
+        raw.as_slice(),
+        BranchId::for_height(&MAIN_NETWORK, height.into()),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -203,7 +208,7 @@ fn full_transaction_decrypts_all_pools_exactly_and_rejects_wrong_key() {
     let mut memo = [0xff; 512];
     let text = b"{\"act\":\"fixture\",\"id\":\"synthetic\"}\0";
     memo[..text.len()].copy_from_slice(text);
-    let tx = encrypted_transaction(&ufvk, Scope::External, memo);
+    let tx = encrypted_transaction(&ufvk, Scope::External, memo, HEIGHT);
     let keys = HashMap::from([(7u32, ufvk.clone())]);
     let decrypted = decrypt_transaction(&MAIN_NETWORK, Some(HEIGHT.into()), None, &tx, &keys);
     assert_eq!(decrypted.sapling_outputs().len(), 1);
@@ -240,7 +245,7 @@ fn full_transaction_decrypts_all_pools_exactly_and_rejects_wrong_key() {
 #[test]
 fn full_transaction_distinguishes_internal_change() {
     let ufvk = test_ufvk(1);
-    let tx = encrypted_transaction(&ufvk, Scope::Internal, [0; 512]);
+    let tx = encrypted_transaction(&ufvk, Scope::Internal, [0; 512], HEIGHT);
     let keys = HashMap::from([(7u32, ufvk)]);
     let decrypted = decrypt_transaction(&MAIN_NETWORK, Some(HEIGHT.into()), None, &tx, &keys);
     assert_eq!(
@@ -263,11 +268,12 @@ fn encrypted_block_fixture(
     ufvk: &UnifiedFullViewingKey,
     scope: Scope,
     memo: [u8; 512],
+    height: u32,
 ) -> (Vec<u8>, String) {
-    raw_block_from_transaction(encrypted_transaction(ufvk, scope, memo))
+    raw_block_from_transaction(encrypted_transaction(ufvk, scope, memo, height), height)
 }
 
-fn raw_block_from_transaction(tx: Transaction) -> (Vec<u8>, String) {
+fn raw_block_from_transaction(tx: Transaction, height: u32) -> (Vec<u8>, String) {
     use sha2::{Digest, Sha256};
     use transparent::{
         address::Script,
@@ -279,14 +285,14 @@ fn raw_block_from_transaction(tx: Transaction) -> (Vec<u8>, String) {
     use zcash_protocol::value::Zatoshis;
     let script = Script(zcash_script::script::Code(vec![
         3,
-        HEIGHT as u8,
-        (HEIGHT >> 8) as u8,
-        (HEIGHT >> 16) as u8,
+        height as u8,
+        (height >> 8) as u8,
+        (height >> 16) as u8,
     ]));
     let coinbase = TransactionData::<Authorized>::from_parts_v6(
-        BranchId::Nu6_3,
+        BranchId::for_height(&MAIN_NETWORK, height.into()),
         0,
-        BlockHeight::from_u32(HEIGHT),
+        BlockHeight::from_u32(height),
         Some(TransparentBundle {
             vin: vec![TxIn::from_parts(OutPoint::NULL, script, u32::MAX)],
             vout: vec![TxOut::new(Zatoshis::ZERO, Script::default())],
@@ -327,58 +333,60 @@ fn raw_block_from_transaction(tx: Transaction) -> (Vec<u8>, String) {
 fn observer_extracts_real_ciphertexts_and_excludes_change_from_raw_blocks() {
     use zcash_paymentd::chain::decrypt_block;
     use zcash_protocol::consensus::Network;
-    let ufvk = test_ufvk(1);
-    let keys = HashMap::from([(7u32, ufvk.clone())]);
-    let memo = [0x07; 512];
-    let (raw, hash) = encrypted_block_fixture(&ufvk, Scope::External, memo);
-    let observed =
-        decrypt_block(&Network::MainNetwork, "main", &keys, HEIGHT, &hash, &raw).unwrap();
-    assert_eq!(observed.payments.len(), 3);
-    for payment in &observed.payments {
-        assert_eq!(payment.value_zatoshis, VALUE);
-        assert_eq!(payment.memo_hex, hex::encode(memo));
-        assert_eq!(payment.output_index, 0);
-        let expected_receiver = match payment.pool.as_str() {
-            "sapling" => ufvk.sapling().unwrap().default_address().1.to_bytes(),
-            "orchard" | "ironwood" => ufvk
-                .orchard()
-                .unwrap()
-                .address_at(0u32, Scope::External)
-                .to_raw_address_bytes(),
-            _ => panic!("unexpected pool"),
-        };
-        assert_eq!(payment.recipient_hex, hex::encode(expected_receiver));
-    }
-    assert_eq!(
-        observed
-            .payments
-            .iter()
-            .map(|p| &p.id)
-            .collect::<std::collections::HashSet<_>>()
-            .len(),
-        3
-    );
-    let wrong_keys = HashMap::from([(7u32, test_ufvk(2))]);
-    assert!(
-        decrypt_block(
-            &Network::MainNetwork,
-            "main",
-            &wrong_keys,
-            HEIGHT,
-            &hash,
-            &raw
-        )
-        .unwrap()
-        .payments
-        .is_empty()
-    );
-    let (raw, hash) = encrypted_block_fixture(&ufvk, Scope::Internal, memo);
-    assert!(
-        decrypt_block(&Network::MainNetwork, "main", &keys, HEIGHT, &hash, &raw)
+    for height in [HEIGHT, 3_543_405] {
+        let ufvk = test_ufvk(1);
+        let keys = HashMap::from([(7u32, ufvk.clone())]);
+        let memo = [0x07; 512];
+        let (raw, hash) = encrypted_block_fixture(&ufvk, Scope::External, memo, height);
+        let observed =
+            decrypt_block(&Network::MainNetwork, "main", &keys, height, &hash, &raw).unwrap();
+        assert_eq!(observed.payments.len(), 3);
+        for payment in &observed.payments {
+            assert_eq!(payment.value_zatoshis, VALUE);
+            assert_eq!(payment.memo_hex, hex::encode(memo));
+            assert_eq!(payment.output_index, 0);
+            let expected_receiver = match payment.pool.as_str() {
+                "sapling" => ufvk.sapling().unwrap().default_address().1.to_bytes(),
+                "orchard" | "ironwood" => ufvk
+                    .orchard()
+                    .unwrap()
+                    .address_at(0u32, Scope::External)
+                    .to_raw_address_bytes(),
+                _ => panic!("unexpected pool"),
+            };
+            assert_eq!(payment.recipient_hex, hex::encode(expected_receiver));
+        }
+        assert_eq!(
+            observed
+                .payments
+                .iter()
+                .map(|p| &p.id)
+                .collect::<std::collections::HashSet<_>>()
+                .len(),
+            3
+        );
+        let wrong_keys = HashMap::from([(7u32, test_ufvk(2))]);
+        assert!(
+            decrypt_block(
+                &Network::MainNetwork,
+                "main",
+                &wrong_keys,
+                height,
+                &hash,
+                &raw
+            )
             .unwrap()
             .payments
             .is_empty()
-    );
+        );
+        let (raw, hash) = encrypted_block_fixture(&ufvk, Scope::Internal, memo, height);
+        assert!(
+            decrypt_block(&Network::MainNetwork, "main", &keys, height, &hash, &raw)
+                .unwrap()
+                .payments
+                .is_empty()
+        );
+    }
 }
 
 #[test]
@@ -387,13 +395,13 @@ fn observer_rejects_transaction_body_not_committed_by_header() {
     use zcash_protocol::consensus::Network;
     let ufvk = test_ufvk(1);
     let keys = HashMap::from([(7u32, ufvk.clone())]);
-    let (mut raw, hash) = encrypted_block_fixture(&ufvk, Scope::External, [7; 512]);
+    let (mut raw, hash) = encrypted_block_fixture(&ufvk, Scope::External, [7; 512], HEIGHT);
     // Change transaction lock_time after the header is fixed. The transaction
     // remains parseable/decryptable, but its txid no longer matches the header.
     // V6's lock_time starts 12 bytes after version/group-id/consensus-branch-id.
     // Locate the final transaction start by constructing its standalone bytes.
     let mut tx_bytes = vec![];
-    encrypted_transaction(&ufvk, Scope::External, [7; 512])
+    encrypted_transaction(&ufvk, Scope::External, [7; 512], HEIGHT)
         .write(&mut tx_bytes)
         .unwrap();
     let offset = raw.len() - tx_bytes.len();
@@ -461,7 +469,7 @@ fn observer_excludes_outgoing_payments_recovered_with_ovk() {
         decoded.ironwood_outputs()[0].transfer_type(),
         TransferType::Outgoing
     );
-    let (raw, hash) = raw_block_from_transaction(tx);
+    let (raw, hash) = raw_block_from_transaction(tx, HEIGHT);
     assert!(
         decrypt_block(
             &Network::MainNetwork,
@@ -508,7 +516,7 @@ fn observer_rejects_known_but_wrong_network_upgrade_branch() {
     )
     .freeze()
     .unwrap();
-    let (raw, hash) = raw_block_from_transaction(tx);
+    let (raw, hash) = raw_block_from_transaction(tx, HEIGHT);
     assert!(
         decrypt_block(
             &Network::MainNetwork,
