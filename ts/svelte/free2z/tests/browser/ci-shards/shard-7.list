@@ -8,6 +8,7 @@ report-block.spec.ts
 block-management.spec.ts
 reset-password-errors.spec.ts
 rtk-audio-health.spec.ts
+rtk-chat-departure.spec.ts
 series-editor.spec.ts
 server-error-reason.spec.ts
 settings-member-price.spec.ts
