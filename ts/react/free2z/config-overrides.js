@@ -32,11 +32,9 @@ module.exports = function override(config, env) {
     process: false,
   };
 
-  // mdast-util-gfm-autolink-literal@2 emits a lookbehind regex literal.
-  // Safari on iOS 15 rejects the whole bundle while parsing it, before the
-  // app can render. Its existing `previous(match, true)` guard performs the
-  // same boundary check, so remove only that redundant syntax at build time.
-  // The loader fails closed if the upstream source changes shape.
+  // iOS 15 cannot parse upstream URL/email/mailto/XMPP lookbehinds. Preserve
+  // those boundaries as callback guards, checked against the actual upstream
+  // autolink transform. Exact source matching refuses unaudited dependency drift.
   config.module.rules.push({
     test: /\.js$/,
     include: [gfmAutolinkSource],
@@ -47,12 +45,14 @@ module.exports = function override(config, env) {
   return config;
 };
 
-
 // Jest 27 does not understand nested package exports. Resolve the supported
 // router DOM subpath with Node, which observes the package export map.
 module.exports.jest = (config) => ({
   ...config,
-  setupFiles: [...config.setupFiles, path.resolve(__dirname, "scripts/jest-platform.cjs")],
+  setupFiles: [
+    ...config.setupFiles,
+    path.resolve(__dirname, "scripts/jest-platform.cjs"),
+  ],
   moduleNameMapper: {
     ...config.moduleNameMapper,
     "^react-router/dom$": path.resolve(
@@ -61,7 +61,6 @@ module.exports.jest = (config) => ({
     ),
   },
 });
-
 
 // Preserve CRA's middleware ordering with webpack-dev-server's supported API.
 module.exports.devServer = (createConfig) => (proxy, allowedHost) => {
@@ -79,25 +78,33 @@ module.exports.devServer = (createConfig) => (proxy, allowedHost) => {
   delete config.onBeforeSetupMiddleware;
   delete config.onAfterSetupMiddleware;
   delete config.https;
-  if (https) config.server = { type: "https", options: https === true ? {} : https };
+  if (https)
+    config.server = { type: "https", options: https === true ? {} : https };
   config.setupMiddlewares = (middlewares, devServer) => {
     // CRA's signal handler calls close(); version5 exposes stopCallback().
-    devServer.close = (callback) => devServer.stopCallback(callback || (() => {}));
+    devServer.close = (callback) =>
+      devServer.stopCallback(callback || (() => {}));
     const guards = ["host-header-check", "cross-origin-header-check"].map(
       (name) => middlewares.findIndex((middleware) => middleware.name === name)
     );
     if (guards.some((index) => index < 0)) {
-      throw new Error("webpack-dev-server request security guards are required");
+      throw new Error(
+        "webpack-dev-server request security guards are required"
+      );
     }
     const before = require("express").Router();
-    const beforeServer = Object.assign(Object.create(devServer), { app: before });
+    const beforeServer = Object.assign(Object.create(devServer), {
+      app: before,
+    });
     // CRA's source-map endpoint reads the old stats property dynamically.
     Object.defineProperty(beforeServer, "_stats", {
       get: () => devServer.stats ?? devServer._stats,
     });
     onBeforeSetupMiddleware?.(beforeServer);
     const tail = require("express").Router();
-    onAfterSetupMiddleware?.(Object.assign(Object.create(devServer), { app: tail }));
+    onAfterSetupMiddleware?.(
+      Object.assign(Object.create(devServer), { app: tail })
+    );
     const boundary = Math.max(...guards) + 1;
     return [
       ...middlewares.slice(0, boundary),
