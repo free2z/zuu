@@ -72,19 +72,16 @@ checked in this repository. This row was verified on 2026-10-21.
 | **Exit condition** | a real **`bip32 0.6.0`** release **and** the Zcash stack on **secp256k1 0.31** |
 | **Why** | the `[patch.crates-io]` comment block at the foot of `wallet/zuuli/src-tauri/Cargo.toml` |
 
-**Both halves of the exit condition are still unmet on 2026-08-31.**
+The registry publishes **`bip32 0.6.0`** as of the 2026-11-06 check. The shipping
+librustzcash fork continues to require `secp256k1 = "0.29"` and
+`bip32 = "=0.6.0-pre.1"`, so the second half of the retirement condition must
+be resolved with the wallet library upgrade before removing this patch.
 
-* crates.io `bip32`: `max_version` is `0.6.0-pre.1` (published 2025-01-27);
-  `max_stable_version` is `0.5.3`. No 0.6.0.
-* `z/zcash/librustzcash/Cargo.toml` still declares
-  `secp256k1 = { version = "0.29", ... }` and
-  `bip32 = { version = "=0.6.0-pre.1", ... }`. The stack has not moved to 0.31.
-  (crates.io's own `secp256k1` is at 0.33.1 — the constraint is librustzcash's
-  requirement, not the registry's ceiling.)
-
-The fork is **not** drifting: `131d490e` is 1 ahead of, 0 behind,
-`iqlusioninc/crates@main`. This patch is registered alongside the OpenMLS bridge below; the check fails if any additional patch appears unregistered, or if any
-patch is pinned by `branch` instead of `rev`.
+The fork is 21 commits behind `iqlusioninc/crates@main` at that check. Its
+refresh or retirement belongs to the coordinated wallet dependency train in
+[#239](https://github.com/free2z/zuu/issues/239). This patch is registered
+alongside the OpenMLS bridge below; the check rejects additional unregistered
+patches and patches pinned by branch instead of an immutable revision.
 
 ---
 
@@ -167,9 +164,9 @@ same badge as the ones that are checked.
 | `nonempty` | 0.11 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:94`. This one crosses an API boundary rather than merely duplicating: `send/native.rs` returns `nonempty::NonEmpty<TxId>` straight out of a librustzcash call, so a second `nonempty` is a type mismatch, not a bigger binary. Single copy (0.11.0), shared by 9 packages in the wallet lock | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`nonempty` entry) |
 | `base64` | 0.22 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:113`. 0.22.1 is the **shared** copy — 12 packages, including `zcash_client_backend`, `zip321`, `reqwest`, `tonic`, `wry`, `tauri-codegen` and ZUULI itself (ADR 0017's Contract C client). Bumping ours would not retire it; it would move our one crate onto `ureq`'s 0.23 island and lose the alignment for nothing | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`base64` entry) |
 | `bip0039` | 0.12 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:192`. Weaker than the rows above, deliberately: upstream declares it only `optional`, behind `zcash_keys`'s `zcashd-compat` and a `zcash_client_sqlite` feature, and neither is on — so today exactly 1 package resolves `bip0039` in the wallet lock, and it is ours (`tauri-plugin-zcash`). Matching 0.12 is what keeps turning either feature on from adding a second BIP-39 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`bip0039` entry) |
-| `chacha20poly1305` | 0.10 | **A different upstream.** Not librustzcash's — `z/zcash/zcash_note_encryption/Cargo.toml:24` declares it, under plain `[dependencies]`, because `zcash_note_encryption` is a standalone crate. The Zcash-only locks carry 0.10.1; the MLS locks also carry 0.11.0 after the fixed upstream bridge. In the shipping ZUULI lock 0.10 is shared by 3 packages: ours (`tauri-plugin-zcash`, `tauri-plugin-f2zmsg`) and `zcash_note_encryption`. Bumping ours leaves the upstream Zcash consumer on 0.10; the MLS optional provider already resolves 0.11 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
+| `chacha20poly1305` | 0.10 | **Shipping registry dependency `zcash_note_encryption 0.4.2`**, measured in `wallet/zuuli/src-tauri/Cargo.lock`. The independently tracked note-encryption submodule uses 0.11 and does not determine the shipping wallet graph. The Zcash-only locks carry 0.10.1; the MLS locks also carry 0.11.0. In the shipping ZUULI lock, 0.10 is shared by 3 packages: `tauri-plugin-zcash`, `tauri-plugin-f2zmsg` and `zcash_note_encryption`. Bumping our requirements leaves that registry consumer on 0.10 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
 | `getrandom` | 0.3 | **A registry crate, not a vendored one.** `tauri 2.11.5` declares `getrandom = "0.3"` unconditionally in its own published manifest, so 0.3 is in the shipping graph whatever we choose; `wallet/zuuli/src-tauri/Cargo.lock` records the edge as `tauri 2.11.5 → getrandom 0.3.4`. Our single call site is `oauth.rs`'s PKCE randomness. Bumping to 0.4 would not retire tauri's copy — the lock already carries 0.2.17, 0.3.4 and 0.4.3 — it would only move us off the copy the framework links. This hold retires when **tauri** moves, not when we decide to | `wallet/zuuli/src-tauri/Cargo.toml` (`getrandom` entry); the edge in `wallet/zuuli/src-tauri/Cargo.lock` |
-| `hkdf` | 0.12 | **Our own choice.** `hkdf` appears in neither constraint source. 0.12 is the line that pairs with `sha2` 0.10 (both on `digest` 0.10), so it moves only when `sha2` does | [`rs/Cargo.toml`](../rs/Cargo.toml) (`hkdf` entry) |
+| `hkdf` | 0.12 | **Our own choice.** `hkdf` is absent from the registered upstream manifest. 0.12 is the line that pairs with `sha2` 0.10 (both on `digest` 0.10), so it moves only when `sha2` does | [`rs/Cargo.toml`](../rs/Cargo.toml) (`hkdf` entry) |
 
 ### How each row is re-read
 
@@ -185,9 +182,9 @@ is named:
 | Kind | Rows | What is re-read | Strength |
 |---|---|---|---|
 | Manifest | `rusqlite`, `secrecy`, `secp256k1`, `rand`, `sha2`, `ripemd`, `nonempty`, `base64`, `bip0039` (and `bip32`, section 2's) | `z/zcash/librustzcash/Cargo.toml`'s `[workspace.dependencies]` | Strongest — it reads the *requirement* the upstream author wrote, so a bump is caught the moment the submodule moves |
-| Manifest | `chacha20poly1305` | `z/zcash/zcash_note_encryption/Cargo.toml`'s `[dependencies]` | Same, against a different upstream |
+| Lockfile | `chacha20poly1305` | `wallet/zuuli/src-tauri/Cargo.lock`, `zcash_note_encryption 0.4.2` | Requires the reviewed registry version and its dependency edge |
 | Lockfile | `getrandom` | `wallet/zuuli/src-tauri/Cargo.lock`: `tauri` must still resolve to **2.11.5**, and that package must still pull `getrandom` on the 0.3 line | Weaker, and labelled so. A lockfile is a resolution, not a requirement |
-| Negative | `hkdf` | Both manifests above, asserting `hkdf` appears in **neither** | "Our own choice" stops being true the moment an upstream takes a position |
+| Negative | `hkdf` | The registered upstream manifest, asserting `hkdf` is absent | "Our own choice" stops being true the moment an upstream takes a position |
 
 And separately from *who forces a hold*, every **number** this page states —
 "0.8.7 and 0.10.2", "11 packages", "5 packages", "0.2.17, 0.3.4 and 0.4.3" — is
