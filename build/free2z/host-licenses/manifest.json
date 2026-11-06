@@ -69,147 +69,161 @@
       ]
     },
     {
-      "name": "frost-core",
-      "version": "3.0.0",
-      "checksum": "81ef2787af391c7e8bedc037a3b9ea03dde803fbd93e778e6bb369547800e5cd",
-      "license": "MIT OR Apache-2.0",
-      "repository": "https://github.com/ZcashFoundation/frost",
-      "commit": "2016e44ba4a4757a996300350063b937a2ad33e8",
+      "name": "ff_derive",
+      "version": "0.14.0",
+      "checksum": "241afe8c15ffa21933eaefe8a563af36fd9fc98a3e8a044e8f7db52eb1fae3d8",
+      "license": "MIT/Apache-2.0",
+      "repository": "https://github.com/zkcrypto/ff",
+      "commit": "8cf62cd9c7a37ee8c4abb0b89308df8e873b21c3",
       "basis": {
         "kind": "crate-vcs-info",
-        "commit": "2016e44ba4a4757a996300350063b937a2ad33e8"
+        "commit": "8cf62cd9c7a37ee8c4abb0b89308df8e873b21c3"
       },
       "files": [
         {
-          "path": "frost-core-3.0.0/LICENCE",
-          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/frost/2016e44ba4a4757a996300350063b937a2ad33e8/LICENCE",
-          "sha256": "8b854f5567a4de6abad82bb4f0f2b771b9053f5a2295e014734b043b11dff550"
+          "path": "ff_derive-0.14.0/LICENSE-APACHE",
+          "upstream_url": "https://raw.githubusercontent.com/zkcrypto/ff/8cf62cd9c7a37ee8c4abb0b89308df8e873b21c3/LICENSE-APACHE",
+          "sha256": "3708458dee7f359ac6c9c5558023ed481be87e5372c43ebd7f2ca7ad23c12026"
         },
         {
-          "path": "frost-core-3.0.0/LICENCE.MIT",
-          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/frost/2016e44ba4a4757a996300350063b937a2ad33e8/LICENCE.MIT",
-          "sha256": "eac2aa02c57c21016c6f3f9987a743b8986922d1388d85e99d4518c4aab6707e"
-        },
-        {
-          "path": "frost-core-3.0.0/LICENSE.Apache-2.0",
-          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/frost/2016e44ba4a4757a996300350063b937a2ad33e8/LICENSE.Apache-2.0",
-          "sha256": "04cc45eb3e3689bff30987f394d7dcbe14dd34f569be47f4de8e21f876a43074"
+          "path": "ff_derive-0.14.0/LICENSE-MIT",
+          "upstream_url": "https://raw.githubusercontent.com/zkcrypto/ff/8cf62cd9c7a37ee8c4abb0b89308df8e873b21c3/LICENSE-MIT",
+          "sha256": "8d0c1d1d4b2bebf5b9211f0e883d5a482b7808f3ed31320da14ddee95811f4ef"
         }
       ]
     },
     {
-      "name": "frost-rerandomized",
-      "version": "3.0.0",
-      "checksum": "8f4c5cedd2426728adef2c0b1720f57676354c473836d1ccc50d0f0d1c91942b",
+      "name": "groth16",
+      "version": "0.2.0",
+      "checksum": "8bb1e0bde2dbacd81474ae216c5dd4901307bd1c75fd26ed49590e88048c8442",
       "license": "MIT OR Apache-2.0",
-      "repository": "https://github.com/ZcashFoundation/frost",
-      "commit": "2016e44ba4a4757a996300350063b937a2ad33e8",
+      "repository": "https://github.com/zkcrypto/bellman",
+      "commit": "276e738eca9bc834ad732b6169f7326a910c0469",
       "basis": {
         "kind": "crate-vcs-info",
-        "commit": "2016e44ba4a4757a996300350063b937a2ad33e8"
+        "commit": "276e738eca9bc834ad732b6169f7326a910c0469"
       },
       "files": [
         {
-          "path": "frost-rerandomized-3.0.0/LICENCE",
-          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/frost/2016e44ba4a4757a996300350063b937a2ad33e8/LICENCE",
-          "sha256": "8b854f5567a4de6abad82bb4f0f2b771b9053f5a2295e014734b043b11dff550"
+          "path": "groth16-0.2.0/COPYRIGHT",
+          "upstream_url": "https://raw.githubusercontent.com/zkcrypto/bellman/276e738eca9bc834ad732b6169f7326a910c0469/COPYRIGHT",
+          "sha256": "2b25d98b677dacfebb9421a001182209153cd077682a0aca5d4e08c5df411027"
         },
         {
-          "path": "frost-rerandomized-3.0.0/LICENCE.MIT",
-          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/frost/2016e44ba4a4757a996300350063b937a2ad33e8/LICENCE.MIT",
-          "sha256": "eac2aa02c57c21016c6f3f9987a743b8986922d1388d85e99d4518c4aab6707e"
+          "path": "groth16-0.2.0/LICENSE-APACHE",
+          "upstream_url": "https://raw.githubusercontent.com/zkcrypto/bellman/276e738eca9bc834ad732b6169f7326a910c0469/LICENSE-APACHE",
+          "sha256": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2"
         },
         {
-          "path": "frost-rerandomized-3.0.0/LICENSE.Apache-2.0",
-          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/frost/2016e44ba4a4757a996300350063b937a2ad33e8/LICENSE.Apache-2.0",
-          "sha256": "04cc45eb3e3689bff30987f394d7dcbe14dd34f569be47f4de8e21f876a43074"
+          "path": "groth16-0.2.0/LICENSE-MIT",
+          "upstream_url": "https://raw.githubusercontent.com/zkcrypto/bellman/276e738eca9bc834ad732b6169f7326a910c0469/LICENSE-MIT",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
         }
       ]
     },
     {
       "name": "halo2_gadgets",
-      "version": "0.5.0",
-      "checksum": "fb2a697cad929f706b7987fe804ad57d43622cd37463ba7e4d662a926fdcfea3",
+      "version": "0.6.0",
+      "checksum": "8862c7f2d99964760016516103fcc621352e77a505b22b0fc25140f09e4b8bb0",
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/zcash/halo2",
-      "commit": "d751768afe0d2105b349dd93f73fde7f2eade088",
+      "commit": "31bae80e65763594e455101911f3fc3f7da4ed21",
       "basis": {
         "kind": "crate-vcs-info",
-        "commit": "d751768afe0d2105b349dd93f73fde7f2eade088"
+        "commit": "31bae80e65763594e455101911f3fc3f7da4ed21"
       },
       "files": [
         {
-          "path": "halo2_gadgets-0.5.0/COPYING.md",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/d751768afe0d2105b349dd93f73fde7f2eade088/COPYING.md",
+          "path": "halo2_gadgets-0.6.0/COPYING.md",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/31bae80e65763594e455101911f3fc3f7da4ed21/COPYING.md",
           "sha256": "1b0f8332e3f8b72835e1bf816a7471103c74e82b16c149e08f36136e175d9846"
         },
         {
-          "path": "halo2_gadgets-0.5.0/LICENSE-APACHE",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/d751768afe0d2105b349dd93f73fde7f2eade088/LICENSE-APACHE",
+          "path": "halo2_gadgets-0.6.0/LICENSE-APACHE",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/31bae80e65763594e455101911f3fc3f7da4ed21/LICENSE-APACHE",
           "sha256": "3708458dee7f359ac6c9c5558023ed481be87e5372c43ebd7f2ca7ad23c12026"
         },
         {
-          "path": "halo2_gadgets-0.5.0/LICENSE-MIT",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/d751768afe0d2105b349dd93f73fde7f2eade088/LICENSE-MIT",
+          "path": "halo2_gadgets-0.6.0/LICENSE-MIT",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/31bae80e65763594e455101911f3fc3f7da4ed21/LICENSE-MIT",
           "sha256": "cc6e3688129428de0b1f9e35d796955f0c826671700097b26a920b3112a7a697"
         }
       ]
     },
     {
       "name": "halo2_poseidon",
-      "version": "0.1.0",
-      "checksum": "0fa3da60b81f02f9b33ebc6252d766f843291fb4d2247a07ae73d20b791fc56f",
+      "version": "0.2.0",
+      "checksum": "800f76fa421515e2729192e3863bb0a58f30fe17a9a165ea5e778a157adeb579",
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/zcash/halo2",
-      "commit": "f066ace1f234d7fe1908851ed86b1801e0b1ffea",
+      "commit": "31bae80e65763594e455101911f3fc3f7da4ed21",
       "basis": {
         "kind": "crate-vcs-info",
-        "commit": "f066ace1f234d7fe1908851ed86b1801e0b1ffea"
+        "commit": "31bae80e65763594e455101911f3fc3f7da4ed21"
       },
       "files": [
         {
-          "path": "halo2_poseidon-0.1.0/COPYING.md",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/f066ace1f234d7fe1908851ed86b1801e0b1ffea/COPYING.md",
+          "path": "halo2_poseidon-0.2.0/COPYING.md",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/31bae80e65763594e455101911f3fc3f7da4ed21/COPYING.md",
           "sha256": "1b0f8332e3f8b72835e1bf816a7471103c74e82b16c149e08f36136e175d9846"
         },
         {
-          "path": "halo2_poseidon-0.1.0/LICENSE-APACHE",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/f066ace1f234d7fe1908851ed86b1801e0b1ffea/LICENSE-APACHE",
+          "path": "halo2_poseidon-0.2.0/LICENSE-APACHE",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/31bae80e65763594e455101911f3fc3f7da4ed21/LICENSE-APACHE",
           "sha256": "3708458dee7f359ac6c9c5558023ed481be87e5372c43ebd7f2ca7ad23c12026"
         },
         {
-          "path": "halo2_poseidon-0.1.0/LICENSE-MIT",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/f066ace1f234d7fe1908851ed86b1801e0b1ffea/LICENSE-MIT",
+          "path": "halo2_poseidon-0.2.0/LICENSE-MIT",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/31bae80e65763594e455101911f3fc3f7da4ed21/LICENSE-MIT",
           "sha256": "cc6e3688129428de0b1f9e35d796955f0c826671700097b26a920b3112a7a697"
         }
       ]
     },
     {
       "name": "halo2_proofs",
-      "version": "0.3.5",
-      "checksum": "f5aca1c66059a919227dec97444a11a4350d2f9c820ca48690988f0aa0e81cbf",
+      "version": "0.4.1",
+      "checksum": "d886268046f1ceedd464c95382a64c7e86520b029b18e02ee92bf94f5120817d",
       "license": "MIT OR Apache-2.0",
       "repository": "https://github.com/zcash/halo2",
-      "commit": "8e22adbdce480e5db7625df56aff9c2c8ca79f8f",
+      "commit": "8fa89d972dab7ee7314b5e1564e35edb5086f955",
       "basis": {
         "kind": "crate-vcs-info",
-        "commit": "8e22adbdce480e5db7625df56aff9c2c8ca79f8f"
+        "commit": "8fa89d972dab7ee7314b5e1564e35edb5086f955"
       },
       "files": [
         {
-          "path": "halo2_proofs-0.3.5/COPYING.md",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/8e22adbdce480e5db7625df56aff9c2c8ca79f8f/COPYING.md",
+          "path": "halo2_proofs-0.4.1/COPYING.md",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/8fa89d972dab7ee7314b5e1564e35edb5086f955/COPYING.md",
           "sha256": "1b0f8332e3f8b72835e1bf816a7471103c74e82b16c149e08f36136e175d9846"
         },
         {
-          "path": "halo2_proofs-0.3.5/LICENSE-APACHE",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/8e22adbdce480e5db7625df56aff9c2c8ca79f8f/LICENSE-APACHE",
+          "path": "halo2_proofs-0.4.1/LICENSE-APACHE",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/8fa89d972dab7ee7314b5e1564e35edb5086f955/LICENSE-APACHE",
           "sha256": "3708458dee7f359ac6c9c5558023ed481be87e5372c43ebd7f2ca7ad23c12026"
         },
         {
-          "path": "halo2_proofs-0.3.5/LICENSE-MIT",
-          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/8e22adbdce480e5db7625df56aff9c2c8ca79f8f/LICENSE-MIT",
+          "path": "halo2_proofs-0.4.1/LICENSE-MIT",
+          "upstream_url": "https://raw.githubusercontent.com/zcash/halo2/8fa89d972dab7ee7314b5e1564e35edb5086f955/LICENSE-MIT",
           "sha256": "cc6e3688129428de0b1f9e35d796955f0c826671700097b26a920b3112a7a697"
+        }
+      ]
+    },
+    {
+      "name": "r-efi",
+      "version": "5.3.0",
+      "checksum": "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f",
+      "license": "MIT OR Apache-2.0 OR LGPL-2.1-or-later",
+      "repository": "https://github.com/r-efi/r-efi",
+      "commit": "97b55bed1c2c91dcbf787674849f05337ff80b33",
+      "basis": {
+        "kind": "crate-vcs-info",
+        "commit": "97b55bed1c2c91dcbf787674849f05337ff80b33"
+      },
+      "files": [
+        {
+          "path": "r-efi-5.3.0/AUTHORS",
+          "upstream_url": "https://raw.githubusercontent.com/r-efi/r-efi/97b55bed1c2c91dcbf787674849f05337ff80b33/AUTHORS",
+          "sha256": "ff92bed461f50338dd703a9ba9aee496a425957873df1d91192776e4bdf5dda7"
         }
       ]
     },
@@ -366,19 +380,19 @@
     },
     {
       "name": "zcash_script",
-      "version": "0.4.5",
-      "checksum": "2f872800287d118be71bdf6fe8c869c6a6ff6fb0a5762f68fb2af54c97edf0f2",
+      "version": "0.6.0",
+      "checksum": "10106859d08a2a4119af8a0fa8db72afe35647768b562f94b7a2124adad41275",
       "license": "Apache-2.0",
       "repository": "https://github.com/ZcashFoundation/zcash_script",
-      "commit": "cc4ec7ee8b96103586588e51e0f7cb3ebad4d944",
+      "commit": "8d2fc24b63a3f38fab25517e223e421b8f07aa68",
       "basis": {
         "kind": "crate-vcs-info",
-        "commit": "cc4ec7ee8b96103586588e51e0f7cb3ebad4d944"
+        "commit": "8d2fc24b63a3f38fab25517e223e421b8f07aa68"
       },
       "files": [
         {
-          "path": "zcash_script-0.4.5/LICENSE",
-          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/zcash_script/cc4ec7ee8b96103586588e51e0f7cb3ebad4d944/LICENSE",
+          "path": "zcash_script-0.6.0/LICENSE",
+          "upstream_url": "https://raw.githubusercontent.com/ZcashFoundation/zcash_script/8d2fc24b63a3f38fab25517e223e421b8f07aa68/LICENSE",
           "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
         }
       ]
