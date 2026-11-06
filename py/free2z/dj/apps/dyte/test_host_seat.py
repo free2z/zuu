@@ -1136,6 +1136,28 @@ def test_retirement_bounds_provider_work_without_losing_unprocessed_entries(
     ).exists()
 
 
+@pytest.mark.parametrize('old_state,old_attempts', [('pending', 39), ('manual_review', 40)])
+def test_retirement_prioritizes_fresh_entries_and_preserves_old_failure_budget(
+    provider, host, old_state, old_attempts,
+):
+    from .tasks import retire_host_evictions
+
+    old = {'meeting_id': 'room', 'participant_id': 'old',
+           'state': old_state, 'attempts': old_attempts}
+    fresh = [{'meeting_id': 'room', 'participant_id': str(i),
+              'state': 'pending', 'attempts': 0} for i in range(2)]
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room',
+                                      host_evictions=[old, *fresh])
+    provider.retire_participant.return_value = True
+    before = timezone.now()
+    retire_host_evictions(host.pk, cm.pk)
+    cm.refresh_from_db()
+    assert cm.host_evictions == [old, fresh[1]]
+    provider.retire_participant.assert_called_once_with('room', '0')
+    job = ProcrastinateJob.objects.get(task_name='dyte.retire_host_evictions')
+    assert before <= job.scheduled_at <= timezone.now()
+
+
 def test_disabled_eviction_catchup_never_reads_obligation_table(settings, mocker):
     from .tasks import _enqueue_deferred_host_evictions
 

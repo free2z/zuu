@@ -145,6 +145,8 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     snapshot = [entry for entry in snapshot if entry not in active and entry not in waiting]
     if not snapshot:
         return
+    # A repeatedly failing old participant cannot postpone a fresh revocation.
+    snapshot.sort(key=lambda entry: int(entry.get('attempts') or 0))
     from .client import DyteClient
     dc = DyteClient(settings.DYTE_ORG)
     outcomes = []
@@ -192,13 +194,14 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
                 })
         current.host_evictions = current_entries
         current.save(update_fields=['host_evictions'])
-        if any(entry.get('state') != 'manual_review'
-               for entry in current_entries):
+        retry_entries = [entry for entry in current_entries
+                         if entry.get('state') not in ('manual_review', 'start_pending')]
+        if retry_entries:
             # Retry outside this transaction, but retain the durable queue
             # handoff if this worker dies after committing the updated state.
-            attempts = max(int(entry.get('attempts') or 0)
-                           for entry in current_entries)
-            delay = min(15 * (2 ** min(attempts, 6)), 15 * 60)
+            attempts = min(int(entry.get('attempts') or 0)
+                           for entry in retry_entries)
+            delay = 0 if attempts == 0 else min(15 * (2 ** min(attempts, 6)), 15 * 60)
             try:
                 with transaction.atomic():
                     retire_host_evictions.configure(
