@@ -7,7 +7,7 @@ use std::{
     process::{Command, Stdio},
 };
 use tempfile::TempDir;
-use zcash_address::unified::{Encoding, Fvk, Receiver};
+use zcash_address::unified::{Encoding, Fvk, Receiver, Revision, Uitem};
 use zcash_keys::{
     address::{Address, UnifiedAddress},
     keys::{UnifiedFullViewingKey, UnifiedSpendingKey},
@@ -50,6 +50,8 @@ fn ua(k: &UnifiedFullViewingKey, scope: Scope) -> String {
         Some(k.orchard().unwrap().address_at(987u32, scope)),
         Some(sapling),
         None,
+        None,
+        None,
     )
     .unwrap()
     .encode(&MAIN_NETWORK)
@@ -62,7 +64,7 @@ fn diversified_external_receivers_match_all_three_pools_and_wrong_key_matches_no
     let a = key(41);
     let b = key(42);
     let address = ua(&a, Scope::External);
-    let proof = verify_address(&c, &a.encode(&MAIN_NETWORK), &address).unwrap();
+    let proof = verify_address(&c, &a.encode(&MAIN_NETWORK).unwrap(), &address).unwrap();
     assert!(proof.fully_covered);
     assert_eq!(proof.network, "main");
     assert_eq!(proof.schema_version, 1);
@@ -79,7 +81,7 @@ fn diversified_external_receivers_match_all_three_pools_and_wrong_key_matches_no
         proof.shielded_receivers[1].receiver_sha256,
         proof.shielded_receivers[2].receiver_sha256
     );
-    let wrong = verify_address(&c, &b.encode(&MAIN_NETWORK), &address).unwrap();
+    let wrong = verify_address(&c, &b.encode(&MAIN_NETWORK).unwrap(), &address).unwrap();
     assert!(!wrong.fully_covered);
     assert!(wrong.shielded_receivers.iter().all(|p| !p.key_match));
     assert!(!c.state_dir.exists());
@@ -90,7 +92,12 @@ fn internal_change_is_never_external_purchase_coverage() {
     let dir = TempDir::new().unwrap();
     let c = config(&dir);
     let k = key(43);
-    let proof = verify_address(&c, &k.encode(&MAIN_NETWORK), &ua(&k, Scope::Internal)).unwrap();
+    let proof = verify_address(
+        &c,
+        &k.encode(&MAIN_NETWORK).unwrap(),
+        &ua(&k, Scope::Internal),
+    )
+    .unwrap();
     assert!(!proof.fully_covered);
     assert_eq!(proof.shielded_receivers.len(), 3);
     assert!(proof.shielded_receivers.iter().all(|r| !r.key_match));
@@ -106,25 +113,35 @@ fn mixed_account_ua_and_missing_key_components_cannot_claim_complete_coverage() 
         Some(a.orchard().unwrap().address_at(0u32, Scope::External)),
         Some(b.sapling().unwrap().default_address().1),
         None,
+        None,
+        None,
     )
     .unwrap()
     .encode(&MAIN_NETWORK);
-    let proof = verify_address(&c, &a.encode(&MAIN_NETWORK), &address).unwrap();
+    let proof = verify_address(&c, &a.encode(&MAIN_NETWORK).unwrap(), &address).unwrap();
     assert!(!proof.fully_covered);
     assert!(!proof.shielded_receivers[0].key_match);
     assert!(proof.shielded_receivers[1].key_match && proof.shielded_receivers[2].key_match);
-    let sapling_only = zcash_address::unified::Ufvk::try_from_items(vec![Fvk::Sapling(
-        a.sapling().unwrap().to_bytes(),
-    )])
+    let sapling_only = zcash_address::unified::Ufvk::try_from_items(
+        Revision::R0,
+        vec![Fvk::Sapling(a.sapling().unwrap().to_bytes())]
+            .into_iter()
+            .map(Uitem::Data)
+            .collect(),
+    )
     .unwrap()
     .encode(&NetworkType::Main);
     let proof = verify_address(&c, &sapling_only, &ua(&a, Scope::External)).unwrap();
     assert!(!proof.fully_covered);
     assert!(proof.shielded_receivers[0].key_match);
     assert!(!proof.shielded_receivers[1].key_match && !proof.shielded_receivers[2].key_match);
-    let orchard_only = zcash_address::unified::Ufvk::try_from_items(vec![Fvk::Orchard(
-        a.orchard().unwrap().to_bytes(),
-    )])
+    let orchard_only = zcash_address::unified::Ufvk::try_from_items(
+        Revision::R0,
+        vec![Fvk::Orchard(a.orchard().unwrap().to_bytes())]
+            .into_iter()
+            .map(Uitem::Data)
+            .collect(),
+    )
     .unwrap()
     .encode(&NetworkType::Main);
     let proof = verify_address(&c, &orchard_only, &ua(&a, Scope::External)).unwrap();
@@ -138,19 +155,25 @@ fn standalone_sapling_works_but_unknown_receivers_and_transparent_only_fail_clos
     let dir = TempDir::new().unwrap();
     let c = config(&dir);
     let k = key(46);
-    let encoded = k.encode(&MAIN_NETWORK);
+    let encoded = k.encode(&MAIN_NETWORK).unwrap();
     let sapling = k.sapling().unwrap().default_address().1;
-    let address = Address::Sapling(sapling).encode(&MAIN_NETWORK);
+    let address = Address::Sapling(Box::new(sapling)).encode(&MAIN_NETWORK);
     let proof = verify_address(&c, &encoded, &address).unwrap();
     assert!(proof.fully_covered);
     assert_eq!(proof.shielded_receivers.len(), 1);
-    let unknown = zcash_address::unified::Address::try_from_items(vec![
-        Receiver::Sapling(sapling.to_bytes()),
-        Receiver::Unknown {
-            typecode: 0xfffe,
-            data: vec![7; 43],
-        },
-    ])
+    let unknown = zcash_address::unified::Address::try_from_items(
+        Revision::R0,
+        vec![
+            Receiver::Sapling(sapling.to_bytes()),
+            Receiver::Unknown {
+                typecode: 0xfffe,
+                data: vec![7; 43],
+            },
+        ]
+        .into_iter()
+        .map(Uitem::Data)
+        .collect(),
+    )
     .unwrap()
     .encode(&NetworkType::Main);
     let proof = verify_address(&c, &encoded, &unknown).unwrap();
@@ -174,6 +197,8 @@ fn standalone_sapling_works_but_unknown_receivers_and_transparent_only_fail_clos
         Some(transparent::address::TransparentAddress::PublicKeyHash(
             [3; 20],
         )),
+        None,
+        None,
     )
     .unwrap()
     .encode(&MAIN_NETWORK);
@@ -187,7 +212,7 @@ fn wrong_network_invalid_checksum_key_and_bounded_input_are_rejected_without_val
     let mut c = config(&dir);
     let k = key(47);
     let address = ua(&k, Scope::External);
-    let encoded = k.encode(&MAIN_NETWORK);
+    let encoded = k.encode(&MAIN_NETWORK).unwrap();
     let test_address = Address::decode(&MAIN_NETWORK, &address)
         .unwrap()
         .encode(&TEST_NETWORK);
@@ -240,7 +265,7 @@ fn actual_cli_is_offline_has_strict_hashed_contract_and_never_creates_state() {
     let mut c = config(&dir);
     let k = key(48);
     let address = ua(&k, Scope::External);
-    let encoded = k.encode(&MAIN_NETWORK);
+    let encoded = k.encode(&MAIN_NETWORK).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     c.rpc_url = format!("http://{}", listener.local_addr().unwrap());
@@ -293,7 +318,7 @@ fn actual_cli_redacts_failures_and_rejects_nonprivate_key() {
     let c = config(&dir);
     let k = key(49);
     let address = ua(&k, Scope::External);
-    let encoded = k.encode(&MAIN_NETWORK);
+    let encoded = k.encode(&MAIN_NETWORK).unwrap();
     for (key_text, input) in [
         ("private-invalid-key", address.as_bytes()),
         (encoded.as_str(), b"private-invalid-address".as_slice()),

@@ -12,6 +12,28 @@ use zcash_keys::keys::UnifiedFullViewingKey;
 use zcash_primitives::block::Block;
 use zcash_protocol::consensus::{BlockHeight, BranchId, Network};
 
+/// A public consensus mismatch, safe to log without RPC credentials or wallet data.
+#[derive(Debug)]
+pub struct UnsupportedConsensus {
+    height: u32,
+    expected: u32,
+    observed: Option<u32>,
+}
+impl std::fmt::Display for UnsupportedConsensus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "node consensus upgrade is unsupported by observer libraries: height={} expected={:08x} observed=",
+            self.height, self.expected
+        )?;
+        match self.observed {
+            Some(branch) => write!(f, "{branch:08x}"),
+            None => f.write_str("missing-or-malformed"),
+        }
+    }
+}
+impl std::error::Error for UnsupportedConsensus {}
+
 #[derive(Clone, Debug)]
 pub struct ObservedBlock {
     pub height: u32,
@@ -144,10 +166,17 @@ impl Chain for Zakura {
                 BlockHeight::from(u32::try_from(h)?)
             ))
         );
-        ensure!(
-            info["consensus"]["chaintip"].as_str() == Some(expected_branch.as_str()),
-            "node consensus upgrade is unsupported by observer libraries"
-        );
+        if info["consensus"]["chaintip"].as_str() != Some(expected_branch.as_str()) {
+            return Err(UnsupportedConsensus {
+                height: u32::try_from(h)?,
+                expected: u32::from_str_radix(&expected_branch, 16)?,
+                observed: info["consensus"]["chaintip"]
+                    .as_str()
+                    .filter(|value| value.len() == 8)
+                    .and_then(|value| u32::from_str_radix(value, 16).ok()),
+            }
+            .into());
+        }
         let time = header["time"]
             .as_i64()
             .ok_or_else(|| anyhow::anyhow!("node omitted tip time"))?;

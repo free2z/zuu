@@ -196,10 +196,11 @@ async fn run(c: Config) -> Result<()> {
             let previous_height = journal.cursor()?.map(|(h, _)| h);
             let delay = match scanner::scan(&chain, &mut journal, &c).await {
                 Ok(_) => scanner::poll_delay(&journal, &c, previous_height)?,
-                Err(_) => {
+                Err(error) => {
                     journal.scanner_health(None, false, false, None)?;
                     eprintln!(
-                        "paymentd: scanner unavailable; inspect node retention, freshness, connectivity and configuration"
+                        "paymentd: scanner unavailable; {}",
+                        scanner::failure_summary(&error)
                     );
                     Duration::from_secs(c.poll_seconds)
                 }
