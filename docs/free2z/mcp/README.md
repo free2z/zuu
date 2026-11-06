@@ -219,7 +219,11 @@ These are arguments for `free2z_search_operations`,
 `free2z_read` permits GET operations. `free2z_execute` can call any catalog
 operation. Both accept `operation_id` and optional `path`, `query`, `headers`,
 `body`, `content_type`, and `files`; the described operation determines which
-are meaningful. The running server only calls the configured Free2Z origin; it does not accept arbitrary destination
+are meaningful. Successful HTTP calls return an envelope with `operation_id`,
+`status`, `ok`, `headers`, and `data`. Response header names are lowercase:
+read `headers.etag` for concurrency control and
+`headers["idempotency-key-honored"]` before relying on safe create retries.
+`data` contains the API response body. The running server only calls the configured Free2Z origin; it does not accept arbitrary destination
 URLs from a tool argument.
 
 ### zPage writes and pagination
@@ -229,7 +233,8 @@ parameter use the public representation. `zpage_retrieve` takes an `id` that is
 the page's `free2zaddr` UUID or vanity slug, not a database row number.
 
 To create a draft, describe `zpage_create`, then supply `title`, Markdown
-`content`, `source_language`, and `is_published: false`. Keep a unique UUIDv4
+`content`, `tags` (an array, empty if unused), `source_language`, and
+`is_published: false`. Keep a unique UUIDv4
 `Idempotency-Key` for that creation. Generate a new key for each new page; keep it
 unchanged for retries of that page:
 
@@ -241,6 +246,7 @@ unchanged for retries of that page:
     "title": "My project notes",
     "content": "# Project notes\n\nA first draft.",
     "source_language": "en",
+    "tags": [],
     "is_published": false
   }
 }
