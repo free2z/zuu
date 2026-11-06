@@ -125,6 +125,19 @@ export async function execute(
       "This upload endpoint requires FREE2Z_SESSION_FILE; a Knox token cannot authenticate the legacy Django upload handler.",
     );
   const params = op.spec.parameters ?? [];
+  if (
+    params.some(
+      (p: Schema) =>
+        p.in === "header" &&
+        p.required &&
+        p.name.toLowerCase() === "authorization",
+    )
+  ) {
+    throw new Error(
+      "This operation requires separate confidential-client authorization and is unavailable with MCP account credentials. Use the service's dedicated authenticated client.",
+    );
+  }
+
   validateParameters(params, input.path ?? {}, "path");
   validateParameters(params, input.query ?? {}, "query");
   const path = op.path.replace(/\{([^}]+)\}/g, (_, key) =>

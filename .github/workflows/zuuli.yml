@@ -1535,10 +1535,7 @@ jobs:
         run: npm test --prefix ts/free2z/sdk
       - name: Verify isolated package consumer
         run: npm run test:package --prefix ts/free2z/sdk
-
-  # The standalone Svelte workflow is path-filtered and cannot publish a
-  # branch-protected context. Keep its full lockfile audit in this unconditional
-  # job, which `gate` awaits on every pull request.      - name: Free2Z MCP contract, protocol and installed package
+      - name: Free2Z MCP contract, protocol and installed package
         working-directory: ts/free2z/mcp
         run: |
           npm ci
