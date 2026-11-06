@@ -727,7 +727,7 @@ def test_a_same_tab_retry_retires_the_participant_it_replaces(
 
 
 def test_release_retires_the_host_and_remembers_a_failure(
-    api_client, provider, host,
+    api_client, provider, host, mocker,
 ):
     tab = uuid.uuid4()
     provider.add_participant.return_value = _FakeResponse(
@@ -748,6 +748,11 @@ def test_release_retires_the_host_and_remembers_a_failure(
     provider.add_participant.return_value = _FakeResponse(
         {'data': {'token': 't', 'id': 'next-host'}})
     _start(api_client, host, session=uuid.uuid4())
+    _run_evictions(host)
+    cm.refresh_from_db()
+    assert provider.retire_participant.call_count == 1
+    mocker.patch('dj.apps.dyte.views.timezone.now', return_value=timezone.datetime.fromtimestamp(
+        cm.host_evictions[0]['retry_after'] + 1, tz=timezone.get_current_timezone()))
     _run_evictions(host)
     cm.refresh_from_db()
     assert cm.host_evictions == []
