@@ -1019,6 +1019,6 @@ test("the post-details cloud refresh uses the configured API origin", () => {
   );
   assert.match(
     textareaControllerSource,
-    /import \{ env \} from "\$env\/dynamic\/public"/,
+    /import \* as env from "\$app\/env\/public"/,
   );
 });

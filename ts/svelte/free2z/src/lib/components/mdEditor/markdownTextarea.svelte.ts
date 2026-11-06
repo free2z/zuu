@@ -29,7 +29,7 @@ import {
 } from "$lib/utils/image-caption";
 import { toast, captureAccountToast } from "$lib/toast.js";
 import { apiFetch } from "$lib/api/config";
-import { env } from "$env/dynamic/public";
+import * as env from "$app/env/public";
 import { creatorList } from "$lib/api/creator/creator";
 import type { CreatorList, CreatorListParams } from "$lib/api/f2z.schemas";
 import { isUploadRejection, uploadPublicFile } from "$lib/api/uploads";
