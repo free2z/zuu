@@ -47,12 +47,18 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     between short reads/writes; compare-and-update keeps a stale job from
     overwriting newer evictions.
     """
+    # A disabled producer gate also prevents retries from already queued jobs.
+    # Do not clear durable obligations: the periodic sweep resumes them when
+    # a later deployment enables the gate after worker registration converges.
+    if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
+        return
+
     from django.db import transaction
-    from procrastinate.exceptions import AlreadyEnqueued
 
     from .models import CreatorMeeting
     from .views import (
         HOST_EVICTION_MAX_ATTEMPTS, HOST_START_CLAIM_TTL, _lock_host_seat,
+        _defer_host_evictions, _host_eviction_retry_deadline,
     )
 
     cm = CreatorMeeting.objects.filter(
@@ -81,20 +87,10 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
         and entry.get('claim_id') == str(claim)
     )]
     waiting = [entry for entry in snapshot if (
-        entry.get('state') == 'start_pending'
-        and entry.get('retry_after', 0) > now_epoch
+        _host_eviction_retry_deadline(entry, now_epoch) > now_epoch
     )]
     if waiting:
-        try:
-            with transaction.atomic():
-                retire_host_evictions.configure(
-                    queueing_lock=f"dyte-host-evictions-{meeting_id}",
-                    schedule_at=timezone.datetime.fromtimestamp(
-                        min(entry['retry_after'] for entry in waiting),
-                        tz=timezone.get_current_timezone()),
-                ).defer(creator_id=creator_id, meeting_id=meeting_id)
-        except AlreadyEnqueued:
-            pass
+        _defer_host_evictions(cm, entries=waiting)
     expired = [entry for entry in snapshot if (
         entry.get('state') == 'start_pending'
         and entry not in active and entry not in waiting
@@ -139,10 +135,14 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     snapshot = [entry for entry in snapshot if entry not in active and entry not in waiting]
     if not snapshot:
         return
+    # Preserve durable queue order among due entries. A failed attempt moves to
+    # the tail with its own deadline, so fresh arrivals cannot starve old work.
     from .client import DyteClient
     dc = DyteClient(settings.DYTE_ORG)
     outcomes = []
-    for entry in snapshot:
+    # One provider operation per invocation bounds occupancy of the shared
+    # worker. Untouched entries retain their attempts and durable state.
+    for entry in snapshot[:1]:
         meeting = entry.get('meeting_id')
         participant = entry.get('participant_id')
         if not meeting or not participant:
@@ -181,26 +181,14 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
                               else 'pending'),
                     'claim_id': None,
                     'attempts': attempts,
+                    'retry_after': (timezone.now() + timedelta(seconds=min(
+                        15 * (2 ** min(attempts, 6)), 15 * 60))).timestamp(),
                 })
         current.host_evictions = current_entries
         current.save(update_fields=['host_evictions'])
-        if any(entry.get('state') != 'manual_review'
-               for entry in current_entries):
-            # Retry outside this transaction, but retain the durable queue
-            # handoff if this worker dies after committing the updated state.
-            attempts = max(int(entry.get('attempts') or 0)
-                           for entry in current_entries)
-            delay = min(15 * (2 ** min(attempts, 6)), 15 * 60)
-            try:
-                with transaction.atomic():
-                    retire_host_evictions.configure(
-                        queueing_lock=f"dyte-host-evictions-{meeting_id}",
-                        schedule_at=timezone.now() + timedelta(seconds=delay),
-                    ).defer(creator_id=creator_id, meeting_id=meeting_id)
-            except AlreadyEnqueued:
-                # A heartbeat may have queued this meeting while the provider
-                # call was in flight. That job will observe the updated state.
-                pass
+        # Commit state and its next durable handoff together. Only the entry
+        # actually attempted receives a new deadline; other due work runs now.
+        _defer_host_evictions(current)
 
 
 # Registered, deliberately NOT periodic ( review). Every worker lane
@@ -517,6 +505,50 @@ def _probe_order(queryset, tick: int):
     return [priority] + [cm for cm in cycle if cm.pk != priority.pk]
 
 
+HOST_EVICTION_CATCHUP_BATCH = 100
+
+
+def _enqueue_deferred_host_evictions():
+    """Inspect at most 100 rows and enqueue at most one retirement per tick.
+
+    A shared, database-scoped primary-key cursor advances by rows actually
+    inspected, independently of cron cadence. Manual-review rows cannot hide
+    later obligations. Cache loss restarts a cycle; cache failure is logged and
+    leaves durable obligations for a later tick, without failing live probes.
+    """
+    if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
+        return
+    from .models import CreatorMeeting
+    from .views import _defer_host_evictions
+
+    key = _cursor_key() + ':host_evictions'
+    try:
+        cursor = cache.get(key, 0)
+    except Exception:
+        logger.warning('host eviction catch-up: could not read cursor', exc_info=True)
+        return
+    if type(cursor) is not int or cursor < 0:
+        cursor = 0
+    pending = CreatorMeeting.objects.exclude(host_evictions=[]).only(
+        "pk", "creator_id", "host_evictions").order_by("pk")
+    rows = list(pending.filter(pk__gt=cursor)[:HOST_EVICTION_CATCHUP_BATCH])
+    if len(rows) < HOST_EVICTION_CATCHUP_BATCH:
+        rows.extend(pending.filter(pk__lte=cursor)[
+            :HOST_EVICTION_CATCHUP_BATCH - len(rows)])
+    inspected = []
+    for cm in rows:
+        inspected.append(cm)
+        if any(entry.get('state') != 'manual_review'
+               for entry in (cm.host_evictions or [])):
+            _defer_host_evictions(cm)
+            break
+    if inspected:
+        try:
+            cache.set(key, inspected[-1].pk, timeout=None)
+        except Exception:
+            logger.warning('host eviction catch-up: could not store cursor', exc_info=True)
+
+
 @app.periodic(cron=settings.DYTE_LIVE_SWEEP_CRON)
 @app.task(name="dyte.sweep_live_meetings", queue="default")
 def sweep_live_meetings(timestamp: int):
@@ -593,6 +625,7 @@ def sweep_live_meetings(timestamp: int):
     from dj.apps.dyte.client import DyteClient
     from dj.apps.dyte.models import CreatorMeeting
 
+    _enqueue_deferred_host_evictions()
     dc = DyteClient(settings.DYTE_ORG)
     now = timezone.now()
     grace_cutoff = now - timedelta(seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS)

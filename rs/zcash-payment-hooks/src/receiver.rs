@@ -73,7 +73,7 @@ pub fn verify_address(c: &Config, ufvk: &str, address: &str) -> Result<AddressCo
     let decoded = Address::decode(&params, address)
         .ok_or_else(|| anyhow::anyhow!("invalid address for configured network"))?;
     let (sapling, orchard, transparent_present, unknown_receiver_count) = match &decoded {
-        Address::Sapling(receiver) => (Some(receiver), None, false, 0),
+        Address::Sapling(receiver) => (Some(receiver.as_ref()), None, false, 0),
         Address::Unified(ua) => (
             ua.sapling(),
             ua.orchard(),

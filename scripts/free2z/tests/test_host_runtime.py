@@ -620,7 +620,7 @@ class LicenseEvidenceTests(unittest.TestCase):
         locked = {(p['name'], p['version'], p.get('source')): p.get('checksum')
                   for p in tomllib.loads((ROOT / 'rs/zcash-payment-hooks/Cargo.lock').read_text())['package']}
         rows = licenses.load_supplements(ROOT / 'build/free2z/host-licenses', locked)
-        self.assertEqual(len(rows), 14)
+        self.assertEqual(len(rows), 15)
         self.assertIn('host_runtime/licenses.py', (ROOT / 'scripts/free2z/host-rust-build.sh').read_text())
         self.assertIn("'build/free2z/host-licenses'", (ROOT / 'scripts/free2z/host-runtime.py').read_text())
 

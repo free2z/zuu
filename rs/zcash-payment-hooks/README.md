@@ -39,6 +39,13 @@ Your hook can implement those application integrations. Transparent/Sprout
 payments and mempool observation are unsupported. A mined observation is not
 confirmation.
 
+The observer supports mainnet NU7 from height **3,543,405**. Unknown consensus
+branches stop scanning and report the height and expected/observed branch IDs;
+RPC credentials, wallet paths and arbitrary source errors are not logged.
+Confirmation depth and tip-lag limits count **blocks**, not seconds. NU7 targets
+25-second blocks, so operators must choose those limits for their risk policy;
+upgrading the libraries does not change a journal's confirmation policy.
+
 ## Try it locally
 
 Build from the repository root using its shared Rust toolchain:

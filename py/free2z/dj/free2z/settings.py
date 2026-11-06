@@ -1980,6 +1980,11 @@ SMOKE_TEST_ACCOUNT_USERNAME = os.environ.get("SMOKE_TEST_ACCOUNT_USERNAME", "")
 
 DYTE_KEY = os.environ.get("DYTE_KEY", "")
 DYTE_ORG = os.environ.get("DYTE_ORG", "")
+
+# Register the consumer on every worker before a later deployment enables
+# producers. Obligations stay in CreatorMeeting.host_evictions while disabled.
+DYTE_HOST_EVICTION_JOBS_ENABLED = _strict_boolean_env(
+    "DYTE_HOST_EVICTION_JOBS_ENABLED", False)
 # Cloudflare RealtimeKit REST API (Dyte migration). Same endpoints, schemas,
 # and basic auth (org id + API key) as api.dyte.io — only the base URL changed.
 # Override with RTK_API_BASE_URL=https://api.dyte.io to roll back during the
