@@ -1,8 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
+import { browserMockApiOrigin } from "./ports";
 test.describe.configure({ timeout: 90000 });
 const initial = "Before selected after";
 async function setup(page: Page, ext: string, mime: string, access = "public") {
-  const owner = { id: 1274, username: "media-owner", full_name: "Media Owner" };
+  const owner = {
+    id: 1274,
+    username: "caption-owner",
+    full_name: "Media Owner",
+  };
   const url = `/uploadz/public/media-owner/fixture.${ext}`;
   let item = {
     id: 7,
@@ -12,6 +17,7 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
     access,
   };
   let content = initial;
+  let published = false;
   const saves: string[] = [];
   const patches: unknown[] = [];
   const article = () => ({
@@ -23,8 +29,9 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
     creator: owner,
     tags: [],
     category: "TECHNOLOGY",
-    is_published: false,
-    variant_is_published: false,
+    is_published: published,
+    variant_is_published: published,
+    vanity: "media-fixture",
     is_subscriber_only: false,
     source_language: "en",
     requested_language: "en",
@@ -39,11 +46,30 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
       if (path === "/api/auth/user/") return route.fulfill({ json: owner });
       if (path === "/api/zpage/media-fixture/") {
         if (route.request().method() === "PUT") {
-          content = route.request().postDataJSON().content;
+          const payload = route.request().postDataJSON();
+          content = payload.content;
+          published = Boolean(payload.is_published);
           saves.push(content);
+          await fetch(`${browserMockApiOrigin()}/__caption-fixture`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              ...article(),
+              featured_image: {},
+              comments: [],
+              total: "0",
+              f2z_score: "0",
+              get_url: "/caption-owner/media-fixture",
+            }),
+          });
         }
         return route.fulfill({ json: article() });
       }
+      if (path === "/api/zpage/media-fixture/variants/en/")
+        return route.fulfill({
+          json: article(),
+          headers: { ETag: '"fixture-v1"' },
+        });
       if (path.endsWith("/variants/"))
         return route.fulfill({
           json: [{ language: "en", origin: "source", is_published: false }],
@@ -82,7 +108,16 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
   await page.goto("/edit?id=media-fixture");
   const body = page.locator("textarea.writing-area-textarea");
   await expect(body).toHaveValue(initial, { timeout: 60000 });
-  return { body, url, saves, patches };
+  return {
+    body,
+    url,
+    saves,
+    patches,
+    isPublished: () => published,
+    changeUpload: (changes: Partial<typeof item>) => {
+      item = { ...item, ...changes };
+    },
+  };
 }
 async function chooseAction(page: Page, name: string) {
   await page
@@ -284,4 +319,211 @@ test("Audio device upload uses the native preview player", async ({ page }) => {
     .last()
     .click();
   await expect(page.locator("audio")).toBeVisible();
+});
+
+test("image details edit alt and caption, cancel and remove", async ({
+  page,
+}) => {
+  const { body } = await setup(page, "png", "image/png");
+  await body.fill('![old](/uploadz/public/media-owner/fixture.png "title")');
+  await body.evaluate((element: HTMLTextAreaElement) => {
+    element.focus();
+    element.setSelectionRange(4, 4);
+  });
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Image details" }),
+  ).toBeVisible();
+  await page.getByLabel("Alt text (image description)").fill("A bird");
+  await page.getByLabel("Visible caption").fill("雪\nA caption");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(body).toHaveValue(
+    '![old](/uploadz/public/media-owner/fixture.png "title")',
+  );
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await page.getByLabel("Alt text (image description)").fill("A bird");
+  await page.getByLabel("Visible caption").fill("雪\nA caption");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(
+    '![A bird](/uploadz/public/media-owner/fixture.png "title")\n::caption["雪\\nA caption"]',
+  );
+  await body.evaluate((element: HTMLTextAreaElement) => {
+    element.focus();
+    element.setSelectionRange(3, 3);
+  });
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await page.getByLabel("Visible caption").fill("");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(
+    '![A bird](/uploadz/public/media-owner/fixture.png "title")',
+  );
+});
+
+test("cloud image collects separate alt and caption before insertion", async ({
+  page,
+}) => {
+  const { body } = await setup(page, "png", "image/png");
+  await chooseAction(page, "Image");
+  await page.getByRole("tab", { name: "Your Cloud" }).click();
+  await page.getByRole("button", { name: /fixture.png/ }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Image details" }),
+  ).toBeVisible();
+  await page.getByLabel("Alt text (image description)").fill("A bird");
+  await page.getByLabel("Visible caption").fill("雪\ncaption");
+  await page.getByRole("button", { name: "Apply" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(body).toHaveValue(/!\[A bird\].*::caption\["雪\\ncaption"\]/s);
+});
+
+test("cloud image access and URL are re-read after entering details", async ({
+  page,
+}) => {
+  const { body, patches, changeUpload } = await setup(page, "png", "image/png");
+  await chooseAction(page, "Image");
+  await page.getByRole("tab", { name: "Your Cloud" }).click();
+  await page.getByRole("button", { name: /fixture.png/ }).click();
+  const details = page.getByRole("dialog", { name: "Image details" });
+  await expect(details).toBeVisible();
+  changeUpload({ access: "private", url: "/uploadz/private/changed.png" });
+  await details.getByRole("button", { name: "Apply" }).click();
+  await expect(
+    page.getByText("Readers of this page cannot open that image yet."),
+  ).toBeVisible();
+  await expect(body).toHaveValue(initial);
+  expect(patches).toHaveLength(0);
+
+  changeUpload({ access: "public", url: "/uploadz/public/changed.png" });
+  await page.getByRole("button", { name: /fixture.png/ }).click();
+  await expect(details).toBeVisible();
+  changeUpload({ url: "/uploadz/public/current.png" });
+  await details.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(/\/uploadz\/public\/current\.png/);
+  expect(patches).toHaveLength(0);
+});
+
+test("upload details can be cancelled or inserted with a visible caption", async ({
+  page,
+}) => {
+  const { body, saves, isPublished } = await setup(page, "png", "image/png");
+  await chooseAction(page, "Image");
+  await page
+    .locator('input[type="file"]')
+    .last()
+    .setInputFiles({
+      name: "fixture.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("fixture"),
+    });
+  await page.getByRole("button", { name: "Insert Selected" }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Image details" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Cancel", exact: true })
+    .last()
+    .click();
+  await expect(body).toHaveValue(initial);
+  await page.getByRole("button", { name: "Insert Selected" }).click();
+  await page.getByLabel("Alt text (image description)").fill("Bird");
+  await page.getByLabel("Visible caption").fill("雪\n<script>unsafe</script>");
+  await page.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(
+    /!\[Bird\].*::caption\["雪\\n<script>unsafe<\/script>"\]/s,
+  );
+  const exact = (await body.inputValue()).replace(
+    "fixture.png)",
+    'fixture.png "Original title")',
+  );
+  await body.fill(exact);
+  await expect.poll(() => saves.at(-1), { timeout: 15000 }).toBe(exact);
+  await page.reload();
+  await expect(body).toHaveValue(exact);
+  await page.getByRole("button", { name: "Publish", exact: true }).click();
+  await page.getByRole("button", { name: "Publish Now" }).click();
+  await expect.poll(() => isPublished()).toBe(true);
+  await page.goto("/caption-owner/media-fixture");
+  await expect(
+    page.locator('figure img[alt="Bird"][title="Original title"]'),
+  ).toHaveCount(1);
+  await expect(page.locator("figcaption")).toHaveText(
+    "雪<script>unsafe</script>",
+  );
+  await expect(page.locator("figcaption script")).toHaveCount(0);
+  await page.goto("/edit?id=media-fixture");
+  await page
+    .getByRole("button", { name: "Preview", exact: true })
+    .last()
+    .click();
+  await expect(page.locator("figcaption")).toHaveText(
+    "雪<script>unsafe</script>",
+  );
+  await expect(page.locator("figcaption script")).toHaveCount(0);
+  await expect(page.locator('figure img[alt="Bird"]')).toHaveCount(1);
+});
+
+for (const width of [390, 1280]) {
+  test(`caption editing preserves escaped image destination after preview at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const { body } = await setup(page, "png", "image/png");
+    const source = '![a \\]( b](/uploadz/public/example.png "keep title")';
+    await body.fill(source);
+    await page
+      .getByRole("button", { name: "Preview", exact: true })
+      .last()
+      .click();
+    await page
+      .getByRole("button", { name: "Write", exact: true })
+      .last()
+      .click();
+    for (const caption of ["first", "second", ""]) {
+      await body.evaluate((element: HTMLTextAreaElement) => {
+        element.focus();
+        element.setSelectionRange(4, 4);
+      });
+      const edit = page.getByRole("button", { name: "Edit image at cursor" });
+      await edit.focus();
+      await page.keyboard.press("Enter");
+      await expect(
+        page.getByRole("dialog", { name: "Image details" }),
+      ).toBeVisible();
+      await page.getByLabel("Visible caption").fill(caption);
+      await page.getByRole("button", { name: "Apply" }).focus();
+      await page.keyboard.press("Enter");
+      await expect(body).toHaveValue(
+        caption
+          ? `![a \\]( b](/uploadz/public/example.png "keep title")\n::caption["${caption}"]`
+          : source,
+      );
+    }
+    for (const source of [
+      '![slash \\\\ and \\[bracket\\]](/uploadz/public/example.png "keep title")',
+      '![nested [emphasis *inside*]](/uploadz/public/example.png "keep title")',
+    ]) {
+      await body.fill(source);
+      await body.evaluate((element: HTMLTextAreaElement) => {
+        element.focus();
+        element.setSelectionRange(3, 3);
+      });
+      await page.getByRole("button", { name: "Edit image at cursor" }).click();
+      await expect(
+        page.getByRole("dialog", { name: "Image details" }),
+      ).toBeVisible();
+      await page.getByLabel("Visible caption").fill("caption");
+      await page.getByRole("button", { name: "Apply" }).click();
+      await expect(body).toHaveValue(`${source}\n::caption["caption"]`);
+    }
+  });
+}
+
+test("image edit reports an inapplicable caret", async ({ page }) => {
+  const { body } = await setup(page, "png", "image/png");
+  await body.focus();
+  await page.getByRole("button", { name: "Edit image at cursor" }).click();
+  await expect(
+    page.getByText("Place the cursor on a standalone image first."),
+  ).toBeVisible();
+  await expect(body).toHaveValue(initial);
 });

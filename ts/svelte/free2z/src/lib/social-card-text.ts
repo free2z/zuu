@@ -1,4 +1,4 @@
-import { stripMediaDirectivesFromSummary } from "$lib/utils/plainText";
+import { protectSummaryCaptions } from "$lib/utils/plainText";
 
 // Pure text preparation shared by card rendering and public cache revisions.
 // Keep native image/font imports in server/og-text.ts.
@@ -83,7 +83,7 @@ function stripLinks(value: string, images: boolean): string {
   return parts.join("");
 }
 
-export function plainSocialCardText(value?: string, maxLength = 180) {
+function cleanSocialCardText(value?: string) {
   let text = stripPairs(value || "", "```", "```");
   text = stripLinks(text, true);
   text = stripLinks(text, false);
@@ -92,12 +92,20 @@ export function plainSocialCardText(value?: string, maxLength = 180) {
     .replace(/[#*_>`~|]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return truncateOgText(text, maxLength);
+  return text;
+}
+
+export function plainSocialCardText(value?: string, maxLength = 180) {
+  return truncateOgText(cleanSocialCardText(value), maxLength);
 }
 
 export function plainSocialCardSummaryText(value?: string, maxLength = 180) {
-  return plainSocialCardText(
-    stripMediaDirectivesFromSummary(value || ""),
+  const captions = protectSummaryCaptions(value || "");
+  return truncateOgText(
+    captions
+      .restore(cleanSocialCardText(captions.text))
+      .replace(/\s+/g, " ")
+      .trim(),
     maxLength,
   );
 }

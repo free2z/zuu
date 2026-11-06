@@ -1149,6 +1149,8 @@ async function readJson(request) {
   }
 }
 
+let captionFixtureArticle = null;
+
 const converseDeadlineState = { started: false, closed: false };
 const ssrEnrichmentStallState = new Map();
 
@@ -1157,6 +1159,19 @@ const server = createServer(async (request, response) => {
 
   response.setHeader("content-type", "application/json");
   response.setHeader("cache-control", "no-store");
+
+  if (url.pathname === "/__caption-fixture" && request.method === "POST") {
+    captionFixtureArticle = await readJson(request);
+    response.end(JSON.stringify({ ok: true }));
+    return;
+  }
+  if (
+    url.pathname === "/api/zpage/media-fixture/" &&
+    captionFixtureArticle?.is_published
+  ) {
+    response.end(JSON.stringify(captionFixtureArticle));
+    return;
+  }
 
   if (url.pathname === "/api/economy/capabilities/") {
     response.end(

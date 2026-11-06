@@ -1,11 +1,12 @@
 import { Marked, marked, type TokenizerExtension } from "marked";
+import { parseCaptionedImage } from "./image-caption";
 import hljs from "highlight.js";
 import katex from "katex";
 import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
 import * as env from "$app/env/public";
 import { sanitizeMarkdownHtml } from "./markdown-sanitize";
-import { stripMediaDirectivesFromSummary } from "./plainText";
+import { protectSummaryCaptions } from "./plainText";
 import {
   getSafeHttpUrl,
   getSafeMediaUrl,
@@ -813,6 +814,45 @@ function configureMarkdown() {
   marked.use({
     extensions: [
       {
+        name: "captionedImage",
+        level: "block",
+        start(src) {
+          // Stop a preceding paragraph before an image/caption pair. Existing
+          // image lines need not have a blank line above them when edited.
+          return /^ {0,3}!\[[^\n]+\n {0,3}::caption\[/m.exec(src)?.index;
+        },
+        tokenizer(src) {
+          const parsed = parseCaptionedImage(src);
+          if (!parsed) return undefined;
+          // Explicit options give this nested lexer its own tokenizer, rather
+          // than replacing the outer lexer's shared tokenizer reference.
+          const tokens = marked.Lexer.lexInline(parsed.image, {
+            gfm: true,
+            breaks: true,
+          });
+          if (
+            tokens.length !== 1 ||
+            tokens[0].type !== "image" ||
+            tokens[0].raw !== parsed.image
+          )
+            return undefined;
+          const raw = /^(?:[^\n]+\n)[^\n]*(?:\n|$)/.exec(src)![0];
+          return {
+            type: "captionedImage",
+            raw,
+            tokens,
+            caption: parsed.caption,
+          };
+        },
+        renderer(token) {
+          const caption = escapeHtml(String(token.caption)).replaceAll(
+            "\n",
+            "<br>",
+          );
+          return `<figure>${this.parser.parseInline(token.tokens ?? [])}<figcaption>${caption}</figcaption></figure>\n`;
+        },
+      },
+      {
         ...blockDirectiveTokenizer,
         renderer(token) {
           return renderDirective(token as DirectiveToken);
@@ -1049,7 +1089,8 @@ export function getCodeLanguageInfo(languageClass = "") {
 export function extractPlainText(content: string, maxLength = 160): string {
   if (!content) return "";
 
-  const summaryContent = stripMediaDirectivesFromSummary(content);
+  const captions = protectSummaryCaptions(content);
+  const summaryContent = captions.text;
 
   try {
     const htmlContent = processMarkdown(summaryContent)
@@ -1061,17 +1102,22 @@ export function extractPlainText(content: string, maxLength = 160): string {
         /<sup>\s*<a\b(?=[^>]*\bdata-footnote-ref\b)[^>]*>[\s\S]*?<\/a>\s*<\/sup>/gi,
         "",
       );
-    const textContent = htmlContent
-      .replace(/<[^>]*>/g, "")
-      .replace(/&#(\d+);/g, (_, value) => String.fromCodePoint(Number(value)))
-      .replace(/&#x([\da-f]+);/gi, (_, value) =>
-        String.fromCodePoint(Number.parseInt(value, 16)),
+    const textContent = captions
+      .restore(
+        htmlContent
+          .replace(/<[^>]*>/g, "")
+          .replace(/&#(\d+);/g, (_, value) =>
+            String.fromCodePoint(Number(value)),
+          )
+          .replace(/&#x([\da-f]+);/gi, (_, value) =>
+            String.fromCodePoint(Number.parseInt(value, 16)),
+          )
+          .replaceAll("&amp;", "&")
+          .replaceAll("&lt;", "<")
+          .replaceAll("&gt;", ">")
+          .replaceAll("&quot;", '"')
+          .replaceAll("&#39;", "'"),
       )
-      .replaceAll("&amp;", "&")
-      .replaceAll("&lt;", "<")
-      .replaceAll("&gt;", ">")
-      .replaceAll("&quot;", '"')
-      .replaceAll("&#39;", "'")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -1082,6 +1128,6 @@ export function extractPlainText(content: string, maxLength = 160): string {
     return textContent;
   } catch (error) {
     console.error("Error extracting plain text:", error);
-    return summaryContent.substring(0, maxLength) + "...";
+    return captions.restore(summaryContent).substring(0, maxLength) + "...";
   }
 }
