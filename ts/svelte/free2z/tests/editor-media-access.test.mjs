@@ -1011,3 +1011,14 @@ test("the server reports a safe media tier for every comment thread", async () =
     /validated_data\['content_type'\] = parent_comment\.content_type\s+serializer\.validated_data\['object_id'\] = parent_comment\.object_id/,
   );
 });
+
+test("the post-details cloud refresh uses the configured API origin", () => {
+  assert.match(
+    textareaControllerSource,
+    /apiBase: env\.PUBLIC_API_BASE_URL\?\.replace/,
+  );
+  assert.match(
+    textareaControllerSource,
+    /import \{ env \} from "\$env\/dynamic\/public"/,
+  );
+});

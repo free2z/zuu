@@ -166,3 +166,21 @@ test("public list excerpt ellipses never expose caption serialization", () => {
     assert.doesNotMatch(summary(long.slice(0, 365) + "...", 500), /::caption/);
   }
 });
+
+test("CRLF captions agree across rendering, summaries and editing", () => {
+  const source = '![Bird](/image.png)\r\n::caption["Snow"]\r\n';
+  assert.deepEqual(captions.parseCaptionedImage(source), {
+    image: "![Bird](/image.png)",
+    caption: "Snow",
+  });
+  assert.match(render(source), /<figcaption>Snow<\/figcaption>/);
+  assert.equal(plainText.markdownToPlainText(source), "Bird Snow");
+  assert.doesNotMatch(
+    plainText.stripMediaDirectivesFromSummary(source),
+    /::caption/,
+  );
+  assert.equal(
+    captions.updateImageCaption(source, "Thaw"),
+    '![Bird](/image.png)\n::caption["Thaw"]\n',
+  );
+});
