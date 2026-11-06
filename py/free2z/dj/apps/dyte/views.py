@@ -1672,9 +1672,11 @@ def _defer_host_evictions(cm):
                                for entry in cm.host_evictions):
             schedule_at = timezone.datetime.fromtimestamp(
                 min(retry_after), tz=timezone.get_current_timezone())
-        # Claim-expiry recovery must not delay an actionable retirement. Keep
-        # its future job separate from the coalesced eviction/retry job.
-        lock_suffix = ':claim' if schedule_at is not None else ''
+        # Neither claim expiry nor an older participant's backoff may delay a
+        # fresh revocation. Repeated heartbeats coalesce within each lane.
+        fresh = any(entry.get('state') not in ('manual_review', 'start_pending')
+                    and not entry.get('attempts') for entry in cm.host_evictions)
+        lock_suffix = ':claim' if schedule_at is not None else ':fresh' if fresh else ''
         with transaction.atomic():
             retire_host_evictions.configure(
                 queueing_lock=f"dyte-host-evictions-{cm.pk}{lock_suffix}",

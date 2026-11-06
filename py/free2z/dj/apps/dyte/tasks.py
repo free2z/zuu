@@ -205,7 +205,7 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
             try:
                 with transaction.atomic():
                     retire_host_evictions.configure(
-                        queueing_lock=f"dyte-host-evictions-{meeting_id}",
+                        queueing_lock=f"dyte-host-evictions-{meeting_id}" + (':fresh' if attempts == 0 else ''),
                         schedule_at=timezone.now() + timedelta(seconds=delay),
                     ).defer(creator_id=creator_id, meeting_id=meeting_id)
             except AlreadyEnqueued:

@@ -265,7 +265,8 @@ Each retirement invocation attempts one provider obligation and retains the
 rest for later jobs. Cursor progress is independent of cron cadence; cache
 failures are logged and leave the obligations for a later tick. It coalesces
 retirement jobs by meeting and preserves manual review states. Delayed
-start-claim recovery uses a separate queueing lock so it cannot delay a newly
-actionable eviction. Disabling the gate again stops execution and retries without
+start-claim recovery, fresh revocations and failed-attempt retries use separate
+queueing locks so delayed work cannot hold back a newly actionable eviction.
+Disabling the gate again stops execution and retries without
 clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
 to worker code without the task registration while queued jobs can still exist.

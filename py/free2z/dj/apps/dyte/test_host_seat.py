@@ -1111,10 +1111,34 @@ def test_actionable_retirement_is_runnable_before_queued_claim_expiry(
     cm = CreatorMeeting.objects.get(creator=host)
     jobs = ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions')
     immediate = jobs.exclude(pk=delayed.pk).get()
-    assert immediate.queueing_lock == f'dyte-host-evictions-{cm.pk}'
+    assert immediate.queueing_lock == f'dyte-host-evictions-{cm.pk}:fresh'
     assert immediate.scheduled_at is None or immediate.scheduled_at <= timezone.now()
     delayed.refresh_from_db()
     assert delayed.scheduled_at > timezone.now() + timedelta(seconds=240)
+
+
+def test_fresh_revocation_does_not_wait_for_an_older_retry(host):
+    from .tasks import retire_host_evictions
+    from .views import _defer_host_evictions
+
+    entries = [{'meeting_id': 'room', 'participant_id': 'old',
+                'state': 'pending', 'attempts': 10}]
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room',
+                                      host_evictions=entries)
+    retry_at = timezone.now() + timedelta(seconds=900)
+    retire_host_evictions.configure(
+        queueing_lock=f'dyte-host-evictions-{cm.pk}', schedule_at=retry_at,
+    ).defer(creator_id=host.pk, meeting_id=cm.pk)
+    cm.host_evictions.append({'meeting_id': 'room', 'participant_id': 'fresh',
+                              'state': 'pending', 'attempts': 0})
+    cm.save(update_fields=['host_evictions'])
+    _defer_host_evictions(cm)
+    _defer_host_evictions(cm)
+    jobs = ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions')
+    assert jobs.count() == 2
+    assert jobs.get(queueing_lock=f'dyte-host-evictions-{cm.pk}').scheduled_at == retry_at
+    fresh = jobs.get(queueing_lock=f'dyte-host-evictions-{cm.pk}:fresh')
+    assert fresh.scheduled_at is None or fresh.scheduled_at <= timezone.now()
 
 
 def test_retirement_bounds_provider_work_without_losing_unprocessed_entries(
