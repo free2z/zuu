@@ -3,7 +3,12 @@
   import { page } from "$lib/kit-stores";
   import { tStore as t } from "$lib/i18n";
 
-  let { count, currentPage, perPage, onPageChange }: {
+  let {
+    count,
+    currentPage,
+    perPage,
+    onPageChange,
+  }: {
     count: number;
     currentPage: number;
     perPage: number;

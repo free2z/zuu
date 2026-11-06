@@ -353,10 +353,10 @@ const HOLDS = [
       { kind: "copies", path: ZUULI_LOCK, versions: ["0.21.7", "0.22.1", "0.23.1"] },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "zcash_client_backend" }, on: "0.22" },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "zip321" }, on: "0.22" },
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.22", count: 12, rowClaim: true },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.22", count: 10, rowClaim: true },
       /// The island the row says bumping would move us onto, measured so
       /// "for nothing" is a checked statement rather than a rhetorical one.
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.23", count: 2 },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.23", count: 4 },
     ],
   },
   {
@@ -413,9 +413,9 @@ const HOLDS = [
     source: {
       kind: "lockfile",
       path: ZUULI_LOCK,
-      forcedBy: { name: "tauri", version: "2.11.5" },
+      forcedBy: { name: "tauri", version: "2.12.5" },
     },
-    registerToken: "tauri 2.11.5",
+    registerToken: "tauri 2.12.5",
     /// The row says bumping ours to 0.4 would not retire tauri's copy, because
     /// the graph already carries all three lines. That is the fact that makes
     /// the hold about alignment rather than duplication.
@@ -1587,7 +1587,7 @@ function runSelfTest() {
       // A tauri bump does not mean the hold is wrong — it means nobody has
       // re-read tauri's requirement since. Going red is the point.
       "the lockfile-verified hold's forcing crate moves off the version that was read",
-      editSource(ZUULI_LOCK, 'name = "tauri"\nversion = "2.11.5"', 'name = "tauri"\nversion = "2.12.0"'),
+      editSource(ZUULI_LOCK, 'name = "tauri"\nversion = "2.12.5"', 'name = "tauri"\nversion = "2.12.0"'),
       "resolves tauri to 2.12.0",
     ],
     [
@@ -1719,8 +1719,8 @@ function runSelfTest() {
     ],
     [
       "the lockfile-verified row stops naming the version whose requirement was read",
-      withRegister(baseline.register.replaceAll("tauri 2.11.5", "tauri")),
-      "the `getrandom` row does not name `tauri 2.11.5`",
+      withRegister(baseline.register.replaceAll("tauri 2.12.5", "tauri")),
+      "the `getrandom` row does not name `tauri 2.12.5`",
     ],
     [
       // THE EXACT SHAPE OF THE `rand` BUG. The lock is right, the check reads
