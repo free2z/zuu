@@ -135,3 +135,34 @@ test("caption parsing accepts only canonical JSON with visible text controls", (
     assert.doesNotMatch(render(source), /<figcaption>/);
   }
 });
+
+test("summary caption placeholders have bounded collision handling", () => {
+  const hostile = "F2ZCAPTIONTOKEN" + "X".repeat(99000);
+  assert.doesNotThrow(() => social.plainSocialCardSummaryText(hostile));
+  const collisions = "F2ZCAPTIONTOKEN0SEP0END F2ZCAPTIONTOKEN1SEP0END";
+  const source = `${collisions}\n\n${captions.serializeCaptionedImage("![a](/x)", "literal")}`;
+  assert.equal(
+    plainText.markdownToPlainText(source, 500),
+    `${collisions} a literal`,
+  );
+});
+
+test("public list excerpt ellipses never expose caption serialization", () => {
+  const source = captions.serializeCaptionedImage(
+    "![Bird](/x)",
+    "Snow in the park",
+  );
+  for (const summary of [
+    extract,
+    plainText.markdownToPlainText,
+    social.plainSocialCardSummaryText,
+  ]) {
+    assert.match(summary(`${source}...`, 500), /Snow in the park/);
+    assert.doesNotMatch(summary(`${source}...`, 500), /::caption/);
+    const long = captions.serializeCaptionedImage(
+      "![Bird](/x)",
+      "snow ".repeat(100),
+    );
+    assert.doesNotMatch(summary(long.slice(0, 365) + "...", 500), /::caption/);
+  }
+});

@@ -44,9 +44,16 @@ export function stripMediaDirectivesFromSummary(
 
       const previous = lines[index - 1] ?? "";
       if (/^ {0,3}!\[/.test(previous)) {
-        const image = parseCaptionedImage(previous + line);
+        // Public list payloads append an ellipsis after a bounded body slice.
+        // Decode only a complete canonical caption; omit a cut directive.
+        const excerpt = /(?:\.\.\.|…)[ \t]*(?:\r?\n)?$/.test(line);
+        const captionLine = excerpt
+          ? line.replace(/(?:\.\.\.|…)([ \t]*(?:\r?\n)?)$/, "$1")
+          : line;
+        const image = parseCaptionedImage(previous + captionLine);
         if (image)
           return captionText(image.caption) + (line.endsWith("\n") ? "\n" : "");
+        if (excerpt && /^ {0,3}::caption\[/.test(line)) return " ";
       }
 
       return /^ {0,3}::(?:embed|iframe|qrcode)\[[^\]\n]+(?:\](?:\.{3}|…)?|\.{3}|…)[ \t]*\r?(?:\n)?$/i.test(
@@ -60,8 +67,14 @@ export function stripMediaDirectivesFromSummary(
 
 /** Protect literal captions while a caller processes the surrounding Markdown. */
 export function protectSummaryCaptions(value: string) {
-  let marker = "F2ZCAPTIONTOKEN";
-  while (value.includes(marker)) marker += "X";
+  // Inventory fixed-shape markers in one pass. Repeated article text must
+  // never grow a placeholder or the restoration regular expression.
+  const occupied = new Set(
+    Array.from(value.matchAll(/F2ZCAPTIONTOKEN(\d+)SEP/g), (match) => match[1]),
+  );
+  let candidate = 0;
+  while (occupied.has(String(candidate))) candidate += 1;
+  const marker = `F2ZCAPTIONTOKEN${candidate}SEP`;
   const captions: string[] = [];
   const text = stripMediaDirectivesFromSummary(value, (caption) => {
     const index = captions.push(caption) - 1;
