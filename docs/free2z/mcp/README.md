@@ -320,12 +320,18 @@ to another account's data. `402` indicates a balance or purchase requirement;
 
 A network timeout does not prove a write failed. Inspect current state before
 retrying; reuse an idempotency key only where that operation documents support.
-Do not repeat payments or creates blindly.
+Do not repeat payments or creates blindly. Keep API decimal values, including
+balances and monetary amounts, as strings to preserve their exact precision.
 
 The MCP server does not hold a Zcash seed, sign wallet transactions, decrypt
 E2E2Z messages, or bypass Free2Z permissions. Schema operations that depend on an
 external callback, a session-specific security ceremony, or a separately deployed
 service can require additional steps. Read their descriptions and API responses.
+Browser sign-in and checkout, WebSockets, and client-side encrypted messaging are
+outside this interface. AI event streams are buffered into a single response,
+subject to the request timeout and response-size cap. Returned credentials are
+redacted, so token acquisition belongs in the browser or a separate local setup
+step, not in an assistant tool response.
 
 ## Configuration and limits
 
