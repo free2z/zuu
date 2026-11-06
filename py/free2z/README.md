@@ -257,6 +257,10 @@ can keep broadcasting and send heartbeats. A first host can start when there is
 no retained participant, in-flight claim or pending retirement. Reconnection
 mints a new provider participant, so reconnects and takeovers that require
 retirement return a retryable 503 while the gate is disabled.
+Normal start–stop–start usage is also restricted after the first release of the
+seat. Treat this phase as a temporary broadcast maintenance interval: the
+separate enablement deployment is required to restore repeat starts and
+reconnections. A 60-second retry alone cannot end this maintenance restriction.
 
 After enablement, the existing live-room sweep inspects up to 100 obligation
 rows and queues at most one retirement job per tick using a shared,
