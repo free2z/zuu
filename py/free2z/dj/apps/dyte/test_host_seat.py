@@ -1079,9 +1079,11 @@ def test_registration_only_preserves_obligations_and_stops_task_retries(
 def test_eviction_catchup_rotates_past_manual_rows_and_bounds_each_tick(
     settings, mocker, creator_factory,
 ):
-    from .tasks import _enqueue_deferred_host_evictions
+    from django.core.cache import cache
+    from .tasks import _cursor_key, sweep_live_meetings
 
     settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
+    cache.delete(_cursor_key() + ':host_evictions')
     mocker.patch('dj.apps.dyte.tasks.HOST_EVICTION_CATCHUP_BATCH', 2)
     enqueue = mocker.patch('dj.apps.dyte.views._defer_host_evictions')
     rows = [CreatorMeeting.objects.create(
@@ -1089,9 +1091,9 @@ def test_eviction_catchup_rotates_past_manual_rows_and_bounds_each_tick(
         host_evictions=[{'state': 'manual_review' if i < 2 else 'pending'}],
     ) for i in range(5)]
     reached = set()
-    for tick in [0, 60, 120]:
+    for tick in [0, 300, 600]:
         enqueue.reset_mock()
-        _enqueue_deferred_host_evictions(tick)
+        sweep_live_meetings(tick)
         assert enqueue.call_count <= 2
         reached.update(call.args[0].pk for call in enqueue.call_args_list)
     assert reached == {row.pk for row in rows}
@@ -1102,5 +1104,20 @@ def test_disabled_eviction_catchup_never_reads_obligation_table(settings, mocker
 
     settings.DYTE_HOST_EVICTION_JOBS_ENABLED = False
     query = mocker.patch('dj.apps.dyte.models.CreatorMeeting.objects.exclude')
-    _enqueue_deferred_host_evictions(0)
+    _enqueue_deferred_host_evictions()
     query.assert_not_called()
+
+
+
+def test_eviction_catchup_cache_failure_preserves_obligation(settings, mocker, host, caplog):
+    from .tasks import _enqueue_deferred_host_evictions
+
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
+    pending = [{'meeting_id': 'room', 'participant_id': 'host'}]
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room', host_evictions=pending)
+    mocker.patch('dj.apps.dyte.tasks.cache.get', side_effect=ConnectionError('fixture unavailable'))
+    _enqueue_deferred_host_evictions()
+    cm.refresh_from_db()
+    assert cm.host_evictions == pending
+    assert not ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions').exists()
+    assert 'host eviction catch-up: could not read cursor' in caplog.text

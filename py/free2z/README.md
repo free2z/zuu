@@ -259,8 +259,9 @@ mints a new provider participant, so reconnects and takeovers that require
 retirement return a retryable 503 while the gate is disabled.
 
 After enablement, the existing live-room sweep revisits up to 100 obligation
-rows per minute tick in rotating primary-key order, including released and
-non-live meetings. It coalesces retirement jobs by meeting and preserves manual
+rows per tick using a shared, database-scoped primary-key cursor, including
+released and non-live meetings. Cursor progress is independent of cron cadence;
+cache failures are logged and leave the obligations for a later tick. It coalesces retirement jobs by meeting and preserves manual
 review states. Disabling the gate again stops execution and retries without
 clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
 to worker code without the task registration while queued jobs can still exist.

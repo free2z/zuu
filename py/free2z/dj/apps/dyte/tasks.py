@@ -526,31 +526,40 @@ def _probe_order(queryset, tick: int):
 HOST_EVICTION_CATCHUP_BATCH = 100
 
 
-def _enqueue_deferred_host_evictions(timestamp):
-    """Revisit durable obligations, including released/non-live meetings.
+def _enqueue_deferred_host_evictions():
+    """Revisit at most 100 durable obligations, including non-live meetings.
 
-    A tick inspects at most 100 rows and enqueues at most one coalesced job per
-    row. Rotate over primary-key order so manual-review rows cannot permanently
-    hide later obligations, even when the cache is unavailable. For a stable
-    inventory every row is visited within ceil(count / batch) minute ticks.
+    A shared, database-scoped primary-key cursor advances by rows actually
+    inspected, independently of cron cadence. Manual-review rows cannot hide
+    later obligations. Cache loss restarts a cycle; cache failure is logged and
+    leaves durable obligations for a later tick, without failing live probes.
     """
     if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
         return
     from .models import CreatorMeeting
     from .views import _defer_host_evictions
 
+    key = _cursor_key() + ':host_evictions'
+    try:
+        cursor = cache.get(key, 0)
+    except Exception:
+        logger.warning('host eviction catch-up: could not read cursor', exc_info=True)
+        return
+    if type(cursor) is not int or cursor < 0:
+        cursor = 0
     pending = CreatorMeeting.objects.exclude(host_evictions=[]).only(
         "pk", "creator_id", "host_evictions").order_by("pk")
-    count = pending.count()
-    if not count:
-        return
-    size = min(count, HOST_EVICTION_CATCHUP_BATCH)
-    start = ((int(timestamp) // 60) * HOST_EVICTION_CATCHUP_BATCH) % count
-    rows = list(pending[start:start + size])
-    if len(rows) < size:
-        rows.extend(pending[:size - len(rows)])
+    rows = list(pending.filter(pk__gt=cursor)[:HOST_EVICTION_CATCHUP_BATCH])
+    if len(rows) < HOST_EVICTION_CATCHUP_BATCH:
+        rows.extend(pending.filter(pk__lte=cursor)[
+            :HOST_EVICTION_CATCHUP_BATCH - len(rows)])
     for cm in rows:
         _defer_host_evictions(cm)
+    if rows:
+        try:
+            cache.set(key, rows[-1].pk, timeout=None)
+        except Exception:
+            logger.warning('host eviction catch-up: could not store cursor', exc_info=True)
 
 
 @app.periodic(cron=settings.DYTE_LIVE_SWEEP_CRON)
@@ -629,7 +638,7 @@ def sweep_live_meetings(timestamp: int):
     from dj.apps.dyte.client import DyteClient
     from dj.apps.dyte.models import CreatorMeeting
 
-    _enqueue_deferred_host_evictions(timestamp)
+    _enqueue_deferred_host_evictions()
     dc = DyteClient(settings.DYTE_ORG)
     now = timezone.now()
     grace_cutoff = now - timedelta(seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS)
