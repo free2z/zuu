@@ -63,8 +63,8 @@ Copy the values of `sessionid` and `csrftoken`. `sessionid` is HttpOnly, so
 editor or perform an ordinary authenticated action in the website and inspect
 cookies again.
 
-Save the two values to a private JSON file. This optional Python 3 helper prompts
-without echoing them or putting them in shell history:
+Save the two values to a private JSON file. This optional Python 3 helper for
+macOS and Linux prompts without echoing them or putting them in shell history:
 
 ```sh
 python3 - <<'PY'
@@ -86,6 +86,10 @@ with os.fdopen(fd, "w") as file:
 print(f"Saved {path}")
 PY
 ```
+
+On Windows, create the same JSON object with `sessionid` and `csrftoken` and
+restrict the file's access to your own operating-system account. The server
+checks POSIX file permissions on macOS and Linux; it does not check Windows ACLs.
 
 Set `FREE2Z_SESSION_FILE` to the absolute filename in your client's server
 configuration. Configure only one credential source: `FREE2Z_SESSION_FILE`,
