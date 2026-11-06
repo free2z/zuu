@@ -108,7 +108,16 @@ async function setup(page: Page, ext: string, mime: string, access = "public") {
   await page.goto("/edit?id=media-fixture");
   const body = page.locator("textarea.writing-area-textarea");
   await expect(body).toHaveValue(initial, { timeout: 60000 });
-  return { body, url, saves, patches, isPublished: () => published };
+  return {
+    body,
+    url,
+    saves,
+    patches,
+    isPublished: () => published,
+    changeUpload: (changes: Partial<typeof item>) => {
+      item = { ...item, ...changes };
+    },
+  };
 }
 async function chooseAction(page: Page, name: string) {
   await page
@@ -365,6 +374,32 @@ test("cloud image collects separate alt and caption before insertion", async ({
   await page.getByRole("button", { name: "Apply" }).focus();
   await page.keyboard.press("Enter");
   await expect(body).toHaveValue(/!\[A bird\].*::caption\["雪\\ncaption"\]/s);
+});
+
+test("cloud image access and URL are re-read after entering details", async ({
+  page,
+}) => {
+  const { body, patches, changeUpload } = await setup(page, "png", "image/png");
+  await chooseAction(page, "Image");
+  await page.getByRole("tab", { name: "Your Cloud" }).click();
+  await page.getByRole("button", { name: /fixture.png/ }).click();
+  const details = page.getByRole("dialog", { name: "Image details" });
+  await expect(details).toBeVisible();
+  changeUpload({ access: "private", url: "/uploadz/private/changed.png" });
+  await details.getByRole("button", { name: "Apply" }).click();
+  await expect(
+    page.getByText("Readers of this page cannot open that image yet."),
+  ).toBeVisible();
+  await expect(body).toHaveValue(initial);
+  expect(patches).toHaveLength(0);
+
+  changeUpload({ access: "public", url: "/uploadz/public/changed.png" });
+  await page.getByRole("button", { name: /fixture.png/ }).click();
+  await expect(details).toBeVisible();
+  changeUpload({ url: "/uploadz/public/current.png" });
+  await details.getByRole("button", { name: "Apply" }).click();
+  await expect(body).toHaveValue(/\/uploadz\/public\/current\.png/);
+  expect(patches).toHaveLength(0);
 });
 
 test("upload details can be cancelled or inserted with a visible caption", async ({

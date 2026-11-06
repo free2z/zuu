@@ -45,6 +45,7 @@ const PROMOTED_IMAGE = {
 type Patch = { url: string; method: string; body: unknown };
 
 async function installApiMocks(page: Page, patches: Patch[]) {
+  let currentImage = PRIVATE_IMAGE;
   await page.route("**/api/**", async (route) => {
     const request = route.request();
     const pathname = new URL(request.url()).pathname;
@@ -65,6 +66,7 @@ async function installApiMocks(page: Page, patches: Patch[]) {
     }
 
     if (pathname === `/api/myuploads/${PRIVATE_IMAGE.id}/`) {
+      if (request.method() === "PATCH") currentImage = PROMOTED_IMAGE;
       patches.push({
         url: pathname,
         method: request.method(),
@@ -77,9 +79,7 @@ async function installApiMocks(page: Page, patches: Patch[]) {
       await route.fulfill({
         status: 200,
         contentType: "application/json",
-        body: JSON.stringify(
-          request.method() === "GET" ? PRIVATE_IMAGE : PROMOTED_IMAGE,
-        ),
+        body: JSON.stringify(currentImage),
       });
       return;
     }
@@ -199,12 +199,18 @@ test("confirming promotes the file and inserts the SERVER's new URL", async ({
   await details.getByRole("button", { name: "Apply" }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
 
-  // Two reads and exactly one write, in that order. The reads are what keep a
+  // The final read validates the file again after entering image details.
+  // Two earlier reads and exactly one write keep a
   // picker holding a stale snapshot from downgrading a file somebody already
   // made public in another tab: one before the gate is raised, one immediately
   // before the write — the human's decision time sits between them.
-  expect(patches.map((call) => call.method)).toEqual(["GET", "GET", "PATCH"]);
-  expect(patches.at(-1)).toEqual({
+  expect(patches.map((call) => call.method)).toEqual([
+    "GET",
+    "GET",
+    "PATCH",
+    "GET",
+  ]);
+  expect(patches.find((call) => call.method === "PATCH")).toEqual({
     url: `/api/myuploads/${PRIVATE_IMAGE.id}/`,
     method: "PATCH",
     body: { access: "public" },

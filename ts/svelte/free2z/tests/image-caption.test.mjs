@@ -72,11 +72,11 @@ test("captioned image lines interrupt preceding paragraphs", () => {
 test("article summaries include caption text without its serialization", () => {
   const source = captions.serializeCaptionedImage(
     "![Bird](/image.png)",
-    'Snow\n"Bird" [detail]',
+    'Snow\n"Bird" [detail] Price < $5 > $2; 5 * 3 = 15',
   );
   assert.equal(
     plainText.markdownToPlainText(`${source}\n\nArticle prose.`),
-    'Bird Snow "Bird" [detail] Article prose.',
+    'Bird Snow "Bird" [detail] Price < $5 > $2; 5 * 3 = 15 Article prose.',
   );
   const fenced = `~~~\n${source}\n~~~`;
   assert.equal(plainText.stripMediaDirectivesFromSummary(fenced), fenced);

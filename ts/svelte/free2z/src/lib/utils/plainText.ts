@@ -1,10 +1,15 @@
+import { parseCaptionedImage } from "./image-caption.ts";
+
 /**
  * Remove standalone media/embed directives from summaries. Keep this line
  * aware so directive-shaped text in fenced code and ordinary prose survives.
  * The trailing ellipsis is accepted because public article payloads can
  * truncate a directive at the end of its line after the closing bracket.
  */
-export function stripMediaDirectivesFromSummary(value: string): string {
+export function stripMediaDirectivesFromSummary(
+  value: string,
+  captionText: (caption: string) => string = (caption) => caption,
+): string {
   const lines = value.split(/(?<=\n)/);
   let fence: { marker: "`" | "~"; length: number } | null = null;
 
@@ -40,7 +45,8 @@ export function stripMediaDirectivesFromSummary(value: string): string {
       const previous = lines[index - 1] ?? "";
       if (/^ {0,3}!\[/.test(previous)) {
         const image = parseCaptionedImage(previous + line);
-        if (image) return image.caption + (line.endsWith("\n") ? "\n" : "");
+        if (image)
+          return captionText(image.caption) + (line.endsWith("\n") ? "\n" : "");
       }
 
       return /^ {0,3}::(?:embed|iframe|qrcode)\[[^\]\n]+(?:\](?:\.{3}|…)?|\.{3}|…)[ \t]*\r?(?:\n)?$/i.test(
@@ -53,7 +59,15 @@ export function stripMediaDirectivesFromSummary(value: string): string {
 }
 
 export function markdownToPlainText(value: string, maxLength = 200) {
-  const plain = stripMediaDirectivesFromSummary(value)
+  // Captions are literal text, not Markdown. Keep their operators and angle
+  // brackets outside the Markdown cleanup, using a marker absent from input.
+  let marker = "\u0000f2zCaption";
+  while (value.includes(marker)) marker += "X";
+  const captions: string[] = [];
+  const plain = stripMediaDirectivesFromSummary(value, (caption) => {
+    const index = captions.push(caption) - 1;
+    return `${marker}${index}\u0000`;
+  })
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/`([^`]+)`/g, "$1")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
@@ -67,6 +81,10 @@ export function markdownToPlainText(value: string, maxLength = 200) {
     .replace(/&gt;/gi, ">")
     .replace(/&quot;/gi, '"')
     .replace(/&#39;/gi, "'")
+    .replace(
+      new RegExp(`${marker}(\\d+)\u0000`, "g"),
+      (_, index) => captions[Number(index)],
+    )
     .replace(/\s+/g, " ")
     .trim();
 
@@ -75,4 +93,3 @@ export function markdownToPlainText(value: string, maxLength = 200) {
   const lastSpace = cut.lastIndexOf(" ");
   return `${(lastSpace > maxLength * 0.6 ? cut.slice(0, lastSpace) : cut.slice(0, maxLength)).trim()}…`;
 }
-import { parseCaptionedImage } from "./image-caption.ts";

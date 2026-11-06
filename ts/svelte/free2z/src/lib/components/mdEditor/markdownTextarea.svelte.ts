@@ -40,6 +40,7 @@ import {
   satisfiesSlot,
   type MediaSlotContext,
 } from "$lib/components/media/mediaAccess";
+import { readCurrentUpload } from "$lib/components/media/promoteMediaAccess";
 import {
   checkUploadSize,
   confirmOversize,
@@ -1303,6 +1304,7 @@ export class MarkdownTextareaController {
    */
   insertCloudImage = async (item: CoverLibraryImage) => {
     const t = this.#t;
+    const operationNotice = captureAccountToast();
     const original = this.#value;
     const start = this.#textarea?.selectionStart ?? original.length;
     const end = this.#textarea?.selectionEnd ?? start;
@@ -1327,6 +1329,7 @@ export class MarkdownTextareaController {
       );
     }
 
+    if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
     const slot = this.#options.mediaSlot();
 
     if (!slot || !satisfiesSlot(item.access, slot)) {
@@ -1343,16 +1346,42 @@ export class MarkdownTextareaController {
         ? await this.#options.requestImageDetails(title)
         : undefined;
     if (details === null) return;
-    if (
-      this.#options.isAbandoned() ||
-      this.#value !== original ||
-      !this.#options.mediaSlot() ||
-      !satisfiesSlot(item.access, this.#options.mediaSlot()!)
-    )
+    if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
+    if (details) {
+      if (!(await this.#runMediaPreflight())) return;
+      if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
+      const current = await readCurrentUpload<CoverLibraryImage>({
+        id: item.id,
+        request: apiFetch,
+      });
+      if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
+      if (
+        !current ||
+        current.id !== item.id ||
+        !current.url ||
+        !current.mime_type?.startsWith("image/")
+      )
+        throw new Error(
+          t(
+            "editor.imageAccessCheckFailed",
+            "Could not check who can open that image. Please try again.",
+          ),
+        );
+      item = current;
+    }
+    if (this.#options.isAbandoned() || this.#value !== original)
       throw new Error(
         t(
           "editor.documentChanged",
           "The document changed. Choose the insertion point again.",
+        ),
+      );
+    const currentSlot = this.#options.mediaSlot();
+    if (!currentSlot || !satisfiesSlot(item.access, currentSlot))
+      throw new Error(
+        t(
+          "editor.imageAccessUnreachable",
+          "Readers of this page cannot open that image yet.",
         ),
       );
     this.#textarea?.setSelectionRange(start, end);
