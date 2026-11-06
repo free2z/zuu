@@ -155,6 +155,9 @@ pyyaml==6.0.3
 # Python 3.12 remains supported; the production image uses its binary wheel.
 Pillow==13.0.0
 requests==2.34.2
+# Device-code validation fix: CVE-2026-49272 / GHSA-3jp2-3mrg-2vxc.
+# https://github.com/oauthlib/oauthlib/releases/tag/v4.0.1
+oauthlib==4.0.1
 requests_oauthlib==2.0.0
 slick-bitcoinrpc==0.1.4
 stripe==16.0.1
