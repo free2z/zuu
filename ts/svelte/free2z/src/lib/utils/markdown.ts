@@ -6,7 +6,7 @@ import markedFootnote from "marked-footnote";
 import { gfmHeadingId } from "marked-gfm-heading-id";
 import * as env from "$app/env/public";
 import { sanitizeMarkdownHtml } from "./markdown-sanitize";
-import { stripMediaDirectivesFromSummary } from "./plainText";
+import { protectSummaryCaptions } from "./plainText";
 import {
   getSafeHttpUrl,
   getSafeMediaUrl,
@@ -1089,7 +1089,8 @@ export function getCodeLanguageInfo(languageClass = "") {
 export function extractPlainText(content: string, maxLength = 160): string {
   if (!content) return "";
 
-  const summaryContent = stripMediaDirectivesFromSummary(content);
+  const captions = protectSummaryCaptions(content);
+  const summaryContent = captions.text;
 
   try {
     const htmlContent = processMarkdown(summaryContent)
@@ -1101,17 +1102,22 @@ export function extractPlainText(content: string, maxLength = 160): string {
         /<sup>\s*<a\b(?=[^>]*\bdata-footnote-ref\b)[^>]*>[\s\S]*?<\/a>\s*<\/sup>/gi,
         "",
       );
-    const textContent = htmlContent
-      .replace(/<[^>]*>/g, "")
-      .replace(/&#(\d+);/g, (_, value) => String.fromCodePoint(Number(value)))
-      .replace(/&#x([\da-f]+);/gi, (_, value) =>
-        String.fromCodePoint(Number.parseInt(value, 16)),
+    const textContent = captions
+      .restore(
+        htmlContent
+          .replace(/<[^>]*>/g, "")
+          .replace(/&#(\d+);/g, (_, value) =>
+            String.fromCodePoint(Number(value)),
+          )
+          .replace(/&#x([\da-f]+);/gi, (_, value) =>
+            String.fromCodePoint(Number.parseInt(value, 16)),
+          )
+          .replaceAll("&amp;", "&")
+          .replaceAll("&lt;", "<")
+          .replaceAll("&gt;", ">")
+          .replaceAll("&quot;", '"')
+          .replaceAll("&#39;", "'"),
       )
-      .replaceAll("&amp;", "&")
-      .replaceAll("&lt;", "<")
-      .replaceAll("&gt;", ">")
-      .replaceAll("&quot;", '"')
-      .replaceAll("&#39;", "'")
       .replace(/\s+/g, " ")
       .trim();
 
@@ -1122,6 +1128,6 @@ export function extractPlainText(content: string, maxLength = 160): string {
     return textContent;
   } catch (error) {
     console.error("Error extracting plain text:", error);
-    return summaryContent.substring(0, maxLength) + "...";
+    return captions.restore(summaryContent).substring(0, maxLength) + "...";
   }
 }

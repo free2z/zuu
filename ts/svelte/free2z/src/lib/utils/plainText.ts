@@ -58,32 +58,43 @@ export function stripMediaDirectivesFromSummary(
     .join("");
 }
 
-export function markdownToPlainText(value: string, maxLength = 200) {
-  // Captions are literal text, not Markdown. Keep their operators and angle
-  // brackets outside the Markdown cleanup, using a marker absent from input.
-  let marker = "\u0000f2zCaption";
+/** Protect literal captions while a caller processes the surrounding Markdown. */
+export function protectSummaryCaptions(value: string) {
+  let marker = "F2ZCAPTIONTOKEN";
   while (value.includes(marker)) marker += "X";
   const captions: string[] = [];
-  const plain = stripMediaDirectivesFromSummary(value, (caption) => {
+  const text = stripMediaDirectivesFromSummary(value, (caption) => {
     const index = captions.push(caption) - 1;
-    return `${marker}${index}\u0000`;
-  })
-    .replace(/```[\s\S]*?```/g, " ")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/^\s{0,3}(#{1,6}|>|[-+*]|\d+[.)])\s+/gm, "")
-    .replace(/[~*_]/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, "'")
-    .replace(
-      new RegExp(`${marker}(\\d+)\u0000`, "g"),
-      (_, index) => captions[Number(index)],
+    return `${marker}${index}END`;
+  });
+  return {
+    text,
+    restore: (plain: string) =>
+      plain.replace(
+        new RegExp(`${marker}(\\d+)END`, "g"),
+        (_, index) => captions[Number(index)],
+      ),
+  };
+}
+
+export function markdownToPlainText(value: string, maxLength = 200) {
+  const captions = protectSummaryCaptions(value);
+  const plain = captions
+    .restore(
+      captions.text
+        .replace(/```[\s\S]*?```/g, " ")
+        .replace(/`([^`]+)`/g, "$1")
+        .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/<[^>]+>/g, " ")
+        .replace(/^\s{0,3}(#{1,6}|>|[-+*]|\d+[.)])\s+/gm, "")
+        .replace(/[~*_]/g, "")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/&amp;/gi, "&")
+        .replace(/&lt;/gi, "<")
+        .replace(/&gt;/gi, ">")
+        .replace(/&quot;/gi, '"')
+        .replace(/&#39;/gi, "'"),
     )
     .replace(/\s+/g, " ")
     .trim();

@@ -1,5 +1,7 @@
 /** A captioned image is a standalone Markdown image line followed by a
- * `::caption[<JSON string>]` line. JSON preserves newlines and punctuation;
+ * `::caption[<JSON string>]` line using JSON.stringify canonical encoding.
+ * Captions allow tabs and line breaks, but no other ASCII control characters.
+ * JSON preserves newlines and punctuation;
  * older Markdown readers still render the image and show the directive as text.
  * The image's alt and optional title remain ordinary Markdown semantics.
  */
@@ -22,6 +24,10 @@ export function parseCaptionedImage(source: string): CaptionedImage | null {
   try {
     const caption: unknown = JSON.parse(match[2]);
     if (typeof caption !== "string" || !caption) return null;
+    // Match the editor serializer: alternate JSON escapes must not introduce
+    // visible characters absent from the source inspected by content checks.
+    if (JSON.stringify(caption) !== match[2]) return null;
+    if (/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(caption)) return null;
     return { image: match[1].trim(), caption };
   } catch {
     return null;

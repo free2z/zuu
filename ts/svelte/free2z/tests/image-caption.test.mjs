@@ -2,18 +2,18 @@ import assert from "node:assert/strict";
 import { test, before, after } from "node:test";
 import { createServer } from "vite";
 
-let server, render, captions, plainText;
+let server, render, captions, plainText, extract, social;
 before(async () => {
   server = await createServer({
     appType: "custom",
     logLevel: "silent",
     server: { middlewareMode: true },
   });
-  ({ processMarkdown: render } = await server.ssrLoadModule(
-    "/src/lib/utils/markdown.ts",
-  ));
+  ({ processMarkdown: render, extractPlainText: extract } =
+    await server.ssrLoadModule("/src/lib/utils/markdown.ts"));
   captions = await server.ssrLoadModule("/src/lib/utils/image-caption.ts");
   plainText = await server.ssrLoadModule("/src/lib/utils/plainText.ts");
+  social = await server.ssrLoadModule("/src/lib/social-card-text.ts");
 });
 after(async () => {
   await server?.close();
@@ -98,4 +98,40 @@ test("untrusted caption and image attributes cannot inject markup or scripts", (
   assert.doesNotMatch(html, /<script|<img[^>]*onerror|src="javascript:/i);
   assert.match(html, /&lt;script&gt;/);
   assert.match(html, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});
+
+test("all summaries preserve literal caption punctuation and whitespace", () => {
+  const caption =
+    "Line one\nLine two Use *literal* text and [brackets](verbatim); Price < $5 > $2";
+  const source = captions.serializeCaptionedImage(
+    "![Bird](/image.png)",
+    caption,
+  );
+  const expected = caption.replace(/\s+/g, " ");
+  assert.equal(extract(source, 500), expected);
+  assert.equal(social.plainSocialCardSummaryText(source, 500), expected);
+  assert.equal(plainText.markdownToPlainText(source, 500), `Bird ${expected}`);
+});
+
+test("caption parsing accepts only canonical JSON with visible text controls", () => {
+  const image = "![Bird](/image.png)";
+  for (const caption of [
+    "雪 🌿",
+    "line\nnext\tcolumn\rreturn",
+    '"quoted" \\ path',
+    "$999",
+  ]) {
+    const source = captions.serializeCaptionedImage(image, caption);
+    assert.equal(captions.parseCaptionedImage(source)?.caption, caption);
+  }
+  for (const encoded of [
+    '"\\u0024999"',
+    '"pay\\/here"',
+    '"hidden\\btext"',
+    '"hidden\\u0000text"',
+  ]) {
+    const source = `${image}\n::caption[${encoded}]`;
+    assert.equal(captions.parseCaptionedImage(source), null);
+    assert.doesNotMatch(render(source), /<figcaption>/);
+  }
 });
