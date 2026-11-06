@@ -1109,15 +1109,20 @@ def test_disabled_eviction_catchup_never_reads_obligation_table(settings, mocker
 
 
 
-def test_eviction_catchup_cache_failure_preserves_obligation(settings, mocker, host, caplog):
-    from .tasks import _enqueue_deferred_host_evictions
+def test_eviction_catchup_cache_failure_preserves_obligation(settings, mocker, host, caplog, provider):
+    from .tasks import sweep_live_meetings
 
     settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
     pending = [{'meeting_id': 'room', 'participant_id': 'host'}]
-    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room', host_evictions=pending)
+    old_seen = timezone.now() - timedelta(minutes=5)
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='room',
+        host_evictions=pending, live_now=True, last_seen_at=old_seen)
+    provider.get_participants_count.return_value = 1
     mocker.patch('dj.apps.dyte.tasks.cache.get', side_effect=ConnectionError('fixture unavailable'))
-    _enqueue_deferred_host_evictions()
+    sweep_live_meetings(0)
     cm.refresh_from_db()
     assert cm.host_evictions == pending
+    assert cm.last_seen_at > old_seen
+    provider.get_participants_count.assert_called_once_with('room')
     assert not ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions').exists()
     assert 'host eviction catch-up: could not read cursor' in caplog.text
