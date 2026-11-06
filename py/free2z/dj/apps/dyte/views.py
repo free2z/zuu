@@ -14,7 +14,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.http import HttpResponse, HttpRequest
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Exists, F, Max, Prefetch, Subquery
+from django.db.models import Exists, F, Max, Prefetch, Q, Subquery
 
 from rest_framework.decorators import (
     action, api_view, permission_classes, throttle_classes
@@ -1654,7 +1654,9 @@ HOST_EVICTION_MAX_ATTEMPTS = 40
 
 
 def _defer_host_evictions(cm):
-    """Persist a retry job in the caller's transaction when evictions exist."""
+    """Persist a retry job when the registered consumer is deployed everywhere."""
+    if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
+        return
     if not any(entry.get('state') != 'manual_review'
                for entry in (cm.host_evictions or [])):
         return
@@ -2395,6 +2397,18 @@ class DyteMeeting(APIView):
                         return Response({'code': 'livestream_compensation_integration_unavailable',
                             'error': 'Paid livestream compensation is unavailable.'}, status=409)
             _lock_host_seat(creator)
+            if (not settings.DYTE_HOST_EVICTION_JOBS_ENABLED
+                    and CreatorMeeting.objects.filter(creator=creator).filter(
+                        ~Q(host_participant_id='') | ~Q(host_evictions=[])
+                        | Q(host_start_claim__isnull=False)).exists()):
+                # Token refresh also mints a new provider participant. During
+                # registration-only rollout retain the existing host and all
+                # recovery state instead of minting a second unretirable host.
+                return Response({
+                    'code': 'host_retirement_temporarily_unavailable',
+                    'error': 'Host reconnection is temporarily unavailable. '
+                             'Keep the current broadcast open and retry shortly.',
+                }, status=503, headers={'Retry-After': '60'})
             held = _held_host_seat(creator)
             held_fresh = _seat_is_fresh(held, timezone.now())
             if held_fresh and held.host_session_id != host_session and not takeover:
@@ -2835,10 +2849,7 @@ class HostSession(APIView):
                     _held_host_seat(creator), code='host_session_superseded')
             held = mine.first()
             if held is not None and held.host_evictions:
-                from .tasks import retire_host_evictions
-                # The seat stamp and durable job are committed together; the
-                # provider work happens later in a worker with no seat lock.
-                retire_host_evictions.defer(
-                    creator_id=creator.pk, meeting_id=held.pk,
-                )
+                # Keep the obligation durable even during registration-only
+                # rollout. The enabled periodic sweep recovers deferred work.
+                _defer_host_evictions(held)
             return Response(_host_seat_status(creator, now))

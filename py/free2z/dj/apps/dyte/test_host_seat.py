@@ -32,6 +32,12 @@ from dj.apps.dyte.views import HOST_SESSION_TTL, HOST_START_CLAIM_TTL
 
 pytestmark = pytest.mark.django_db
 
+@pytest.fixture(autouse=True)
+def eviction_producers_enabled(settings):
+    # Exercise the active host-seat behavior; rollout tests override this.
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
+
+
 
 class _FakeResponse:
     def __init__(self, payload):
@@ -1016,3 +1022,85 @@ def test_heartbeat_commits_before_queued_retirement_runs(
     cm = CreatorMeeting.objects.get(creator=host)
     assert cm.host_session_seen_at == start
     _run_evictions(host)
+
+
+@pytest.mark.parametrize("takeover", [False, True])
+def test_registration_only_keeps_first_host_and_refuses_another_mint(
+    settings, provider, host, takeover,
+):
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = False
+    client = APIClient()
+    first = _start(client, host)
+    assert first.status_code == 200
+    session = first.data['host_session']
+    assert _seat(client, host, session, 'heartbeat').status_code == 200
+    before = list(CreatorMeeting.objects.filter(creator=host).values())
+    second = _start(client, host, session=None if takeover else session,
+                    takeover=takeover)
+    assert second.status_code == 503
+    assert second.data['code'] == 'host_retirement_temporarily_unavailable'
+    assert second['Retry-After'] == '60'
+    assert provider.add_participant.call_count == 1
+    assert list(CreatorMeeting.objects.filter(creator=host).values()) == before
+    assert not ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions').exists()
+
+
+def test_registration_only_preserves_obligations_and_stops_task_retries(
+    settings, provider, host,
+):
+    from .tasks import retire_host_evictions, sweep_live_meetings
+    from .views import _defer_host_evictions
+
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = False
+    pending = [{'meeting_id': 'old-room', 'participant_id': 'old-host', 'attempts': 0}]
+    cm = CreatorMeeting.objects.create(creator=host, meeting_id='old-room',
+                                      host_evictions=pending, live_now=False)
+    _defer_host_evictions(cm)
+    retire_host_evictions(host.pk, cm.pk)
+    sweep_live_meetings(0)
+    cm.refresh_from_db()
+    assert cm.host_evictions == pending
+    assert not ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions').exists()
+    provider.retire_participant.assert_not_called()
+
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
+    sweep_live_meetings(60)
+    sweep_live_meetings(120)
+    jobs = ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions')
+    assert jobs.count() == 1  # Queueing lock coalesces repeated recovery sweeps.
+    assert jobs.get().args == {'creator_id': host.pk, 'meeting_id': cm.pk}
+    provider.retire_participant.return_value = True
+    retire_host_evictions(host.pk, cm.pk)
+    cm.refresh_from_db()
+    assert cm.host_evictions == []
+    provider.retire_participant.assert_called_once_with('old-room', 'old-host')
+
+
+def test_eviction_catchup_rotates_past_manual_rows_and_bounds_each_tick(
+    settings, mocker, creator_factory,
+):
+    from .tasks import _enqueue_deferred_host_evictions
+
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
+    mocker.patch('dj.apps.dyte.tasks.HOST_EVICTION_CATCHUP_BATCH', 2)
+    enqueue = mocker.patch('dj.apps.dyte.views._defer_host_evictions')
+    rows = [CreatorMeeting.objects.create(
+        creator=creator_factory(), meeting_id=f'catchup-{i}', live_now=False,
+        host_evictions=[{'state': 'manual_review' if i < 2 else 'pending'}],
+    ) for i in range(5)]
+    reached = set()
+    for tick in [0, 60, 120]:
+        enqueue.reset_mock()
+        _enqueue_deferred_host_evictions(tick)
+        assert enqueue.call_count <= 2
+        reached.update(call.args[0].pk for call in enqueue.call_args_list)
+    assert reached == {row.pk for row in rows}
+
+
+def test_disabled_eviction_catchup_never_reads_obligation_table(settings, mocker):
+    from .tasks import _enqueue_deferred_host_evictions
+
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = False
+    query = mocker.patch('dj.apps.dyte.models.CreatorMeeting.objects.exclude')
+    _enqueue_deferred_host_evictions(0)
+    query.assert_not_called()

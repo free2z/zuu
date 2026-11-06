@@ -47,6 +47,12 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     between short reads/writes; compare-and-update keeps a stale job from
     overwriting newer evictions.
     """
+    # A disabled producer gate also prevents retries from already queued jobs.
+    # Do not clear durable obligations: the periodic sweep resumes them when
+    # a later deployment enables the gate after worker registration converges.
+    if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
+        return
+
     from django.db import transaction
     from procrastinate.exceptions import AlreadyEnqueued
 
@@ -517,6 +523,36 @@ def _probe_order(queryset, tick: int):
     return [priority] + [cm for cm in cycle if cm.pk != priority.pk]
 
 
+HOST_EVICTION_CATCHUP_BATCH = 100
+
+
+def _enqueue_deferred_host_evictions(timestamp):
+    """Revisit durable obligations, including released/non-live meetings.
+
+    A tick inspects at most 100 rows and enqueues at most one coalesced job per
+    row. Rotate over primary-key order so manual-review rows cannot permanently
+    hide later obligations, even when the cache is unavailable. For a stable
+    inventory every row is visited within ceil(count / batch) minute ticks.
+    """
+    if not settings.DYTE_HOST_EVICTION_JOBS_ENABLED:
+        return
+    from .models import CreatorMeeting
+    from .views import _defer_host_evictions
+
+    pending = CreatorMeeting.objects.exclude(host_evictions=[]).only(
+        "pk", "creator_id", "host_evictions").order_by("pk")
+    count = pending.count()
+    if not count:
+        return
+    size = min(count, HOST_EVICTION_CATCHUP_BATCH)
+    start = ((int(timestamp) // 60) * HOST_EVICTION_CATCHUP_BATCH) % count
+    rows = list(pending[start:start + size])
+    if len(rows) < size:
+        rows.extend(pending[:size - len(rows)])
+    for cm in rows:
+        _defer_host_evictions(cm)
+
+
 @app.periodic(cron=settings.DYTE_LIVE_SWEEP_CRON)
 @app.task(name="dyte.sweep_live_meetings", queue="default")
 def sweep_live_meetings(timestamp: int):
@@ -593,6 +629,7 @@ def sweep_live_meetings(timestamp: int):
     from dj.apps.dyte.client import DyteClient
     from dj.apps.dyte.models import CreatorMeeting
 
+    _enqueue_deferred_host_evictions(timestamp)
     dc = DyteClient(settings.DYTE_ORG)
     now = timezone.now()
     grace_cutoff = now - timedelta(seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS)

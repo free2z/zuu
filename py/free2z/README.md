@@ -241,3 +241,26 @@ The server intentionally retains its all-origin CORS policy and loopback bind.
 [Flask's release](https://github.com/pallets/flask/releases/tag/3.1.3) and
 [Flask-CORS advisory](https://github.com/advisories/GHSA-8vgw-p6qm-5gr7)
 describe fixes included by these versions.
+
+
+### Host participant retirement rollout
+
+`DYTE_HOST_EVICTION_JOBS_ENABLED` is a strict boolean environment setting that
+is false by default. First deploy the release with this setting false everywhere
+and verify that every worker which can consume the `default` queue registers
+`dyte.retire_host_evictions`. Only a later reviewed deployment may enable the
+setting for producers and workers. Do not combine these two release phases.
+
+While disabled, host eviction obligations remain in `CreatorMeeting.host_evictions`;
+HTTP handlers and task retries cannot enqueue retirement jobs. An existing host
+can keep broadcasting and send heartbeats. A first host can start when there is
+no retained participant, in-flight claim or pending retirement. Reconnection
+mints a new provider participant, so reconnects and takeovers that require
+retirement return a retryable 503 while the gate is disabled.
+
+After enablement, the existing live-room sweep revisits up to 100 obligation
+rows per minute tick in rotating primary-key order, including released and
+non-live meetings. It coalesces retirement jobs by meeting and preserves manual
+review states. Disabling the gate again stops execution and retries without
+clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
+to worker code without the task registration while queued jobs can still exist.
