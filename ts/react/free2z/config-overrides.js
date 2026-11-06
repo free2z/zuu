@@ -33,7 +33,7 @@ module.exports = function override(config, env) {
   };
 
   // iOS 15 cannot parse upstream URL/email/mailto/XMPP lookbehinds. Preserve
-  // those boundaries as callback guards, checked against the actual upstream
+  // those boundaries as captured prefixes, checked against the actual upstream
   // autolink transform. Exact source matching refuses unaudited dependency drift.
   config.module.rules.push({
     test: /\.js$/,

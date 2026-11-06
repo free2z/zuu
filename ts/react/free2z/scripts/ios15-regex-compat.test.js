@@ -137,6 +137,22 @@ async function verifyUpstreamAutolinks() {
       }
     }
   }
+  // Rejected long candidates must not be retried at every character. The
+  // original lookbehind rejects their boundary before consuming the suffix.
+  for (const input of [
+    ".mailto:" + "a".repeat(99_980) + "@b.co",
+    "x" + "https://example.com/".repeat(5_000),
+    "x" + "xmpp:person@example.com/".repeat(4_000),
+  ]) {
+    const expected = transformed(originalTransform, input);
+    const started = performance.now();
+    const actual = transformed(compatibleTransform, input);
+    assert.ok(
+      performance.now() - started < 500,
+      "autolink boundary rejection exceeded 500ms"
+    );
+    assert.deepEqual(actual, expected);
+  }
   for (const [input, urls] of [
     ["person@example.com", ["mailto:person@example.com"]],
     ["https://example.com", ["https://example.com"]],
