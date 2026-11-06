@@ -98,6 +98,10 @@ async function verifyUpstreamAutolinks() {
     "xmailto:",
     "@mailto:",
     "éxmpp:",
+    "long-prefix-amailto:",
+    "long-prefix-.mailto:",
+    "long-prefix-axmpp:",
+    "long-prefix-.xmpp:",
   ];
   const values = [
     "person@example.com",
@@ -143,6 +147,7 @@ async function verifyUpstreamAutolinks() {
     ".mailto:" + "a".repeat(99_980) + "@b.co",
     "x" + "https://example.com/".repeat(5_000),
     "x" + "xmpp:person@example.com/".repeat(4_000),
+    " a@b.co ".repeat(12_000),
   ]) {
     const expected = transformed(originalTransform, input);
     const started = performance.now();

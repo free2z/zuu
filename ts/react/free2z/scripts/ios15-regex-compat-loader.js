@@ -28,7 +28,9 @@ function withAutolinkBoundary(replace, email = false) {
   return function(value, prefix, ...parts) {
     const match = parts.pop()
     const actual = {...match, index: match.index + prefix.length}
-    if (email && /(?:^|[^\d@A-Za-z])(?:mailto|xmpp):$/.test(actual.input.slice(0, actual.index))) return false
+    // mailto: plus its preceding character needs at most eight code units.
+    const before = actual.input.slice(Math.max(0, actual.index - 8), actual.index)
+    if (email && /(?:^|[^\d@A-Za-z])(?:mailto|xmpp):$/.test(before)) return false
     const result = replace(value.slice(prefix.length), ...parts, actual)
     if (result === false || !prefix) return result
     return [{type: 'text', value: prefix}, ...(Array.isArray(result) ? result : [result])]
