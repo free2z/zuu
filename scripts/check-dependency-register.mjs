@@ -42,7 +42,7 @@
 // The first version of this script re-read one file — librustzcash's
 // `[workspace.dependencies]` — which is why it caught `sha2`'s justification
 // being wrong. But not every hold this repository carries is librustzcash's:
-// `chacha20poly1305` 0.10 is `zcash_note_encryption`'s requirement, and
+// `chacha20poly1305` 0.10 comes from the shipping registry note-encryption crate, and
 // `getrandom` 0.3 is `tauri`'s, a registry crate that is not vendored in `z/`
 // at all. A row justified by a source the checker does not read is exactly the
 // claim that rotted before, wearing a checked-looking badge.
@@ -74,7 +74,6 @@ const REPO_ROOT = path.resolve(
 const REGISTER_PATH = "docs/DEPENDENCIES.md";
 const GITMODULES_PATH = ".gitmodules";
 const LIBRUSTZCASH_MANIFEST = "z/zcash/librustzcash/Cargo.toml";
-const NOTE_ENCRYPTION_MANIFEST = "z/zcash/zcash_note_encryption/Cargo.toml";
 const ZUULI_LOCK = "wallet/zuuli/src-tauri/Cargo.lock";
 
 /// The five locks that resolve a shipping wallet binary or the plugins it is
@@ -375,13 +374,17 @@ const HOLDS = [
     ],
   },
   {
-    /// NOT librustzcash's. `zcash_note_encryption` is its own crate with its
-    /// own `[dependencies]`, and keeps the Zcash half on ChaCha20-Poly1305 0.10.
-    /// The fixed OpenMLS optional provider now separately resolves 0.11.
+    /// The shipping wallet resolves registry zcash_note_encryption 0.4.2.
+    /// Its independently tracked upstream submodule has moved to 0.11, so
+    /// that manifest cannot establish the constraint in this shipping graph.
     crate: "chacha20poly1305",
     held: "0.10",
-    source: { kind: "manifest", path: NOTE_ENCRYPTION_MANIFEST, table: "dependencies", requires: "0.10" },
-    registerToken: "z/zcash/zcash_note_encryption/Cargo.toml",
+    source: {
+      kind: "lockfile",
+      path: ZUULI_LOCK,
+      forcedBy: { name: "zcash_note_encryption", version: "0.4.2" },
+    },
+    registerToken: "zcash_note_encryption 0.4.2",
     /// Re-measured for the fixed OpenMLS source bridge: the three wallet MLS
     /// roots add the optional 0.11 line; Zcash-only roots still carry one copy.
     evidence: [
@@ -1567,36 +1570,18 @@ function runSelfTest() {
     // `chacha20poly1305` is `zcash_note_encryption`'s requirement and
     // `getrandom` is `tauri`'s, and neither is read by librustzcash's manifest.
     [
-      "a hold's own upstream — not librustzcash — bumps it",
-      editSource(
-        NOTE_ENCRYPTION_MANIFEST,
-        'chacha20poly1305 = { version = "0.10"',
-        'chacha20poly1305 = { version = "0.11"',
-      ),
-      "chacha20poly1305: register says z/zcash/zcash_note_encryption/Cargo.toml forces 0.10",
+      "the shipping note-encryption version changes and needs a fresh hold review",
+      editSource(ZUULI_LOCK, 'name = "zcash_note_encryption"\nversion = "0.4.2"', 'name = "zcash_note_encryption"\nversion = "0.5.1"'),
+      "zcash_note_encryption 0.4.2",
     ],
     [
-      "a hold's own upstream drops the dependency that forced it",
+      "the shipping note-encryption crate drops the held dependency",
       editSource(
-        NOTE_ENCRYPTION_MANIFEST,
-        'chacha20poly1305 = { version = "0.10", default-features = false }',
-        "# chacha20poly1305 gone",
+        ZUULI_LOCK,
+        'name = "zcash_note_encryption"\nversion = "0.4.2"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "e1cb1b9170c94370e3d66c5cc0877661db743337588b64de7711239eed462198"\ndependencies = [\n "chacha20 0.9.1",\n "chacha20poly1305 0.10.1",',
+        'name = "zcash_note_encryption"\nversion = "0.4.2"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "e1cb1b9170c94370e3d66c5cc0877661db743337588b64de7711239eed462198"\ndependencies = [\n "chacha20 0.9.1",',
       ),
-      "declares no such dependency any more",
-    ],
-    [
-      "the second constraint-source submodule is not checked out",
-      withSource(NOTE_ENCRYPTION_MANIFEST, ""),
-      "z/zcash/zcash_note_encryption/Cargo.toml: no [dependencies] found",
-    ],
-    [
-      "a non-librustzcash upstream takes a position on the hold we call our own",
-      editSource(
-        NOTE_ENCRYPTION_MANIFEST,
-        'subtle = { version = "2.3", default-features = false }',
-        'subtle = { version = "2.3", default-features = false }\nhkdf = { version = "0.13", default-features = false }',
-      ),
-      "z/zcash/zcash_note_encryption/Cargo.toml's [dependencies] now declares 0.13",
+      "chacha20poly1305",
     ],
     [
       // A tauri bump does not mean the hold is wrong — it means nobody has
@@ -1726,7 +1711,7 @@ function runSelfTest() {
       "a hold row stops naming the source that verifies it",
       withRegister(
         baseline.register.replace(
-          "z/zcash/zcash_note_encryption/Cargo.toml",
+          "zcash_note_encryption 0.4.2",
           "a note-encryption crate",
         ),
       ),
