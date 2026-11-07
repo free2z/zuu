@@ -63,11 +63,25 @@ one for a confidential client.
 
 | Shape | Form | Notes |
 |---|---|---|
-| **Loopback** | `http://127.0.0.1:{port}/{path}` or `http://[::1]:{port}/{path}` | Register with any port (for example `http://127.0.0.1:0/callback`); the IdP ignores the port when matching (RFC 8252 §7.3). `localhost` as a name is **not** accepted — it may resolve off-device. Desktop apps use this |
+| **Loopback** | `http://127.0.0.1:{port}/{path}` or `http://[::1]:{port}/{path}` | Register with any port (for example `http://127.0.0.1:0/callback`); the IdP ignores the port when matching (RFC 8252 §7.3). SDK registrations do not accept the name `localhost`. Desktop apps use this |
 | **Claimed `https`** (mobile) | `https://tutor.example.com/oauth/callback` | A universal link (iOS) or App Link (Android) the app has proven it controls. The IdP verifies the domain association file at registration time and again daily; a URI whose association is missing is refused at authorization time with `invalid_request` |
 | **Private-use scheme** | `com.example.tutor:/oauth/callback` | The scheme MUST be a reverse-DNS name the developer controls (RFC 8252 §7.1). One slash after the colon, as the RFC recommends. This is the **fallback** on iOS and Android when a claimed link is not available |
 | **`https` web origin** (browser app) | `https://app.example.com/oauth/callback` | A public client running as a page. No domain association is needed; the origin is also registered as an allowed CORS origin (§3.1). `http` is accepted only for loopback |
 | **`https` (confidential)** | `https://api.example.com/oauth/callback` | Server-side apps only |
+
+Public clients registered through `/api/oauth/register` exclusively for MCP
+permissions may use `http://localhost:<port>/callback` with an explicit port
+from 1 to 65535. This native-client compatibility exception requires exact
+matching of the entire registered callback, including the port, and PKCE
+S256. Other localhost spellings, subdomains and arbitrary HTTP hosts are
+not accepted. It does not apply to ordinary SDK registrations or clients
+with permissions outside the MCP scopes and `offline_access`.
+
+Dynamic MCP client names that contain the reserved Free2Z brand receive the
+neutral display name **MCP client**. This accommodates clients that include
+the user's server alias in their name without implying a verified or
+first-party application. Names containing controls or invisible characters
+are rejected.
 
 Mobile guidance, both platforms equal:
 
