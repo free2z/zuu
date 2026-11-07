@@ -1,8 +1,10 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import assert from "node:assert/strict";
+import { Client } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 const dir = await mkdtemp(join(tmpdir(), "free2z-mcp-package-"));
 try {
   const packed = JSON.parse(
@@ -51,6 +53,52 @@ try {
     JSON.parse(await readFile(new URL("../package.json", import.meta.url)))
       .version,
   );
+  const registry = join(dir, "accounts.json");
+  await writeFile(
+    registry,
+    JSON.stringify({
+      accounts: {
+        team: {
+          username: "example-team",
+          token_file: join(dir, "not-opened.token"),
+        },
+      },
+    }),
+    { mode: 0o600 },
+  );
+  const profileEnv = { ...env, FREE2Z_ACCOUNTS_FILE: registry };
+  const profileCheck = JSON.parse(
+    execFileSync(process.execPath, [cli, "--check"], {
+      env: profileEnv,
+      encoding: "utf8",
+      cwd: dir,
+    }),
+  );
+  assert.equal(profileCheck.authentication, "profiles");
+  assert.ok(!JSON.stringify(profileCheck).includes(dir));
+  const client = new Client({ name: "packed-consumer", version: "1.0.0" });
+  try {
+    await client.connect(
+      new StdioClientTransport({
+        command: process.execPath,
+        args: [cli],
+        cwd: dir,
+        env: profileEnv,
+      }),
+    );
+    const result = await client.callTool({
+      name: "free2z_list_accounts",
+      arguments: {},
+    });
+    assert.equal(result.isError, false);
+    assert.equal(
+      JSON.parse(result.content[0].text).accounts[0].username,
+      "example-team",
+    );
+    assert.ok(!JSON.stringify(result).includes(dir));
+  } finally {
+    await client.close();
+  }
   console.log(
     "Installed tarball runs outside the source checkout without dev dependencies.",
   );

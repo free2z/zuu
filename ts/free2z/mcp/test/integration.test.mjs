@@ -457,3 +457,318 @@ test("every bundled operation schema can be described and its request validators
     }
   }
 });
+
+async function profiles(t) {
+  const f = await fixture(t);
+  const session = join(f.dir, "alice.json");
+  const token = join(f.dir, "team.token");
+  const registry = join(f.dir, "accounts.json");
+  const accounts = {
+    alice: { username: "alice", session_file: session },
+    team: { username: "team", token_file: token },
+  };
+  await writeFile(
+    session,
+    JSON.stringify({
+      sessionid: "aliceSessionSecret",
+      csrftoken: "aliceCsrfSecret",
+    }),
+    { mode: 0o600 },
+  );
+  await writeFile(token, "teamTokenSecret", { mode: 0o600 });
+  await writeFile(registry, JSON.stringify({ accounts }), { mode: 0o600 });
+  const client = await f.connect({ FREE2Z_ACCOUNTS_FILE: registry });
+  return { ...f, session, token, registry, accounts, client };
+}
+const draftBody = {
+  title: "Account draft",
+  content: "Body",
+  source_language: "en",
+  tags: [],
+  is_published: false,
+};
+
+test("profile stdio requires explicit account, verifies identity before every operation and refuses expired/wrong credentials without fallback", async (t) => {
+  const f = await profiles(t);
+  const listed = await call(f.client, "free2z_list_accounts", {});
+  assert.equal(listed.error, false);
+  assert.deepEqual(listed.data, {
+    mode: "profiles",
+    accounts: [
+      { account: "alice", username: "alice", authentication: "session" },
+      { account: "team", username: "team", authentication: "token" },
+      { account: "anonymous", username: null, authentication: "anonymous" },
+    ],
+  });
+  assert.equal(f.received.length, 0);
+  assert.ok(!JSON.stringify(listed).includes(f.dir));
+  for (const account of [undefined, "missing", "__proto__", "constructor"]) {
+    const r = await call(f.client, "free2z_execute", {
+      operation_id: "zpage_create",
+      body: draftBody,
+      ...(account === undefined ? {} : { account }),
+    });
+    assert.equal(r.error, true);
+  }
+  assert.equal(f.received.length, 0);
+  let identity = { username: "someoneElse", token: "issuedSecret" };
+  let status = 200;
+  f.respond((req) => {
+    assert.equal(
+      req.url,
+      "/api/auth/user/",
+      "requested mutation must not be sent when identity verification fails",
+    );
+    return { status, data: identity };
+  });
+  for (const code of [200, 401, 403]) {
+    status = code;
+    const r = await call(f.client, "free2z_execute", {
+      account: "alice",
+      operation_id: "zpage_create",
+      body: draftBody,
+    });
+    assert.equal(r.error, true);
+    assert.match(r.data.error, /identity verification failed/);
+    assert.doesNotMatch(
+      JSON.stringify(r),
+      /someoneElse|issuedSecret|aliceSessionSecret|aliceCsrfSecret/,
+    );
+  }
+  assert.equal(f.received.length, 3);
+  assert.ok(f.received.every((r) => r.headers.authorization === undefined));
+  f.respond((req) => ({
+    data:
+      req.url === "/api/auth/user/"
+        ? { username: "alice" }
+        : { echoed: req.headers.cookie, client_secret: "newSecret" },
+  }));
+  const read = await call(f.client, "free2z_read", {
+    account: "alice",
+    operation_id: "zpage_list",
+  });
+  assert.equal(read.error, false);
+  assert.equal(read.data.account, "alice");
+  assert.equal(read.data.verified_username, "alice");
+  assert.doesNotMatch(
+    JSON.stringify(read),
+    /aliceSessionSecret|aliceCsrfSecret|newSecret/,
+  );
+  assert.equal(f.received.length, 5);
+  const beforeAnonymous = f.received.length;
+  f.respond((req) => {
+    assert.equal(req.headers.cookie, undefined);
+    assert.equal(req.headers.authorization, undefined);
+    assert.equal(req.headers["x-csrftoken"], undefined);
+    return { data: {} };
+  });
+  for (const [tool, operation_id] of [
+    ["free2z_read", "zpage_list"],
+    ["free2z_execute", "zpage_create"],
+  ]) {
+    const anonymous = await call(f.client, tool, {
+      account: "anonymous",
+      operation_id,
+      ...(tool === "free2z_execute" ? { body: draftBody } : {}),
+    });
+    assert.equal(anonymous.error, false);
+    assert.equal(anonymous.data.account, "anonymous");
+    assert.equal(anonymous.data.verified_username, null);
+  }
+  assert.equal(
+    f.received.length,
+    beforeAnonymous + 2,
+    "anonymous preserves API semantics without identity lookups or fallback",
+  );
+});
+
+test("concurrent profile calls retain verified snapshots while registry and credentials rotate, next calls reload without restart", async (t) => {
+  const f = await profiles(t);
+  let release;
+  const hold = new Promise((resolve) => {
+    release = resolve;
+  });
+  let observed;
+  const started = new Promise((resolve) => {
+    observed = resolve;
+  });
+  let delayed = false;
+  f.respond(async (req) => {
+    const alice = req.headers.cookie?.includes("aliceSessionSecret");
+    const rotated = req.headers.cookie?.includes("rotatedSessionSecret");
+    const team = req.headers.authorization === "Token teamTokenSecret";
+    assert.ok(alice || rotated || team);
+    assert.equal(
+      Boolean(req.headers.cookie) && Boolean(req.headers.authorization),
+      false,
+    );
+    if (req.url === "/api/auth/user/") {
+      if (alice && !delayed) {
+        delayed = true;
+        observed();
+        await hold;
+      }
+      return { data: { username: team ? "team" : "alice" } };
+    }
+    assert.equal(req.method, "POST");
+    if (alice) assert.equal(req.headers["x-csrftoken"], "aliceCsrfSecret");
+    if (rotated) assert.equal(req.headers["x-csrftoken"], "rotatedCsrfSecret");
+    return { status: 201, data: { title: JSON.parse(req.body).title } };
+  });
+  const oldCall = call(f.client, "free2z_execute", {
+    account: "alice",
+    operation_id: "zpage_create",
+    body: { ...draftBody, title: "old snapshot" },
+  });
+  await started;
+  const teamCall = await call(f.client, "free2z_execute", {
+    account: "team",
+    operation_id: "zpage_create",
+    body: { ...draftBody, title: "team snapshot" },
+  });
+  assert.equal(teamCall.error, false);
+  assert.equal(teamCall.data.verified_username, "team");
+  // Replace selected file while its identity request is paused. The original call must not reread it.
+  await writeFile(
+    f.session,
+    JSON.stringify({
+      sessionid: "rotatedSessionSecret",
+      csrftoken: "rotatedCsrfSecret",
+    }),
+  );
+  await writeFile(
+    f.registry,
+    JSON.stringify({
+      accounts: {
+        ...f.accounts,
+        alice: { ...f.accounts.alice, username: "notAlice" },
+      },
+    }),
+  );
+  release();
+  const old = await oldCall;
+  assert.equal(old.error, false);
+  assert.equal(old.data.verified_username, "alice");
+  await writeFile(f.registry, JSON.stringify({ accounts: f.accounts }));
+  const next = await call(f.client, "free2z_execute", {
+    account: "alice",
+    operation_id: "zpage_create",
+    body: { ...draftBody, title: "new snapshot" },
+  });
+  assert.equal(next.error, false);
+  const posts = f.received.filter((r) => r.method === "POST");
+  assert.equal(posts.length, 3);
+  assert.equal(
+    posts.find((r) => JSON.parse(r.body).title === "old snapshot").headers
+      .cookie,
+    "sessionid=aliceSessionSecret; csrftoken=aliceCsrfSecret",
+  );
+  assert.equal(
+    posts.find((r) => JSON.parse(r.body).title === "new snapshot").headers
+      .cookie,
+    "sessionid=rotatedSessionSecret; csrftoken=rotatedCsrfSecret",
+  );
+  assert.equal(
+    posts.find((r) => JSON.parse(r.body).title === "team snapshot").headers
+      .authorization,
+    "Token teamTokenSecret",
+  );
+  // Registry replacement also takes effect, without changing another profile.
+  await writeFile(
+    f.registry,
+    JSON.stringify({
+      accounts: {
+        ...f.accounts,
+        alice: { ...f.accounts.alice, username: "notAlice" },
+      },
+    }),
+  );
+  const rejected = await call(f.client, "free2z_execute", {
+    account: "alice",
+    operation_id: "zpage_create",
+    body: draftBody,
+  });
+  assert.equal(rejected.error, true);
+  assert.equal(f.received.filter((r) => r.method === "POST").length, 3);
+  assert.equal(
+    (
+      await call(f.client, "free2z_execute", {
+        account: "team",
+        operation_id: "zpage_create",
+        body: draftBody,
+      })
+    ).error,
+    false,
+  );
+});
+
+test("registry and credential errors are private, malformed reload fails closed, listing does not read credentials", async (t) => {
+  const f = await profiles(t);
+  assert.throws(
+    () =>
+      loadConfig({
+        FREE2Z_ACCOUNTS_FILE: f.registry,
+        FREE2Z_TOKEN: "testknoxsecret",
+      }),
+    /exactly one/,
+  );
+  await rm(f.token);
+  assert.equal(
+    (await call(f.client, "free2z_list_accounts", {})).error,
+    false,
+    "listing must not open credentials",
+  );
+  const missing = await call(f.client, "free2z_read", {
+    account: "team",
+    operation_id: "zpage_list",
+  });
+  assert.equal(missing.error, true);
+  assert.ok(!JSON.stringify(missing).includes(f.dir));
+  await writeFile(f.session, "not JSON: privateSecretMarker");
+  const malformed = await call(f.client, "free2z_read", {
+    account: "alice",
+    operation_id: "zpage_list",
+  });
+  assert.equal(malformed.error, true);
+  assert.doesNotMatch(JSON.stringify(malformed), /privateSecretMarker/);
+  const invalid = [
+    "privateSecretMarker",
+    { accounts: { anonymous: f.accounts.alice } },
+    { accounts: { alice: { ...f.accounts.alice, token_file: f.token } } },
+    {
+      accounts: {
+        alice: { ...f.accounts.alice, session_file: "relative.json" },
+      },
+    },
+    {
+      accounts: {
+        alice: { ...f.accounts.alice, raw_token: "privateSecretMarker" },
+      },
+    },
+    { accounts: {}, unexpected: "privateSecretMarker" },
+  ];
+  for (const registry of invalid) {
+    await writeFile(
+      f.registry,
+      typeof registry === "string" ? registry : JSON.stringify(registry),
+    );
+    for (const [name, args] of [
+      ["free2z_list_accounts", {}],
+      ["free2z_read", { account: "alice", operation_id: "zpage_list" }],
+    ]) {
+      const r = await call(f.client, name, args);
+      assert.equal(r.error, true);
+      assert.doesNotMatch(JSON.stringify(r), /privateSecretMarker/);
+      assert.ok(!JSON.stringify(r).includes(f.dir));
+    }
+  }
+  await writeFile(f.registry, JSON.stringify({ accounts: f.accounts }));
+  if (process.platform !== "win32") {
+    await chmod(f.registry, 0o644);
+    assert.equal(
+      (await call(f.client, "free2z_list_accounts", {})).error,
+      true,
+    );
+  }
+  assert.equal(f.received.length, 0);
+});
