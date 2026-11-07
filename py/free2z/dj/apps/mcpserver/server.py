@@ -10,7 +10,7 @@ from uuid import UUID
 from asgiref.sync import sync_to_async
 from django.core.serializers.json import DjangoJSONEncoder
 from mcp.server import MCPServer
-from mcp_types import CallToolResult, ListToolsResult, TextContent, ToolAnnotations
+from mcp_types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.exceptions import APIException
 
@@ -48,6 +48,16 @@ READ_ONLY = ToolAnnotations(read_only_hint=True, destructive_hint=False, idempot
 WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=True, idempotent_hint=False, open_world_hint=True)
 
 
+class _ExplicitToolsServer(MCPServer):
+    async def list_tools(self):
+        # Public SDK hook: retain its generated schemas and advertise the
+        # extra-argument refusal enforced by our request middleware.
+        tools = await super().list_tools()
+        for tool in tools:
+            tool.input_schema = {**tool.input_schema, "additionalProperties": False}
+        return tools
+
+
 def _result(data):
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(data, cls=DjangoJSONEncoder))],
@@ -70,7 +80,7 @@ async def _call(function, *args, **kwargs):
 
 def create_server(raw_token, original_request):
     """Fresh per HTTP request. Token stays in this closure, never tool input."""
-    server = MCPServer(
+    server = _ExplicitToolsServer(
         "free2z", version="1.0.0", subscriptions=False,
         instructions=(
             "Control explicitly authorized Free2Z accounts. List accounts first. "
@@ -95,11 +105,7 @@ def create_server(raw_token, original_request):
                 schemas = {tool.name: tool.input_schema for tool in await server.list_tools()}
                 if name in schemas and arguments.keys() - schemas[name].get("properties", {}).keys():
                     return _result({"status": 400, "data": {"detail": "Unsupported tool arguments. Use the listed input schema."}})
-        result = await call_next(ctx)
-        if ctx.method == "tools/list" and isinstance(result, ListToolsResult):
-            for tool in result.tools:
-                tool.input_schema = {**tool.input_schema, "additionalProperties": False}
-        return result
+        return await call_next(ctx)
 
     server.middleware.append(strict_arguments)
 
