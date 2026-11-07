@@ -9,17 +9,73 @@ use zcash_paymentd::{
     now, scanner,
 };
 
+struct StreamDeadline {
+    deadline: std::time::Instant,
+    cancel: std::sync::mpsc::Sender<()>,
+    watcher: Option<std::thread::JoinHandle<()>>,
+}
+
+impl StreamDeadline {
+    fn new(timeout: Duration) -> Self {
+        let deadline = std::time::Instant::now() + timeout;
+        let (cancel, receiver) = std::sync::mpsc::channel();
+        let watcher = std::thread::spawn(move || {
+            if matches!(
+                receiver
+                    .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                // Do not flush or acquire stdout's lock: the consumer may have
+                // stopped draining it. Process death releases the journal lock.
+                unsafe { libc::_exit(124) }
+            }
+        });
+        Self {
+            deadline,
+            cancel,
+            watcher: Some(watcher),
+        }
+    }
+
+    fn stop(&mut self) {
+        let _ = self.cancel.send(());
+        if let Some(watcher) = self.watcher.take() {
+            let _ = watcher.join();
+        }
+    }
+
+    fn finish(mut self) -> Result<()> {
+        self.stop();
+        anyhow::ensure!(
+            std::time::Instant::now() < self.deadline,
+            "handoff stream deadline exceeded"
+        );
+        Ok(())
+    }
+}
+
+impl Drop for StreamDeadline {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 #[derive(Parser)]
 #[command(about = "Receive-only Zcash payment observer and durable automation daemon")]
 struct Args {
     #[arg(long)]
     config: PathBuf,
+    /// SQLite heap budget for status and stopped-journal inventory commands only.
+    #[arg(long, global = true, value_parser = clap::value_parser!(u16).range(32..=512))]
+    inventory_sqlite_heap_mib: Option<u16>,
     #[command(subcommand)]
     command: Command,
 }
 #[derive(Subcommand)]
 enum Command {
     Run,
+    /// Report the stopped-journal handoff protocol without reading private state.
+    HandoffCapabilities,
     /// Offline external receiver coverage proof; address supplied on bounded stdin.
     VerifyAddress,
     /// Read-only historical receipt proof. Never creates a lifecycle event.
@@ -50,12 +106,14 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         timeout_seconds: u64,
     },
+    /// Stream a complete private revocation inventory as a verified header,
+    /// ordered records and boundary footer. Missing footer means failure.
+    HandoffRevocationsStream {
+        #[arg(long, default_value_t = 20)]
+        timeout_seconds: u64,
+    },
     /// Enqueue missing eligible lifecycle work without resetting ACKs. Daemon must be stopped.
     EnqueueMissing {
-        #[arg(long, default_value_t = 10_000)]
-        max_receipts: u32,
-        #[arg(long, default_value_t = 50_000)]
-        max_events: u32,
         #[arg(long, default_value_t = 20)]
         timeout_seconds: u64,
     },
@@ -72,6 +130,30 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let a = Args::parse();
+    let inventory = matches!(
+        &a.command,
+        Command::Status
+            | Command::HandoffRevocations { .. }
+            | Command::HandoffRevocationsStream { .. }
+            | Command::EnqueueMissing { .. }
+    );
+    anyhow::ensure!(
+        inventory || a.inventory_sqlite_heap_mib.is_none(),
+        "SQLite inventory heap override is only valid for inventory commands"
+    );
+    if inventory {
+        let limit = i64::from(a.inventory_sqlite_heap_mib.unwrap_or(32)) * 1024 * 1024;
+        // This short-lived CLI process owns every SQLite connection. Never set
+        // this process-global allocator limit in the library or daemon path.
+        unsafe {
+            rusqlite::ffi::sqlite3_hard_heap_limit64(limit);
+        }
+        anyhow::ensure!(
+            unsafe { rusqlite::ffi::sqlite3_hard_heap_limit64(-1) } == limit,
+            "SQLite inventory heap limit unavailable"
+        );
+    }
+
     if matches!(a.command, Command::VerifyAddress) {
         // Keep private configuration, address and key parsing failures out of diagnostics.
         let proof = (|| {
@@ -84,9 +166,17 @@ async fn main() -> Result<()> {
         println!("{}", serde_json::to_string(&proof)?);
         return Ok(());
     }
+    if matches!(a.command, Command::HandoffCapabilities) {
+        println!(
+            "{}",
+            serde_json::json!({"schema":1,"stream_protocol":1,"enqueue_missing":true})
+        );
+        return Ok(());
+    }
     let c = Config::load(&a.config)?;
     match a.command {
         Command::VerifyAddress => unreachable!("handled before state access"),
+        Command::HandoffCapabilities => unreachable!("handled before state access"),
         Command::Payments { after, limit } => {
             println!(
                 "{}",
@@ -146,19 +236,35 @@ async fn main() -> Result<()> {
                 Journal::inspect(&c)?;
                 let lock = StateLock::acquire(&c.state_dir)?;
                 Journal::handoff_revocations(&lock, &c, &private_file(&c.ufvk_file)?, max_receipts, max_events, Duration::from_secs(timeout_seconds))
-            })().map_err(|_| anyhow::anyhow!("handoff unavailable; inspect stopped writer, journal identity, lifecycle, caps and deadline"))?;
+            })().map_err(|_| anyhow::anyhow!("legacy handoff unavailable; inspect stopped writer, journal identity, lifecycle and deadline"))?;
             println!("{}", serde_json::to_string(&result)?);
         }
-        Command::EnqueueMissing {
-            max_receipts,
-            max_events,
-            timeout_seconds,
-        } => {
+        Command::HandoffRevocationsStream { timeout_seconds } => {
+            anyhow::ensure!(
+                (1..=120).contains(&timeout_seconds),
+                "handoff deadline must be 1..120 seconds"
+            );
+            let deadline = StreamDeadline::new(Duration::from_secs(timeout_seconds));
+            (|| {
+                Journal::inspect(&c)?;
+                let lock = StateLock::acquire(&c.state_dir)?;
+                Journal::handoff_revocations_stream(
+                    &lock,
+                    &c,
+                    &private_file(&c.ufvk_file)?,
+                    Duration::from_secs(timeout_seconds),
+                    &mut std::io::stdout().lock(),
+                )
+            })()
+            .map_err(|_| anyhow::anyhow!("handoff stream unavailable; inspect stopped writer, journal identity, lifecycle and deadline"))?;
+            deadline.finish()?;
+        }
+        Command::EnqueueMissing { timeout_seconds } => {
             let result = (|| {
                 Journal::inspect(&c)?;
                 let lock = StateLock::acquire(&c.state_dir)?;
-                Journal::enqueue_missing(&lock, &c, &private_file(&c.ufvk_file)?, max_receipts, max_events, Duration::from_secs(timeout_seconds))
-            })().map_err(|_| anyhow::anyhow!("handoff unavailable; inspect stopped writer, journal identity, lifecycle, caps and deadline"))?;
+                Journal::enqueue_missing(&lock, &c, &private_file(&c.ufvk_file)?, Duration::from_secs(timeout_seconds))
+            })().map_err(|_| anyhow::anyhow!("handoff unavailable; inspect stopped writer, journal identity, lifecycle and deadline"))?;
             println!("{}", serde_json::to_string(&result)?);
         }
         Command::Run => run(c).await?,
@@ -223,4 +329,29 @@ async fn run(c: Config) -> Result<()> {
         let _ = worker.await;
     }
     result
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::StreamDeadline;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn completed_stream_cancels_and_joins_its_watchdog() {
+        StreamDeadline::new(Duration::from_millis(250))
+            .finish()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+    }
+
+    #[test]
+    fn late_stream_completion_cannot_report_success() {
+        let (cancel, _receiver) = std::sync::mpsc::channel();
+        let guard = StreamDeadline {
+            deadline: Instant::now(),
+            cancel,
+            watcher: None,
+        };
+        assert!(guard.finish().is_err());
+    }
 }
