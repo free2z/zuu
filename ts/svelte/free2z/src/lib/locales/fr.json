@@ -3035,13 +3035,13 @@
       "switchFailed": "Impossible de vous déconnecter. Réessayez avant de changer de compte.",
       "decisionFailed": "Impossible de confirmer la connexion. Consultez Applications connectées avant de lancer une nouvelle demande.",
       "linkTitle": "Connecter un compte · Free2Z",
-      "linkHeading": "Connectez un compte à votre assistant",
+      "linkHeading": "Connectez un compte à un assistant",
       "signInHelp": "Connectez-vous au compte Free2Z que vous souhaitez associer. Vous examinerez l’accès avant de l’autoriser.",
       "signIn": "Se connecter",
-      "invalid": "Cette demande est absente ou a expiré. Si vous l’avez déjà approuvée, consultez Applications connectées avant de demander un nouveau lien à votre assistant.",
+      "invalid": "Cette demande est absente ou a expiré. Si vous l’avez déjà approuvée, consultez Applications connectées avant de demander un nouveau lien au titulaire de la connexion.",
       "connected": "Compte connecté",
       "denied": "Connexion refusée",
-      "return": "Retournez à votre assistant. Vous pouvez fermer cet onglet.",
+      "return": "Vous pouvez fermer cet onglet. Le titulaire de la connexion peut continuer dans son assistant.",
       "application": "Application de l’assistant",
       "connectionOwner": "Titulaire de la connexion",
       "requestedAccount": "Compte à connecter",
@@ -3055,7 +3055,8 @@
       "switch": "Changer de compte",
       "connectionPermissions": "Ces autorisations s’appliquent à cette connexion. Vos autres connexions d’assistants conservent leurs propres autorisations.",
       "removeApplication": "Cela supprime aussi toutes les connexions d’agents autorisées par ce compte pour cette application, y compris leurs comptes liés. Utilisez Connexions des agents pour supprimer une seule connexion.",
-      "manageAccess": "Ouvrir Applications connectées"
+      "manageAccess": "Ouvrir Applications connectées",
+      "delegation": "Autorisez la connexion {application} appartenant à @{primary} à agir en tant que @{target} avec ces autorisations."
     }
   },
   "translationJobs": {

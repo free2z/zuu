@@ -50,6 +50,12 @@ test("link review uses a clean URL, exact account and explicit reduced permissio
   await expect(
     page.getByRole("button", { name: "Allow access" }),
   ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Allow the Example assistant connection owned by @owner-user to act as @target-user with these permissions.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   expect(new URL(page.url()).hash).toBe("");
   await expect(page.getByText("@target-user", { exact: true })).toHaveCount(2);
   expect(writes).toEqual([]);

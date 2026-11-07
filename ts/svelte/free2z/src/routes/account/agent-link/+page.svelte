@@ -163,7 +163,7 @@
   <header class="space-y-2">
     <p class="text-sm font-semibold text-primary">Free2Z</p>
     <h1 class="text-2xl font-semibold">
-      {$t("oauth.agent.linkHeading", "Connect an account to your assistant")}
+      {$t("oauth.agent.linkHeading", "Connect an account to an assistant")}
     </h1>
   </header>
   {#if phase === "loading"}
@@ -180,7 +180,7 @@
     <p role="alert">
       {$t(
         "oauth.agent.invalid",
-        "This request is missing or expired. If you already approved it, check Connected apps before asking your assistant for a new link.",
+        "This request is missing or expired. If you already approved it, check Connected apps before asking the connection owner for a new link.",
       )}
     </p>
     <a href="/account/apps" class="font-medium text-primary underline">
@@ -206,7 +206,7 @@
       <p>
         {$t(
           "oauth.agent.return",
-          "Return to your assistant. You can close this tab.",
+          "You can close this tab. The connection owner can continue in their assistant.",
         )}
       </p>
     </div>
@@ -277,6 +277,17 @@
             </Label>
           {/each}
         </fieldset>
+        <p class="text-sm font-medium">
+          {$t(
+            "oauth.agent.delegation",
+            "Allow the {application} connection owned by @{primary} to act as @{target} with these permissions.",
+            {
+              application: prompt.application.name,
+              primary: prompt.connection.primary_username,
+              target: prompt.expected_username,
+            },
+          )}
+        </p>
         <p class="text-sm text-muted-foreground">
           {$t(
             "oauth.agent.revokeHelp",

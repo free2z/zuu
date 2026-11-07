@@ -3035,13 +3035,13 @@
       "switchFailed": "No se pudo cerrar la sesión. Inténtalo de nuevo antes de cambiar de cuenta.",
       "decisionFailed": "No se pudo confirmar la conexión. Revisa Aplicaciones conectadas antes de iniciar una solicitud nueva.",
       "linkTitle": "Conectar una cuenta · Free2Z",
-      "linkHeading": "Conecta una cuenta a tu asistente",
+      "linkHeading": "Conecta una cuenta a un asistente",
       "signInHelp": "Inicia sesión en la cuenta de Free2Z que quieres conectar. Revisarás el acceso antes de aprobarlo.",
       "signIn": "Iniciar sesión",
-      "invalid": "Esta solicitud no existe o ha caducado. Si ya la aprobaste, revisa Aplicaciones conectadas antes de pedir un enlace nuevo a tu asistente.",
+      "invalid": "Esta solicitud no existe o ha caducado. Si ya la aprobaste, revisa Aplicaciones conectadas antes de pedir un enlace nuevo al titular de la conexión.",
       "connected": "Cuenta conectada",
       "denied": "Conexión rechazada",
-      "return": "Vuelve a tu asistente. Puedes cerrar esta pestaña.",
+      "return": "Puedes cerrar esta pestaña. El titular de la conexión puede continuar en su asistente.",
       "application": "Aplicación del asistente",
       "connectionOwner": "Titular de la conexión",
       "requestedAccount": "Cuenta que se conectará",
@@ -3055,7 +3055,8 @@
       "switch": "Cambiar de cuenta",
       "connectionPermissions": "Estos permisos se aplican a esta conexión. Tus otras conexiones de asistentes conservan sus propios permisos.",
       "removeApplication": "También se eliminan todas las conexiones de agentes autorizadas por esta cuenta para esta aplicación, incluidas sus cuentas vinculadas. Usa Conexiones de agentes para eliminar solo una conexión.",
-      "manageAccess": "Abrir Aplicaciones conectadas"
+      "manageAccess": "Abrir Aplicaciones conectadas",
+      "delegation": "Permite que la conexión de {application} de @{primary} actúe como @{target} con estos permisos."
     }
   },
   "translationJobs": {

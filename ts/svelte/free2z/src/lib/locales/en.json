@@ -3035,13 +3035,13 @@
       "switchFailed": "Could not sign out. Try again before switching accounts.",
       "decisionFailed": "The connection could not be confirmed. Check Connected apps before starting a new request.",
       "linkTitle": "Connect an account · Free2Z",
-      "linkHeading": "Connect an account to your assistant",
+      "linkHeading": "Connect an account to an assistant",
       "signInHelp": "Sign in to the Free2Z account you want to connect. You will review access before approving.",
       "signIn": "Sign in",
-      "invalid": "This request is missing or expired. If you already approved it, check Connected apps before asking your assistant for a new link.",
+      "invalid": "This request is missing or expired. If you already approved it, check Connected apps before asking the connection owner for a new link.",
       "connected": "Account connected",
       "denied": "Connection declined",
-      "return": "Return to your assistant. You can close this tab.",
+      "return": "You can close this tab. The connection owner can continue in their assistant.",
       "application": "Assistant application",
       "connectionOwner": "Connection owner",
       "requestedAccount": "Account to connect",
@@ -3055,7 +3055,8 @@
       "switch": "Switch account",
       "connectionPermissions": "These permissions apply to this connection. Your other assistant connections keep their own permissions.",
       "removeApplication": "This also removes every agent connection authorized by this account for this app, including their linked accounts. Use Agent connections to remove just one connection.",
-      "manageAccess": "Open Connected apps"
+      "manageAccess": "Open Connected apps",
+      "delegation": "Allow the {application} connection owned by @{primary} to act as @{target} with these permissions."
     }
   },
   "translationJobs": {
