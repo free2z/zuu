@@ -3076,7 +3076,9 @@
         "completed": "Completed",
         "notCompleted": "Not completed",
         "uncertain": "Could not confirm"
-      }
+      },
+      "deletedAccount": "Deleted account",
+      "removedApplication": "Removed application"
     }
   },
   "translationJobs": {

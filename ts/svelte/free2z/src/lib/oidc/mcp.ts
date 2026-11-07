@@ -37,8 +37,8 @@ export interface AgentConnections {
     operation: string;
     status: number | string;
     created_at: string;
-    primary_username: string;
-    target_username: string;
+    primary_username: string | null;
+    target_username: string | null;
     application: string | null;
   }[];
 }

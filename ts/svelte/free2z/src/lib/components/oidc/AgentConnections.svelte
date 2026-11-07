@@ -207,13 +207,16 @@
         {#each data.recent_actions as action (action.id)}
           <li class="space-y-1 p-3 break-words" data-testid="agent-activity">
             <p class="font-medium">
-              @{action.target_username} · {agentActionLabel(
+              {action.target_username
+                ? `@${action.target_username}`
+                : $t("oauth.agent.deletedAccount", "Deleted account")} · {agentActionLabel(
                 $t,
                 action.operation,
               )}
             </p>
             <p class="text-muted-foreground">
-              {action.application ?? action.primary_username} · {agentActionStatus(
+              {action.application ??
+                $t("oauth.agent.removedApplication", "Removed application")} · {agentActionStatus(
                 $t,
                 action.status,
               )}

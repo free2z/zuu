@@ -228,6 +228,15 @@ test("connected accounts require confirmation and revoke the selected grant only
           target_username: "fixtureowner",
           application: APP.name,
         },
+        {
+          id: "activity-4",
+          operation: "get_page",
+          status: 200,
+          created_at: "2026-11-07T04:03:00Z",
+          primary_username: null,
+          target_username: null,
+          application: null,
+        },
       ],
     }),
   );
@@ -266,6 +275,13 @@ test("connected accounts require confirmation and revoke the selected grant only
   await expect(activity.filter({ hasText: "Create draft" })).toContainText(
     APP.name,
   );
+  await expect(activity.filter({ hasText: "Read page" })).toContainText(
+    "Deleted account",
+  );
+  await expect(activity.filter({ hasText: "Read page" })).toContainText(
+    "Removed application",
+  );
+  await expect(page.getByText("@null", { exact: false })).toHaveCount(0);
 });
 
 test("initial consent can switch accounts without losing the MCP resource or PKCE request", async ({
