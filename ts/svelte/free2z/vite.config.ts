@@ -189,6 +189,18 @@ export default defineConfig({
       allow: [fileURLToPath(new URL("./", import.meta.url))],
     },
     proxy: {
+      "/.well-known": {
+        target: devApiProxyTarget,
+        changeOrigin: false,
+        secure: false,
+      },
+      // MCP validates the canonical resource Host. Preserve the browser-facing
+      // development origin instead of replacing it with the backend port.
+      "/api/mcp": {
+        target: devApiProxyTarget,
+        changeOrigin: false,
+        secure: false,
+      },
       "/api": {
         target: devApiProxyTarget,
         changeOrigin: true,

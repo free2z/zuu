@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentConnections from "$lib/components/oidc/AgentConnections.svelte";
   import { formatDateTime } from "$lib/utils/date";
   /**
    * Connected apps (; zuu docs/free2z/sdk/spec/oidc.md §5): every app this
@@ -73,6 +74,7 @@
   let grants: Grant[] = [];
   let status: "loading" | "ready" | "error" = "loading";
   let revokeTarget: Grant | null = null;
+  let agentConnectionsVersion = 0;
   let revokeOpen = false;
   let revoking = false;
   let revokeError = "";
@@ -318,6 +320,7 @@
     revokeError = "";
     try {
       await oidcGrantRevoke(target.application_id);
+      agentConnectionsVersion++;
       grants = grants.filter((g) => g.application_id !== target.application_id);
       notice = $t(
         "oauth.connectedApps.revoked",
@@ -331,6 +334,7 @@
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) {
         // Already gone (revoked elsewhere): the list is simply stale.
+        agentConnectionsVersion++;
         grants = grants.filter(
           (g) => g.application_id !== target.application_id,
         );
@@ -454,11 +458,11 @@
       {focused
         ? $t(
             "oauth.manage.notConnected",
-            "This app is not connected to your Free2Z account.",
+            "This app is not connected directly to your Free2Z account.",
           )
         : $t(
             "oauth.connectedApps.empty",
-            "You have not connected any apps to your Free2Z account.",
+            "No apps are connected directly to this account.",
           )}
     </p>
   {:else}
@@ -574,6 +578,9 @@
       >
     </p>
   {/if}
+  {#key agentConnectionsVersion}
+    <AgentConnections clientId={focused ? focusClientId : undefined} />
+  {/key}
 </main>
 
 <Dialog.Root bind:open={revokeOpen}>
@@ -590,6 +597,14 @@
           "The app is signed out right away and can no longer use your account or spend your 2Z credits. To use it again, you will need to allow it again.",
         )}
       </Dialog.Description>
+      {#if revokeTarget?.scope.some((scope) => scope.startsWith("mcp:"))}
+        <p class="text-sm text-muted-foreground">
+          {$t(
+            "oauth.agent.removeApplication",
+            "This also removes every agent connection authorized by this account for this app, including their linked accounts. Use Agent connections to remove just one connection.",
+          )}
+        </p>
+      {/if}
     </Dialog.Header>
     {#if revokeError}
       <p class="text-sm text-destructive" role="alert">{revokeError}</p>

@@ -40,6 +40,7 @@ const DELETE_PATH = "/account/delete";
 // "Keep my account?" (deletion grace period): reached from a sign-in that may
 // be an SDK app's, so it gets the same commerce-free chrome as DELETE_PATH.
 const KEEP_PATH = "/account/keep";
+const AGENT_LINK_PATH = "/account/agent-link";
 
 /** `/login` is SDK-facing when it returns to an SDK-facing page. */
 const LOGIN_PATH = "/login";
@@ -52,7 +53,12 @@ function trimSlash(pathname: string): string {
 function isSdkPage(url: URL): boolean {
   const pathname = trimSlash(url.pathname);
   if (OAUTH_PATH.test(pathname)) return true;
-  if (pathname === DELETE_PATH || pathname === KEEP_PATH) return true;
+  if (
+    pathname === DELETE_PATH ||
+    pathname === KEEP_PATH ||
+    pathname === AGENT_LINK_PATH
+  )
+    return true;
   return pathname === MANAGE_PATH && url.searchParams.has("client_id");
 }
 
@@ -108,4 +114,19 @@ export function usableClientId(raw: string | null | undefined): string | null {
     value.length <= MAX_CLIENT_ID_LENGTH &&
     !/[\u0000-\u001f\u007f]/.test(value);
   return usable ? value : null;
+}
+
+/** Link intents stay in a tab, never in a login return URL or referrer. */
+export function isAgentLinkFlow(url: URL): boolean {
+  if (
+    trimSlash(url.pathname.replace(/\/__data\.json$/, "")) === AGENT_LINK_PATH
+  )
+    return true;
+  if (trimSlash(url.pathname) !== LOGIN_PATH) return false;
+  const next = getSafeNextPath(url.searchParams.get("next"));
+  return Boolean(
+    next &&
+    trimSlash(new URL(next, "https://next.invalid").pathname) ===
+      AGENT_LINK_PATH,
+  );
 }

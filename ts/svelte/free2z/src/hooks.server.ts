@@ -1,3 +1,4 @@
+import { isAgentLinkFlow } from "$lib/sdk-flow";
 import type { Handle, HandleServerError } from "@sveltejs/kit/hooks";
 import * as publicEnv from "$app/env/public";
 import { LOCALE_STORAGE_KEY, resolveRequestLocale } from "$lib/locale.js";
@@ -65,6 +66,11 @@ export const handle: Handle = async ({ event, resolve }) => {
   }
   if (isVersionMetadata) {
     response.headers.set("cache-control", "no-store");
+  }
+
+  if (isAgentLinkFlow(event.url)) {
+    response.headers.set("cache-control", "no-store");
+    response.headers.set("referrer-policy", "no-referrer");
   }
 
   if (isHtml || isPageData) {
