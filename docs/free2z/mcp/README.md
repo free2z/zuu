@@ -128,17 +128,23 @@ Copy the values of `sessionid` and `csrftoken`. `sessionid` is HttpOnly, so
 editor or perform an ordinary authenticated action in the website and inspect
 cookies again.
 
-Save the two values to a private JSON file. This optional Python 3 helper for
-macOS and Linux prompts without echoing them or putting them in shell history:
+Save each account's two values to its own private JSON file. This optional
+Python 3 helper for macOS and Linux asks for a local alias, then prompts for the
+cookies without echoing them or putting them in shell history. Run it once per
+account, using distinct aliases:
 
 ```sh
 python3 - <<'PY'
 import getpass
 import json
 import os
+import re
 from pathlib import Path
 
-path = Path.home() / ".config/free2z/session.json"
+alias = input("Local account alias (for example, alice): ").strip()
+if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", alias) or alias in {"anonymous", "__proto__", "constructor", "prototype"}:
+    raise SystemExit("Choose a non-reserved alias using letters, digits, underscores or hyphens.")
+path = Path.home() / ".config/free2z" / f"{alias}-session.json"
 path.parent.mkdir(parents=True, exist_ok=True)
 values = {
     "sessionid": getpass.getpass("Free2Z sessionid: "),
