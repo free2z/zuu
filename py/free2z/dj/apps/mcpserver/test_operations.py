@@ -175,6 +175,29 @@ def test_internal_failure_rolls_back_and_never_serializes_exception(signed_in, u
     assert user.full_name != "Must roll back"
 
 
+def test_page_creation_balance_requirement_is_not_a_fee_or_private_balance(signed_in, user, creator_factory):
+    _, _, tokens = issue(signed_in, user)
+    raw = tokens["access_token"]
+    target = creator_factory(username="newcreator", tuzis=0)
+    link(raw, target, scopes=["mcp:write"])
+    _, first = draft(raw, target.username)
+    assert first["status"] == 201
+    key = uuid4()
+    _, refused = draft(raw, target.username, key=key)
+    assert refused["status"] == 402
+    assert set(refused["data"]) == {"code", "required_balance", "detail"}
+    assert refused["data"]["code"] == "minimum_balance_required"
+    assert refused["data"]["required_balance"] == "1.000"
+    assert zPage.objects.filter(creator=target).count() == 1
+    from dj.apps.ledger.api import credit_user
+    credit = credit_user(target.pk, 2000, "sys:promo", "grant", "mcp_test", "eligibility", str(uuid4()))
+    assert credit.status == "posted"
+    _, created = draft(raw, target.username, key=key)
+    assert created["status"] == 201
+    target.refresh_from_db()
+    assert target.tuzis == 2  # Creation checks the threshold; it debits nothing.
+
+
 def _png():
     stream = BytesIO()
     Image.new("RGB", (16, 16), (30, 200, 120)).save(stream, "PNG")

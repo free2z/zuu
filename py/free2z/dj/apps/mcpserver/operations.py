@@ -147,10 +147,22 @@ def get_page(raw, account, original, page_id):
 
 def create_draft(raw, account, original, fields, idempotency_key):
     from dj.apps.g12f.views.zpage import zPageView
-    return perform(raw, account, original, "create_draft", (WRITE,), lambda actor: _native(
-        actor, original, zPageView, "POST", "/api/zpage/", action="create",
-        body={"tags": [], **fields, "is_published": False}, headers={"Idempotency-Key": str(idempotency_key)},
-    ))
+    def create(actor):
+        result = _native(
+            actor, original, zPageView, "POST", "/api/zpage/", action="create",
+            body={"tags": [], **fields, "is_published": False}, headers={"Idempotency-Key": str(idempotency_key)},
+        )
+        data = result["data"]
+        if result["status"] == 402 and isinstance(data, dict) and data.get("action") == "page_create":
+            # This native rule checks eligibility, not a debit. Its shared
+            # finance response calls the threshold 'cost' and exposes a private
+            # balance; neither belongs in the hosted content permission.
+            result["data"] = {
+                "code": "minimum_balance_required", "required_balance": data["cost"],
+                "detail": data["detail"],
+            }
+        return result
+    return perform(raw, account, original, "create_draft", (WRITE,), create)
 
 
 def update_page(raw, account, original, page_id, changes, if_match, *, published=None):
