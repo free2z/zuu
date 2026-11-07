@@ -155,9 +155,20 @@ Keep the journal private and back it up with SQLite's online backup facilities
 or after stopping writers. Restore and verify it before enabling side effects;
 a viewing key alone does not restore acknowledgements or your application's
 idempotency records. Events are retained; this version has no automatic retention
-or compaction policy. Bounded delivery inventory and consumer-handoff checks support
-10,000 relevant receipts, 50,000 events and 64 MiB of decoded inventory. Monitor
-those counts and plan capacity work before reaching the limits.
+or compaction policy. Delivery inventory and stopped-consumer handoff traverse the
+complete history using disk-backed indexes and bounded memory. They enforce a
+4 GiB inventory-byte limit and finite deadlines, rather than lifetime receipt or
+event-count limits. Health verification has a 30-second deadline; stopped
+handoff commands accept at most 120 seconds.
+
+`handoff-revocations-stream` emits a header, ordered revocation records and a
+coverage footer. A consumer must verify the complete stream, counts and digests
+before acting; a missing footer means failure. `enqueue-missing` preserves
+acknowledgements and atomically adds missing eligible work after complete
+validation. Its former `--max-receipts` and `--max-events` arguments are removed.
+The older buffered `handoff-revocations` preview retains a 512 KiB output bound;
+use the streaming command for larger histories. `handoff-capabilities` reports
+the protocol without reading a configuration, key or journal.
 
 Positive payment hooks run after a fresh canonical scan catches up. The node's
 required `headers` and `estimatedheight` fields must stay within the configured

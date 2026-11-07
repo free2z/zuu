@@ -1,7 +1,12 @@
 """Read-only backend queues: an acknowledged hook does not necessarily mean paid."""
 import json
+import hashlib
+import os
 import re
+import sqlite3
 import sys
+import tempfile
+import time
 from datetime import UTC
 
 from django.core.management.base import BaseCommand, CommandError
@@ -61,6 +66,9 @@ def backend_status():
 
 HANDOFF_INPUT_LIMIT = 512 * 1024
 HANDOFF_REF_LIMIT = 1000
+HANDOFF_STREAM_INPUT_LIMIT = 4 * 1024 * 1024 * 1024
+HANDOFF_STREAM_LINE_LIMIT = 4096
+HANDOFF_STREAM_SECONDS = 120
 
 
 def parse_handoff_revocations(raw):
@@ -132,6 +140,153 @@ def handoff_revocation_status(refs):
         'already_resolved_legacy_receipts': len(matches), 'ready': not matches}
 
 
+def _strict_json(line):
+    def pairs(items):
+        result={}
+        for key,value in items:
+            if key in result: raise ValueError('duplicate field')
+            result[key]=value
+        return result
+    value=json.loads(line,object_pairs_hook=pairs)
+    if not isinstance(value,dict): raise ValueError('expected object')
+    return value
+
+
+def stage_handoff_stream(source):
+    """Verify both native streams completely into a private disk-backed index."""
+    fd,path=tempfile.mkstemp(prefix='paymentd-handoff-',suffix='.sqlite')
+    os.fchmod(fd,0o600);os.close(fd)
+    db=sqlite3.connect(path)
+    db.execute('PRAGMA temp_store=FILE')
+    db.execute('PRAGMA cache_size=-2048')
+    db.execute('CREATE TABLE refs(event_id TEXT PRIMARY KEY,network TEXT NOT NULL,txid TEXT NOT NULL,pool TEXT NOT NULL,output_index INTEGER NOT NULL,revision INTEGER NOT NULL,journal_sequence INTEGER NOT NULL)')
+    db.execute('CREATE INDEX refs_txid ON refs(txid)')
+    db.execute('CREATE INDEX refs_coordinate ON refs(txid,pool,output_index)')
+    aggregate=hashlib.sha256(); total_bytes=0; total_records=0
+    expected_profiles=('current','legacy'); profile_index=0; phase='profile'
+    current=None; stream_hash=None; stream_count=0; previous_key=None; completed=False
+    deadline=time.monotonic()+HANDOFF_STREAM_SECONDS
+    try:
+        while True:
+            if time.monotonic()>=deadline: raise ValueError('handoff stream deadline exceeded')
+            line=source.readline(HANDOFF_STREAM_LINE_LIMIT+1)
+            if not line: break
+            if isinstance(line,str): line=line.encode('utf-8')
+            if len(line)>HANDOFF_STREAM_LINE_LIMIT or not line.endswith(b'\n'):
+                raise ValueError('handoff stream line bound or framing invalid')
+            total_bytes+=len(line)
+            if total_bytes>HANDOFF_STREAM_INPUT_LIMIT: raise ValueError('handoff stream resource bound exceeded')
+            value=_strict_json(line)
+            kind=value.get('type')
+            if kind=='complete':
+                if completed or phase!='profile' or profile_index!=2 or set(value)!={'type','profiles','source_stream_sha256'}:
+                    raise ValueError('incomplete profile stream')
+                if type(value['profiles']) is not int or value['profiles']!=2 or value['source_stream_sha256']!=aggregate.hexdigest():
+                    raise ValueError('aggregate handoff stream proof mismatch')
+                if source.readline(1): raise ValueError('trailing handoff stream bytes')
+                completed=True
+                break
+            aggregate.update(line)
+            if kind=='profile':
+                if phase!='profile' or set(value)!={'type','profile'} or profile_index>=2:
+                    raise ValueError('profile marker order invalid')
+                if value['profile']!=expected_profiles[profile_index]: raise ValueError('profile marker identity invalid')
+                current=value['profile'];phase='header';stream_hash=hashlib.sha256();stream_count=0;previous_key=None
+            elif kind=='header':
+                fields={'schema','identity_sha256','inventory_sha256','boundary_sequence','receipt_count','event_count',
+                    'inventory_bytes','configured_consumers','eligible_deliveries','existing_deliveries','existing_acked',
+                    'existing_pending','missing_deliveries','subscription_count'}
+                if (phase!='header' or set(value)!={'type','protocol','proof','revocation_count'}
+                    or type(value['protocol']) is not int or value['protocol']!=1):
+                    raise ValueError('native stream header invalid')
+                proof=value['proof']
+                if not isinstance(proof,dict) or set(proof)!=fields or type(proof['schema']) is not int or proof['schema']!=1:
+                    raise ValueError('native coverage proof schema invalid')
+                if any(type(proof[k]) is not int or proof[k]<0 for k in fields-{'schema','identity_sha256','inventory_sha256'}):
+                    raise ValueError('native coverage counts invalid')
+                if not re.fullmatch('[0-9a-f]{64}',proof['identity_sha256']) or not re.fullmatch('[0-9a-f]{64}',proof['inventory_sha256']):
+                    raise ValueError('native coverage digest invalid')
+                if (proof['configured_consumers']!=2 or proof['existing_deliveries']!=proof['existing_acked']+proof['existing_pending']
+                    or proof['existing_deliveries']+proof['missing_deliveries']!=proof['eligible_deliveries']
+                    or proof['eligible_deliveries']>2*proof['event_count']
+                    or proof['inventory_bytes']>4*1024*1024*1024
+                    or type(value['revocation_count']) is not int or not 0<=value['revocation_count']<=2**63-1):
+                    raise ValueError('native coverage accounting invalid')
+                current={'profile':current,'proof':proof,'count':value['revocation_count']}
+                phase='records'
+            elif kind=='revocation':
+                fields={'type','network','txid','pool','output_index','event_id','revision','journal_sequence'}
+                if phase!='records' or set(value)!=fields: raise ValueError('revocation record outside stream')
+                if (value['network'] not in ('main','test') or value['pool'] not in ('sapling','orchard','ironwood')
+                    or not isinstance(value['txid'],str) or not re.fullmatch('[0-9a-f]{64}',value['txid'])
+                    or type(value['output_index']) is not int or not 0<=value['output_index']<=2**32-1
+                    or type(value['revision']) is not int or not 1<=value['revision']<=2**32-1
+                    or type(value['journal_sequence']) is not int
+                    or not 1<=value['journal_sequence']<=current['proof']['boundary_sequence']):
+                    raise ValueError('revocation coordinates invalid')
+                expected=f"{value['network']}:{value['txid']}:{value['pool']}:{value['output_index']}:{value['revision']}:revoked"
+                key=(value['journal_sequence'],value['event_id'])
+                if value['event_id']!=expected or (previous_key is not None and key<=previous_key):
+                    raise ValueError('revocation identity or order invalid')
+                previous_key=key; stream_hash.update(line);stream_count+=1;total_records+=1
+                prior=db.execute('SELECT network,txid,pool,output_index,revision,journal_sequence FROM refs WHERE event_id=?',(value['event_id'],)).fetchone()
+                if prior is None:
+                    db.execute('INSERT INTO refs VALUES(?,?,?,?,?,?,?)',(value['event_id'],value['network'],value['txid'],value['pool'],value['output_index'],value['revision'],value['journal_sequence']))
+                else:
+                    if prior[:5]!=(value['network'],value['txid'],value['pool'],value['output_index'],value['revision']):
+                        raise ValueError('duplicate event identity conflicts across profiles')
+                    db.execute('UPDATE refs SET journal_sequence=min(journal_sequence,?) WHERE event_id=?',(value['journal_sequence'],value['event_id']))
+            elif kind=='footer':
+                if phase!='records' or set(value)!={'type','protocol','revocation_count','revocation_sha256','boundary_sequence','inventory_sha256','identity_sha256'}:
+                    raise ValueError('native stream footer invalid')
+                proof=current['proof']
+                if (type(value['protocol']) is not int or value['protocol']!=1 or type(value['revocation_count']) is not int
+                    or value['revocation_count']!=current['count'] or stream_count!=current['count']
+                    or value['revocation_sha256']!=stream_hash.hexdigest()
+                    or type(value['boundary_sequence']) is not int or value['boundary_sequence']!=proof['boundary_sequence']
+                    or not isinstance(value['inventory_sha256'],str) or not isinstance(value['identity_sha256'],str)
+                    or value['inventory_sha256']!=proof['inventory_sha256']
+                    or value['identity_sha256']!=proof['identity_sha256']):
+                    raise ValueError('native stream footer does not prove full coverage')
+                phase='profile';profile_index+=1;current=None
+            else:
+                raise ValueError('unknown handoff stream record')
+        if not completed or profile_index!=2 or phase!='profile': raise ValueError('handoff stream ended before aggregate completion')
+        db.commit()
+        return path,db,total_records
+    except BaseException:
+        db.close();os.unlink(path);raise
+
+
+def handoff_revocation_status_stream(path, db, total_records):
+    """Check a complete staged revocation set using bounded indexed batches."""
+    matched=0;last_tx='';deadline=time.monotonic()+HANDOFF_STREAM_SECONDS
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('SET TRANSACTION READ ONLY')
+            cursor.execute("SET LOCAL statement_timeout = '5000ms'")
+        while True:
+            if time.monotonic()>=deadline: raise ValueError('legacy guard deadline exceeded')
+            txids=[row[0] for row in db.execute('SELECT txid FROM refs WHERE txid>? GROUP BY txid ORDER BY txid LIMIT 300',(last_tx,))]
+            if not txids: break
+            last_tx=txids[-1]
+            rows=ZecCreditReceipt.objects.filter(txid__in=txids,vanish_resolved_at__isnull=False).values_list('txid','pool','output_index').iterator(chunk_size=300)
+            for txid,pool,index in rows:
+                if time.monotonic()>=deadline: raise ValueError('legacy guard deadline exceeded')
+                # A legacy receipt with no pool has no trustworthy output
+                # coordinate. Conservatively match every native revocation
+                # for its txid, as the pre-stream guard did.
+                if not pool:
+                    found=db.execute('SELECT 1 FROM refs INDEXED BY refs_txid WHERE txid=? LIMIT 1',(txid,)).fetchone()
+                else:
+                    found=db.execute('SELECT 1 FROM refs INDEXED BY refs_coordinate WHERE txid=? AND pool=? AND output_index=? LIMIT 1',
+                        (txid,pool,index)).fetchone()
+                if found: matched+=1
+    unique=db.execute('SELECT count(*) FROM refs').fetchone()[0]
+    return {'schema':2,'checked_revocations':unique,'source_revocation_records':total_records,
+            'already_resolved_legacy_receipts':matched,'ready':matched==0}
+
+
 
 class Command(BaseCommand):
     help = 'Read paymentd funding queue counts without changing receipts or balances.'
@@ -139,17 +294,28 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument('--json', action='store_true')
         parser.add_argument('--check-handoff-revocations', action='store_true')
+        parser.add_argument('--check-handoff-stream', action='store_true')
+        parser.add_argument('--handoff-capabilities', action='store_true')
 
     def handle(self, *args, **options):
         try:
             require_runtime(writes=False)
-            if options.get('check_handoff_revocations'):
+            if options.get('handoff_capabilities'):
+                result = {'schema': 1, 'stream_protocol': 1, 'guard_schema': 2}
+            elif options.get('check_handoff_revocations'):
                 source = getattr(sys.stdin, 'buffer', sys.stdin)
                 raw = source.read(HANDOFF_INPUT_LIMIT + 1)
                 if isinstance(raw, str):
                     raw = raw.encode('utf-8')
                 refs = parse_handoff_revocations(raw)
                 result = handoff_revocation_status(refs)
+            elif options.get('check_handoff_stream'):
+                source=getattr(sys.stdin,'buffer',sys.stdin)
+                path,staged,total=stage_handoff_stream(source)
+                try:
+                    result=handoff_revocation_status_stream(path,staged,total)
+                finally:
+                    staged.close();os.unlink(path)
             else:
                 result = backend_status()
         except (OSError, PaymentEvidenceError, ValueError, TypeError, UnicodeError, DatabaseError, RecursionError) as exc:

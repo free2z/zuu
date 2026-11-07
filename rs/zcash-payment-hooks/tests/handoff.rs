@@ -1,6 +1,11 @@
 use anyhow::Result;
 use rusqlite::{Connection, params};
-use std::{os::unix::fs::PermissionsExt, time::Duration};
+use sha2::{Digest, Sha256};
+use std::{
+    io::{BufRead, BufReader},
+    os::unix::fs::PermissionsExt,
+    time::{Duration, Instant},
+};
 use tempfile::TempDir;
 use zcash_paymentd::{
     Payment,
@@ -8,6 +13,44 @@ use zcash_paymentd::{
     config::{Config, Consumer},
     journal::{Journal, StateLock},
 };
+
+struct FailAtFooter(Vec<u8>);
+
+#[test]
+fn compiled_binary_reports_handoff_capabilities_without_reading_private_state() -> Result<()> {
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_zcash-paymentd"))
+        .args([
+            "--config",
+            "/nonexistent/handoff-capabilities.toml",
+            "handoff-capabilities",
+        ])
+        .output()?;
+    assert!(output.status.success());
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout)?,
+        serde_json::json!({"schema":1,"stream_protocol":1,"enqueue_missing":true})
+    );
+    Ok(())
+}
+
+impl std::io::Write for FailAtFooter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        if bytes
+            .windows(b"\"type\":\"footer\"".len())
+            .any(|w| w == b"\"type\":\"footer\"")
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "fixture interruption",
+            ));
+        }
+        self.0.extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
 
 fn config(dir: &TempDir) -> Config {
     Config {
@@ -57,7 +100,7 @@ fn block(height: u32, hash: &str, previous: &str, indexes: &[usize]) -> Observed
     }
 }
 fn prime(c: &Config, lock: &StateLock) -> Result<serde_json::Value> {
-    Journal::enqueue_missing(lock, c, "key", 10000, 50000, Duration::from_secs(2))
+    Journal::enqueue_missing(lock, c, "key", Duration::from_secs(2))
 }
 fn snapshot(c: &Config) -> Result<Vec<String>> {
     let db = Connection::open(c.state_dir.join("journal.sqlite"))?;
@@ -106,13 +149,15 @@ fn observation_to_financial_queues_is_explicit_atomic_and_idempotent() -> Result
     assert_eq!(proof["inserted_subscriptions"], 4);
     assert_eq!(proof["missing_deliveries_after"], 0);
     assert_eq!(proof["boundary_sequence"], 4);
-    assert_eq!(
-        Journal::inspect(&c)?.status(&c)?["inventory_bytes"],
-        proof["inventory_bytes"]
+    let after_handoff = Journal::inspect(&c)?.status(&c)?;
+    assert_eq!(after_handoff["delivery_inventory_verified"], true);
+    assert!(
+        after_handoff["inventory_bytes"].as_u64().unwrap()
+            > proof["inventory_bytes"].as_u64().unwrap()
     );
     assert_eq!(
         Journal::inspect(&c)?.status(&c)?["inventory_byte_limit"],
-        67_108_864
+        4_i64 * 1024 * 1024 * 1024
     );
     let j = Journal::open(&c, "key")?;
     for (id, expected) in [
@@ -140,7 +185,7 @@ fn observation_to_financial_queues_is_explicit_atomic_and_idempotent() -> Result
     let retry = prime(&c, &_lock)?;
     assert_eq!(retry["inserted_deliveries"], 0);
     assert_eq!(retry["existing_acked"], 6);
-    assert_eq!(retry["inventory_sha256"], proof["inventory_sha256"]);
+    assert_ne!(retry["inventory_sha256"], proof["inventory_sha256"]);
     assert_eq!(snapshot(&c)?, done);
     for row in before.iter().filter(|r| {
         r.starts_with("events:") || r.starts_with("receipts:") || r.starts_with("blocks:")
@@ -210,7 +255,7 @@ fn absent_subscriptions_do_not_hide_current_confirmed_or_revocation_entitlement(
     Ok(())
 }
 #[test]
-fn all_caps_identity_policy_corruption_and_deadlines_leave_every_row_unchanged() -> Result<()> {
+fn identity_policy_corruption_and_deadlines_leave_every_row_unchanged() -> Result<()> {
     let dir = TempDir::new()?;
     let mut c = config(&dir);
     let _lock = StateLock::acquire(&c.state_dir)?;
@@ -220,20 +265,15 @@ fn all_caps_identity_policy_corruption_and_deadlines_leave_every_row_unchanged()
     drop(j);
     financial(&mut c);
     let before = snapshot(&c)?;
-    for (r, e, t) in [
-        (1, 50_000, Duration::from_secs(1)),
-        (10_000, 1, Duration::from_secs(1)),
-        (10_000, 50_000, Duration::from_nanos(1)),
-        (0, 1, Duration::from_secs(1)),
-        (10_001, 1, Duration::from_secs(1)),
+    for timeout in [
+        Duration::ZERO,
+        Duration::from_nanos(1),
+        Duration::from_secs(121),
     ] {
-        assert!(Journal::enqueue_missing(&_lock, &c, "key", r, e, t).is_err());
+        assert!(Journal::enqueue_missing(&_lock, &c, "key", timeout).is_err());
         assert_eq!(snapshot(&c)?, before);
     }
-    assert!(
-        Journal::enqueue_missing(&_lock, &c, "wrong", 10_000, 50_000, Duration::from_secs(1))
-            .is_err()
-    );
+    assert!(Journal::enqueue_missing(&_lock, &c, "wrong", Duration::from_secs(1)).is_err());
     assert_eq!(snapshot(&c)?, before);
     prime(&c, &_lock)?;
     c.consumers[0].observe_unconfirmed = false;
@@ -456,8 +496,7 @@ fn observation_only_confirm_revoke_remine_preserves_legacy_issuance_review_linea
 }
 
 #[test]
-fn retained_inventory_over_cap_keeps_health_diagnostics_but_never_reports_missing_zero()
--> Result<()> {
+fn retained_inventory_above_old_cap_has_complete_health_coverage() -> Result<()> {
     let dir = TempDir::new()?;
     let mut c = config(&dir);
     let _lock = StateLock::acquire(&c.state_dir)?;
@@ -476,24 +515,259 @@ fn retained_inventory_over_cap_keeps_health_diagnostics_but_never_reports_missin
     let reader = Journal::inspect(&c)?;
     let before = snapshot(&c)?;
     let status = reader.status(&c)?;
-    assert_eq!(status["delivery_inventory_verified"], false);
-    assert!(status["missing_deliveries"].is_null());
-    assert!(
-        status["delivery_inventory_error"]
-            .as_str()
-            .unwrap()
-            .contains("unavailable")
-    );
+    assert_eq!(status["delivery_inventory_verified"], true);
+    assert_eq!(status["missing_deliveries"], 20_002);
+    assert!(status["delivery_inventory_error"].is_null());
     assert_eq!(status["pending_deliveries"], 0);
     assert_eq!(status["failed_deliveries"], 0);
     assert_eq!(status["active_receipts"], 10_001);
     assert_eq!(status["inventory_receipt_count"], 10_001);
     assert_eq!(status["inventory_event_count"], 10_001);
-    assert_eq!(status["inventory_receipt_limit"], 10_000);
-    assert_eq!(status["inventory_event_limit"], 50_000);
+    assert!(status["inventory_receipt_limit"].is_null());
+    assert!(status["inventory_event_limit"].is_null());
+    assert_eq!(status["inventory_byte_limit"], 4_i64 * 1024 * 1024 * 1024);
     assert_eq!(status["cursor"][0], c.automation_start_height);
     assert_eq!(status["scanner"]["ok"], true);
     assert_eq!(snapshot(&c)?, before);
+    Ok(())
+}
+
+#[test]
+fn interrupted_stream_has_no_footer_and_restart_reproves_its_new_boundary() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut c = config(&dir);
+    let lock = StateLock::acquire(&c.state_dir)?;
+    let mut j = Journal::open(&c, "key")?;
+    j.append(&block(c.birthday_height, "a", "parent", &[]))?;
+    j.append(&block(c.automation_start_height, "b", "a", &[0]))?;
+    drop(j);
+    financial(&mut c);
+    let before = snapshot(&c)?;
+    let mut interrupted = FailAtFooter(Vec::new());
+    assert!(
+        Journal::handoff_revocations_stream(
+            &lock,
+            &c,
+            "key",
+            Duration::from_secs(2),
+            &mut interrupted
+        )
+        .is_err()
+    );
+    let partial = String::from_utf8(interrupted.0).unwrap();
+    assert!(partial.contains("\"type\":\"header\""));
+    assert!(!partial.contains("\"type\":\"footer\""));
+    assert_eq!(snapshot(&c)?, before);
+
+    let mut complete = Vec::new();
+    Journal::handoff_revocations_stream(&lock, &c, "key", Duration::from_secs(2), &mut complete)?;
+    let first_header: serde_json::Value =
+        serde_json::from_slice(complete.split(|b| *b == b'\n').next().unwrap())?;
+    let first_boundary = first_header["proof"]["boundary_sequence"].as_u64().unwrap();
+    let mut j = Journal::open(&c, "key")?;
+    j.append(&block(c.automation_start_height + 1, "c", "b", &[1]))?;
+    drop(j);
+    let mut restarted = Vec::new();
+    Journal::handoff_revocations_stream(&lock, &c, "key", Duration::from_secs(2), &mut restarted)?;
+    let restarted_header: serde_json::Value =
+        serde_json::from_slice(restarted.split(|b| *b == b'\n').next().unwrap())?;
+    assert!(
+        restarted_header["proof"]["boundary_sequence"]
+            .as_u64()
+            .unwrap()
+            > first_boundary
+    );
+    let restarted_lines = String::from_utf8(restarted).unwrap();
+    let footer = restarted_lines.lines().last().unwrap();
+    let footer: serde_json::Value = serde_json::from_str(footer)?;
+    assert_eq!(
+        footer["boundary_sequence"],
+        restarted_header["proof"]["boundary_sequence"]
+    );
+    assert_eq!(
+        footer["identity_sha256"],
+        restarted_header["proof"]["identity_sha256"]
+    );
+    Ok(())
+}
+
+#[test]
+fn streamed_handoff_covers_real_history_above_all_former_ceilings() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut c = config(&dir);
+    let lock = StateLock::acquire(&c.state_dir)?;
+    let mut j = Journal::open(&c, "key")?;
+    j.append(&block(c.birthday_height, "birth", "parent", &[]))?;
+    const RECEIPTS: usize = 13_000;
+    const PER_BLOCK: usize = 1_000;
+    for batch in 0..(RECEIPTS / PER_BLOCK) {
+        let indexes = (batch * PER_BLOCK..(batch + 1) * PER_BLOCK).collect::<Vec<_>>();
+        let previous = if batch == 0 {
+            "birth".to_owned()
+        } else {
+            format!("block-{}", batch - 1)
+        };
+        let mut observed = block(
+            c.automation_start_height + batch as u32,
+            &format!("block-{batch}"),
+            &previous,
+            &indexes,
+        );
+        for payment in &mut observed.payments {
+            payment.txid = format!("{:064x}", payment.output_index + 1);
+            payment.id = format!("main:{}:ironwood:{}", payment.txid, payment.output_index);
+        }
+        j.append(&observed)?;
+    }
+    // Depth loss creates a second positive lifecycle and revocation for every
+    // receipt; the subsequent canonical rollback adds the remine revocations.
+    j.reconcile_confirmations(c.automation_start_height - 1)?;
+    for _ in 0..(RECEIPTS / PER_BLOCK) {
+        j.rollback_one()?;
+    }
+    drop(j);
+    financial(&mut c);
+    // Give both test consumers the observation entitlement so this long
+    // history also stages more than 50,000 real delivery rows.
+    c.consumers[1].observe_unconfirmed = true;
+
+    let started = Instant::now();
+    let status = Journal::inspect(&c)?.status(&c)?;
+    assert_eq!(status["inventory_receipt_count"], RECEIPTS);
+    assert_eq!(status["inventory_event_count"], 4 * RECEIPTS);
+    assert!(status["inventory_bytes"].as_u64().unwrap() > 64 * 1024 * 1024);
+    assert_eq!(status["delivery_inventory_verified"], true);
+    assert!(status["missing_deliveries"].as_u64().unwrap() > 10_000);
+    assert!(started.elapsed() < Duration::from_secs(30));
+
+    let key_path = dir.path().join("key");
+    std::fs::write(&key_path, b"key")?;
+    std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))?;
+    let config_path = dir.path().join("paymentd.toml");
+    let config_text = format!(
+        r#"network = "main"
+rpc_url = "http://127.0.0.1:8232"
+ufvk_file = "{}"
+state_dir = "{}"
+birthday_height = {}
+automation_start_height = {}
+confirmations = 3
+poll_seconds = 1
+max_tip_age_seconds = 900
+max_tip_lag_blocks = 10
+max_tip_future_seconds = 7200
+
+[[consumers]]
+id = "capture"
+argv = ["/usr/bin/true"]
+timeout_seconds = 1
+observe_unconfirmed = true
+
+[[consumers]]
+id = "settle"
+argv = ["/usr/bin/true"]
+timeout_seconds = 1
+observe_unconfirmed = true
+"#,
+        key_path.display(),
+        c.state_dir.display(),
+        c.birthday_height,
+        c.automation_start_height
+    );
+    std::fs::write(&config_path, config_text)?;
+    std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600))?;
+    let stream_path = dir.path().join("revocations.ndjson");
+    let stream = std::fs::File::create(&stream_path)?;
+    drop(lock);
+    let command = std::process::Command::new("/usr/bin/time")
+        .arg("-f")
+        .arg("%M")
+        .arg(env!("CARGO_BIN_EXE_zcash-paymentd"))
+        .arg("--config")
+        .arg(&config_path)
+        .arg("handoff-revocations-stream")
+        .arg("--timeout-seconds")
+        .arg("120")
+        .stdout(stream)
+        .stderr(std::process::Stdio::piped())
+        .spawn()?
+        .wait_with_output()?;
+    assert!(
+        command.status.success(),
+        "compiled native stream CLI must succeed"
+    );
+    let peak_kib: u64 = String::from_utf8(command.stderr)?.trim().parse()?;
+    assert!(
+        peak_kib < 64 * 1024,
+        "native stream peak RSS was {peak_kib} KiB"
+    );
+    let mut lines = BufReader::new(std::fs::File::open(&stream_path)?).lines();
+    let header: serde_json::Value = serde_json::from_str(&lines.next().unwrap()?)?;
+    assert_eq!(header["type"], "header");
+    assert_eq!(header["protocol"], 1);
+    assert_eq!(header["proof"]["receipt_count"], RECEIPTS);
+    assert_eq!(header["proof"]["event_count"], 4 * RECEIPTS);
+    let expected_count = header["revocation_count"].as_u64().unwrap();
+    let mut count = 0_u64;
+    let mut digest = Sha256::new();
+    let mut footer_seen = false;
+    for line in lines {
+        let line = line?;
+        let row: serde_json::Value = serde_json::from_str(&line)?;
+        if row["type"] == "footer" {
+            assert_eq!(count, expected_count);
+            assert_eq!(row["revocation_count"], count);
+            assert_eq!(
+                row["revocation_sha256"],
+                hex::encode(digest.clone().finalize())
+            );
+            assert_eq!(
+                row["boundary_sequence"],
+                header["proof"]["boundary_sequence"]
+            );
+            assert_eq!(row["inventory_sha256"], header["proof"]["inventory_sha256"]);
+            assert_eq!(row["identity_sha256"], header["proof"]["identity_sha256"]);
+            footer_seen = true;
+            break;
+        }
+        assert_eq!(row["type"], "revocation");
+        digest.update(line.as_bytes());
+        digest.update(b"\n");
+        count += 1;
+    }
+    assert!(footer_seen, "a complete stream must include its footer");
+    assert!(count >= RECEIPTS as u64);
+    let enqueued = std::process::Command::new(env!("CARGO_BIN_EXE_zcash-paymentd"))
+        .arg("--config")
+        .arg(&config_path)
+        .arg("enqueue-missing")
+        .arg("--timeout-seconds")
+        .arg("120")
+        .output()?;
+    assert!(
+        enqueued.status.success(),
+        "compiled native stopped handoff CLI must succeed"
+    );
+    let handoff: serde_json::Value = serde_json::from_slice(&enqueued.stdout)?;
+    assert!(handoff["inserted_deliveries"].as_u64().unwrap() > 50_000);
+    assert!(handoff["inserted_subscriptions"].as_u64().unwrap() >= RECEIPTS as u64);
+    assert_eq!(handoff["missing_deliveries_after"], 0);
+    assert_eq!(
+        handoff["inventory_sha256"],
+        header["proof"]["inventory_sha256"]
+    );
+    let after_status = Journal::inspect(&c)?.status(&c)?;
+    assert_eq!(after_status["delivery_inventory_verified"], true);
+    assert_eq!(after_status["missing_deliveries"], 0);
+    assert_eq!(after_status["inventory_event_count"], 4 * RECEIPTS);
+    assert!(after_status["inventory_bytes"].as_u64().unwrap() > 64 * 1024 * 1024);
+    assert!(started.elapsed() < Duration::from_secs(120));
+    let db = Connection::open(c.state_dir.join("journal.sqlite"))?;
+    assert_eq!(
+        db.query_row("SELECT count(*) FROM events", [], |r| r.get::<_, i64>(0))?,
+        4 * RECEIPTS as i64,
+        "streaming remains read only"
+    );
     Ok(())
 }
 
@@ -564,7 +838,7 @@ fn private_revocation_preview_includes_pending_on_retry_and_never_resets_acks() 
     let retry = preview()?;
     assert_eq!(retry["eligible_unacked_revocations"], 1);
     assert_eq!(retry["existing_pending"], 4);
-    assert_eq!(retry["inventory_sha256"], first["inventory_sha256"]);
+    assert_ne!(retry["inventory_sha256"], first["inventory_sha256"]);
     assert_eq!(snapshot(&c)?, primed);
     let j = Journal::open(&c, "key")?;
     let event = retry["revocations"][0]["event_id"].as_str().unwrap();
@@ -577,7 +851,7 @@ fn private_revocation_preview_includes_pending_on_retry_and_never_resets_acks() 
 }
 
 #[test]
-fn private_preview_cap_refuses_without_any_queue_or_registration_change() -> Result<()> {
+fn private_preview_supports_more_than_one_thousand_revocations() -> Result<()> {
     let dir = TempDir::new()?;
     let mut c = config(&dir);
     let lock = StateLock::acquire(&c.state_dir)?;
@@ -589,15 +863,74 @@ fn private_preview_cap_refuses_without_any_queue_or_registration_change() -> Res
     drop(j);
     financial(&mut c);
     let before = snapshot(&c)?;
-    assert!(
-        Journal::handoff_revocations(&lock, &c, "key", 10000, 50000, Duration::from_secs(2))
-            .is_err()
-    );
+    let preview =
+        Journal::handoff_revocations(&lock, &c, "key", 10000, 50000, Duration::from_secs(10))?;
+    assert_eq!(preview["eligible_unacked_revocations"], 1001);
+    assert_eq!(preview["revocations"].as_array().unwrap().len(), 1001);
     assert_eq!(snapshot(&c)?, before);
     assert_eq!(
         Journal::inspect(&c)?.status(&c)?["missing_deliveries"],
         2002
     );
+    Ok(())
+}
+
+#[test]
+fn oversized_legacy_preview_refuses_before_unbounded_collection_but_streams() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut c = config(&dir);
+    let lock = StateLock::acquire(&c.state_dir)?;
+    let mut j = Journal::open(&c, "key")?;
+    j.append(&block(c.birthday_height, "a", "parent", &[]))?;
+    let indexes = (0..4_000).collect::<Vec<_>>();
+    j.append(&block(c.automation_start_height, "b", "a", &indexes))?;
+    j.rollback_one()?;
+    drop(j);
+    financial(&mut c);
+    let before = snapshot(&c)?;
+    let error =
+        Journal::handoff_revocations(&lock, &c, "key", 10_000, 50_000, Duration::from_secs(20))
+            .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("private revocation byte cap exceeded")
+    );
+    assert_eq!(snapshot(&c)?, before);
+    let stream_path = dir.path().join("complete-revocations.ndjson");
+    let mut output = std::fs::File::create(&stream_path)?;
+    Journal::handoff_revocations_stream(&lock, &c, "key", Duration::from_secs(30), &mut output)?;
+    drop(output);
+    assert!(std::fs::metadata(stream_path)?.len() > 512 * 1024);
+    assert_eq!(snapshot(&c)?, before);
+    Ok(())
+}
+
+#[test]
+fn oversized_event_blob_is_refused_before_materializing_body() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut c = config(&dir);
+    let lock = StateLock::acquire(&c.state_dir)?;
+    let mut j = Journal::open(&c, "key")?;
+    j.append(&block(c.birthday_height, "a", "parent", &[]))?;
+    j.append(&block(c.automation_start_height, "b", "a", &[0]))?;
+    drop(j);
+    financial(&mut c);
+    let db = Connection::open(c.state_dir.join("journal.sqlite"))?;
+    db.execute(
+        "UPDATE events SET body=zeroblob(?1) WHERE seq=(SELECT min(seq) FROM events)",
+        [32 * 1024 * 1024],
+    )?;
+    drop(db);
+    let error = Journal::handoff_revocations_stream(
+        &lock,
+        &c,
+        "key",
+        Duration::from_secs(5),
+        &mut std::io::sink(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("oversized handoff event"));
     Ok(())
 }
 

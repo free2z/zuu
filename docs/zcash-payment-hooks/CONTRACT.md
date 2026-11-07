@@ -82,6 +82,8 @@ All CLI commands require `--config /absolute/config.toml` before the subcommand.
 | `verify-event EVENT_ID` | Read-only current event/journal/node evidence with a total 20-second deadline |
 | `verify-payment PAYMENT_ID` | Read-only canonical receipt proof; creates no lifecycle event |
 | `handoff-revocations` | Stopped-writer, bounded read-only preview of eligible unacknowledged revocations |
+| `handoff-revocations-stream` | Complete stopped-writer NDJSON inventory with header, ordered records and coverage footer |
+| `handoff-capabilities` | Versioned protocol response without reading private configuration or journal state |
 | `enqueue-missing` | Stopped-writer atomic handoff of missing eligible deliveries; preserves existing ACKs/retries |
 | `replay CONSUMER EVENT_ID` | Stopped-writer explicit redelivery of one valid event |
 

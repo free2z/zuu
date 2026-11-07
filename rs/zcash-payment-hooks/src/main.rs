@@ -20,6 +20,8 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     Run,
+    /// Report the stopped-journal handoff protocol without reading private state.
+    HandoffCapabilities,
     /// Offline external receiver coverage proof; address supplied on bounded stdin.
     VerifyAddress,
     /// Read-only historical receipt proof. Never creates a lifecycle event.
@@ -50,12 +52,14 @@ enum Command {
         #[arg(long, default_value_t = 20)]
         timeout_seconds: u64,
     },
+    /// Stream a complete private revocation inventory as a verified header,
+    /// ordered records and boundary footer. Missing footer means failure.
+    HandoffRevocationsStream {
+        #[arg(long, default_value_t = 20)]
+        timeout_seconds: u64,
+    },
     /// Enqueue missing eligible lifecycle work without resetting ACKs. Daemon must be stopped.
     EnqueueMissing {
-        #[arg(long, default_value_t = 10_000)]
-        max_receipts: u32,
-        #[arg(long, default_value_t = 50_000)]
-        max_events: u32,
         #[arg(long, default_value_t = 20)]
         timeout_seconds: u64,
     },
@@ -84,9 +88,17 @@ async fn main() -> Result<()> {
         println!("{}", serde_json::to_string(&proof)?);
         return Ok(());
     }
+    if matches!(a.command, Command::HandoffCapabilities) {
+        println!(
+            "{}",
+            serde_json::json!({"schema":1,"stream_protocol":1,"enqueue_missing":true})
+        );
+        return Ok(());
+    }
     let c = Config::load(&a.config)?;
     match a.command {
         Command::VerifyAddress => unreachable!("handled before state access"),
+        Command::HandoffCapabilities => unreachable!("handled before state access"),
         Command::Payments { after, limit } => {
             println!(
                 "{}",
@@ -146,19 +158,29 @@ async fn main() -> Result<()> {
                 Journal::inspect(&c)?;
                 let lock = StateLock::acquire(&c.state_dir)?;
                 Journal::handoff_revocations(&lock, &c, &private_file(&c.ufvk_file)?, max_receipts, max_events, Duration::from_secs(timeout_seconds))
-            })().map_err(|_| anyhow::anyhow!("handoff unavailable; inspect stopped writer, journal identity, lifecycle, caps and deadline"))?;
+            })().map_err(|_| anyhow::anyhow!("legacy handoff unavailable; inspect stopped writer, journal identity, lifecycle and deadline"))?;
             println!("{}", serde_json::to_string(&result)?);
         }
-        Command::EnqueueMissing {
-            max_receipts,
-            max_events,
-            timeout_seconds,
-        } => {
+        Command::HandoffRevocationsStream { timeout_seconds } => {
+            (|| {
+                Journal::inspect(&c)?;
+                let lock = StateLock::acquire(&c.state_dir)?;
+                Journal::handoff_revocations_stream(
+                    &lock,
+                    &c,
+                    &private_file(&c.ufvk_file)?,
+                    Duration::from_secs(timeout_seconds),
+                    &mut std::io::stdout().lock(),
+                )
+            })()
+            .map_err(|_| anyhow::anyhow!("handoff stream unavailable; inspect stopped writer, journal identity, lifecycle and deadline"))?;
+        }
+        Command::EnqueueMissing { timeout_seconds } => {
             let result = (|| {
                 Journal::inspect(&c)?;
                 let lock = StateLock::acquire(&c.state_dir)?;
-                Journal::enqueue_missing(&lock, &c, &private_file(&c.ufvk_file)?, max_receipts, max_events, Duration::from_secs(timeout_seconds))
-            })().map_err(|_| anyhow::anyhow!("handoff unavailable; inspect stopped writer, journal identity, lifecycle, caps and deadline"))?;
+                Journal::enqueue_missing(&lock, &c, &private_file(&c.ufvk_file)?, Duration::from_secs(timeout_seconds))
+            })().map_err(|_| anyhow::anyhow!("handoff unavailable; inspect stopped writer, journal identity, lifecycle and deadline"))?;
             println!("{}", serde_json::to_string(&result)?);
         }
         Command::Run => run(c).await?,
