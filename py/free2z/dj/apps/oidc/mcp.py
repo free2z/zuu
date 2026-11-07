@@ -178,7 +178,7 @@ def create_link_intent(raw_token: str, expected_username: str, scopes=None) -> d
     with _locked_connection(raw_token) as (principal, connection, _):
         wanted = list(MCP_SCOPES) if scopes is None else scope_list(scopes)
         wanted = [s for s in wanted if s in principal.scopes] if scopes is None else wanted
-        if not wanted or not set(wanted) <= principal.scopes:
+        if not wanted or not set(wanted) <= set(MCP_SCOPES) or not set(wanted) <= principal.scopes:
             raise PermissionDenied("Requested permissions exceed this connection's consent.")
         if connection.account_grants.filter(revoked_at__isnull=True).count() >= MAX_ACCOUNTS:
             raise ValidationError("Disconnect an account before linking another.")

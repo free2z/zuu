@@ -111,6 +111,10 @@ def test_linking_exact_account_scope_isolation_one_use_and_target_revocation(sig
     app, _, tokens = issue(signed_in, user)
     token = tokens["access_token"]
     target = creator_factory(username="baz")
+    before = MCPLinkIntent.objects.count()
+    with pytest.raises(APIException):
+        create_link_intent(token, target.username, ["mcp:read", "offline_access"])
+    assert MCPLinkIntent.objects.count() == before
     pending = create_link_intent(token, "baz", ["mcp:read"])
     opaque = parse_qs(urlsplit(pending["url"]).fragment)["intent"][0]
     wrong = signed_in.post("/api/oauth/mcp/link/", {"intent": opaque, "allow": True}, format="json")
