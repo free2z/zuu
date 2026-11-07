@@ -12,3 +12,4 @@ audio-preload.spec.ts
 auth-mfa.spec.ts
 auth-resolving-flash.spec.ts
 billing-mobile-layout.spec.ts
+signup-session.spec.ts
