@@ -139,8 +139,6 @@ def upload_binary(request, upload_id):
         length = _expected_length(request)
         with authorized_upload(upload_id, capability) as (actor, intent):
             _check(actor, intent, length)
-            if intent.consumed_at:
-                return JsonResponse({"upload_id": str(intent.pk), "replayed": True, "media": GenericFileSerializer(intent.media).data if intent.media else None})
             digest_expected = intent.expected_sha256
             mime_type = intent.mime_type
         if request.content_type != mime_type:

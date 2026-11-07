@@ -169,9 +169,16 @@ def update_page(raw, account, original, page_id, changes, if_match, *, published
 def profile(raw, account, original, changes=None):
     from dj.apps.g12f.views.creator import CustomUserDetailsView
     write = changes is not None
-    return perform(raw, account, original, "update_profile" if write else "get_profile", (WRITE if write else READ,), lambda actor: _native(
-        actor, original, CustomUserDetailsView, "PATCH" if write else "GET", "/api/auth/user/", body=changes,
-    ))
+    def public_profile(actor):
+        result = _native(actor, original, CustomUserDetailsView, "PATCH" if write else "GET", "/api/auth/user/", body=changes)
+        if result["status"] < 400:
+            # Native account settings also returns email, balances and private
+            # account metadata. MCP's content/profile scopes do not grant them,
+            # including when PATCH produces that account representation.
+            fields = {"id", "username", "full_name", "description", "avatar_image", "banner_image"}
+            result["data"] = {key: value for key, value in result["data"].items() if key in fields}
+        return result
+    return perform(raw, account, original, "update_profile" if write else "get_profile", (WRITE if write else READ,), public_profile)
 
 
 def list_uploads(raw, account, original, *, page=1, search=""):

@@ -131,6 +131,15 @@ def test_review_publish_return_to_draft_and_owner_visibility(signed_in, user, cr
     target.refresh_from_db()
     user.refresh_from_db()
     assert target.full_name == "Chosen publisher" and user.full_name != target.full_name
+    public_fields = {"id", "username", "full_name", "description", "avatar_image", "banner_image"}
+    assert set(profile["data"]) <= public_fields
+    _, profile_read = tool(raw, "free2z_get_profile", {"account": target.username})
+    assert profile_read["status"] == 200 and set(profile_read["data"]) <= public_fields
+    limited = creator_factory(username="writeonly", email="private@example.com")
+    link(raw, limited, scopes=["mcp:write"])
+    _, limited_profile = tool(raw, "free2z_update_profile", {"account": limited.username, "changes": {"description": "Public biography"}})
+    assert limited_profile["status"] == 200 and set(limited_profile["data"]) <= public_fields
+    assert "private@example.com" not in json.dumps(limited_profile)
 
 
 def test_internal_failure_rolls_back_and_never_serializes_exception(signed_in, user, monkeypatch):
@@ -192,6 +201,7 @@ def test_prepared_upload_hash_identity_admission_replay_and_readback(signed_in, 
     duplicate = put_upload(prepared, payload)
     assert duplicate.status_code == 200 and duplicate.json()["replayed"]
     assert duplicate.json()["media"]["id"] == media_id
+    assert put_upload(prepared, b"x" * len(payload)).status_code == 400
     assert GenericFile.objects.filter(owner=target).count() == 1
     _, status = tool(raw, "free2z_get_upload_status", {"account": linked["id"], "upload_id": prepared["upload_id"]})
     assert status["state"] == "complete" and status["media"]["id"] == media_id

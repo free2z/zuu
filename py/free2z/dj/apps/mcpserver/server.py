@@ -122,7 +122,7 @@ def create_server(raw_token, original_request):
 
     @server.tool(annotations=READ_ONLY)
     async def free2z_get_profile(account: Account) -> CallToolResult:
-        """Read the selected account's profile and account summary."""
+        """Read the selected account's public display name, description, avatar and banner. Private account metadata and balances are excluded."""
         return await _call(operations.profile, raw_token, account, original_request)
 
     @server.tool(annotations=WRITE)
