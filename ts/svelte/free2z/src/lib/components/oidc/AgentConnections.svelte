@@ -3,7 +3,11 @@
   import { onMount } from "svelte";
   import { tStore as t, getCurrentLocale } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
-  import { scopeLabel } from "$lib/oidc/labels";
+  import {
+    scopeLabel,
+    agentActionLabel,
+    agentActionStatus,
+  } from "$lib/oidc/labels";
   import {
     agentRequest,
     type AgentConnections,
@@ -201,12 +205,18 @@
       </h3>
       <ul class="divide-y rounded-lg border text-sm">
         {#each data.recent_actions as action (action.id)}
-          <li class="space-y-1 p-3 break-words">
+          <li class="space-y-1 p-3 break-words" data-testid="agent-activity">
             <p class="font-medium">
-              @{action.target_username} · {action.operation}
+              @{action.target_username} · {agentActionLabel(
+                $t,
+                action.operation,
+              )}
             </p>
             <p class="text-muted-foreground">
-              {action.application ?? action.primary_username} · {action.status}
+              {action.application ?? action.primary_username} · {agentActionStatus(
+                $t,
+                action.status,
+              )}
             </p>
             <time datetime={action.created_at} class="text-muted-foreground"
               >{formatDateTime(action.created_at, getCurrentLocale(), {

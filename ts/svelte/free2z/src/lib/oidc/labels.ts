@@ -232,3 +232,52 @@ export function originProblemLabel(
       );
   }
 }
+
+/** Activity labels describe the action without exposing request content. */
+export function agentActionLabel(
+  t: TranslationFunction,
+  operation: string,
+): string {
+  switch (operation) {
+    case "list_pages":
+      return t("oauth.agent.actions.listPages", "Browse pages");
+    case "get_page":
+      return t("oauth.agent.actions.getPage", "Read page");
+    case "create_draft":
+      return t("oauth.agent.actions.createDraft", "Create draft");
+    case "update_page":
+      return t("oauth.agent.actions.updatePage", "Edit page");
+    case "set_page_published":
+      return t(
+        "oauth.agent.actions.setPagePublished",
+        "Change page visibility",
+      );
+    case "get_profile":
+      return t("oauth.agent.actions.getProfile", "Read public profile");
+    case "update_profile":
+      return t("oauth.agent.actions.updateProfile", "Edit public profile");
+    case "list_uploads":
+      return t("oauth.agent.actions.listUploads", "Browse media");
+    case "get_upload":
+      return t("oauth.agent.actions.getUpload", "Inspect media");
+    case "prepare_upload":
+      return t("oauth.agent.actions.prepareUpload", "Prepare upload");
+    case "upload_file":
+      return t("oauth.agent.actions.uploadFile", "Upload file");
+    default:
+      return t("oauth.agent.actions.unknown", "Account action");
+  }
+}
+
+/** A server error cannot establish whether a write committed. */
+export function agentActionStatus(
+  t: TranslationFunction,
+  status: number | string,
+): string {
+  const code = Number(status);
+  if (Number.isInteger(code) && code >= 200 && code < 300)
+    return t("oauth.agent.actionStatus.completed", "Completed");
+  if (Number.isInteger(code) && code >= 400 && code < 500)
+    return t("oauth.agent.actionStatus.notCompleted", "Not completed");
+  return t("oauth.agent.actionStatus.uncertain", "Could not confirm");
+}

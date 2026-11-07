@@ -3057,7 +3057,26 @@
       "removeApplication": "Isso também remove todas as conexões de agentes autorizadas por esta conta para este aplicativo, incluindo suas contas vinculadas. Use Conexões de agentes para remover apenas uma conexão.",
       "manageAccess": "Abrir Aplicativos conectados",
       "delegation": "Permita que a conexão {application} de @{primary} atue como @{target} com estas permissões.",
-      "accountRequirements": "Os requisitos normais de saldo e os limites de envio do Free2Z se aplicam à conta selecionada."
+      "accountRequirements": "Os requisitos normais de saldo e os limites de envio do Free2Z se aplicam à conta selecionada.",
+      "actions": {
+        "listPages": "Explorar páginas",
+        "getPage": "Ler página",
+        "createDraft": "Criar rascunho",
+        "updatePage": "Editar página",
+        "setPagePublished": "Alterar a visibilidade da página",
+        "getProfile": "Ler perfil público",
+        "updateProfile": "Editar perfil público",
+        "listUploads": "Explorar mídias",
+        "getUpload": "Consultar mídia",
+        "prepareUpload": "Preparar envio",
+        "uploadFile": "Enviar arquivo",
+        "unknown": "Ação na conta"
+      },
+      "actionStatus": {
+        "completed": "Concluída",
+        "notCompleted": "Não concluída",
+        "uncertain": "Não foi possível confirmar"
+      }
     }
   },
   "translationJobs": {

@@ -3057,7 +3057,26 @@
       "removeApplication": "Cela supprime aussi toutes les connexions d’agents autorisées par ce compte pour cette application, y compris leurs comptes liés. Utilisez Connexions des agents pour supprimer une seule connexion.",
       "manageAccess": "Ouvrir Applications connectées",
       "delegation": "Autorisez la connexion {application} appartenant à @{primary} à agir en tant que @{target} avec ces autorisations.",
-      "accountRequirements": "Les exigences de solde et les limites d’envoi habituelles de Free2Z s’appliquent au compte sélectionné."
+      "accountRequirements": "Les exigences de solde et les limites d’envoi habituelles de Free2Z s’appliquent au compte sélectionné.",
+      "actions": {
+        "listPages": "Parcourir les pages",
+        "getPage": "Lire une page",
+        "createDraft": "Créer un brouillon",
+        "updatePage": "Modifier une page",
+        "setPagePublished": "Modifier la visibilité d’une page",
+        "getProfile": "Lire le profil public",
+        "updateProfile": "Modifier le profil public",
+        "listUploads": "Parcourir les médias",
+        "getUpload": "Consulter un média",
+        "prepareUpload": "Préparer un envoi",
+        "uploadFile": "Envoyer un fichier",
+        "unknown": "Action sur le compte"
+      },
+      "actionStatus": {
+        "completed": "Terminée",
+        "notCompleted": "Non terminée",
+        "uncertain": "Impossible de confirmer"
+      }
     }
   },
   "translationJobs": {

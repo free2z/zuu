@@ -203,9 +203,27 @@ test("connected accounts require confirmation and revoke the selected grant only
       recent_actions: [
         {
           id: "activity-1",
-          operation: "zpage_create",
-          status: "success",
+          operation: "create_draft",
+          status: 402,
           created_at: "2026-11-07T04:00:00Z",
+          primary_username: "owner-user",
+          target_username: "fixtureowner",
+          application: APP.name,
+        },
+        {
+          id: "activity-2",
+          operation: "upload_file",
+          status: 201,
+          created_at: "2026-11-07T04:01:00Z",
+          primary_username: "owner-user",
+          target_username: "fixtureowner",
+          application: APP.name,
+        },
+        {
+          id: "activity-3",
+          operation: "future_action",
+          status: 500,
+          created_at: "2026-11-07T04:02:00Z",
           primary_username: "owner-user",
           target_username: "fixtureowner",
           application: APP.name,
@@ -232,7 +250,22 @@ test("connected accounts require confirmation and revoke the selected grant only
   await expect(page.getByTestId("agent-account-grant")).toHaveCount(0);
   await expect(page.getByTestId("agent-connection")).toHaveCount(1);
   expect(paths).toEqual([`/api/oauth/mcp/grants/${GRANT}/`]);
-  await expect(page.getByText("@fixtureowner · zpage_create")).toBeVisible();
+  const activity = page.getByTestId("agent-activity");
+  await expect(activity.filter({ hasText: "Create draft" })).toContainText(
+    "Not completed",
+  );
+  await expect(activity.filter({ hasText: "Upload file" })).toContainText(
+    "Completed",
+  );
+  await expect(activity.filter({ hasText: "Account action" })).toContainText(
+    "Could not confirm",
+  );
+  await expect(activity.filter({ hasText: "Create draft" })).toContainText(
+    "@fixtureowner",
+  );
+  await expect(activity.filter({ hasText: "Create draft" })).toContainText(
+    APP.name,
+  );
 });
 
 test("initial consent can switch accounts without losing the MCP resource or PKCE request", async ({

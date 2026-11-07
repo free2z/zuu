@@ -35,7 +35,7 @@ export interface AgentConnections {
   recent_actions?: {
     id: string;
     operation: string;
-    status: string;
+    status: number | string;
     created_at: string;
     primary_username: string;
     target_username: string;
