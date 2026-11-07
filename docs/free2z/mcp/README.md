@@ -75,7 +75,8 @@ connection. Save a private JSON registry outside the checkout:
 ```
 
 Aliases such as `alice` and `team` are local names you choose; `username` is the
-exact Free2Z username expected for that credential, without `@`. Each profile
+exact Free2Z username expected for that credential. Preserve characters such as
+an internal `@`; do not add an extra display-prefix `@`. Each profile
 requires exactly one absolute `session_file` or `token_file` path. Use letters,
 digits, underscores, or hyphens for aliases, up to 64 characters. `anonymous`,
 `__proto__`, `constructor`, and `prototype` are reserved. Registry fields other

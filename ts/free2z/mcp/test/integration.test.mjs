@@ -582,6 +582,26 @@ test("profile stdio requires explicit account, verifies identity before every op
   );
 });
 
+test("profiles verify exact API usernames containing an internal @", async (t) => {
+  const f = await profiles(t);
+  const username = "alice@example.com";
+  await writeFile(
+    f.registry,
+    JSON.stringify({ accounts: { alice: { ...f.accounts.alice, username } } }),
+  );
+  f.respond((req) => ({
+    data:
+      req.url === "/api/auth/user/" ? { username } : { count: 0, results: [] },
+  }));
+  const r = await call(f.client, "free2z_read", {
+    account: "alice",
+    operation_id: "zpage_list",
+  });
+  assert.equal(r.error, false);
+  assert.equal(r.data.verified_username, username);
+  assert.equal(f.received.length, 2);
+});
+
 test("concurrent profile calls retain verified snapshots while registry and credentials rotate, next calls reload without restart", async (t) => {
   const f = await profiles(t);
   let release;

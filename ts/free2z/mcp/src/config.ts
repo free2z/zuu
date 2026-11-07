@@ -142,7 +142,7 @@ function readAccounts(config: Config): Map<string, Account> {
         typeof a !== "object" ||
         Array.isArray(a) ||
         typeof a.username !== "string" ||
-        !/^[^\s@\x00-\x1f\x7f]{1,150}$/.test(a.username) ||
+        !/^[^\s\x00-\x1f\x7f]{1,150}$/.test(a.username) ||
         Object.keys(a).some(
           (k) => !["username", "session_file", "token_file"].includes(k),
         ) ||
