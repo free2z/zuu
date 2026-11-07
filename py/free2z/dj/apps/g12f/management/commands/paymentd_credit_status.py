@@ -313,18 +313,27 @@ def handoff_revocation_status_stream(path, db, total_records):
             txids=[row[0] for row in db.execute('SELECT txid FROM refs WHERE txid>? GROUP BY txid ORDER BY txid LIMIT 300',(last_tx,))]
             if not txids: break
             last_tx=txids[-1]
-            rows=ZecCreditReceipt.objects.filter(txid__in=txids,vanish_resolved_at__isnull=False).values_list('txid','pool','output_index').iterator(chunk_size=300)
-            for txid,pool,index in rows:
+            receipts=ZecCreditReceipt.objects.filter(txid__in=txids,vanish_resolved_at__isnull=False).order_by('pk')
+            last_receipt=None
+            while True:
                 if time.monotonic()>=deadline: raise ValueError('legacy guard deadline exceeded')
-                # A legacy receipt with no pool has no trustworthy output
-                # coordinate. Conservatively match every native revocation
-                # for its txid, as the pre-stream guard did.
-                if not pool:
-                    found=db.execute('SELECT 1 FROM refs INDEXED BY refs_txid WHERE txid=? LIMIT 1',(txid,)).fetchone()
-                else:
-                    found=db.execute('SELECT 1 FROM refs INDEXED BY refs_coordinate WHERE txid=? AND pool=? AND output_index=? LIMIT 1',
-                        (txid,pool,index)).fetchone()
-                if found: matched+=1
+                page=receipts if last_receipt is None else receipts.filter(pk__gt=last_receipt)
+                # SQL LIMIT bounds returned rows even without server-side
+                # cursors and when one transaction has many legacy outputs.
+                rows=list(page.values_list('pk','txid','pool','output_index')[:300])
+                if not rows: break
+                last_receipt=rows[-1][0]
+                for _,txid,pool,index in rows:
+                    if time.monotonic()>=deadline: raise ValueError('legacy guard deadline exceeded')
+                    # A legacy receipt with no pool has no trustworthy output
+                    # coordinate. Conservatively match every native revocation
+                    # for its txid, as the pre-stream guard did.
+                    if not pool:
+                        found=db.execute('SELECT 1 FROM refs INDEXED BY refs_txid WHERE txid=? LIMIT 1',(txid,)).fetchone()
+                    else:
+                        found=db.execute('SELECT 1 FROM refs INDEXED BY refs_coordinate WHERE txid=? AND pool=? AND output_index=? LIMIT 1',
+                            (txid,pool,index)).fetchone()
+                    if found: matched+=1
     unique=db.execute('SELECT count(*) FROM refs').fetchone()[0]
     return {'schema':2,'checked_revocations':unique,'source_revocation_records':total_records,
             'already_resolved_legacy_receipts':matched,'ready':matched==0}

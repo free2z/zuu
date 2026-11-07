@@ -209,3 +209,48 @@ def test_stream_pipe_deadline_and_line_bound_without_waiting_for_writer_close(in
         release_writer.set()
         producer.join(timeout=3)
         assert not producer.is_alive()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_stream_guard_bounds_receipt_rows_with_client_side_cursors(creator_factory):
+    import io
+    import os
+    from django.db import connection
+    from dj.apps.g12f.management.commands.paymentd_credit_status import (
+        handoff_revocation_status_stream, stage_handoff_stream,
+    )
+
+    assert connection.settings_dict['DISABLE_SERVER_SIDE_CURSORS'] is True
+    user = creator_factory()
+    now = timezone.now()
+    txid = 'e' * 64
+    ZecCreditReceipt.objects.bulk_create([
+        ZecCreditReceipt(txid=txid, pool='ironwood', output_index=index,
+            creator=user, amount_zec=Decimal('.00909007'),
+            vanished_at=now, vanish_resolved_at=now)
+        for index in range(901)
+    ])
+    # The only match is beyond three full pages of the same transaction.
+    refs = [revoke_ref(txid, 'ironwood', 900)]
+    path, db, total = stage_handoff_stream(io.BytesIO(
+        _stream_with_profile_refs((refs, []))))
+    fetched = []
+
+    def measure_receipt_query(execute, sql, params, many, context):
+        result = execute(sql, params, many, context)
+        if sql.lstrip().upper().startswith('SELECT') and ZecCreditReceipt._meta.db_table in sql:
+            fetched.append(context['cursor'].rowcount)
+        return result
+
+    try:
+        with connection.execute_wrapper(measure_receipt_query):
+            result = handoff_revocation_status_stream(path, db, total)
+        assert result == {'schema': 2, 'checked_revocations': 1,
+            'source_revocation_records': 1,
+            'already_resolved_legacy_receipts': 1, 'ready': False}
+        assert fetched and all(0 <= count <= 300 for count in fetched)
+        assert sum(fetched) == 901
+        assert ZecCreditReceipt.objects.filter(txid=txid, vanish_resolved_at=now).count() == 901
+    finally:
+        db.close()
+        os.unlink(path)

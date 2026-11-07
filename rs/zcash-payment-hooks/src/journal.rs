@@ -910,7 +910,7 @@ impl Journal {
         } else {
             Some("delivery inventory unavailable; inspect lifecycle, resource bounds and deadline")
         };
-        // Preserve event-count and ordinary health diagnostics on failure.
+        // Preserve ordinary health diagnostics on failure when budget remains.
         // Verified totals come from the same cursor traversal as handoff and
         // are never replaced with a partial SQL estimate or unknown-as-zero.
         drop(tx);
