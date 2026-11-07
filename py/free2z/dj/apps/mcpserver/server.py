@@ -85,9 +85,8 @@ def create_server(raw_token, original_request):
 
     @server.tool(annotations=READ_ONLY)
     async def free2z_list_accounts() -> CallToolResult:
-        """List this connection's authorized account IDs, usernames, granted scopes and availability."""
-        from dj.apps.oidc.mcp import list_accounts
-        return await _call(list_accounts, raw_token)
+        """Identify the connection owner and list authorized account IDs, usernames, granted scopes and availability. The connection owner does not select the action account."""
+        return await _call(operations.connection_accounts, raw_token)
 
     @server.tool(annotations=WRITE)
     async def free2z_connect_account(expected_username: Account, scopes: list[str] | None = None) -> CallToolResult:

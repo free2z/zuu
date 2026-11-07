@@ -116,6 +116,17 @@ def perform(raw_token, account, original, operation, scopes, callback):
         return result
 
 
+def connection_accounts(raw):
+    from dj.apps.g12f.models import Creator
+    from dj.apps.oidc.mcp import authenticate_mcp, list_accounts
+    principal = authenticate_mcp(raw)
+    return {
+        "connection_id": str(principal.connection_id),
+        "connection_owner": Creator.objects.get(pk=principal.user_id).username,
+        "accounts": list_accounts(raw),
+    }
+
+
 def list_pages(raw, account, original, *, search="", mine=False, page=1):
     from dj.apps.g12f.views.zpage import zPageView
     return perform(raw, account, original, "list_pages", (READ,), lambda actor: _native(

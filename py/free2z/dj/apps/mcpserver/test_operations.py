@@ -49,6 +49,9 @@ def test_selected_account_draft_idempotency_etag_and_unknown_fields(signed_in, u
     target = creator_factory(username="baz")
     browser = creator_factory(username="foobar")
     linked, _ = link(raw, target)
+    _, accounts = tool(raw, "free2z_list_accounts", {}, browser_user=browser)
+    assert accounts["connection_owner"] == user.username
+    assert {account["username"] for account in accounts["accounts"]} == {user.username, target.username}
     key = uuid4()
     result, created = draft(raw, "baz", key=key, browser_user=browser)
     assert not result["isError"] and created["status"] == 201, created
@@ -178,7 +181,7 @@ def put_upload(prepared, body, *, capability=None):
 
 
 def test_prepared_upload_hash_identity_admission_replay_and_readback(signed_in, user, creator_factory):
-    _, _, tokens = issue(signed_in, user)
+    app, _, tokens = issue(signed_in, user)
     raw = tokens["access_token"]
     target = creator_factory(username="mediaowner")
     linked, _ = link(raw, target)
@@ -207,6 +210,20 @@ def test_prepared_upload_hash_identity_admission_replay_and_readback(signed_in, 
     assert status["state"] == "complete" and status["media"]["id"] == media_id
     _, hidden = tool(raw, "free2z_get_upload_status", {"account": user.username, "upload_id": prepared["upload_id"]})
     assert hidden["status"] == 403
+    # Rotation/cleanup of the short-lived credential must not remove a receipt
+    # that a fresh token for this same connection needs to reconcile.
+    from dj.apps.oidc.models import AccessToken
+    from dj.apps.oidc.tests.conftest import form_post
+    original_token_id = MCPUploadIntent.objects.get(pk=prepared["upload_id"]).access_token_id
+    refreshed = form_post(APIClient(), "/api/oauth/token", {
+        "grant_type": "refresh_token", "client_id": app.client_id,
+        "refresh_token": tokens["refresh_token"], "resource": "https://testserver/api/mcp",
+    })
+    assert refreshed.status_code == 200, refreshed.content
+    raw = refreshed.json()["access_token"]
+    AccessToken.objects.filter(pk=original_token_id).delete()
+    _, status = tool(raw, "free2z_get_upload_status", {"account": linked["id"], "upload_id": prepared["upload_id"]})
+    assert status["state"] == "complete" and status["media"]["id"] == media_id
     from django.utils import timezone
     pending = prepare(raw, "mediaowner", payload)
     MCPAccountGrant.objects.filter(pk=linked["id"]).update(revoked_at=timezone.now())
