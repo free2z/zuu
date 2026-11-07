@@ -68,6 +68,7 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
       let closed;
       let spawnError;
       let killTimer;
+      let exitKillTimer;
       let reapTimer;
       let resolve;
       let reject;
@@ -83,6 +84,7 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
         if (settled) return;
         settled = true;
         clearTimeout(killTimer);
+        clearTimeout(exitKillTimer);
         clearTimeout(reapTimer);
         children.delete(owned);
         if (error) reject(error);
@@ -105,6 +107,7 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
         terminate() {
           if (settled || aborted) return;
           aborted = true;
+          clearTimeout(exitKillTimer);
           diagnostic(`Aborting ${details()}`);
           send("SIGTERM");
           killTimer = setTimeout(() => {
@@ -137,6 +140,13 @@ export function recorderBuildProcesses(signal, diagnostic = console.error) {
       });
       child.on("error", (error) => {
         spawnError = error;
+      });
+      // Give normal descendant shutdown its grace period, then reap any
+      // process still holding inherited pipes open after the leader exits.
+      // close remains authoritative for drained diagnostics and exit status.
+      child.on("exit", () => {
+        if (!aborted)
+          exitKillTimer = setTimeout(() => send("SIGKILL"), termGraceMs);
       });
       // close, unlike exit, also waits for inherited stdout/stderr to close.
       function finishClosed() {
