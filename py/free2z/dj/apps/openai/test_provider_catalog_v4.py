@@ -1,0 +1,75 @@
+"""Price validity, strict discovery and honest inventory availability."""
+from datetime import date, timedelta
+from types import SimpleNamespace
+
+import pytest
+from django.utils import timezone
+
+from .models import AIModel, ProviderModel
+from .provider_inventory import provider_inventory, unreviewed_reason
+from .management.commands.seed_ai_models import LINEUP
+from f2z.ai.providers import ModelDisabled, _stream_chat
+
+
+@pytest.mark.django_db
+def test_strict_discovery_requires_the_exact_current_upstream_id():
+    AIModel.objects.all().delete()
+    ProviderModel.objects.all().delete()
+    model = AIModel.objects.create(provider="anthropic", model="claude-test", provider_model_id="claude-pinned")
+    assert AIModel.objects.discovered().filter(pk=model.pk).exists()
+    assert not AIModel.objects.discovered(require_snapshot=True).exists()
+    listing = ProviderModel.objects.create(provider="anthropic", provider_model_id="claude-test")
+    assert AIModel.objects.discovered(upstream=False, require_snapshot=True).exists()
+    assert not AIModel.objects.discovered(require_snapshot=True).exists()
+    listing.missing_since = timezone.now()
+    listing.save()
+    assert not AIModel.objects.discovered(upstream=False, require_snapshot=True).exists()
+
+
+@pytest.mark.django_db
+def test_expired_price_cannot_be_selected_or_sent(monkeypatch):
+    row = AIModel.objects.create(provider="openai", model="promo", price_valid_until=timezone.now()-timedelta(seconds=1))
+    assert not AIModel.objects.enabled().filter(pk=row.pk).exists()
+    with pytest.raises(ModelDisabled, match="price review"):
+        list(_stream_chat(row, [{"role": "user", "content": "never send"}]))
+    row.price_valid_until = timezone.now()+timedelta(days=1)
+    row.save()
+    assert AIModel.objects.enabled().filter(pk=row.pk).exists()
+
+
+@pytest.mark.django_db
+def test_inventory_requires_review_listing_and_key(settings):
+    AIModel.objects.all().delete()
+    ProviderModel.objects.all().delete()
+    settings.OPENAI_API_KEY = "test-key"
+    row = AIModel.objects.create(provider="openai", model="test-text", is_ga=True)
+    def entry():
+        return next(r for r in provider_inventory() if r["model"] == row.model)
+    assert entry()["unavailable_reason"] == "price_and_capabilities_not_reviewed"
+    row.price_checked_at = date(2026, 11, 7)
+    row.save()
+    assert entry()["unavailable_reason"] == "not_discovered"
+    ProviderModel.objects.create(provider="openai", provider_model_id=row.model)
+    assert entry()["available"]
+    settings.OPENAI_API_KEY = ""
+    assert entry()["unavailable_reason"] == "provider_not_configured"
+    ProviderModel.objects.create(provider="openai", provider_model_id="gpt-image-future")
+    unknown = next(r for r in provider_inventory() if r["model"] == "gpt-image-future")
+    assert not unknown["available"]
+    assert unknown["unavailable_reason"] == "unsupported_modality_or_endpoint"
+
+
+def test_haiku_service_cap_excludes_its_higher_price_tier():
+    row = next(row for row in LINEUP if row[1] == "claude-haiku-5-5")
+    assert row[5] * 115 < 100_000 * 100
+    assert row[7] <= row[5]
+
+
+@pytest.mark.parametrize("provider,model,reason", [
+    ("openai", "gpt-5.5-pro", "requires_unimplemented_endpoint_or_tool_billing"),
+    ("openai", "gpt-4o-2024-05-13", "snapshot_requires_separate_price_and_capability_review"),
+    ("anthropic", "claude-mythos-5-1", "restricted_access_requires_separate_review"),
+    ("openai", "future-model", "price_and_capabilities_not_reviewed"),
+])
+def test_unknown_models_are_explained_without_price_guesses(provider, model, reason):
+    assert unreviewed_reason(provider, model) == reason

@@ -621,9 +621,15 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     rows = {row.model_id: row for row in card.model_rows.all()}
     disabled = sorted(POLICY_DISABLED_PROVIDERS)
     candidates = []
+    price_expiries = {}
     for ai_model in undiscovered_models():
         log_model_not_discovered(ai_model)
     for ai_model in catalogue_models():
+        if ai_model.price_valid_until is not None:
+            expiry = int(ai_model.price_valid_until.timestamp())
+            if expiry <= now_unix:
+                continue
+            price_expiries[ai_model.model] = expiry
         row = rows.get(ai_model.model)
         if row is None:
             log_model_excluded(
@@ -757,7 +763,10 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
         "schema": schema,
         "version": version,
         "issued_at": issued_at,
-        "expires_at": issued_at + VALIDITY_SECONDS,
+        "expires_at": min(
+            [issued_at + VALIDITY_SECONDS]
+            + [price_expiries[m["id"]] for m in models if m["id"] in price_expiries]
+        ),
         "rate_card_version": card.version,
         "platform_margin_bps": card.platform_margin_bps,
         "disabled_providers": disabled,
