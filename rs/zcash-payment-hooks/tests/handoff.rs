@@ -720,6 +720,10 @@ fn interrupted_stream_has_no_footer_and_restart_reproves_its_new_boundary() -> R
 }
 
 #[test]
+#[cfg_attr(
+    debug_assertions,
+    ignore = "resource acceptance uses the release build; run the explicit release test command"
+)]
 fn streamed_handoff_covers_real_history_above_all_former_ceilings() -> Result<()> {
     let dir = TempDir::new()?;
     let mut c = config(&dir);
