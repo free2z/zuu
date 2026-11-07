@@ -20,6 +20,7 @@ pytestmark = pytest.mark.django_db
 @pytest.fixture(autouse=True)
 def _hosted_settings(settings, tmp_path):
     settings.OIDC_ISSUER = "https://testserver"
+    settings.OAUTH2_PROVIDER = {**settings.OAUTH2_PROVIDER, "OIDC_ISS_ENDPOINT": settings.OIDC_ISSUER}
     settings.STORAGES = {**settings.STORAGES, "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"}}
     settings.MEDIA_ROOT = str(tmp_path)
 
