@@ -58,6 +58,12 @@ test("link review uses a clean URL, exact account and explicit reduced permissio
       { exact: true },
     ),
   ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Free2Z’s normal balance requirements and upload limits apply to the selected account.",
+      { exact: true },
+    ),
+  ).toBeVisible();
   expect(new URL(page.url()).hash).toBe("");
   await expect(page.getByText("@target-user", { exact: true })).toHaveCount(2);
   expect(writes).toEqual([]);
@@ -284,6 +290,12 @@ test("initial consent can switch accounts without losing the MCP resource or PKC
   await page.goto(`/oauth/authorize?${new URLSearchParams(request)}`);
   await expect(
     page.getByText("@different-user", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Free2Z’s normal balance requirements and upload limits apply to the selected account.",
+      { exact: true },
+    ),
   ).toBeVisible();
   await page
     .getByRole("button", { name: "Switch account", exact: true })

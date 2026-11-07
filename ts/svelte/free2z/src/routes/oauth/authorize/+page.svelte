@@ -674,6 +674,12 @@
               "These permissions apply to this connection. Your other assistant connections keep their own permissions.",
             )}
           </p>
+          <p class="text-sm text-muted-foreground">
+            {$t(
+              "oauth.agent.accountRequirements",
+              "Free2Z’s normal balance requirements and upload limits apply to the selected account.",
+            )}
+          </p>
         {/if}
         <ul class="space-y-2" data-testid="oauth-consent-scopes">
           {#each prompt.scopes as scope (scope)}

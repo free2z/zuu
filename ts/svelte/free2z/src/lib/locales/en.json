@@ -3056,7 +3056,8 @@
       "connectionPermissions": "These permissions apply to this connection. Your other assistant connections keep their own permissions.",
       "removeApplication": "This also removes every agent connection authorized by this account for this app, including their linked accounts. Use Agent connections to remove just one connection.",
       "manageAccess": "Open Connected apps",
-      "delegation": "Allow the {application} connection owned by @{primary} to act as @{target} with these permissions."
+      "delegation": "Allow the {application} connection owned by @{primary} to act as @{target} with these permissions.",
+      "accountRequirements": "Free2Z’s normal balance requirements and upload limits apply to the selected account."
     }
   },
   "translationJobs": {

@@ -3056,7 +3056,8 @@
       "connectionPermissions": "Estas permissões se aplicam a esta conexão. Suas outras conexões de assistentes mantêm suas próprias permissões.",
       "removeApplication": "Isso também remove todas as conexões de agentes autorizadas por esta conta para este aplicativo, incluindo suas contas vinculadas. Use Conexões de agentes para remover apenas uma conexão.",
       "manageAccess": "Abrir Aplicativos conectados",
-      "delegation": "Permita que a conexão {application} de @{primary} atue como @{target} com estas permissões."
+      "delegation": "Permita que a conexão {application} de @{primary} atue como @{target} com estas permissões.",
+      "accountRequirements": "Os requisitos normais de saldo e os limites de envio do Free2Z se aplicam à conta selecionada."
     }
   },
   "translationJobs": {

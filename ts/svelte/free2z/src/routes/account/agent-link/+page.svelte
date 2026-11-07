@@ -301,6 +301,12 @@
         </p>
         <p class="text-sm text-muted-foreground">
           {$t(
+            "oauth.agent.accountRequirements",
+            "Free2Z’s normal balance requirements and upload limits apply to the selected account.",
+          )}
+        </p>
+        <p class="text-sm text-muted-foreground">
+          {$t(
             "oauth.agent.revokeHelp",
             "You can remove this access later in Connected apps.",
           )}
