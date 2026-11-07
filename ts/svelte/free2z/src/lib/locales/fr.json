@@ -2898,7 +2898,7 @@
       "intro": "Les apps que vous avez autorisées à utiliser votre compte Free2Z. Retirer l'accès déconnecte l'app partout.",
       "loading": "Chargement de vos apps connectées…",
       "loadFailed": "Vos apps connectées n'ont pas pu être chargées.",
-      "empty": "Vous n'avez connecté aucune app à votre compte Free2Z.",
+      "empty": "Aucune application n’est connectée directement à ce compte.",
       "since": "Connectée le {date}",
       "revoke": "Retirer l'accès",
       "limit": "Votre budget pour l’application",
@@ -3010,7 +3010,7 @@
       "title": "Votre compte Free2Z",
       "account": "Connecté en tant que",
       "balance": "Solde 2Z",
-      "notConnected": "Cette application n’est pas connectée à votre compte Free2Z.",
+      "notConnected": "Cette application n’est pas connectée directement à votre compte Free2Z.",
       "deleteAccount": "Supprimer le compte Free2Z"
     },
     "agent": {

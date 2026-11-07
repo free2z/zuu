@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { replaceState } from "$app/navigation";
+  import { goto } from "$app/navigation";
   import { tStore as t } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
   import { Label } from "$lib/components/ui/label";
@@ -137,19 +137,30 @@
     }
   }
 
-  onMount(() => {
+  async function initialize() {
     try {
+      const originalUrl = new URL(window.location.href);
+      if (originalUrl.hash || originalUrl.search) {
+        await goto("/account/agent-link", {
+          state: {},
+          shallow: true,
+          replace: true,
+        });
+      }
+      // Clean the URL before touching storage, which can itself be disabled.
       intent = takeAgentLinkIntent(
-        new URL(window.location.href),
+        originalUrl,
         window.sessionStorage,
-        () => {
-          replaceState("/account/agent-link", {});
-        },
+        () => {},
       );
     } catch {
       intent = null;
     }
-    void load();
+    await load();
+  }
+
+  onMount(() => {
+    void initialize();
   });
 </script>
 

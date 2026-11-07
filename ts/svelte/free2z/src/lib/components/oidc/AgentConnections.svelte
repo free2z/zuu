@@ -8,7 +8,7 @@
     agentRequest,
     type AgentConnections,
     type AgentConnection,
-    type AgentAccountGrant,
+    type AgentAccount,
   } from "$lib/oidc/mcp";
 
   export let clientId: string | null | undefined = undefined;
@@ -57,7 +57,7 @@
     target = { kind: "connections", id: item.id, label: item.application.name };
   }
 
-  function askGrant(item: AgentAccountGrant) {
+  function askGrant(item: Pick<AgentAccount, "id" | "username">) {
     problem = "";
     target = { kind: "grants", id: item.id, label: `@${item.username}` };
   }
@@ -151,6 +151,11 @@
                     {scopeLabel($t, scope)}
                   </li>{/each}
               </ul>
+              {#if account.username !== connection.primary_username}
+                <Button variant="outline" onclick={() => askGrant(account)}>
+                  {$t("oauth.agent.removeAccount", "Remove account access")}
+                </Button>
+              {/if}
             </li>
           {/each}
         </ul>

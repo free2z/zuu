@@ -2898,7 +2898,7 @@
       "intro": "Apps que você permitiu usar sua conta Free2Z. Remover o acesso desconecta o app em todos os lugares.",
       "loading": "Carregando seus apps conectados…",
       "loadFailed": "Não foi possível carregar seus apps conectados.",
-      "empty": "Você não conectou nenhum app à sua conta Free2Z.",
+      "empty": "Nenhum aplicativo está conectado diretamente a esta conta.",
       "since": "Conectado em {date}",
       "revoke": "Remover acesso",
       "limit": "Seu orçamento para o app",
@@ -3010,7 +3010,7 @@
       "title": "Sua conta Free2Z",
       "account": "Conectado como",
       "balance": "Saldo de 2Z",
-      "notConnected": "Este app não está conectado à sua conta Free2Z.",
+      "notConnected": "Este aplicativo não está conectado diretamente à sua conta Free2Z.",
       "deleteAccount": "Excluir conta Free2Z"
     },
     "agent": {

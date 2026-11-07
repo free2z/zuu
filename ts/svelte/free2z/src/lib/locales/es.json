@@ -2898,7 +2898,7 @@
       "intro": "Apps a las que permitiste usar tu cuenta de Free2Z. Al quitar el acceso, la app cierra sesión en todas partes.",
       "loading": "Cargando tus apps conectadas…",
       "loadFailed": "No se pudieron cargar tus apps conectadas.",
-      "empty": "No has conectado ninguna app a tu cuenta de Free2Z.",
+      "empty": "No hay aplicaciones conectadas directamente a esta cuenta.",
       "since": "Conectada el {date}",
       "revoke": "Quitar acceso",
       "limit": "Tu presupuesto para la app",
@@ -3010,7 +3010,7 @@
       "title": "Tu cuenta de Free2Z",
       "account": "Sesión iniciada como",
       "balance": "Saldo de 2Z",
-      "notConnected": "Esta app no está conectada a tu cuenta de Free2Z.",
+      "notConnected": "Esta aplicación no está conectada directamente a tu cuenta de Free2Z.",
       "deleteAccount": "Eliminar la cuenta de Free2Z"
     },
     "agent": {

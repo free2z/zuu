@@ -2898,7 +2898,7 @@
       "intro": "Apps you have allowed to use your Free2Z account. Removing access signs the app out everywhere.",
       "loading": "Loading your connected apps…",
       "loadFailed": "Your connected apps could not be loaded.",
-      "empty": "You have not connected any apps to your Free2Z account.",
+      "empty": "No apps are connected directly to this account.",
       "since": "Connected {date}",
       "revoke": "Remove access",
       "limit": "Your app budget",
@@ -3010,7 +3010,7 @@
       "title": "Your Free2Z account",
       "account": "Signed in as",
       "balance": "2Z balance",
-      "notConnected": "This app is not connected to your Free2Z account.",
+      "notConnected": "This app is not connected directly to your Free2Z account.",
       "deleteAccount": "Delete Free2Z account"
     },
     "agent": {

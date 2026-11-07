@@ -21,6 +21,8 @@ async function link(page: Page, username = "target-user") {
     expect(route.request().postDataJSON()).toEqual({ intent: INTENT });
     expect(new URL(route.request().url()).search).toBe("");
     expect(route.request().headers().referer).toBeUndefined();
+    expect(new URL(page.url()).hash).toBe("");
+    expect(new URL(page.url()).search).toBe("");
     return json(route, 200, {
       expected_username: "target-user",
       signed_in_username: username,
@@ -212,9 +214,13 @@ test("connected accounts require confirmation and revoke the selected grant only
     return route.fulfill({ status: 204, body: "" });
   });
   await page.goto("/account/apps");
+  await expect(page.getByTestId("connected-apps-empty")).toHaveText(
+    "No apps are connected directly to this account.",
+  );
   await page.getByRole("button", { name: "Remove account access" }).click();
   expect(paths).toEqual([]);
   await page
+    .getByRole("region", { name: "Confirm access removal" })
     .getByRole("button", { name: "Remove access", exact: true })
     .click();
   await expect(page.getByTestId("agent-account-grant")).toHaveCount(0);
@@ -328,4 +334,117 @@ test("an uncertain approval checks connected apps instead of retrying the write"
       sessionStorage.getItem("free2z:agent-link-intent:v1"),
     ),
   ).toBeNull();
+});
+
+test("connection owners remove one linked account and global revoke refreshes the panel", async ({
+  page,
+}) => {
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "billing-fixture-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  let linked = true;
+  let connected = true;
+  const deleted: string[] = [];
+  await page.route("**/api/oauth/grants/", (route) =>
+    json(route, 200, [
+      {
+        client_id: APP.client_id,
+        application_id: CONNECTION,
+        name: APP.name,
+        developer: null,
+        scope: scopes,
+        spend_cap_2z: null,
+        cap_period: "month",
+        markup_bps: 0,
+        generation: 1,
+        consented_at: "2026-11-07T04:00:00Z",
+      },
+    ]),
+  );
+  await page.route("**/api/oauth/mcp/connections/", (route) =>
+    json(route, 200, {
+      connections: connected
+        ? [
+            {
+              id: CONNECTION,
+              application: APP,
+              primary_username: "fixtureowner",
+              scopes,
+              revoked: false,
+              available: true,
+              accounts: [
+                {
+                  id: "primary-grant",
+                  username: "fixtureowner",
+                  scopes,
+                  revoked: false,
+                  available: true,
+                },
+                ...(linked
+                  ? [
+                      {
+                        id: GRANT,
+                        username: "target-user",
+                        scopes,
+                        revoked: false,
+                        available: true,
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ]
+        : [],
+      account_grants: [],
+      recent_actions: [],
+    }),
+  );
+  await page.route(`**/api/oauth/mcp/grants/${GRANT}/`, (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    deleted.push(new URL(route.request().url()).pathname);
+    linked = false;
+    return route.fulfill({ status: 204, body: "" });
+  });
+  await page.route(`**/api/oauth/grants/${CONNECTION}/`, (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    deleted.push(new URL(route.request().url()).pathname);
+    connected = false;
+    return route.fulfill({ status: 204, body: "" });
+  });
+  await page.goto("/account/apps");
+  const connection = page.getByTestId("agent-connection");
+  await expect(
+    connection.getByRole("button", { name: "Remove account access" }),
+  ).toHaveCount(1);
+  await connection
+    .getByRole("button", { name: "Remove account access" })
+    .click();
+  expect(deleted).toEqual([]);
+  await page
+    .getByRole("region", { name: "Confirm access removal" })
+    .getByRole("button", { name: "Remove access", exact: true })
+    .click();
+  await expect(connection).toHaveCount(1);
+  await expect(connection).not.toContainText("@target-user");
+  await expect(connection).toContainText("@fixtureowner");
+  expect(deleted).toEqual([`/api/oauth/mcp/grants/${GRANT}/`]);
+  await page.getByTestId("connected-app-revoke").click();
+  const confirmation = page.getByTestId("connected-app-revoke-dialog");
+  await expect(confirmation).toContainText(
+    "every agent connection authorized by this account",
+  );
+  await page.getByTestId("connected-app-revoke-confirm").click();
+  await expect(connection).toHaveCount(0);
+  await expect(
+    page.getByText("No agent connections for this account."),
+  ).toBeVisible();
+  expect(deleted).toEqual([
+    `/api/oauth/mcp/grants/${GRANT}/`,
+    `/api/oauth/grants/${CONNECTION}/`,
+  ]);
 });
