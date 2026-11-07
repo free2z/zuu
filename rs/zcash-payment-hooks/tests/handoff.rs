@@ -14,33 +14,90 @@ use zcash_paymentd::{
     journal::{Journal, StateLock},
 };
 
-fn measured_command() -> std::process::Command {
-    let mut command = std::process::Command::new("/usr/bin/time");
-    if cfg!(target_os = "macos") {
-        command.arg("-l");
-    } else {
-        command.args(["-f", "%M"]);
-    }
-    command.arg(env!("CARGO_BIN_EXE_zcash-paymentd"));
-    command
+fn measured_output(
+    config: &std::path::Path,
+    timeout: u64,
+    output: Option<&std::path::Path>,
+) -> Result<(bool, String, u64)> {
+    let case = TempDir::new()?;
+    let report = case.path().join("usage.json");
+    let spec =
+        serde_json::json!({"config":config,"timeout":timeout,"output":output,"report":report});
+    // A fresh harness process isolates the measured daemon from this test
+    // process's earlier fixture allocations (inherited fork high-water RSS).
+    let wrapper = std::process::Command::new(std::env::current_exe()?)
+        .args([
+            "--exact",
+            "measure_handoff_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("PAYMENTD_RSS_CASE", spec.to_string())
+        .output()?;
+    anyhow::ensure!(
+        wrapper.status.success(),
+        "RSS helper failed: {}",
+        String::from_utf8_lossy(&wrapper.stderr)
+    );
+    let value: (bool, String, u64) = serde_json::from_slice(&std::fs::read(report)?)?;
+    Ok(value)
 }
 
-fn peak_rss_kib(stderr: &[u8]) -> Result<u64> {
-    let text = std::str::from_utf8(stderr)?;
-    if cfg!(target_os = "macos") {
-        let line = text
-            .lines()
-            .find(|line| line.contains("maximum resident set size"))
-            .ok_or_else(|| anyhow::anyhow!("missing macOS RSS measurement"))?;
-        Ok(line.split_whitespace().next().unwrap().parse::<u64>()? / 1024)
+#[test]
+#[ignore = "internal RSS subprocess; requires an explicit isolated measurement case"]
+fn measure_handoff_child() -> Result<()> {
+    use std::{
+        io::{Read, Seek},
+        os::unix::process::ExitStatusExt,
+    };
+    let case: serde_json::Value = serde_json::from_str(&std::env::var("PAYMENTD_RSS_CASE")?)?;
+    let mut stderr_file = tempfile::tempfile()?;
+    let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_zcash-paymentd"));
+    command
+        .arg("--config")
+        .arg(case["config"].as_str().unwrap())
+        .args(["handoff-revocations-stream", "--timeout-seconds"])
+        .arg(case["timeout"].as_u64().unwrap().to_string())
+        .stderr(stderr_file.try_clone()?);
+    if let Some(path) = case["output"].as_str() {
+        command.stdout(std::fs::File::create(path)?);
     } else {
-        Ok(text
-            .lines()
-            .last()
-            .ok_or_else(|| anyhow::anyhow!("missing Linux RSS measurement"))?
-            .trim()
-            .parse()?)
+        command.stdout(std::process::Stdio::null());
     }
+    let child = command.spawn()?;
+    let mut status = 0;
+    // wait4 fills both out-parameters for this exact owned child. No other
+    // child reaper or fixture writer runs in this measurement process.
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    loop {
+        let result = unsafe { libc::wait4(child.id() as libc::pid_t, &mut status, 0, &mut usage) };
+        if result >= 0 {
+            break;
+        }
+        let error = std::io::Error::last_os_error();
+        if error.kind() != std::io::ErrorKind::Interrupted {
+            return Err(error.into());
+        }
+    }
+    let mut stderr = String::new();
+    stderr_file.rewind()?;
+    stderr_file.read_to_string(&mut stderr)?;
+    let peak = u64::try_from(usage.ru_maxrss)?;
+    let peak_kib = if cfg!(target_os = "macos") {
+        peak / 1024
+    } else {
+        peak
+    };
+    let result = (
+        std::process::ExitStatus::from_raw(status).success(),
+        stderr,
+        peak_kib,
+    );
+    std::fs::write(
+        case["report"].as_str().unwrap(),
+        serde_json::to_vec(&result)?,
+    )?;
+    Ok(())
 }
 
 fn command_config(c: &Config, dir: &TempDir) -> Result<std::path::PathBuf> {
@@ -690,23 +747,9 @@ fn streamed_handoff_covers_real_history_above_all_former_ceilings() -> Result<()
 
     let config_path = command_config(&c, &dir)?;
     let stream_path = dir.path().join("revocations.ndjson");
-    let stream = std::fs::File::create(&stream_path)?;
     drop(lock);
-    let command = measured_command()
-        .arg("--config")
-        .arg(&config_path)
-        .arg("handoff-revocations-stream")
-        .arg("--timeout-seconds")
-        .arg("120")
-        .stdout(stream)
-        .stderr(std::process::Stdio::piped())
-        .spawn()?
-        .wait_with_output()?;
-    assert!(
-        command.status.success(),
-        "compiled native stream CLI must succeed"
-    );
-    let peak_kib = peak_rss_kib(&command.stderr)?;
+    let (success, stderr, peak_kib) = measured_output(&config_path, 120, Some(&stream_path))?;
+    assert!(success, "compiled native stream CLI must succeed: {stderr}");
     assert!(
         peak_kib < 64 * 1024,
         "native stream peak RSS was {peak_kib} KiB"
@@ -917,6 +960,57 @@ fn oversized_legacy_preview_refuses_before_unbounded_collection_but_streams() ->
 }
 
 #[test]
+fn historical_long_consumer_ids_preserve_active_and_inactive_handoff_proofs() -> Result<()> {
+    for id in ["a".repeat(129), "é".repeat(8_193)] {
+        let dir = TempDir::new()?;
+        let mut c = config(&dir);
+        financial(&mut c);
+        c.consumers[0].id = id.clone();
+        c.validate()?;
+        let lock = StateLock::acquire(&c.state_dir)?;
+        let mut journal = Journal::open(&c, "key")?;
+        journal.append(&block(c.birthday_height, "a", "parent", &[]))?;
+        journal.append(&block(c.automation_start_height, "b", "a", &[0]))?;
+        journal.rollback_one()?;
+        drop(journal);
+        let preview = Journal::handoff_revocations(&lock, &c, "key", 1, 1, Duration::from_secs(5))?;
+        let applied = Journal::enqueue_missing(&lock, &c, "key", Duration::from_secs(5))?;
+        assert_eq!(preview["inventory_sha256"], applied["inventory_sha256"]);
+        // Removing the long consumer preserves its subscriptions and delivery
+        // rows. Inactive metadata must continue to participate in full proof.
+        c.consumers.remove(0);
+        drop(Journal::open(&c, "key")?);
+        let before = Journal::handoff_revocations(&lock, &c, "key", 1, 1, Duration::from_secs(5))?;
+        let db = Connection::open(c.state_dir.join("journal.sqlite"))?;
+        let renamed = format!(
+            "{}{}",
+            id.chars().take(id.chars().count() - 1).collect::<String>(),
+            if id.is_ascii() { "z" } else { "è" }
+        );
+        db.execute(
+            "UPDATE consumers SET id=?1 WHERE id=?2",
+            params![renamed, id],
+        )?;
+        db.execute(
+            "UPDATE subscriptions SET consumer=?1 WHERE consumer=?2",
+            params![renamed, id],
+        )?;
+        db.execute(
+            "UPDATE deliveries SET consumer=?1 WHERE consumer=?2",
+            params![renamed, id],
+        )?;
+        drop(db);
+        let after = Journal::handoff_revocations(&lock, &c, "key", 1, 1, Duration::from_secs(5))?;
+        assert_ne!(
+            before["inventory_sha256"], after["inventory_sha256"],
+            "the final byte after several chunks is part of the proof"
+        );
+        assert_eq!(before["existing_deliveries"], after["existing_deliveries"]);
+    }
+    Ok(())
+}
+
+#[test]
 fn oversized_handoff_values_are_refused_without_materializing_them() -> Result<()> {
     for (table, column, expected) in [
         ("events", "body", "oversized handoff event"),
@@ -946,18 +1040,12 @@ fn oversized_handoff_values_are_refused_without_materializing_them() -> Result<(
         assert!(error.to_string().contains(expected));
         let config_path = command_config(&c, &dir)?;
         drop(lock);
-        let output = measured_command()
-            .arg("--config")
-            .arg(config_path)
-            .args(["handoff-revocations-stream", "--timeout-seconds", "5"])
-            .output()?;
-        assert!(!output.status.success());
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let (success, stderr, peak) = measured_output(&config_path, 5, None)?;
+        assert!(!success);
         assert!(
             stderr.contains("handoff stream unavailable"),
             "{table}: {stderr}"
         );
-        let peak = peak_rss_kib(&output.stderr)?;
         assert!(peak < 64 * 1024, "{table} reader allocated {peak} KiB");
     }
     Ok(())

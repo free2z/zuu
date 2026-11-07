@@ -1042,6 +1042,46 @@ impl Drop for InterruptDeadline {
     }
 }
 
+// Consumer IDs have no historical length limit. Hash their complete SQLite
+// TEXT bytes incrementally, including inactive consumers, without allocating
+// a whole ID or changing the canonical keys used by subscriptions/deliveries.
+fn hash_handoff_consumer_id(
+    tx: &rusqlite::Transaction<'_>,
+    location: (&str, &str),
+    rowid: i64,
+    byte_len: u64,
+    digest: &mut Sha256,
+    inventory_bytes: &mut u64,
+    check: &impl Fn() -> Result<()>,
+) -> Result<()> {
+    use std::io::Read;
+    ensure!(byte_len > 0, "empty handoff consumer identity");
+    *inventory_bytes = inventory_bytes
+        .checked_add(byte_len)
+        .ok_or_else(|| anyhow::anyhow!("handoff inventory byte count overflow"))?;
+    ensure!(
+        *inventory_bytes <= HANDOFF_MAX_INVENTORY_BYTES,
+        "handoff inventory resource cap exceeded"
+    );
+    let mut value = tx.blob_open("main", location.0, location.1, rowid, true)?;
+    ensure!(
+        u64::try_from(value.len())? == byte_len,
+        "consumer identity byte length changed"
+    );
+    digest.update(b"consumer-id-bytes-v1");
+    digest.update(byte_len.to_be_bytes());
+    let mut buffer = [0_u8; 4096];
+    loop {
+        check()?;
+        let count = value.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    Ok(())
+}
+
 struct HandoffPlan {
     proof: Value,
 }
@@ -1347,7 +1387,7 @@ fn handoff_plan(
     // materializing rows so a corrupt oversized metadata value cannot defeat
     // the per-record memory bound.
     let invalid_delivery_rows: u64 = tx.query_row(
-        "SELECT count(*) FROM deliveries d LEFT JOIN events e ON e.id=d.event_id LEFT JOIN consumers c ON c.id=d.consumer WHERE e.id IS NULL OR c.id IS NULL OR d.seq!=e.seq OR d.attempts<0 OR d.next_attempt<0 OR d.acked NOT IN (0,1) OR octet_length(d.consumer)>128 OR octet_length(d.event_id)>2048 OR coalesce(octet_length(d.last_error),0)>16384",
+        "SELECT count(*) FROM deliveries d LEFT JOIN events e ON e.id=d.event_id LEFT JOIN consumers c ON c.id=d.consumer WHERE e.id IS NULL OR c.id IS NULL OR d.seq!=e.seq OR d.attempts<0 OR d.next_attempt<0 OR d.acked NOT IN (0,1) OR octet_length(d.event_id)>2048 OR coalesce(octet_length(d.last_error),0)>16384",
         [],
         |r| r.get(0),
     )?;
@@ -1356,7 +1396,7 @@ fn handoff_plan(
         "invalid handoff delivery metadata"
     );
     let invalid_subscriptions: u64 = tx.query_row(
-        "SELECT count(*) FROM subscriptions s LEFT JOIN consumers c ON c.id=s.consumer LEFT JOIN receipts r ON r.id=s.payment_id WHERE c.id IS NULL OR r.id IS NULL OR octet_length(s.consumer)>128 OR octet_length(s.payment_id)>2048",
+        "SELECT count(*) FROM subscriptions s LEFT JOIN consumers c ON c.id=s.consumer LEFT JOIN receipts r ON r.id=s.payment_id WHERE c.id IS NULL OR r.id IS NULL OR octet_length(s.payment_id)>2048",
         [],
         |r| r.get(0),
     )?;
@@ -1365,20 +1405,28 @@ fn handoff_plan(
         "invalid handoff subscription lineage"
     );
     let mut consumer_rows = tx.prepare(
-        "SELECT CASE WHEN octet_length(id)<=128 THEN id END,active,observe_unconfirmed,octet_length(id) FROM consumers ORDER BY id",
+        "SELECT rowid,active,observe_unconfirmed,octet_length(id),typeof(id) FROM consumers ORDER BY id",
     )?;
     let mut consumers_iter = consumer_rows.query([])?;
     while let Some(row) = consumers_iter.next()? {
         check()?;
-        let id_len: usize = row.get(3)?;
         ensure!(
-            id_len > 0 && id_len <= 128,
-            "invalid handoff consumer identity"
+            row.get::<_, String>(4)? == "text",
+            "invalid handoff consumer identity type"
         );
-        let id: String = row.get(0)?;
+        digest.update(b"consumer-v2");
+        hash_handoff_consumer_id(
+            tx,
+            ("consumers", "id"),
+            row.get(0)?,
+            row.get(3)?,
+            &mut digest,
+            &mut inventory_bytes,
+            check,
+        )?;
         let active: bool = row.get(1)?;
         let observe: bool = row.get(2)?;
-        let encoded = serde_json::to_vec(&(id, active, observe))?;
+        let encoded = serde_json::to_vec(&(active, observe))?;
         inventory_bytes = inventory_bytes
             .checked_add(encoded.len() as u64)
             .ok_or_else(|| anyhow::anyhow!("handoff inventory byte count overflow"))?;
@@ -1386,23 +1434,28 @@ fn handoff_plan(
             inventory_bytes <= HANDOFF_MAX_INVENTORY_BYTES,
             "handoff inventory resource cap exceeded"
         );
-        digest.update(b"consumer");
+        digest.update((encoded.len() as u64).to_be_bytes());
         digest.update(encoded);
     }
     let mut subscription_rows =
-        tx.prepare("SELECT consumer,payment_id,octet_length(consumer),octet_length(payment_id) FROM subscriptions ORDER BY consumer,payment_id")?;
+        tx.prepare("SELECT rowid,payment_id,octet_length(consumer),octet_length(payment_id) FROM subscriptions ORDER BY consumer,payment_id")?;
     let mut subscriptions_iter = subscription_rows.query([])?;
     while let Some(row) = subscriptions_iter.next()? {
         check()?;
-        let consumer_len: usize = row.get(2)?;
         let payment_id_len: usize = row.get(3)?;
-        ensure!(
-            consumer_len <= 128 && payment_id_len <= 2048,
-            "oversized handoff subscription"
-        );
-        let consumer: String = row.get(0)?;
+        ensure!(payment_id_len <= 2048, "oversized handoff subscription");
+        digest.update(b"subscription-v2");
+        hash_handoff_consumer_id(
+            tx,
+            ("subscriptions", "consumer"),
+            row.get(0)?,
+            row.get(2)?,
+            &mut digest,
+            &mut inventory_bytes,
+            check,
+        )?;
         let payment_id: String = row.get(1)?;
-        let encoded = serde_json::to_vec(&(consumer, payment_id))?;
+        let encoded = serde_json::to_vec(&payment_id)?;
         inventory_bytes = inventory_bytes
             .checked_add(encoded.len() as u64)
             .ok_or_else(|| anyhow::anyhow!("handoff inventory byte count overflow"))?;
@@ -1410,14 +1463,23 @@ fn handoff_plan(
             inventory_bytes <= HANDOFF_MAX_INVENTORY_BYTES,
             "handoff inventory resource cap exceeded"
         );
-        digest.update(b"subscription");
+        digest.update((encoded.len() as u64).to_be_bytes());
         digest.update(encoded);
     }
-    let mut delivery_rows = tx.prepare("SELECT consumer,event_id,seq,attempts,next_attempt,acked,last_error FROM deliveries ORDER BY consumer,event_id")?;
+    let mut delivery_rows = tx.prepare("SELECT rowid,event_id,seq,attempts,next_attempt,acked,last_error,octet_length(consumer) FROM deliveries ORDER BY consumer,event_id")?;
     let mut deliveries_iter = delivery_rows.query([])?;
     while let Some(row) = deliveries_iter.next()? {
         check()?;
-        let consumer: String = row.get(0)?;
+        digest.update(b"delivery-v2");
+        hash_handoff_consumer_id(
+            tx,
+            ("deliveries", "consumer"),
+            row.get(0)?,
+            row.get(7)?,
+            &mut digest,
+            &mut inventory_bytes,
+            check,
+        )?;
         let event_id: String = row.get(1)?;
         let seq: u64 = row.get(2)?;
         let attempts: u32 = row.get(3)?;
@@ -1428,15 +1490,8 @@ fn handoff_plan(
             last_error.as_ref().is_none_or(|v| v.len() <= 16_384),
             "oversized handoff retry metadata"
         );
-        let encoded = serde_json::to_vec(&(
-            consumer,
-            event_id,
-            seq,
-            attempts,
-            next_attempt,
-            acked,
-            last_error,
-        ))?;
+        let encoded =
+            serde_json::to_vec(&(event_id, seq, attempts, next_attempt, acked, last_error))?;
         inventory_bytes = inventory_bytes
             .checked_add(encoded.len() as u64)
             .ok_or_else(|| anyhow::anyhow!("handoff inventory byte count overflow"))?;
@@ -1444,7 +1499,7 @@ fn handoff_plan(
             inventory_bytes <= HANDOFF_MAX_INVENTORY_BYTES,
             "handoff inventory resource cap exceeded"
         );
-        digest.update(b"delivery");
+        digest.update((encoded.len() as u64).to_be_bytes());
         digest.update(encoded);
     }
     tx.execute("INSERT OR IGNORE INTO temp.handoff_missing SELECT s.consumer,s.payment_id,s.event_id,s.seq FROM temp.handoff_selected s LEFT JOIN deliveries d ON d.consumer=s.consumer AND d.event_id=s.event_id WHERE d.event_id IS NULL", [])?;
