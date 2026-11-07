@@ -3217,6 +3217,45 @@ export interface MCPAction {
   application: string | null;
 }
 
+/**
+ * * `none` - none
+ * * `client_secret_basic` - client_secret_basic
+ * * `client_secret_post` - client_secret_post
+ */
+export type TokenEndpointAuthMethodEnum = typeof TokenEndpointAuthMethodEnum[keyof typeof TokenEndpointAuthMethodEnum];
+
+
+export const TokenEndpointAuthMethodEnum = {
+  none: 'none',
+  client_secret_basic: 'client_secret_basic',
+  client_secret_post: 'client_secret_post',
+} as const;
+
+/**
+ * * `code` - code
+ */
+export type ResponseTypesEnum = typeof ResponseTypesEnum[keyof typeof ResponseTypesEnum];
+
+
+export const ResponseTypesEnum = {
+  code: 'code',
+} as const;
+
+export interface MCPClientRegistration {
+  /** @maxLength 100 */
+  client_name?: string;
+  /**
+     * @minItems 1
+     * @maxItems 10
+     * @items.maxLength 2048
+     */
+  redirect_uris: string[];
+  token_endpoint_auth_method?: TokenEndpointAuthMethodEnum;
+  grant_types?: GrantTypesEnum[];
+  response_types?: ResponseTypesEnum[];
+  scope?: string;
+}
+
 export interface MCPConnection {
   id: string;
   application: MCPApplication;
@@ -4575,43 +4614,15 @@ export interface RecoveryStatus {
   next_step: AccountRecoveryNextStepEnum | NullEnum | null;
 }
 
-/**
- * * `none` - none
- * * `client_secret_basic` - client_secret_basic
- * * `client_secret_post` - client_secret_post
- */
-export type TokenEndpointAuthMethodEnum = typeof TokenEndpointAuthMethodEnum[keyof typeof TokenEndpointAuthMethodEnum];
-
-
-export const TokenEndpointAuthMethodEnum = {
-  none: 'none',
-  client_secret_basic: 'client_secret_basic',
-  client_secret_post: 'client_secret_post',
-} as const;
-
-/**
- * * `code` - code
- */
-export type ResponseTypesEnum = typeof ResponseTypesEnum[keyof typeof ResponseTypesEnum];
-
-
-export const ResponseTypesEnum = {
-  code: 'code',
-} as const;
-
 export interface Registration {
-  /** @maxLength 100 */
-  client_name?: string;
   /**
-     * @minItems 1
-     * @maxItems 10
-     * @items.maxLength 2048
+     * Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.
+     * @maxLength 150
+     * @pattern ^[\w.@+-]+$
      */
-  redirect_uris: string[];
-  token_endpoint_auth_method?: TokenEndpointAuthMethodEnum;
-  grant_types?: GrantTypesEnum[];
-  response_types?: ResponseTypesEnum[];
-  scope?: string;
+  username: string;
+  /** @maxLength 128 */
+  password: string;
 }
 
 export interface ResetPasswordRequest {
@@ -6873,4 +6884,16 @@ export const ZuuliCapabilitiesPlatform = {
   linux: 'linux',
   macos: 'macos',
 } as const;
+
+export type McpPostBody = {[key: string]: unknown};
+
+export type McpPost200 = {[key: string]: unknown};
+
+export type McpPostAliasBody = {[key: string]: unknown};
+
+export type McpPostAlias200 = {[key: string]: unknown};
+
+export type McpUploadPut200 = {[key: string]: unknown};
+
+export type McpUploadPut201 = {[key: string]: unknown};
 

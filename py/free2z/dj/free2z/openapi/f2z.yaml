@@ -5775,7 +5775,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/Registration'
+              $ref: '#/components/schemas/MCPClientRegistration'
         required: true
       security:
       - {}
@@ -9817,6 +9817,298 @@ paths:
               schema:
                 $ref: '#/components/schemas/ZuuliError'
           description: ''
+  /api/mcp:
+    post:
+      operationId: mcp_post
+      description: 'Stateless JSON Streamable HTTP MCP. The official MCP SDK owns
+        protocol negotiation, JSON-RPC messages and tool schemas; discover tools through
+        MCP rather than treating this endpoint as a REST operation catalog. Cookies
+        do not authenticate this endpoint. Model inputs are explicit tool arguments
+        in the JSON body, including the selected authorized account. The trailing-slash
+        alias has the same behavior. A failed or lost response does not prove rollback:
+        reconcile mutation state before retrying. Send Content-Type application/json
+        and Accept application/json, text/event-stream; the SDK refuses unacceptable
+        representations with 406 and unsupported content types with 415.'
+      parameters:
+      - in: header
+        name: Content-Length
+        schema:
+          type: string
+        description: Optional HTTP framing length. Malformed values return 400; bodies
+          exceeding 4 MiB return 413 even when this header is absent.
+      - in: header
+        name: Host
+        schema:
+          type: string
+        description: Canonical deployment host. Django rejects disallowed hosts with
+          400; the MCP transport rejects a noncanonical host with 421.
+        required: true
+      - in: header
+        name: MCP-Protocol-Version
+        schema:
+          type: string
+        description: Negotiated MCP protocol version on subsequent requests. Unsupported
+          protocol metadata is refused by the SDK with 400.
+      - in: header
+        name: Mcp-Method
+        schema:
+          type: string
+        description: Optional MCP routing hint validated by the SDK against the JSON-RPC
+          body. It does not supply tool arguments.
+      - in: header
+        name: Mcp-Name
+        schema:
+          type: string
+        description: Optional MCP tool/resource routing hint validated by the SDK;
+          the selected account and mutable fields come from the body.
+      - in: header
+        name: Origin
+        schema:
+          type: string
+        description: Browser origin admission only. Unregistered origins return 403;
+          the header supplies no persisted account or content fields.
+      tags:
+      - mcp
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - mcpBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: SDK JSON-RPC result or error; at most 8 MiB.
+        '202':
+          description: Accepted SDK notification; no response body.
+        '400':
+          description: Malformed framing, host, protocol or JSON-RPC request.
+        '401':
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+              description: Bearer challenge with resource_metadata URL.
+          description: Bearer authorization required; metadata challenge returned.
+        '403':
+          description: Browser origin is not admitted.
+        '405':
+          description: Only POST is supported; no persistent SSE session.
+        '406':
+          description: Accept header does not support the MCP HTTP representations.
+        '413':
+          description: JSON request exceeds the bounded input limit.
+        '415':
+          description: Request content type must be application/json.
+        '421':
+          description: Host does not match this MCP deployment.
+        '429':
+          headers:
+            Retry-After:
+              schema:
+                type: string
+              description: Minimum seconds before another request.
+          description: Connection-owner request limit exceeded; Retry-After returned.
+        '500':
+          description: Bounded response unavailable; reconcile state before retrying.
+  /api/mcp/:
+    post:
+      operationId: mcp_post_alias
+      description: 'Stateless JSON Streamable HTTP MCP. The official MCP SDK owns
+        protocol negotiation, JSON-RPC messages and tool schemas; discover tools through
+        MCP rather than treating this endpoint as a REST operation catalog. Cookies
+        do not authenticate this endpoint. Model inputs are explicit tool arguments
+        in the JSON body, including the selected authorized account. The trailing-slash
+        alias has the same behavior. A failed or lost response does not prove rollback:
+        reconcile mutation state before retrying. Send Content-Type application/json
+        and Accept application/json, text/event-stream; the SDK refuses unacceptable
+        representations with 406 and unsupported content types with 415.'
+      parameters:
+      - in: header
+        name: Content-Length
+        schema:
+          type: string
+        description: Optional HTTP framing length. Malformed values return 400; bodies
+          exceeding 4 MiB return 413 even when this header is absent.
+      - in: header
+        name: Host
+        schema:
+          type: string
+        description: Canonical deployment host. Django rejects disallowed hosts with
+          400; the MCP transport rejects a noncanonical host with 421.
+        required: true
+      - in: header
+        name: MCP-Protocol-Version
+        schema:
+          type: string
+        description: Negotiated MCP protocol version on subsequent requests. Unsupported
+          protocol metadata is refused by the SDK with 400.
+      - in: header
+        name: Mcp-Method
+        schema:
+          type: string
+        description: Optional MCP routing hint validated by the SDK against the JSON-RPC
+          body. It does not supply tool arguments.
+      - in: header
+        name: Mcp-Name
+        schema:
+          type: string
+        description: Optional MCP tool/resource routing hint validated by the SDK;
+          the selected account and mutable fields come from the body.
+      - in: header
+        name: Origin
+        schema:
+          type: string
+        description: Browser origin admission only. Unregistered origins return 403;
+          the header supplies no persisted account or content fields.
+      tags:
+      - mcp
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: {}
+      security:
+      - mcpBearer: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: SDK JSON-RPC result or error; at most 8 MiB.
+        '202':
+          description: Accepted SDK notification; no response body.
+        '400':
+          description: Malformed framing, host, protocol or JSON-RPC request.
+        '401':
+          headers:
+            WWW-Authenticate:
+              schema:
+                type: string
+              description: Bearer challenge with resource_metadata URL.
+          description: Bearer authorization required; metadata challenge returned.
+        '403':
+          description: Browser origin is not admitted.
+        '405':
+          description: Only POST is supported; no persistent SSE session.
+        '406':
+          description: Accept header does not support the MCP HTTP representations.
+        '413':
+          description: JSON request exceeds the bounded input limit.
+        '415':
+          description: Request content type must be application/json.
+        '421':
+          description: Host does not match this MCP deployment.
+        '429':
+          headers:
+            Retry-After:
+              schema:
+                type: string
+              description: Minimum seconds before another request.
+          description: Connection-owner request limit exceeded; Retry-After returned.
+        '500':
+          description: Bounded response unavailable; reconcile state before retrying.
+  /api/mcp/uploads/authorize:
+    get:
+      operationId: mcp_upload_authorize
+      description: Internal read-only edge auth_request admission before binary-body
+        buffering. Consumes no bytes and creates no upload. The PUT endpoint independently
+        rechecks authorization, size and digest even without this preflight.
+      parameters:
+      - in: header
+        name: X-Original-Content-Length
+        schema:
+          type: string
+        description: Edge-supplied declared binary-body length. Missing, malformed
+          or mismatched lengths return 403 before buffering.
+        required: true
+      - in: header
+        name: X-Original-URI
+        schema:
+          type: string
+        description: Edge-supplied exact /api/mcp/uploads/<UUID> resource path. Malformed
+          or unrelated paths return 403; never supplies media metadata.
+        required: true
+      tags:
+      - mcp
+      security:
+      - mcpUploadCapability: []
+      responses:
+        '204':
+          description: Prepared upload is currently authorized.
+        '401':
+          description: Authorization challenge from the underlying verifier.
+        '403':
+          description: Invalid path, size, capability or revoked/expired authorization.
+        '405':
+          description: Only GET is supported.
+  /api/mcp/uploads/{upload_id}:
+    put:
+      operationId: mcp_upload_put
+      description: Stream the exact prepared file bytes. Filename, media access, title,
+        description and account were fixed by free2z_prepare_upload tool arguments.
+        Headers authenticate the prepared intent and validate framing; they cannot
+        replace its metadata. Authorization is checked before and after transfer.
+        Replaying identical bytes returns the existing receipt; changed bytes fail.
+      parameters:
+      - in: header
+        name: Content-Length
+        schema:
+          type: string
+        description: Required exact prepared byte length within the account's ordinary
+          upload limit. Missing, malformed or mismatched values return 400.
+        required: true
+      - in: path
+        name: upload_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - mcp
+      requestBody:
+        content:
+          '*/*':
+            schema:
+              type: string
+              format: binary
+      security:
+      - mcpUploadCapability: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Existing upload receipt and media ID for identical bytes.
+        '201':
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+          description: Created upload receipt and media ID.
+        '400':
+          description: Length, Content-Type or SHA-256 differs from the prepared file,
+            or native file validation refuses the content. Send the prepared MIME
+            type.
+        '403':
+          description: Capability, token, account grant or publication permission
+            refused.
+        '405':
+          description: Only PUT is supported.
+        '413':
+          description: Edge body limit exceeded.
 components:
   schemas:
     AIIdempotencyError:
@@ -14180,6 +14472,42 @@ components:
       required:
       - client_id
       - name
+    MCPClientRegistration:
+      type: object
+      properties:
+        client_name:
+          type: string
+          default: MCP client
+          maxLength: 100
+        redirect_uris:
+          type: array
+          items:
+            type: string
+            maxLength: 2048
+          maxItems: 10
+          minItems: 1
+        token_endpoint_auth_method:
+          allOf:
+          - $ref: '#/components/schemas/TokenEndpointAuthMethodEnum'
+          default: client_secret_basic
+        grant_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/GrantTypesEnum'
+          default:
+          - authorization_code
+          - refresh_token
+        response_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/ResponseTypesEnum'
+          default:
+          - code
+        scope:
+          type: string
+          default: mcp:read mcp:write mcp:publish mcp:uploads offline_access
+      required:
+      - redirect_uris
     MCPConnection:
       type: object
       properties:
@@ -16509,39 +16837,18 @@ components:
     Registration:
       type: object
       properties:
-        client_name:
+        username:
           type: string
-          default: MCP client
-          maxLength: 100
-        redirect_uris:
-          type: array
-          items:
-            type: string
-            maxLength: 2048
-          maxItems: 10
-          minItems: 1
-        token_endpoint_auth_method:
-          allOf:
-          - $ref: '#/components/schemas/TokenEndpointAuthMethodEnum'
-          default: client_secret_basic
-        grant_types:
-          type: array
-          items:
-            $ref: '#/components/schemas/GrantTypesEnum'
-          default:
-          - authorization_code
-          - refresh_token
-        response_types:
-          type: array
-          items:
-            $ref: '#/components/schemas/ResponseTypesEnum'
-          default:
-          - code
-        scope:
+          description: Required. 150 characters or fewer. Letters, digits and @/./+/-/_
+            only.
+          pattern: ^[\w.@+-]+$
+          maxLength: 150
+        password:
           type: string
-          default: mcp:read mcp:write mcp:publish mcp:uploads offline_access
+          maxLength: 128
       required:
-      - redirect_uris
+      - password
+      - username
     ResetPasswordRequest:
       type: object
       properties:
@@ -19675,6 +19982,20 @@ components:
       in: header
       name: Authorization
       description: Token-based authentication with required prefix "Token"
+    mcpBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: OAuth access token bound to this MCP resource. Missing, expired,
+        wrong-audience or revoked tokens return 401 with a WWW-Authenticate resource_metadata
+        challenge. Browser cookies do not authenticate MCP.
+    mcpUploadCapability:
+      type: apiKey
+      in: header
+      name: X-Free2Z-Upload-Capability
+      description: Short-lived prepared-upload capability, restricted to its account
+        and exact file. Missing, expired or revoked authority returns 403; it cannot
+        change media metadata.
     oauth2Jwt:
       type: oauth2
       description: Free2Z OAuth 2.0 / OpenID Connect (authorization code + PKCE S256).

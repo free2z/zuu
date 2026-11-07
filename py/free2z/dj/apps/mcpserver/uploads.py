@@ -15,6 +15,7 @@ from django.http import HttpResponse, JsonResponse, QueryDict
 from django.utils import timezone
 from django.utils.datastructures import MultiValueDict
 from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET, require_http_methods
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
 from .operations import PUBLISH, UPLOAD, _request, _result
@@ -102,11 +103,10 @@ def _refused(exc):
 
 @csrf_exempt
 @transaction.non_atomic_requests
+@require_GET
 def authorize_upload(request):
     """nginx auth_request check before buffering the binary body; consumes nothing."""
     from dj.apps.oidc.mcp import authorized_upload
-    if request.method != "GET":
-        return HttpResponse(status=405)
     try:
         original = request.headers.get("X-Original-URI", "")
         match = re.fullmatch(re.escape(UPLOAD_PREFIX) + r"([0-9a-f-]{36})", original)
@@ -128,12 +128,11 @@ def authorize_upload(request):
 
 @csrf_exempt
 @transaction.non_atomic_requests
+@require_http_methods(["PUT"])
 def upload_binary(request, upload_id):
     from dj.apps.oidc.mcp import authorized_upload, record_action
     from dj.apps.uploads.serializers import GenericFileSerializer
     from dj.apps.uploads.views import single_public_upload_handle
-    if request.method != "PUT":
-        return HttpResponse(status=405)
     capability = request.headers.get(CAPABILITY_HEADER, "")
     try:
         length = _expected_length(request)

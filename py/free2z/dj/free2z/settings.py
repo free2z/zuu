@@ -1579,6 +1579,7 @@ SPECTACULAR_SETTINGS = {
     # silently renames every operation and tag in f2z.yaml and, with them,
     # every function in the generated client.
     'SCHEMA_PATH_PREFIX': r'/api/',
+    'DEFAULT_GENERATOR_CLASS': 'dj.apps.mcpserver.schema.MCPSchemaGenerator',
     # 'SERVE_INCLUDE_SCHEMA': False,
     # OTHER SETTINGS
     # Must mirror REST_FRAMEWORK['DEFAULT_AUTHENTICATION_CLASSES']: this list
@@ -1586,6 +1587,10 @@ SPECTACULAR_SETTINGS = {
     # leaving `BasicAuthentication` here would keep advertising `basicAuth` to
     # every generated client after the server stopped honouring it.
     'AUTHENTICATION_WHITELIST': [
+        # Schema-only descriptors for raw Django protocol handlers. They are
+        # never mounted or added to REST_FRAMEWORK authentication classes.
+        "dj.apps.mcpserver.schema.MCPBearerAuthentication",
+        "dj.apps.mcpserver.schema.MCPUploadAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "dj.apps.ktauth.authentication.AccountEpochTokenAuthentication",
         # Published as the `oauth2Jwt` scheme, and attached ONLY to operations
