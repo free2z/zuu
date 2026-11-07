@@ -31,7 +31,13 @@ def register():
 def issue(signed_in, user, app=None):
     app = app or register()
     flow = Flow(signed_in, user, app, redirect_uri=WEB_REDIRECT, scope=SCOPES)
-    code = flow.authorize(resource=mcp_resource())
+    evaluated = flow.evaluate(resource=mcp_resource()).json()
+    decided = flow.decide(evaluated)
+    assert decided.status_code == 200, decided.content
+    callback = query_of(decided.json()["redirect_to"])
+    from django.conf import settings
+    assert callback["iss"] == settings.OIDC_ISSUER
+    code = callback["code"]
     result = flow.exchange(code, extra={"resource": mcp_resource()})
     assert result.status_code == 200, result.content
     return app, flow, result.json()
@@ -173,6 +179,7 @@ def test_registration_rejects_privileged_scopes_and_bad_redirects():
         {"redirect_uris": [WEB_REDIRECT], "scope": "ai:invoke"},
         {"redirect_uris": ["https://app.example/*"]},
         {"redirect_uris": ["http://evil.example/callback"]},
+        {"redirect_uris": ["https://[bad/callback"], "token_endpoint_auth_method": "none"},
     ):
         response = client.post("/api/oauth/register", payload, format="json")
         assert response.status_code == 400, response.content

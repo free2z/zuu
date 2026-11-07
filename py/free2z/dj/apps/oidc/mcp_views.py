@@ -115,10 +115,13 @@ class MCPRegisterView(PrivateResponseMixin, APIView):
         public = values["token_endpoint_auth_method"] == "none"
         origins = []
         if public:
-            for uri in values["redirect_uris"]:
-                parsed = urlsplit(uri)
-                if parsed.scheme == "https":
-                    origins.append(parsed.scheme + "://" + parsed.netloc)
+            try:
+                for uri in values["redirect_uris"]:
+                    parsed = urlsplit(uri)
+                    if parsed.scheme == "https":
+                        origins.append(parsed.scheme + "://" + parsed.netloc)
+            except ValueError:
+                return Response({"error": "invalid_redirect_uri"}, status=400)
         app = F2ZApplication(
             name=values["client_name"], user=None,
             client_type=F2ZApplication.CLIENT_PUBLIC if public else F2ZApplication.CLIENT_CONFIDENTIAL,
