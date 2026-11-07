@@ -2797,9 +2797,9 @@
       "balanceRead": "Ver seu saldo de créditos 2Z",
       "purchaseCreate": "Iniciar compras de créditos 2Z para você confirmar",
       "aiInvoke": "Usar recursos de IA que gastam seus créditos 2Z; o orçamento por app é opcional",
-      "mcpRead": "Ler os dados da conta, páginas e mídias",
-      "mcpWrite": "Criar e editar rascunhos e conteúdo da conta",
-      "mcpPublish": "Publicar páginas e retirar sua publicação",
+      "mcpRead": "Ler seu perfil público, páginas e mídias",
+      "mcpWrite": "Criar ou editar rascunhos e atualizar seu perfil público",
+      "mcpPublish": "Publicar ou editar páginas e mídias públicas",
       "mcpUploads": "Enviar arquivos para sua conta"
     },
     "capPeriods": {
@@ -3033,12 +3033,12 @@
       "confirmRemove": "Remover acesso",
       "cancel": "Cancelar",
       "switchFailed": "Não foi possível sair. Tente novamente antes de trocar de conta.",
-      "decisionFailed": "O acesso não foi confirmado. Confira a conta e as permissões antes de tentar novamente.",
+      "decisionFailed": "Não foi possível confirmar a conexão. Confira Aplicativos conectados antes de iniciar uma nova solicitação.",
       "linkTitle": "Conectar uma conta · Free2Z",
       "linkHeading": "Conecte uma conta ao seu assistente",
       "signInHelp": "Entre na conta Free2Z que deseja conectar. Você revisará o acesso antes de aprová-lo.",
       "signIn": "Entrar",
-      "invalid": "Esta solicitação de conexão não existe ou expirou. Peça um novo link ao assistente e abra-o na mesma aba usada para entrar.",
+      "invalid": "Esta solicitação está ausente ou expirou. Se você já a aprovou, confira Aplicativos conectados antes de pedir um novo link ao assistente.",
       "connected": "Conta conectada",
       "denied": "Conexão recusada",
       "return": "Volte ao seu assistente. Você pode fechar esta aba.",
@@ -3052,7 +3052,10 @@
       "revokeHelp": "Você pode remover este acesso depois em Aplicativos conectados.",
       "allow": "Permitir acesso",
       "deny": "Recusar",
-      "switch": "Trocar de conta"
+      "switch": "Trocar de conta",
+      "connectionPermissions": "Estas permissões se aplicam a esta conexão. Suas outras conexões de assistentes mantêm suas próprias permissões.",
+      "removeApplication": "Isso também remove todas as conexões de agentes autorizadas por esta conta para este aplicativo, incluindo suas contas vinculadas. Use Conexões de agentes para remover apenas uma conexão.",
+      "manageAccess": "Abrir Aplicativos conectados"
     }
   },
   "translationJobs": {
@@ -3402,7 +3405,5 @@
     "dismiss": "Dispensar mensagem de boas-vindas",
     "model": "2Z são créditos para ações na Free2Z. Publicar custa a partir de 1 2Z, cerca de um centavo de dólar. Esse pequeno custo desestimula spam e ajuda a manter a Free2Z sem anúncios. Sua primeira zPage é grátis; criar outra exige um saldo de 1 2Z sem gastá-lo.",
     "sources": "Novas contas elegíveis recebem créditos de boas-vindas. Você pode comprar 2Z ou receber presentes de membros que querem ler mais de você. Apresente-se em uma zPage para que os leitores conheçam você."
-  },
-  "oauth.agent.connectionPermissions": "Estas permissões se aplicam a esta conexão. Suas outras conexões de assistentes mantêm suas próprias permissões.",
-  "oauth.agent.removeApplication": "Isso também remove todas as conexões de agentes autorizadas por esta conta para este aplicativo, incluindo suas contas vinculadas. Use Conexões de agentes para remover apenas uma conexão."
+  }
 }

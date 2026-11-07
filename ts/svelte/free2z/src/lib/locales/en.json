@@ -2797,9 +2797,9 @@
       "balanceRead": "See your 2Z credit balance",
       "purchaseCreate": "Start 2Z credit purchases for you to confirm",
       "aiInvoke": "Use AI features that spend your 2Z credits; an app budget is optional",
-      "mcpRead": "Read account details, pages and media",
-      "mcpWrite": "Create and edit drafts and account content",
-      "mcpPublish": "Publish and unpublish pages",
+      "mcpRead": "Read your public profile, pages and media",
+      "mcpWrite": "Create/edit drafts and update your public profile",
+      "mcpPublish": "Publish or edit public pages and media",
       "mcpUploads": "Upload files to your account"
     },
     "capPeriods": {
@@ -3033,12 +3033,12 @@
       "confirmRemove": "Remove access",
       "cancel": "Cancel",
       "switchFailed": "Could not sign out. Try again before switching accounts.",
-      "decisionFailed": "Access was not confirmed. Review the account and permissions before trying again.",
+      "decisionFailed": "The connection could not be confirmed. Check Connected apps before starting a new request.",
       "linkTitle": "Connect an account · Free2Z",
       "linkHeading": "Connect an account to your assistant",
       "signInHelp": "Sign in to the Free2Z account you want to connect. You will review access before approving.",
       "signIn": "Sign in",
-      "invalid": "This connection request is missing or expired. Ask your assistant for a new link and open it in the same browser tab used to sign in.",
+      "invalid": "This request is missing or expired. If you already approved it, check Connected apps before asking your assistant for a new link.",
       "connected": "Account connected",
       "denied": "Connection declined",
       "return": "Return to your assistant. You can close this tab.",
@@ -3052,7 +3052,10 @@
       "revokeHelp": "You can remove this access later in Connected apps.",
       "allow": "Allow access",
       "deny": "Decline",
-      "switch": "Switch account"
+      "switch": "Switch account",
+      "connectionPermissions": "These permissions apply to this connection. Your other assistant connections keep their own permissions.",
+      "removeApplication": "This also removes every agent connection authorized by this account for this app, including their linked accounts. Use Agent connections to remove just one connection.",
+      "manageAccess": "Open Connected apps"
     }
   },
   "translationJobs": {
@@ -3402,7 +3405,5 @@
     "dismiss": "Dismiss welcome message",
     "model": "2Z are platform credits for actions on Free2Z. A post starts at 1 2Z, about a US penny. This small cost discourages spam and helps keep Free2Z free of ads. Your first zPage is free; creating another requires a balance of 1 2Z and does not spend it.",
     "sources": "Eligible new accounts receive a welcome grant. You can buy 2Z, or receive gifts from members who want to hear more from you. Introduce yourself with a zPage so readers can get to know you."
-  },
-  "oauth.agent.connectionPermissions": "These permissions apply to this connection. Your other assistant connections keep their own permissions.",
-  "oauth.agent.removeApplication": "This also removes every agent connection authorized by this account for this app, including their linked accounts. Use Agent connections to remove just one connection."
+  }
 }

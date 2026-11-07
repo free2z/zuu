@@ -131,7 +131,7 @@
         await load();
         message = $t(
           "oauth.agent.decisionFailed",
-          "Access was not confirmed. Review the account and permissions before trying again.",
+          "The connection could not be confirmed. Check Connected apps before starting a new request.",
         );
       }
     }
@@ -180,9 +180,12 @@
     <p role="alert">
       {$t(
         "oauth.agent.invalid",
-        "This connection request is missing or expired. Ask your assistant for a new link and open it in the same browser tab used to sign in.",
+        "This request is missing or expired. If you already approved it, check Connected apps before asking your assistant for a new link.",
       )}
     </p>
+    <a href="/account/apps" class="font-medium text-primary underline">
+      {$t("oauth.agent.manageAccess", "Open Connected apps")}
+    </a>
   {:else if phase === "error"}
     <p role="alert">
       {$t(

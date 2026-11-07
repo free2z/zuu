@@ -54,7 +54,7 @@ test("link review uses a clean URL, exact account and explicit reduced permissio
   await expect(page.getByText("@target-user", { exact: true })).toHaveCount(2);
   expect(writes).toEqual([]);
   await page
-    .getByRole("checkbox", { name: "Publish and unpublish pages" })
+    .getByRole("checkbox", { name: "Publish or edit public pages and media" })
     .uncheck();
   await page.getByRole("button", { name: "Allow access" }).click();
   await expect(
@@ -289,4 +289,37 @@ test("initial consent can switch accounts without losing the MCP resource or PKC
   expect(returned.searchParams.get("prompt")).toBe("consent");
   expect(logoutPaths).toEqual(["/api/auth/logout/"]);
   expect(decisions).toEqual([]);
+});
+
+test("an uncertain approval checks connected apps instead of retrying the write", async ({
+  page,
+}) => {
+  await link(page);
+  let writes = 0;
+  await page.route("**/api/oauth/mcp/link/", async (route) => {
+    writes++;
+    await page.route("**/api/oauth/mcp/link/evaluate/", (next) =>
+      json(next, 404, { detail: "Request unavailable" }),
+    );
+    await route.abort("failed");
+  });
+  await page.goto(`/account/agent-link#intent=${INTENT}`);
+  await page.getByRole("button", { name: "Allow access" }).click();
+  await expect(
+    page.getByRole("link", { name: "Open Connected apps" }),
+  ).toHaveAttribute("href", "/account/apps");
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "connection could not be confirmed" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Allow access" })).toHaveCount(
+    0,
+  );
+  expect(writes).toBe(1);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("free2z:agent-link-intent:v1"),
+    ),
+  ).toBeNull();
 });
