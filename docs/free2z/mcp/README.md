@@ -32,7 +32,7 @@ grok mcp add --transport http free2z https://free2z.cash/api/mcp
 grok mcp doctor free2z
 ```
 
-Use `/mcps` and its authentication action to complete browser authorization. A diagnostic command by itself does not establish an authorized connection. See [Grok Build's MCP documentation](https://docs.x.ai/build/features/mcp-servers).
+In Grok Build 1.0.77, open `/mcp`, select Free2Z and press `i` to complete browser authorization. A diagnostic command by itself does not establish an authorized connection. See [Grok Build's MCP documentation](https://docs.x.ai/build/features/mcp-servers).
 
 ### OpenClaw and other interfaces
 
@@ -53,7 +53,7 @@ These checks use an isolated Free2Z test deployment. They do not certify the pro
 
 | Client | Verified behavior |
 | --- | --- |
-| Codex CLI 0.167.0 | Browser OAuth, account discovery, primary and separately linked account draft creation |
+| Codex CLI 0.167.0 | Browser OAuth, account discovery, primary and linked-account draft creation, binary upload and grant revocation |
 | Grok Build 1.0.77 | Browser OAuth and `free2z_list_accounts`; discovery of all 13 tools |
 | Official Python MCP SDK 2.3.0 | Real HTTP protocol tests for `2026-07-28` and `2025-11-25` |
 | Claude Code 2.1.319 | Browser OAuth, account discovery and selected-account public profile reads |
