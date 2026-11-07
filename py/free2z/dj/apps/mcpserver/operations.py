@@ -125,10 +125,12 @@ def list_pages(raw, account, original, *, search="", mine=False, page=1):
 
 
 def get_page(raw, account, original, page_id):
+    from dj.apps.g12f.models import zPage
     from dj.apps.g12f.views.zpage import zPageView
     return perform(raw, account, original, "get_page", (READ,), lambda actor: _native(
         actor, original, zPageView, "GET", f"/api/zpage/{page_id}/", action="retrieve",
-        query={"mine": "true"}, kwargs={"pk": str(page_id)},
+        query={"mine": str(zPage.objects.filter(free2zaddr=page_id, creator=actor.user).exists()).lower()},
+        kwargs={"pk": str(page_id)},
     ))
 
 
