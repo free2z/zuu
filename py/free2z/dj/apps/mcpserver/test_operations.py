@@ -11,7 +11,6 @@ from rest_framework.test import APIClient
 
 from dj.apps.g12f.models import zPage
 from dj.apps.oidc.models import MCPAccountGrant, MCPActionAudit, MCPUploadIntent
-from dj.apps.oidc.tests.conftest import _fresh_caches, signed_in, user  # noqa: F401
 from dj.apps.oidc.tests.test_mcp_connections import issue, link
 from dj.apps.uploads.models import GenericFile
 
@@ -104,6 +103,51 @@ def test_public_edits_and_account_revocation_are_checked_by_native_tools(signed_
     _, refused = draft(raw, "restricted")
     assert refused["status"] == 403
     assert zPage.objects.filter(creator=target).count() == 1
+
+
+def test_review_publish_return_to_draft_and_owner_visibility(signed_in, user, creator_factory):
+    _, _, tokens = issue(signed_in, user)
+    raw = tokens["access_token"]
+    target = creator_factory(username="publisher")
+    link(raw, target)
+    _, created = draft(raw, target.username)
+    page_id = created["data"]["free2zaddr"]
+    _, hidden = tool(raw, "free2z_get_page", {"account": user.username, "page_id": page_id})
+    assert hidden["status"] == 404
+    _, published = tool(raw, "free2z_set_page_published", {
+        "account": target.username, "page_id": page_id, "published": True, "if_match": created["headers"]["etag"],
+    })
+    assert published["status"] == 200, published
+    assert zPage.objects.get(free2zaddr=page_id).is_published
+    _, visible = tool(raw, "free2z_get_page", {"account": user.username, "page_id": page_id})
+    assert visible["status"] == 200
+    _, returned = tool(raw, "free2z_set_page_published", {
+        "account": target.username, "page_id": page_id, "published": False, "if_match": published["headers"]["etag"],
+    })
+    assert returned["status"] == 200
+    assert not zPage.objects.get(free2zaddr=page_id).is_published
+    _, profile = tool(raw, "free2z_update_profile", {"account": target.username, "changes": {"full_name": "Chosen publisher"}})
+    assert profile["status"] == 200, profile
+    target.refresh_from_db()
+    user.refresh_from_db()
+    assert target.full_name == "Chosen publisher" and user.full_name != target.full_name
+
+
+def test_internal_failure_rolls_back_and_never_serializes_exception(signed_in, user, monkeypatch):
+    _, _, tokens = issue(signed_in, user)
+    from dj.apps.mcpserver import operations
+
+    def fail_after_write(actor, *args, **kwargs):
+        actor.user.full_name = "Must roll back"
+        actor.user.save(update_fields=["full_name"])
+        raise RuntimeError("private-provider-token-not-for-clients")
+
+    monkeypatch.setattr(operations, "_native", fail_after_write)
+    result, failed = tool(tokens["access_token"], "free2z_update_profile", {"account": user.username, "changes": {"full_name": "Ignored"}})
+    assert result["isError"] and failed["status"] == 500
+    assert "private-provider-token" not in json.dumps(result)
+    user.refresh_from_db()
+    assert user.full_name != "Must roll back"
 
 
 def _png():

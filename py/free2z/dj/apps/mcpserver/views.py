@@ -44,11 +44,12 @@ def mcp_endpoint(request):
         return _challenge()
     try:
         principal = authenticate_mcp(raw)
-    except (APIException, InvalidAccessToken):
+        owner = Creator.objects.get(pk=principal.user_id)
+    except (APIException, InvalidAccessToken, Creator.DoesNotExist):
         return _challenge()
     # The HTTP request's audit identity is the connection owner. Individual
     # tools resolve and audit their separate explicitly selected action actor.
-    request.user = Creator.objects.get(pk=principal.user_id)
+    request.user = owner
     throttle = AuthenticatedUserRateThrottle()
     if not throttle.allow_request(request, None):
         response = JsonResponse({"error": "rate_limited"}, status=429)

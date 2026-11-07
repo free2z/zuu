@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -13,6 +14,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.exceptions import APIException
 
 from . import operations
+
+logger = logging.getLogger(__name__)
 
 Account = Annotated[str, Field(min_length=1, max_length=150, description="Exact authorized username or grant ID from free2z_list_accounts. Never inferred from browser sign-in.")]
 PageNumber = Annotated[int, Field(ge=1)]
@@ -56,6 +59,11 @@ async def _call(function, *args, **kwargs):
         data = await sync_to_async(function, thread_sensitive=True)(*args, **kwargs)
     except APIException as exc:
         data = {"status": exc.status_code, "data": exc.detail}
+    except Exception:
+        # The SDK otherwise serializes the exception text into the tool result.
+        # Internal errors may contain storage paths or provider credentials.
+        logger.error("MCP operation failed; reconcile its state before retrying")
+        data = {"status": 500, "data": {"detail": "Operation response unavailable. Read the operation's state before retrying a write."}}
     return _result(data)
 
 

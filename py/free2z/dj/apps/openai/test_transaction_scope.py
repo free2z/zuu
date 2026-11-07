@@ -590,6 +590,11 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
 
     identities = {identity for identity, _ in opted_out}
     assert identities == {
+        # Prepared MCP uploads validate admission before transfer, spool outside
+        # a transaction, then recheck authorization and save the file/receipt
+        # together. The admission endpoint only reads inside a short lock.
+        "dj.apps.mcpserver.uploads.authorize_upload",
+        "dj.apps.mcpserver.uploads.upload_binary",
         # Paid comment routes claim their retry receipt before their
         # debit/create transaction, so duplicates can return promptly.
         "dj.apps.comments.views.CommentListCreateAPIView",
