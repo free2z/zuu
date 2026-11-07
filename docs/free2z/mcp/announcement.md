@@ -1,61 +1,17 @@
-# Free2Z MCP: use your account from Claude, Codex, or Grok
+# Free2Z MCP: your accounts, your assistant
 
-[Free2Z MCP](https://github.com/free2z/zuu/tree/main/ts/free2z/mcp) connects your
-AI assistant to your Free2Z account. Ask it to find pages, prepare a draft,
-update an article, organize uploads, or inspect your account. It discovers the
-available API operations, reads their requirements, and carries out the actions
-you request.
+Free2Z MCP lets an assistant work with the accounts you authorize: find pages, prepare drafts, edit your public profile, upload media and publish content when you ask. MCP is the Model Context Protocol, the interface assistants use to discover and call tools.
 
-MCP stands for Model Context Protocol, a standard for connecting AI assistants
-to tools. The Free2Z server runs on your computer and talks to Free2Z over HTTPS.
-It works with local MCP clients including Claude Code, Codex, and Grok Build.
-Configure named accounts such as `alice` and `team` in one connection. Tell the
-assistant which account to use for each action. The server verifies that the
-selected credential belongs to its expected Free2Z username before acting, and
-refuses a missing selection, expired credential, or mismatched identity. There
-is no shared active account or fallback to another profile.
+On a Free2Z deployment with hosted MCP enabled, add its `/api/mcp` address to your client and authorize access in your browser. Free2Z hosts the server. The [setup guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md) covers deployment availability, client configuration and the capabilities verified with Codex, Claude Code and Grok Build. It also explains the required transport and authorization support for OpenClaw and other interfaces.
 
-## What to try
+One connection can use several accounts. Connect as `foobar`, ask to add `baz`, then sign in as `baz` in the browser and approve that specific delegation. Every action selects its account explicitly; switching the browser's login does not switch the assistant's account. You can grant fewer permissions to a linked account and remove its access independently.
 
-> Using account alice, find my unpublished zPages and show me their titles and links.
+Try a draft:
 
-> Using account team, turn these project notes into a zPage draft. Keep it unpublished, read it back,
-> and give me the draft link.
+> Using Free2Z account baz, turn these project notes into a zPage draft. Keep it unpublished, read it back and give me the link.
 
-> Using account alice, upload this diagram as private media and show me its ID and URL.
+Uploads use the same authorized connection. A client with file and HTTP tools can transfer an image and attach its media ID to a page; an interface without those tools can use existing media. Choose the audience explicitly: a featured image must be public, even when its page is private.
 
-> Using account alice, read my article, update its title, and preserve the rest of its content.
+Draft creation leaves the page unpublished. Publishing is a separate action, and editing public content requires publication permission. Review your client's tool approvals and check [Connected apps](https://free2z.cash/account/apps) to see delegated accounts, recent activity or remove access.
 
-The tools cover the public Free2Z API: pages, profiles, comments, follows,
-subscriptions, translations, and more. Media uploads use your signed-in browser
-session. Use the explicit anonymous account for public access; named account
-operations use separate saved sessions or API tokens. Replace one profile's
-credential after signing in again without restarting or switching other accounts.
-
-Your account's permissions and Free2Z's pricing rules apply. Publishing makes a
-page public. Paid operations use the account's balance. The server does not
-hold wallet keys or bypass access controls. Tell your assistant which actions
-you want it to take and use your client's tool approvals accordingly.
-
-## Get started
-
-You need Node.js 22 or later and a local MCP client:
-
-```sh
-git clone https://github.com/free2z/zuu.git
-cd zuu/ts/free2z/mcp
-npm ci
-npm test
-node dist/cli.js --check
-```
-
-Follow the [setup guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md)
-to connect your account and register the server with Claude Code, Codex, or
-Grok Build. The guide includes credential storage, upload examples, pagination,
-and checks for concurrent edits.
-
-This is a local stdio server, not a hosted MCP URL for the chat websites.
-The source is open, the package is MIT licensed, and installation from source
-does not require an npm registry release.
-
-Try it with a draft. [Report a reproducible problem or propose an improvement](https://github.com/free2z/zuu/issues).
+The hosted tools focus on pages, public profiles and media. They do not hold wallet keys, transfer money or change account credentials. Browse the [source](https://github.com/free2z/zuu/tree/main/py/free2z) and [connection guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md), or try it with an unpublished draft.
