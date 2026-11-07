@@ -9,6 +9,57 @@ use zcash_paymentd::{
     now, scanner,
 };
 
+struct StreamDeadline {
+    deadline: std::time::Instant,
+    cancel: std::sync::mpsc::Sender<()>,
+    watcher: Option<std::thread::JoinHandle<()>>,
+}
+
+impl StreamDeadline {
+    fn new(timeout: Duration) -> Self {
+        let deadline = std::time::Instant::now() + timeout;
+        let (cancel, receiver) = std::sync::mpsc::channel();
+        let watcher = std::thread::spawn(move || {
+            if matches!(
+                receiver
+                    .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ) {
+                // Do not flush or acquire stdout's lock: the consumer may have
+                // stopped draining it. Process death releases the journal lock.
+                unsafe { libc::_exit(124) }
+            }
+        });
+        Self {
+            deadline,
+            cancel,
+            watcher: Some(watcher),
+        }
+    }
+
+    fn stop(&mut self) {
+        let _ = self.cancel.send(());
+        if let Some(watcher) = self.watcher.take() {
+            let _ = watcher.join();
+        }
+    }
+
+    fn finish(mut self) -> Result<()> {
+        self.stop();
+        anyhow::ensure!(
+            std::time::Instant::now() < self.deadline,
+            "handoff stream deadline exceeded"
+        );
+        Ok(())
+    }
+}
+
+impl Drop for StreamDeadline {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 #[derive(Parser)]
 #[command(about = "Receive-only Zcash payment observer and durable automation daemon")]
 struct Args {
@@ -162,6 +213,11 @@ async fn main() -> Result<()> {
             println!("{}", serde_json::to_string(&result)?);
         }
         Command::HandoffRevocationsStream { timeout_seconds } => {
+            anyhow::ensure!(
+                (1..=120).contains(&timeout_seconds),
+                "handoff deadline must be 1..120 seconds"
+            );
+            let deadline = StreamDeadline::new(Duration::from_secs(timeout_seconds));
             (|| {
                 Journal::inspect(&c)?;
                 let lock = StateLock::acquire(&c.state_dir)?;
@@ -174,6 +230,7 @@ async fn main() -> Result<()> {
                 )
             })()
             .map_err(|_| anyhow::anyhow!("handoff stream unavailable; inspect stopped writer, journal identity, lifecycle and deadline"))?;
+            deadline.finish()?;
         }
         Command::EnqueueMissing { timeout_seconds } => {
             let result = (|| {
@@ -245,4 +302,29 @@ async fn run(c: Config) -> Result<()> {
         let _ = worker.await;
     }
     result
+}
+
+#[cfg(test)]
+mod deadline_tests {
+    use super::StreamDeadline;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn completed_stream_cancels_and_joins_its_watchdog() {
+        StreamDeadline::new(Duration::from_millis(250))
+            .finish()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+    }
+
+    #[test]
+    fn late_stream_completion_cannot_report_success() {
+        let (cancel, _receiver) = std::sync::mpsc::channel();
+        let guard = StreamDeadline {
+            deadline: Instant::now(),
+            cancel,
+            watcher: None,
+        };
+        assert!(guard.finish().is_err());
+    }
 }

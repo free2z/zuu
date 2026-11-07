@@ -165,3 +165,47 @@ def test_indexed_stream_guard_traverses_multiple_large_txid_batches(creator_fact
         db.close();os.unlink(path)
 
 
+@pytest.mark.parametrize('input_kind', ['partial-line', 'complete-without-eof', 'oversized-line'])
+def test_stream_pipe_deadline_and_line_bound_without_waiting_for_writer_close(input_kind, monkeypatch):
+    import os
+    import threading
+    import time
+    from dj.apps.g12f.management.commands import paymentd_credit_status as command
+
+    if input_kind == 'partial-line':
+        payload = b'{"type":"profile"'
+    elif input_kind == 'complete-without-eof':
+        payload = _native_handoff_stream()
+    else:
+        payload = b'x' * (command.HANDOFF_STREAM_LINE_LIMIT + 1)
+    monkeypatch.setattr(command, 'HANDOFF_STREAM_SECONDS', 0.15)
+    read_fd, write_fd = os.pipe()
+    release_writer = threading.Event()
+
+    def writer():
+        try:
+            pending = memoryview(payload)
+            while pending:
+                pending = pending[os.write(write_fd, pending):]
+            # Bound a broken implementation too: the old blocking readline
+            # completes only when this guard expires and must fail the test.
+            release_writer.wait(2)
+        except BrokenPipeError:
+            pass
+        finally:
+            os.close(write_fd)
+
+    producer = threading.Thread(target=writer, daemon=True)
+    producer.start()
+    started = time.monotonic()
+    try:
+        with os.fdopen(read_fd, 'rb') as source:
+            expected = 'line bound' if input_kind == 'oversized-line' else 'deadline exceeded'
+            with pytest.raises(ValueError, match=expected):
+                command.stage_handoff_stream(source)
+        assert time.monotonic() - started < 1.5
+        assert not release_writer.is_set()
+    finally:
+        release_writer.set()
+        producer.join(timeout=3)
+        assert not producer.is_alive()

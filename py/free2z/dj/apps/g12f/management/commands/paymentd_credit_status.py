@@ -1,8 +1,10 @@
 """Read-only backend queues: an acknowledged hook does not necessarily mean paid."""
 import json
+import io
 import hashlib
 import os
 import re
+import select
 import sqlite3
 import sys
 import tempfile
@@ -152,6 +154,46 @@ def _strict_json(line):
     return value
 
 
+class _DeadlineInput:
+    """Read bounded lines without allowing a stalled pipe to renew its budget."""
+    def __init__(self, source, deadline):
+        self.source = source
+        self.deadline = deadline
+        self.buffer = bytearray()
+        self.memory = isinstance(source, (io.BytesIO, io.StringIO))
+        self.fd = None if self.memory else source.fileno()
+
+    def readline(self, limit):
+        if time.monotonic() >= self.deadline:
+            raise ValueError('handoff stream deadline exceeded')
+        if self.memory:
+            return self.source.readline(limit)
+        while True:
+            newline = self.buffer.find(b'\n', 0, limit)
+            if newline >= 0 or len(self.buffer) >= limit:
+                end = newline + 1 if newline >= 0 else limit
+                result = bytes(self.buffer[:end])
+                del self.buffer[:end]
+                return result
+            remaining = self.deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError('handoff stream deadline exceeded')
+            try:
+                ready, _, _ = select.select([self.fd], [], [], remaining)
+                if not ready:
+                    raise ValueError('handoff stream deadline exceeded')
+                chunk = os.read(self.fd, min(4096, limit - len(self.buffer)))
+            except InterruptedError:
+                continue
+            if time.monotonic() >= self.deadline:
+                raise ValueError('handoff stream deadline exceeded')
+            if not chunk:
+                result = bytes(self.buffer)
+                self.buffer.clear()
+                return result
+            self.buffer.extend(chunk)
+
+
 def stage_handoff_stream(source):
     """Verify both native streams completely into a private disk-backed index."""
     fd,path=tempfile.mkstemp(prefix='paymentd-handoff-',suffix='.sqlite')
@@ -167,6 +209,7 @@ def stage_handoff_stream(source):
     current=None; stream_hash=None; stream_count=0; previous_key=None; completed=False
     deadline=time.monotonic()+HANDOFF_STREAM_SECONDS
     try:
+        source = _DeadlineInput(source, deadline)
         while True:
             if time.monotonic()>=deadline: raise ValueError('handoff stream deadline exceeded')
             line=source.readline(HANDOFF_STREAM_LINE_LIMIT+1)

@@ -236,10 +236,11 @@ impl Journal {
             serde_json::from_str::<Value>(&identity)? == expected,
             "journal identity differs from observer configuration"
         );
-        let body: String =
-            tx.query_row("SELECT body FROM events WHERE id=?1", [event_id], |r| {
-                r.get(0)
-            })?;
+        let body: String = tx.query_row(
+            "SELECT CASE WHEN octet_length(body)<=16384 THEN body END FROM events WHERE id=?1",
+            [event_id],
+            |r| r.get(0),
+        )?;
         let event: Event = serde_json::from_str(&body)?;
         ensure!(
             event.schema_version == 1 && event.network == c.network && event.event_id == event_id,
@@ -643,6 +644,8 @@ impl Journal {
     /// Stream a complete private revocation inventory. The final footer is
     /// written only after the coherent read transaction and every row has
     /// passed lifecycle validation; consumers must reject a missing footer.
+    /// Callers must also bound blocking writes in `output`. The CLI supervises
+    /// the entire command so a stalled pipe cannot retain the journal lock.
     pub fn handoff_revocations_stream<W: Write>(
         lock: &StateLock,
         c: &Config,
@@ -1089,7 +1092,7 @@ fn handoff_plan(
     digest.update(serde_json::to_vec(&consumers)?);
     let mut boundary = 0_u64;
     {
-        let mut q = tx.prepare("SELECT seq,id,body,length(CAST(id AS BLOB)),length(CAST(body AS BLOB)) FROM events ORDER BY seq")?;
+        let mut q = tx.prepare("SELECT seq,CASE WHEN octet_length(id)<=2048 THEN id END,CASE WHEN octet_length(body)<=16384 THEN body END,octet_length(id),octet_length(body) FROM events ORDER BY seq")?;
         let mut rows = q.query([])?;
         while let Some(row) = rows.next()? {
             check()?;
@@ -1147,7 +1150,7 @@ fn handoff_plan(
     );
     let mut receipt_count = 0_u64;
     {
-        let mut q = tx.prepare("SELECT id,payment,height,hash,revision,active,confirmed,length(CAST(id AS BLOB)),length(CAST(payment AS BLOB)),length(CAST(hash AS BLOB)) FROM receipts WHERE height>=?1 OR id IN (SELECT json_extract(body,'$.payment.id') FROM events WHERE json_extract(body,'$.block_height')>=?1) ORDER BY id")?;
+        let mut q = tx.prepare("SELECT CASE WHEN octet_length(id)<=2048 THEN id END,CASE WHEN octet_length(payment)<=16384 THEN payment END,height,CASE WHEN octet_length(hash)<=2048 THEN hash END,revision,active,confirmed,octet_length(id),octet_length(payment),octet_length(hash) FROM receipts WHERE height>=?1 OR id IN (SELECT json_extract(body,'$.payment.id') FROM events WHERE json_extract(body,'$.block_height')>=?1) ORDER BY id")?;
         let mut rows = q.query([floor])?;
         while let Some(row) = rows.next()? {
             check()?;
@@ -1344,7 +1347,7 @@ fn handoff_plan(
     // materializing rows so a corrupt oversized metadata value cannot defeat
     // the per-record memory bound.
     let invalid_delivery_rows: u64 = tx.query_row(
-        "SELECT count(*) FROM deliveries d LEFT JOIN events e ON e.id=d.event_id LEFT JOIN consumers c ON c.id=d.consumer WHERE e.id IS NULL OR c.id IS NULL OR d.seq!=e.seq OR d.attempts<0 OR d.next_attempt<0 OR d.acked NOT IN (0,1) OR length(CAST(d.consumer AS BLOB))>128 OR length(CAST(d.event_id AS BLOB))>2048 OR coalesce(length(CAST(d.last_error AS BLOB)),0)>16384",
+        "SELECT count(*) FROM deliveries d LEFT JOIN events e ON e.id=d.event_id LEFT JOIN consumers c ON c.id=d.consumer WHERE e.id IS NULL OR c.id IS NULL OR d.seq!=e.seq OR d.attempts<0 OR d.next_attempt<0 OR d.acked NOT IN (0,1) OR octet_length(d.consumer)>128 OR octet_length(d.event_id)>2048 OR coalesce(octet_length(d.last_error),0)>16384",
         [],
         |r| r.get(0),
     )?;
@@ -1353,7 +1356,7 @@ fn handoff_plan(
         "invalid handoff delivery metadata"
     );
     let invalid_subscriptions: u64 = tx.query_row(
-        "SELECT count(*) FROM subscriptions s LEFT JOIN consumers c ON c.id=s.consumer LEFT JOIN receipts r ON r.id=s.payment_id WHERE c.id IS NULL OR r.id IS NULL OR length(CAST(s.consumer AS BLOB))>128 OR length(CAST(s.payment_id AS BLOB))>2048",
+        "SELECT count(*) FROM subscriptions s LEFT JOIN consumers c ON c.id=s.consumer LEFT JOIN receipts r ON r.id=s.payment_id WHERE c.id IS NULL OR r.id IS NULL OR octet_length(s.consumer)>128 OR octet_length(s.payment_id)>2048",
         [],
         |r| r.get(0),
     )?;
@@ -1362,7 +1365,7 @@ fn handoff_plan(
         "invalid handoff subscription lineage"
     );
     let mut consumer_rows = tx.prepare(
-        "SELECT id,active,observe_unconfirmed,length(CAST(id AS BLOB)) FROM consumers ORDER BY id",
+        "SELECT CASE WHEN octet_length(id)<=128 THEN id END,active,observe_unconfirmed,octet_length(id) FROM consumers ORDER BY id",
     )?;
     let mut consumers_iter = consumer_rows.query([])?;
     while let Some(row) = consumers_iter.next()? {
@@ -1387,7 +1390,7 @@ fn handoff_plan(
         digest.update(encoded);
     }
     let mut subscription_rows =
-        tx.prepare("SELECT consumer,payment_id,length(CAST(consumer AS BLOB)),length(CAST(payment_id AS BLOB)) FROM subscriptions ORDER BY consumer,payment_id")?;
+        tx.prepare("SELECT consumer,payment_id,octet_length(consumer),octet_length(payment_id) FROM subscriptions ORDER BY consumer,payment_id")?;
     let mut subscriptions_iter = subscription_rows.query([])?;
     while let Some(row) = subscriptions_iter.next()? {
         check()?;
@@ -1468,9 +1471,11 @@ fn handoff_plan(
 
 fn load_handoff_event(tx: &rusqlite::Transaction<'_>, event_id: &str) -> Result<Option<Event>> {
     let body: Option<String> = tx
-        .query_row("SELECT body FROM events WHERE id=?1", [event_id], |r| {
-            r.get(0)
-        })
+        .query_row(
+            "SELECT CASE WHEN octet_length(body)<=16384 THEN body END FROM events WHERE id=?1",
+            [event_id],
+            |r| r.get(0),
+        )
         .optional()?;
     body.map(|value| serde_json::from_str(&value).map_err(Into::into))
         .transpose()

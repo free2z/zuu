@@ -14,6 +14,54 @@ use zcash_paymentd::{
     journal::{Journal, StateLock},
 };
 
+fn measured_command() -> std::process::Command {
+    let mut command = std::process::Command::new("/usr/bin/time");
+    if cfg!(target_os = "macos") {
+        command.arg("-l");
+    } else {
+        command.args(["-f", "%M"]);
+    }
+    command.arg(env!("CARGO_BIN_EXE_zcash-paymentd"));
+    command
+}
+
+fn peak_rss_kib(stderr: &[u8]) -> Result<u64> {
+    let text = std::str::from_utf8(stderr)?;
+    if cfg!(target_os = "macos") {
+        let line = text
+            .lines()
+            .find(|line| line.contains("maximum resident set size"))
+            .ok_or_else(|| anyhow::anyhow!("missing macOS RSS measurement"))?;
+        Ok(line.split_whitespace().next().unwrap().parse::<u64>()? / 1024)
+    } else {
+        Ok(text
+            .lines()
+            .last()
+            .ok_or_else(|| anyhow::anyhow!("missing Linux RSS measurement"))?
+            .trim()
+            .parse()?)
+    }
+}
+
+fn command_config(c: &Config, dir: &TempDir) -> Result<std::path::PathBuf> {
+    std::fs::write(&c.ufvk_file, b"key")?;
+    std::fs::set_permissions(&c.ufvk_file, std::fs::Permissions::from_mode(0o600))?;
+    let value = serde_json::json!({
+        "network":c.network,"rpc_url":c.rpc_url,"ufvk_file":c.ufvk_file,"state_dir":c.state_dir,
+        "birthday_height":c.birthday_height,"automation_start_height":c.automation_start_height,
+        "confirmations":c.confirmations,"poll_seconds":c.poll_seconds,
+        "max_tip_age_seconds":c.max_tip_age_seconds,"max_tip_lag_blocks":c.max_tip_lag_blocks,
+        "max_tip_future_seconds":c.max_tip_future_seconds,
+        "consumers":c.consumers.iter().map(|consumer| serde_json::json!({"id":consumer.id,
+            "argv":consumer.argv,"timeout_seconds":consumer.timeout_seconds,
+            "observe_unconfirmed":consumer.observe_unconfirmed})).collect::<Vec<_>>()
+    });
+    let path = dir.path().join("paymentd.toml");
+    std::fs::write(&path, toml::to_string(&value)?)?;
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(path)
+}
+
 struct FailAtFooter(Vec<u8>);
 
 #[test]
@@ -640,49 +688,11 @@ fn streamed_handoff_covers_real_history_above_all_former_ceilings() -> Result<()
     assert!(status["missing_deliveries"].as_u64().unwrap() > 10_000);
     assert!(started.elapsed() < Duration::from_secs(30));
 
-    let key_path = dir.path().join("key");
-    std::fs::write(&key_path, b"key")?;
-    std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600))?;
-    let config_path = dir.path().join("paymentd.toml");
-    let config_text = format!(
-        r#"network = "main"
-rpc_url = "http://127.0.0.1:8232"
-ufvk_file = "{}"
-state_dir = "{}"
-birthday_height = {}
-automation_start_height = {}
-confirmations = 3
-poll_seconds = 1
-max_tip_age_seconds = 900
-max_tip_lag_blocks = 10
-max_tip_future_seconds = 7200
-
-[[consumers]]
-id = "capture"
-argv = ["/usr/bin/true"]
-timeout_seconds = 1
-observe_unconfirmed = true
-
-[[consumers]]
-id = "settle"
-argv = ["/usr/bin/true"]
-timeout_seconds = 1
-observe_unconfirmed = true
-"#,
-        key_path.display(),
-        c.state_dir.display(),
-        c.birthday_height,
-        c.automation_start_height
-    );
-    std::fs::write(&config_path, config_text)?;
-    std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o600))?;
+    let config_path = command_config(&c, &dir)?;
     let stream_path = dir.path().join("revocations.ndjson");
     let stream = std::fs::File::create(&stream_path)?;
     drop(lock);
-    let command = std::process::Command::new("/usr/bin/time")
-        .arg("-f")
-        .arg("%M")
-        .arg(env!("CARGO_BIN_EXE_zcash-paymentd"))
+    let command = measured_command()
         .arg("--config")
         .arg(&config_path)
         .arg("handoff-revocations-stream")
@@ -696,7 +706,7 @@ observe_unconfirmed = true
         command.status.success(),
         "compiled native stream CLI must succeed"
     );
-    let peak_kib: u64 = String::from_utf8(command.stderr)?.trim().parse()?;
+    let peak_kib = peak_rss_kib(&command.stderr)?;
     assert!(
         peak_kib < 64 * 1024,
         "native stream peak RSS was {peak_kib} KiB"
@@ -907,30 +917,113 @@ fn oversized_legacy_preview_refuses_before_unbounded_collection_but_streams() ->
 }
 
 #[test]
-fn oversized_event_blob_is_refused_before_materializing_body() -> Result<()> {
+fn oversized_handoff_values_are_refused_without_materializing_them() -> Result<()> {
+    for (table, column, expected) in [
+        ("events", "body", "oversized handoff event"),
+        ("receipts", "payment", "oversized handoff receipt"),
+    ] {
+        let dir = TempDir::new()?;
+        let mut c = config(&dir);
+        financial(&mut c);
+        let lock = StateLock::acquire(&c.state_dir)?;
+        let mut j = Journal::open(&c, "key")?;
+        j.append(&block(c.birthday_height, "a", "parent", &[]))?;
+        j.append(&block(c.automation_start_height, "b", "a", &[0]))?;
+        drop(j);
+        let db = Connection::open(c.state_dir.join("journal.sqlite"))?;
+        // Allocate only in the fixture writer. The separately measured reader
+        // must reject the 128 MiB value using SQLite's byte-length metadata.
+        db.execute(&format!("UPDATE {table} SET {column}=zeroblob(?1) WHERE rowid=(SELECT min(rowid) FROM {table})"), [128 * 1024 * 1024])?;
+        drop(db);
+        let error = Journal::handoff_revocations_stream(
+            &lock,
+            &c,
+            "key",
+            Duration::from_secs(5),
+            &mut std::io::sink(),
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains(expected));
+        let config_path = command_config(&c, &dir)?;
+        drop(lock);
+        let output = measured_command()
+            .arg("--config")
+            .arg(config_path)
+            .args(["handoff-revocations-stream", "--timeout-seconds", "5"])
+            .output()?;
+        assert!(!output.status.success());
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("handoff stream unavailable"),
+            "{table}: {stderr}"
+        );
+        let peak = peak_rss_kib(&output.stderr)?;
+        assert!(peak < 64 * 1024, "{table} reader allocated {peak} KiB");
+    }
+    Ok(())
+}
+
+#[test]
+fn compiled_stream_deadline_releases_lock_when_stdout_stops_draining() -> Result<()> {
     let dir = TempDir::new()?;
     let mut c = config(&dir);
     let lock = StateLock::acquire(&c.state_dir)?;
     let mut j = Journal::open(&c, "key")?;
     j.append(&block(c.birthday_height, "a", "parent", &[]))?;
-    j.append(&block(c.automation_start_height, "b", "a", &[0]))?;
+    j.append(&block(
+        c.automation_start_height,
+        "b",
+        "a",
+        &(0..512).collect::<Vec<_>>(),
+    ))?;
+    j.rollback_one()?;
     drop(j);
     financial(&mut c);
-    let db = Connection::open(c.state_dir.join("journal.sqlite"))?;
-    db.execute(
-        "UPDATE events SET body=zeroblob(?1) WHERE seq=(SELECT min(seq) FROM events)",
-        [32 * 1024 * 1024],
-    )?;
-    drop(db);
-    let error = Journal::handoff_revocations_stream(
-        &lock,
-        &c,
-        "key",
-        Duration::from_secs(5),
-        &mut std::io::sink(),
-    )
-    .unwrap_err();
-    assert!(error.to_string().contains("oversized handoff event"));
+    let config_path = command_config(&c, &dir)?;
+    drop(lock);
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_zcash-paymentd"))
+        .arg("--config")
+        .arg(config_path)
+        .args(["handoff-revocations-stream", "--timeout-seconds", "3"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let (send, receive) = std::sync::mpsc::channel();
+    let reader = std::thread::spawn(move || {
+        let mut input = BufReader::new(stdout);
+        let mut header = String::new();
+        let result = input.read_line(&mut header);
+        let _ = send.send((result, header, input));
+    });
+    let received = receive.recv_timeout(Duration::from_secs(6));
+    if received.is_err() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    reader.join().unwrap();
+    let (read, header, held_pipe) = received?;
+    read?;
+    assert!(header.contains("\"type\":\"header\""));
+    // Holding the reader open without draining it blocks write_all after the
+    // pipe fills. The CLI must terminate itself, not wait for the consumer.
+    let until = Instant::now() + Duration::from_secs(6);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break Some(status);
+        }
+        if Instant::now() >= until {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    if status.is_none() {
+        child.kill()?;
+        child.wait()?;
+    }
+    drop(held_pipe);
+    assert_eq!(status.and_then(|value| value.code()), Some(124));
+    let _released = StateLock::acquire(&c.state_dir)?;
     Ok(())
 }
 
