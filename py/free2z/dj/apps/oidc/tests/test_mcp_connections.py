@@ -235,6 +235,50 @@ def test_native_mcp_localhost_rejects_aliases_and_malformed_ports(redirect):
     assert result.status_code == 400, result.content
 
 
+@pytest.mark.parametrize("delete_primary", [False, True])
+def test_account_deletion_removes_mcp_access_and_unlinks_audit(
+    signed_in, user, creator_factory, delete_primary,
+):
+    from dj.apps.g12f.account_deletion import delete_account, policy_violations
+    from dj.apps.oidc.mcp import record_action
+    from dj.apps.oidc.models import AccessToken, MCPAccountGrant, MCPActionAudit, MCPUploadIntent
+    _, _, tokens = issue(signed_in, user)
+    target = creator_factory(username="delegated-delete-target")
+    grant, _ = link(tokens["access_token"], target)
+    other = creator_factory(username="other-delegated-account")
+    link(tokens["access_token"], other)
+    create_link_intent(tokens["access_token"], target.username)
+    with authorized_actor(tokens["access_token"], target.username, ["mcp:write"]) as actor:
+        record_action(actor, "test_action", 200)
+        connection_id = actor.connection.pk
+    receipt = MCPUploadIntent.objects.create(
+        connection_id=connection_id, account_grant_id=grant["id"],
+        access_token=AccessToken.objects.get(token=tokens["access_token"]),
+        capability_hash="a" * 64, grant_generation=1, filename="test.png",
+        mime_type="image/png", access="private", expected_bytes=5,
+        expected_sha256="b" * 64, expires_at=timezone.now() + timedelta(minutes=2),
+    )
+    deleted = user if delete_primary else target
+    delete_account(deleted, confirm_username=deleted.username, auth_epoch=deleted.kt_account_epoch)
+    assert policy_violations(deleted.pk) == []
+    assert not MCPAccountGrant.objects.filter(user=deleted).exists()
+    assert not MCPLinkIntent.objects.filter(expected_username=target.username).exists()
+    assert not MCPUploadIntent.objects.filter(pk=receipt.pk).exists()
+    audit = MCPActionAudit.objects.get(operation="test_action")
+    assert getattr(audit, "primary_user_id" if delete_primary else "target_user_id") is None
+    with pytest.raises(APIException):
+        with authorized_actor(tokens["access_token"], target.username, ["mcp:read"]):
+            pass
+    if delete_primary:
+        assert not MCPConnection.objects.filter(pk=connection_id).exists()
+        assert not MCPAccountGrant.objects.filter(connection_id=connection_id).exists()
+    else:
+        with authorized_actor(tokens["access_token"], user.username, ["mcp:read"]):
+            pass
+        with authorized_actor(tokens["access_token"], other.username, ["mcp:read"]):
+            pass
+
+
 def test_browser_logout_switch_and_expired_access_cleanup_preserve_connection(signed_in, user, creator_factory):
     from oauth2_provider.models import clear_expired
     from dj.apps.oidc.models import AccessToken

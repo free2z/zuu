@@ -18,7 +18,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from dj.free2z.throttling import FailClosedAuthThrottleMixin, PublicAnonRateThrottle, POLLING_THROTTLES
+from dj.free2z.throttling import AuthenticatedUserRateThrottle, FailClosedAuthThrottleMixin, PublicAnonRateThrottle, POLLING_THROTTLES
 from .models import F2ZApplication, MCPAccountGrant, MCPConnection
 from .mcp_serializers import (
     MCPConnectionsSerializer, MCPIntentSerializer, MCPLinkDecisionSerializer,
@@ -29,7 +29,6 @@ from .scopes import MCP_SCOPES, SCOPE_OFFLINE_ACCESS, mcp_resource, scope_list, 
 
 class MCPRegistrationThrottle(FailClosedAuthThrottleMixin, PublicAnonRateThrottle):
     scope = "mcp-registration"
-    rate = "10/hour"
 
 
 class PrivateResponseMixin:
@@ -90,7 +89,7 @@ class RegistrationSerializer(serializers.Serializer):
 class MCPRegisterView(PrivateResponseMixin, APIView):
     authentication_classes = []
     permission_classes = [AllowAny]
-    throttle_classes = [MCPRegistrationThrottle]
+    throttle_classes = [MCPRegistrationThrottle, AuthenticatedUserRateThrottle]
     parser_classes = [JSONParser]
 
     @extend_schema(request=RegistrationSerializer, responses={201: MCPRegistrationResultSerializer}, operation_id="mcp_register")

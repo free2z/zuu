@@ -1317,6 +1317,7 @@ REST_FRAMEWORK = {
         # human-paced and the machine-paced traffic must not share a bucket.
         'anon-oidc-authorize': '120/minute',
         'anon-oidc-token': '600/minute',
+        'mcp-registration': '10/hour',
         # Signed Checkout return URLs are replayable for their bounded lifetime
         # and success performs one Stripe lookup with five-second network-
         # inactivity and six-second total wall-clock bounds on a single sync
