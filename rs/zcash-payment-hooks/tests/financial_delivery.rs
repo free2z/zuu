@@ -89,8 +89,6 @@ async fn serial_native_financial_capture() -> Result<()> {
         &_lock,
         &c,
         "controlled-receiving-fixture",
-        10_000,
-        50_000,
         std::time::Duration::from_secs(20),
     )?;
     ensure!(handoff["inserted_deliveries"] == 2);
