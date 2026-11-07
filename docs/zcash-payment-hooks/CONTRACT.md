@@ -87,6 +87,17 @@ All CLI commands require `--config /absolute/config.toml` before the subcommand.
 | `enqueue-missing` | Stopped-writer atomic handoff of missing eligible deliveries; preserves existing ACKs/retries |
 | `replay CONSUMER EVENT_ID` | Stopped-writer explicit redelivery of one valid event |
 
+Inventory CLI commands (`status`, `handoff-revocations`,
+`handoff-revocations-stream`, and `enqueue-missing`) limit SQLite-managed heap to
+32 MiB per process. Historical identifiers with large SQLite index keys can
+require a larger budget: pass `--inventory-sqlite-heap-mib N`, with `N` between
+32 and 512, before the command. This explicit override changes neither identities
+nor journal rows. Allocation failure refuses verification or rolls back enqueue;
+partial streams are not valid handoff proofs. The heap budget covers SQLite
+allocations, not total process memory, configuration parsing or Rust allocations.
+The long-running daemon does not set this process-global limit. Library callers
+must supply their own allocation policy and bound blocking output operations.
+
 `verify-address` exit zero means the proof was computed. Require
 `fully_covered: true`, the expected network/UFVK/address fingerprints, zero unknown
 receivers and all required pool matches. Coverage does not establish scanner

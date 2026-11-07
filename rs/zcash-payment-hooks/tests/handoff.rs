@@ -19,10 +19,19 @@ fn measured_output(
     timeout: u64,
     output: Option<&std::path::Path>,
 ) -> Result<(bool, String, u64)> {
+    measured_inventory(config, "handoff-revocations-stream", timeout, None, output)
+}
+
+fn measured_inventory(
+    config: &std::path::Path,
+    command: &str,
+    timeout: u64,
+    heap: Option<u16>,
+    output: Option<&std::path::Path>,
+) -> Result<(bool, String, u64)> {
     let case = TempDir::new()?;
     let report = case.path().join("usage.json");
-    let spec =
-        serde_json::json!({"config":config,"timeout":timeout,"output":output,"report":report});
+    let spec = serde_json::json!({"config":config,"command":command,"timeout":timeout,"heap":heap,"output":output,"report":report});
     // A fresh harness process isolates the measured daemon from this test
     // process's earlier fixture allocations (inherited fork high-water RSS).
     let wrapper = std::process::Command::new(std::env::current_exe()?)
@@ -56,9 +65,18 @@ fn measure_handoff_child() -> Result<()> {
     command
         .arg("--config")
         .arg(case["config"].as_str().unwrap())
-        .args(["handoff-revocations-stream", "--timeout-seconds"])
-        .arg(case["timeout"].as_u64().unwrap().to_string())
+        .arg(case["command"].as_str().unwrap())
         .stderr(stderr_file.try_clone()?);
+    if let Some(heap) = case["heap"].as_u64() {
+        command
+            .arg("--inventory-sqlite-heap-mib")
+            .arg(heap.to_string());
+    }
+    if case["command"] != "status" {
+        command
+            .arg("--timeout-seconds")
+            .arg(case["timeout"].as_u64().unwrap().to_string());
+    }
     if let Some(path) = case["output"].as_str() {
         command.stdout(std::fs::File::create(path)?);
     } else {
@@ -961,6 +979,87 @@ fn oversized_legacy_preview_refuses_before_unbounded_collection_but_streams() ->
     drop(output);
     assert!(std::fs::metadata(stream_path)?.len() > 512 * 1024);
     assert_eq!(snapshot(&c)?, before);
+    Ok(())
+}
+
+#[test]
+fn inventory_heap_override_is_bounded_and_never_applied_to_the_daemon() -> Result<()> {
+    for limit in ["0", "31", "513", "65536"] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_zcash-paymentd"))
+            .args([
+                "--config",
+                "/nonexistent/fixture.toml",
+                "--inventory-sqlite-heap-mib",
+                limit,
+                "status",
+            ])
+            .output()?;
+        assert_eq!(output.status.code(), Some(2));
+    }
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_zcash-paymentd"))
+        .args([
+            "--config",
+            "/nonexistent/fixture.toml",
+            "--inventory-sqlite-heap-mib",
+            "32",
+            "run",
+        ])
+        .output()?;
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("only valid for inventory commands"));
+    Ok(())
+}
+
+#[test]
+fn isolated_inventory_heap_budget_rejects_large_sqlite_keys_without_mutation() -> Result<()> {
+    let dir = TempDir::new()?;
+    let mut c = config(&dir);
+    financial(&mut c);
+    let lock = StateLock::acquire(&c.state_dir)?;
+    let mut journal = Journal::open(&c, "key")?;
+    journal.append(&block(c.birthday_height, "a", "parent", &[]))?;
+    journal.append(&block(c.automation_start_height, "b", "a", &[0]))?;
+    drop(journal);
+    let path = c.state_dir.join("journal.sqlite");
+    let db = Connection::open(&path)?;
+    db.execute("INSERT INTO consumers(id,active,observe_unconfirmed) VALUES(CAST(zeroblob(?1) AS TEXT),0,0)", [128 * 1024 * 1024])?;
+    drop(db);
+    let before = std::fs::read(&path)?;
+    let config_path = command_config(&c, &dir)?;
+    drop(lock);
+    for command in [
+        "status",
+        "handoff-revocations",
+        "handoff-revocations-stream",
+        "enqueue-missing",
+    ] {
+        let (success, stderr, peak) = measured_inventory(&config_path, command, 30, None, None)?;
+        assert!(!success, "default budget admitted {command}: {stderr}");
+        assert!(
+            peak < 64 * 1024,
+            "{command} exceeded process RSS bound: {peak}KiB"
+        );
+        assert_eq!(
+            before,
+            std::fs::read(&path)?,
+            "failed {command} mutated the journal"
+        );
+    }
+    // An explicit, bounded operator budget handles the same historical bytes
+    // without renaming keys or editing journal rows.
+    let (success, stderr, peak) = measured_inventory(
+        &config_path,
+        "handoff-revocations-stream",
+        30,
+        Some(512),
+        None,
+    )?;
+    assert!(
+        success,
+        "larger explicit budget refused existing identity: {stderr}"
+    );
+    assert!(peak < 600 * 1024);
+    assert_eq!(before, std::fs::read(&path)?);
     Ok(())
 }
 

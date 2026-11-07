@@ -65,6 +65,9 @@ impl Drop for StreamDeadline {
 struct Args {
     #[arg(long)]
     config: PathBuf,
+    /// SQLite heap budget for status and stopped-journal inventory commands only.
+    #[arg(long, global = true, value_parser = clap::value_parser!(u16).range(32..=512))]
+    inventory_sqlite_heap_mib: Option<u16>,
     #[command(subcommand)]
     command: Command,
 }
@@ -127,6 +130,30 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let a = Args::parse();
+    let inventory = matches!(
+        &a.command,
+        Command::Status
+            | Command::HandoffRevocations { .. }
+            | Command::HandoffRevocationsStream { .. }
+            | Command::EnqueueMissing { .. }
+    );
+    anyhow::ensure!(
+        inventory || a.inventory_sqlite_heap_mib.is_none(),
+        "SQLite inventory heap override is only valid for inventory commands"
+    );
+    if inventory {
+        let limit = i64::from(a.inventory_sqlite_heap_mib.unwrap_or(32)) * 1024 * 1024;
+        // This short-lived CLI process owns every SQLite connection. Never set
+        // this process-global allocator limit in the library or daemon path.
+        unsafe {
+            rusqlite::ffi::sqlite3_hard_heap_limit64(limit);
+        }
+        anyhow::ensure!(
+            unsafe { rusqlite::ffi::sqlite3_hard_heap_limit64(-1) } == limit,
+            "SQLite inventory heap limit unavailable"
+        );
+    }
+
     if matches!(a.command, Command::VerifyAddress) {
         // Keep private configuration, address and key parsing failures out of diagnostics.
         let proof = (|| {

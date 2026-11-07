@@ -161,6 +161,17 @@ complete history using disk-backed indexes and bounded memory. They enforce a
 event-count limits. Health verification has a 30-second deadline; stopped
 handoff commands accept at most 120 seconds.
 
+Inventory CLI commands (`status`, `handoff-revocations`,
+`handoff-revocations-stream`, and `enqueue-missing`) limit SQLite-managed heap to
+32 MiB per process. Historical identifiers with large SQLite index keys can
+require a larger budget: pass `--inventory-sqlite-heap-mib N`, with `N` between
+32 and 512, before the command. This explicit override changes neither identities
+nor journal rows. Allocation failure refuses verification or rolls back enqueue;
+partial streams are not valid handoff proofs. The heap budget covers SQLite
+allocations, not total process memory, configuration parsing or Rust allocations.
+The long-running daemon does not set this process-global limit. Library callers
+must supply their own allocation policy and bound blocking output operations.
+
 `handoff-revocations-stream` emits a header, ordered revocation records and a
 coverage footer. A consumer must verify the complete stream, counts and digests
 before acting; a missing footer means failure. `enqueue-missing` preserves
