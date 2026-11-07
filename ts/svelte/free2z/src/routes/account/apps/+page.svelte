@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AgentConnections from "$lib/components/oidc/AgentConnections.svelte";
   import { formatDateTime } from "$lib/utils/date";
   /**
    * Connected apps (; zuu docs/free2z/sdk/spec/oidc.md §5): every app this
@@ -574,6 +575,7 @@
       >
     </p>
   {/if}
+  <AgentConnections clientId={focused ? focusClientId : undefined} />
 </main>
 
 <Dialog.Root bind:open={revokeOpen}>
@@ -590,6 +592,14 @@
           "The app is signed out right away and can no longer use your account or spend your 2Z credits. To use it again, you will need to allow it again.",
         )}
       </Dialog.Description>
+      {#if revokeTarget?.scope.some((scope) => scope.startsWith("mcp:"))}
+        <p class="text-sm text-muted-foreground">
+          {$t(
+            "oauth.agent.removeApplication",
+            "This also removes every agent connection authorized by this account for this app, including their linked accounts. Use Agent connections to remove just one connection.",
+          )}
+        </p>
+      {/if}
     </Dialog.Header>
     {#if revokeError}
       <p class="text-sm text-destructive" role="alert">{revokeError}</p>

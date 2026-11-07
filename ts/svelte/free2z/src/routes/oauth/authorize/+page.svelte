@@ -37,6 +37,7 @@
   import {
     CAP_PERIODS,
     REAUTH_MARKER,
+    LOGIN_TICKET,
     authorizationParams,
     buildConsentDecision,
     isCapPeriod,
@@ -124,7 +125,11 @@
       resolution.cap,
     ),
   );
-  $: canApprove = phase === "consent" && (!capRequired || resolution.ok);
+  $: canApprove =
+    phase === "consent" && !reauthBusy && (!capRequired || resolution.ok);
+  $: promptUsername = (
+    prompt as (ConsentPrompt & { signed_in_username?: string }) | null
+  )?.signed_in_username;
 
   function hasReauthMarker(): boolean {
     return $page.url.searchParams.get(REAUTH_MARKER) === "1";
@@ -425,6 +430,31 @@
     window.location.assign(loginDestination(next, "reauthenticate"));
   }
 
+  async function switchConsentAccount() {
+    reauthBusy = true;
+    reauthError = "";
+    try {
+      const response = await apiFetch("/api/auth/logout/", {
+        method: "POST",
+        referrerPolicy: "no-referrer",
+      });
+      if (!response.ok && response.status !== 401) throw new Error();
+      const params = new URLSearchParams($page.url.search);
+      params.delete(LOGIN_TICKET);
+      params.delete(REAUTH_MARKER);
+      params.set("prompt", "consent");
+      window.location.assign(
+        loginDestination(`${$page.url.pathname}?${params.toString()}`),
+      );
+    } catch {
+      reauthBusy = false;
+      reauthError = $t(
+        "oauth.agent.switchFailed",
+        "Could not sign out. Try again before switching accounts.",
+      );
+    }
+  }
+
   function keepCurrentCap() {
     // "Current" is the grant's own cap, which an app's suggestion may have
     // replaced in the pre-selection: keeping it must not quietly
@@ -535,6 +565,28 @@
       aria-labelledby="oauth-consent-title"
       data-testid="oauth-consent"
     >
+      {#if promptUsername}
+        <div
+          class="flex flex-wrap items-center justify-between gap-3 rounded-md border bg-muted/30 p-3"
+        >
+          <p class="min-w-0 text-sm break-words">
+            {$t("oauth.agent.signedIn", "Signed in as")}
+            <strong>@{promptUsername}</strong>
+          </p>
+          <Button
+            variant="outline"
+            disabled={reauthBusy || phase === "submitting"}
+            onclick={switchConsentAccount}
+            >{$t("oauth.agent.switch", "Switch account")}</Button
+          >
+          {#if reauthError}<p
+              role="alert"
+              class="w-full text-sm text-destructive"
+            >
+              {reauthError}
+            </p>{/if}
+        </div>
+      {/if}
       <header class="flex items-start gap-4">
         {#if app.logo_url && /^https:\/\//i.test(app.logo_url)}
           <img
@@ -615,6 +667,14 @@
         <h2 class="text-sm font-medium">
           {$t("oauth.consent.scopesHeading", "This app will be able to:")}
         </h2>
+        {#if prompt.scopes.some((scope) => scope.startsWith("mcp:"))}
+          <p class="text-sm text-muted-foreground">
+            {$t(
+              "oauth.agent.connectionPermissions",
+              "These permissions apply to this connection. Your other assistant connections keep their own permissions.",
+            )}
+          </p>
+        {/if}
         <ul class="space-y-2" data-testid="oauth-consent-scopes">
           {#each prompt.scopes as scope (scope)}
             <li class="flex items-start gap-2 text-sm" data-scope={scope}>

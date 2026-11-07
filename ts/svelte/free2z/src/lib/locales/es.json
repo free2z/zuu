@@ -2796,7 +2796,11 @@
       "offlineAccess": "Mantener la sesión iniciada cuando no la estés usando",
       "balanceRead": "Ver tu saldo de créditos 2Z",
       "purchaseCreate": "Iniciar compras de créditos 2Z que tú confirmarás",
-      "aiInvoke": "Usar funciones de IA que gastan tus créditos 2Z; el presupuesto por app es opcional"
+      "aiInvoke": "Usar funciones de IA que gastan tus créditos 2Z; el presupuesto por app es opcional",
+      "mcpRead": "Leer los datos de la cuenta, las páginas y los archivos multimedia",
+      "mcpWrite": "Crear y editar borradores y contenido de la cuenta",
+      "mcpPublish": "Publicar páginas y retirarlas de la publicación",
+      "mcpUploads": "Subir archivos a tu cuenta"
     },
     "capPeriods": {
       "day": "por día",
@@ -3008,6 +3012,47 @@
       "balance": "Saldo de 2Z",
       "notConnected": "Esta app no está conectada a tu cuenta de Free2Z.",
       "deleteAccount": "Eliminar la cuenta de Free2Z"
+    },
+    "agent": {
+      "removed": "Acceso eliminado.",
+      "removeFailed": "No se pudo eliminar el acceso. Inténtalo de nuevo.",
+      "connections": "Conexiones de agentes",
+      "connectionsHelp": "Gestiona las cuentas que pueden usar tus asistentes. Eliminar una conexión le quita el acceso a todas las cuentas vinculadas.",
+      "loading": "Cargando acceso a las cuentas…",
+      "loadFailed": "No se pudo cargar el acceso del agente a las cuentas.",
+      "retry": "Intentar de nuevo",
+      "unavailable": "No disponible",
+      "primary": "Conectado por @{username}",
+      "removeConnection": "Eliminar conexión",
+      "removeAccount": "Eliminar acceso a la cuenta",
+      "empty": "Esta cuenta no tiene conexiones de agentes.",
+      "activity": "Actividad reciente de agentes",
+      "confirmRemoval": "Confirmar eliminación del acceso",
+      "removeNamed": "¿Eliminar el acceso de {name}?",
+      "removeAllHelp": "El asistente perderá el acceso a todas las cuentas vinculadas a esta conexión.",
+      "confirmRemove": "Eliminar acceso",
+      "cancel": "Cancelar",
+      "switchFailed": "No se pudo cerrar la sesión. Inténtalo de nuevo antes de cambiar de cuenta.",
+      "decisionFailed": "No se confirmó el acceso. Revisa la cuenta y los permisos antes de intentarlo de nuevo.",
+      "linkTitle": "Conectar una cuenta · Free2Z",
+      "linkHeading": "Conecta una cuenta a tu asistente",
+      "signInHelp": "Inicia sesión en la cuenta de Free2Z que quieres conectar. Revisarás el acceso antes de aprobarlo.",
+      "signIn": "Iniciar sesión",
+      "invalid": "Esta solicitud de conexión no existe o ha caducado. Pide un enlace nuevo a tu asistente y ábrelo en la misma pestaña donde inicias sesión.",
+      "connected": "Cuenta conectada",
+      "denied": "Conexión rechazada",
+      "return": "Vuelve a tu asistente. Puedes cerrar esta pestaña.",
+      "application": "Aplicación del asistente",
+      "connectionOwner": "Titular de la conexión",
+      "requestedAccount": "Cuenta que se conectará",
+      "signedIn": "Sesión iniciada como",
+      "wrongAccount": "Esta solicitud es para @{expected}. Inicia sesión con esa cuenta para continuar.",
+      "signInAs": "Iniciar sesión como @{username}",
+      "permissions": "Permitir que este asistente pueda",
+      "revokeHelp": "Puedes eliminar este acceso más adelante en Aplicaciones conectadas.",
+      "allow": "Permitir acceso",
+      "deny": "Rechazar",
+      "switch": "Cambiar de cuenta"
     }
   },
   "translationJobs": {
@@ -3357,5 +3402,7 @@
     "dismiss": "Cerrar mensaje de bienvenida",
     "model": "Los 2Z son créditos para acciones en Free2Z. Publicar cuesta desde 1 2Z, aproximadamente un centavo de dólar. Este pequeño costo desalienta el spam y ayuda a mantener Free2Z sin anuncios. Tu primera zPage es gratis; crear otra requiere un saldo de 1 2Z, pero no lo gasta.",
     "sources": "Las cuentas nuevas elegibles reciben créditos de bienvenida. Puedes comprar 2Z o recibir regalos de miembros que quieren leerte más. Preséntate con una zPage para que los lectores te conozcan."
-  }
+  },
+  "oauth.agent.connectionPermissions": "Estos permisos se aplican a esta conexión. Tus otras conexiones de asistentes conservan sus propios permisos.",
+  "oauth.agent.removeApplication": "También se eliminan todas las conexiones de agentes autorizadas por esta cuenta para esta aplicación, incluidas sus cuentas vinculadas. Usa Conexiones de agentes para eliminar solo una conexión."
 }

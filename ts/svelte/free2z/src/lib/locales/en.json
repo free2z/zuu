@@ -2796,7 +2796,11 @@
       "offlineAccess": "Stay signed in when you are not using it",
       "balanceRead": "See your 2Z credit balance",
       "purchaseCreate": "Start 2Z credit purchases for you to confirm",
-      "aiInvoke": "Use AI features that spend your 2Z credits; an app budget is optional"
+      "aiInvoke": "Use AI features that spend your 2Z credits; an app budget is optional",
+      "mcpRead": "Read account details, pages and media",
+      "mcpWrite": "Create and edit drafts and account content",
+      "mcpPublish": "Publish and unpublish pages",
+      "mcpUploads": "Upload files to your account"
     },
     "capPeriods": {
       "day": "per day",
@@ -3008,6 +3012,47 @@
       "balance": "2Z balance",
       "notConnected": "This app is not connected to your Free2Z account.",
       "deleteAccount": "Delete Free2Z account"
+    },
+    "agent": {
+      "removed": "Access removed.",
+      "removeFailed": "Access could not be removed. Try again.",
+      "connections": "Agent connections",
+      "connectionsHelp": "Manage the accounts your assistants can use. Removing a connection removes its access to every linked account.",
+      "loading": "Loading account access…",
+      "loadFailed": "Agent account access could not be loaded.",
+      "retry": "Try again",
+      "unavailable": "Unavailable",
+      "primary": "Connected by @{username}",
+      "removeConnection": "Remove connection",
+      "removeAccount": "Remove account access",
+      "empty": "No agent connections for this account.",
+      "activity": "Recent agent activity",
+      "confirmRemoval": "Confirm access removal",
+      "removeNamed": "Remove access for {name}?",
+      "removeAllHelp": "The assistant will lose access to every account linked to this connection.",
+      "confirmRemove": "Remove access",
+      "cancel": "Cancel",
+      "switchFailed": "Could not sign out. Try again before switching accounts.",
+      "decisionFailed": "Access was not confirmed. Review the account and permissions before trying again.",
+      "linkTitle": "Connect an account · Free2Z",
+      "linkHeading": "Connect an account to your assistant",
+      "signInHelp": "Sign in to the Free2Z account you want to connect. You will review access before approving.",
+      "signIn": "Sign in",
+      "invalid": "This connection request is missing or expired. Ask your assistant for a new link and open it in the same browser tab used to sign in.",
+      "connected": "Account connected",
+      "denied": "Connection declined",
+      "return": "Return to your assistant. You can close this tab.",
+      "application": "Assistant application",
+      "connectionOwner": "Connection owner",
+      "requestedAccount": "Account to connect",
+      "signedIn": "Signed in as",
+      "wrongAccount": "This request is for @{expected}. Sign in as that account to continue.",
+      "signInAs": "Sign in as @{username}",
+      "permissions": "Allow this assistant to",
+      "revokeHelp": "You can remove this access later in Connected apps.",
+      "allow": "Allow access",
+      "deny": "Decline",
+      "switch": "Switch account"
     }
   },
   "translationJobs": {
@@ -3357,5 +3402,7 @@
     "dismiss": "Dismiss welcome message",
     "model": "2Z are platform credits for actions on Free2Z. A post starts at 1 2Z, about a US penny. This small cost discourages spam and helps keep Free2Z free of ads. Your first zPage is free; creating another requires a balance of 1 2Z and does not spend it.",
     "sources": "Eligible new accounts receive a welcome grant. You can buy 2Z, or receive gifts from members who want to hear more from you. Introduce yourself with a zPage so readers can get to know you."
-  }
+  },
+  "oauth.agent.connectionPermissions": "These permissions apply to this connection. Your other assistant connections keep their own permissions.",
+  "oauth.agent.removeApplication": "This also removes every agent connection authorized by this account for this app, including their linked accounts. Use Agent connections to remove just one connection."
 }

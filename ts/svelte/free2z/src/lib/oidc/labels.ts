@@ -45,6 +45,17 @@ export function scopeLabel(
         "oauth.scopes.aiInvoke",
         "Use AI features that spend your 2Z credits; an app budget is optional",
       );
+    case "mcp:read":
+      return t("oauth.scopes.mcpRead", "Read account details, pages and media");
+    case "mcp:write":
+      return t(
+        "oauth.scopes.mcpWrite",
+        "Create and edit drafts and account content",
+      );
+    case "mcp:publish":
+      return t("oauth.scopes.mcpPublish", "Publish and unpublish pages");
+    case "mcp:uploads":
+      return t("oauth.scopes.mcpUploads", "Upload files to your account");
     default:
       return fallback || scope;
   }
