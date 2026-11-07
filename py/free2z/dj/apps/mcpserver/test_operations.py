@@ -78,6 +78,15 @@ def test_selected_account_draft_idempotency_etag_and_unknown_fields(signed_in, u
         "name": "free2z_update_page", "arguments": {"account": "baz", "page_id": page_id, "changes": {"is_published": True}, "if_match": updated["headers"]["etag"]},
     }}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}", HTTP_ACCEPT="application/json, text/event-stream", secure=True)
     assert response.json()["result"]["isError"]
+    missing_account = client.post("/api/mcp", {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {
+        "name": "free2z_update_profile", "arguments": {"changes": {"full_name": "No implicit account"}},
+    }}, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}", HTTP_ACCEPT="application/json, text/event-stream", secure=True)
+    assert missing_account.json()["result"]["isError"]
+    user.refresh_from_db()
+    assert user.full_name != "No implicit account"
+    listed = client.post("/api/mcp", {"jsonrpc": "2.0", "id": 4, "method": "tools/list"},
+        format="json", HTTP_AUTHORIZATION=f"Bearer {raw}", HTTP_ACCEPT="application/json, text/event-stream", secure=True)
+    assert all(tool["inputSchema"]["additionalProperties"] is False for tool in listed.json()["result"]["tools"])
     page.refresh_from_db()
     assert not page.is_published
     audit = MCPActionAudit.objects.filter(operation="create_draft", status=201).first()
