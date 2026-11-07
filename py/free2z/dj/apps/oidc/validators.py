@@ -31,7 +31,7 @@ from dj.apps.ktauth.signing import AuthorityUnavailable
 
 from . import consent
 from .models import AccessToken, AppAuthorization, AuthorizationCode, RefreshToken
-from .scopes import ALL_SCOPES, SCOPE_OFFLINE_ACCESS, scope_list
+from .scopes import ALL_SCOPES, MCP_SCOPES, SCOPE_OFFLINE_ACCESS, mcp_resource, scope_list
 from .tokens import is_jwt
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,19 @@ class F2ZOAuth2Validator(OAuth2Validator):
             return False
         return super()._check_secret(provided_secret, stored_secret)
 
+    def authenticate_client(self, request, *args, **kwargs):
+        if not super().authenticate_client(request, *args, **kwargs):
+            return False
+        declared = request.client.mcp_token_auth_method
+        if not declared:
+            return True  # Existing registrations retain their established flow.
+        basic = self._extract_basic_auth(request)
+        if declared == "client_secret_basic":
+            return bool(basic) and not request.client_secret and self._authenticate_basic_auth(request)
+        if declared == "client_secret_post":
+            return not basic and self._authenticate_request_body(request)
+        return False
+
     def is_pkce_required(self, client_id, request):
         # Spec §1: for every client, public and confidential.
         return True
@@ -146,10 +159,15 @@ class F2ZOAuth2Validator(OAuth2Validator):
                 description="account epoch unavailable", status_code=503, request=request,
             ) from None
         context = getattr(request, "f2z_auth_context", None) or {}
+        connection = None
+        if set(request.scopes).intersection(MCP_SCOPES):
+            from .mcp import create_connection
+            connection = create_connection(request.user, request.client, request.scopes, account_epoch)
         return AuthorizationCode.objects.create(
             application=request.client,
             user=request.user,
             code=code["code"],
+            mcp_connection=connection,
             expires=expires,
             redirect_uri=request.redirect_uri,
             scope=" ".join(request.scopes),
@@ -197,6 +215,10 @@ class F2ZOAuth2Validator(OAuth2Validator):
                 grant.account_epoch, current_epoch, grant.user_id,
             )
             return False
+        if set(scope_list(grant.scope)).intersection(MCP_SCOPES):
+            if not self._valid_mcp_resource(request) or grant.mcp_connection_id is None:
+                return False
+            request.resource = [mcp_resource()]
         request.scopes = grant.scope.split(" ")
         request.user = grant.user
         if grant.nonce:
@@ -314,6 +336,10 @@ class F2ZOAuth2Validator(OAuth2Validator):
             return False
 
         rt = request.refresh_token_instance
+        if rt.access_token and rt.access_token.mcp_connection_id:
+            if not self._valid_mcp_resource(request):
+                return False
+            request.resource = [mcp_resource()]
         if not rt.user.is_active:
             # A ban (`Creator.ban_and_soft_delete`) does not move the epoch;
             # the account must still stop minting (codex adversarial review).
@@ -341,6 +367,11 @@ class F2ZOAuth2Validator(OAuth2Validator):
             return False
         return True
 
+    @staticmethod
+    def _valid_mcp_resource(request):
+        resource = getattr(request, "resource", None)
+        return resource == mcp_resource() or resource == [mcp_resource()]
+
     def _save_bearer_token(self, token, request, *args, **kwargs):
         if (
             request.grant_type == "authorization_code"
@@ -364,6 +395,7 @@ class F2ZOAuth2Validator(OAuth2Validator):
             id_token=id_token,
             application=request.client,
             source_refresh_token=source_refresh_token,
+            mcp_connection_id=context.mcp_connection_id,
             resource=getattr(request, "resource", []),
             account_epoch=context.account_epoch,
             grant_generation=context.grant_generation,

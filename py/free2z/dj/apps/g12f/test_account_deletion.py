@@ -935,7 +935,7 @@ def _seed_every_enforced_relation(user, other, ai_model):
     from dj.apps.identity.models import RecoveryCode, WebAuthnCredential
     from dj.apps.oidc.models import (
         AccessToken, AppAuthorization, AuthorizationCode, F2ZApplication,
-        IDToken, RefreshToken,
+        IDToken, RefreshToken, MCPConnection, MCPAccountGrant, MCPActionAudit,
     )
     from dj.apps.openai.models import Conversation, Personality, PromptResponse
     from dj.apps.otp.models import OTPSecret
@@ -964,6 +964,14 @@ def _seed_every_enforced_relation(user, other, ai_model):
         name="Someone's app", user=other, client_type=F2ZApplication.CLIENT_PUBLIC,
         redirect_uris="https://app.example.com/cb", allowed_scopes="openid")
     AppAuthorization.objects.create(user=user, application=app, scope="openid")
+    mcp_connection = MCPConnection.objects.create(
+        primary_user=user, application=app, primary_epoch=epoch,
+        primary_grant_generation=1, scope="mcp:read")
+    mcp_grant = MCPAccountGrant.objects.create(
+        connection=mcp_connection, user=user, account_epoch=epoch, scope="mcp:read")
+    MCPActionAudit.objects.create(
+        connection=mcp_connection, application=app, primary_user=user,
+        target_user=user, account_grant=mcp_grant, operation="read", status=200)
     AuthorizationCode.objects.create(
         user=user, application=app, code=_secrets.token_hex(16), expires=later,
         redirect_uri="https://app.example.com/cb", account_epoch=epoch)

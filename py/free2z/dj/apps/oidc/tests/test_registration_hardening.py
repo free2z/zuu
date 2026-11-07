@@ -670,10 +670,9 @@ def test_a_grant_without_ai_invoke_has_no_cap_to_edit(signed_in, user, web_app):
 def test_delegated_bearer_cannot_change_even_its_own_users_budget(signed_in, user, web_app):
     """Budget authority stays with the first-party user, not the delegated app."""
     from rest_framework.test import APIClient
-    from dj.apps.oidc.scopes import ALL_SCOPES
 
     tokens = Flow(signed_in, user, web_app, redirect_uri=WEB_REDIRECT,
-                  scope=" ".join(ALL_SCOPES)).run(spend_cap_2z=100, cap_period="month")
+                  scope=web_app.allowed_scopes).run(spend_cap_2z=100, cap_period="month")
     grant = AppAuthorization.objects.get(user=user, application=web_app)
     generation = grant.generation
     bearer = {"HTTP_AUTHORIZATION": f"Bearer {tokens['access_token']}"}

@@ -13,6 +13,17 @@ SCOPE_OFFLINE_ACCESS = "offline_access"
 SCOPE_BALANCE_READ = "balance:read"
 SCOPE_PURCHASE_CREATE = "purchase:create"
 SCOPE_AI_INVOKE = "ai:invoke"
+SCOPE_MCP_READ = "mcp:read"
+SCOPE_MCP_WRITE = "mcp:write"
+SCOPE_MCP_PUBLISH = "mcp:publish"
+SCOPE_MCP_UPLOADS = "mcp:uploads"
+MCP_SCOPES = (SCOPE_MCP_READ, SCOPE_MCP_WRITE, SCOPE_MCP_PUBLISH, SCOPE_MCP_UPLOADS)
+
+
+def mcp_resource() -> str:
+    from django.conf import settings
+    return settings.OIDC_ISSUER.rstrip("/") + "/api/mcp"
+
 
 #: Every scope the platform sells, in the order discovery lists them.
 ALL_SCOPES: tuple[str, ...] = (
@@ -23,13 +34,14 @@ ALL_SCOPES: tuple[str, ...] = (
     SCOPE_BALANCE_READ,
     SCOPE_PURCHASE_CREATE,
     SCOPE_AI_INVOKE,
+    *MCP_SCOPES,
 )
 
 #: Spec §5: a loopback or private-use-scheme client never receives these
 #: without the user's explicit act, because any process on the device can
 #: claim its redirect. ``prompt=none`` answers ``interaction_required``.
 INTERACTIVE_ONLY_SCOPES = frozenset(
-    {SCOPE_AI_INVOKE, SCOPE_PURCHASE_CREATE, SCOPE_OFFLINE_ACCESS}
+    {SCOPE_AI_INVOKE, SCOPE_PURCHASE_CREATE, SCOPE_OFFLINE_ACCESS, *MCP_SCOPES}
 )
 
 #: Token audiences (spec §4, §6.1).
@@ -85,4 +97,6 @@ def audiences_for(scopes) -> list[str]:
         audiences.append(AUD_AI)
     if granted & {SCOPE_BALANCE_READ, SCOPE_PURCHASE_CREATE, SCOPE_AI_INVOKE}:
         audiences.append(AUD_API)
+    if granted.intersection(MCP_SCOPES):
+        audiences.append(mcp_resource())
     return audiences
