@@ -141,7 +141,9 @@ import os
 import re
 from pathlib import Path
 
-alias = input("Local account alias (for example, alice): ").strip()
+print("Local account alias (for example, alice): ", end="", flush=True)
+with open("/dev/tty") as terminal:
+    alias = terminal.readline().strip()
 if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", alias) or alias in {"anonymous", "__proto__", "constructor", "prototype"}:
     raise SystemExit("Choose a non-reserved alias using letters, digits, underscores or hyphens.")
 path = Path.home() / ".config/free2z" / f"{alias}-session.json"
