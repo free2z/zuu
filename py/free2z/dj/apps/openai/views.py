@@ -1,4 +1,5 @@
 import base64
+from contextlib import nullcontext
 import hashlib
 from decimal import Decimal, InvalidOperation
 import binascii
@@ -973,9 +974,9 @@ AI_SERVICE_ERROR_RESPONSE = OpenApiResponse(
 )
 
 
-def _ai_settled_interruption_response(error, amount):
+def _ai_settled_interruption_response(error, amount, *, fractional=False):
     """Explain that an accepted but interrupted call was settled."""
-    amount = int(amount)
+    amount = amount if fractional else int(amount)
     if amount:
         error.data["detail"] = (
             f"Generation was interrupted. {amount} 2Z was charged for "
@@ -989,7 +990,7 @@ def _ai_settled_interruption_response(error, amount):
             "You can retry or choose another model."
         )
     error.data["charge_status"] = "settled"
-    error.data["tuzis_charged"] = amount
+    error.data["tuzis_charged"] = str(amount) if fractional else amount
     error.data["response_saved"] = False
     return error
 
@@ -2178,7 +2179,7 @@ def charge_clamped_payload(ai_model, input_tokens, output_tokens, metered,
 
 
 def _clamp_to_ceiling(ai_model, input_tokens, output_tokens, max_price, *,
-                      endpoint, user_id, usage=None):
+                      endpoint, user_id, usage=None, quantum=None):
     """The metered price, never above the ceiling the request was admitted at.
 
     When the clamp BINDS, the platform absorbs the difference. The likeliest
@@ -2199,6 +2200,7 @@ def _clamp_to_ceiling(ai_model, input_tokens, output_tokens, max_price, *,
         cached_input_tokens=getattr(usage, "cached_input_tokens", 0),
         cache_write_tokens=getattr(usage, "cache_write_tokens", 0),
         cache_write_1h_tokens=getattr(usage, "cache_write_1h_tokens", 0),
+        **({"quantum": quantum} if quantum is not None else {}),
     )
     if metered > max_price:
         logger.warning(json.dumps(charge_clamped_payload(
@@ -2304,6 +2306,13 @@ class MeteredPromptView(views.APIView):
     # Deliberately a comment, not a docstring: drf-spectacular publishes view
     # docstrings as operation descriptions in the public f2z.yaml.
     permission_classes = [IsAuthenticated]
+    pricing_quantum = None
+    idempotency_scope = "ai_prompt"
+
+    def reservation_context(self, request, ai_model, max_price):
+        """Internal callers can recheck authority atomically with the hold."""
+        return nullcontext()
+
 
     # Issue: opt OUT of `AtomicMiddleware`'s request-wide transaction.
     # The provider call below is 10-90s of third-party I/O and must not hold
@@ -2387,7 +2396,7 @@ class MeteredPromptView(views.APIView):
         }
         claim, duplicate_response = _provider_claim(
             request,
-            "ai_prompt",
+            self.idempotency_scope,
             stable_intent,
             intent_snapshot=_creator_model_intent_snapshot(requested_model),
             # The stream endpoint has no upstream idempotency contract. Once
@@ -2554,7 +2563,10 @@ class MeteredPromptView(views.APIView):
         # killed worker is swept by the periodic L2 expiry worker (or lazily
         # by the next reservation for that account after 15 min, past the 170s generation
         # deadline). Same mechanism as ImageView.
-        max_price = ai_model.get_admission_price(input_tokens, output_cap)
+        max_price = ai_model.get_admission_price(
+            input_tokens, output_cap,
+            **({"quantum": self.pricing_quantum} if self.pricing_quantum is not None else {}),
+        )
         if quote_token is not None and quote_token != _creator_prompt_quote_token(
             ai_model, prompt, system_message, requested_output, input_tokens,
             window_tokens, output_cap, max_price,
@@ -2568,10 +2580,11 @@ class MeteredPromptView(views.APIView):
         if max_price > 0:
             operation_key = idempotency.request_key(request) or uuid.uuid4()
             try:
-                reservation = ledger.reserve(
-                    request.user, max_price,
-                    scope="ai_prompt", operation_key=operation_key,
-                )
+                with self.reservation_context(request, ai_model, max_price):
+                    reservation = ledger.reserve(
+                        request.user, max_price,
+                        scope="ai_prompt", operation_key=operation_key,
+                    )
             except ledger.InsufficientFunds as exc:
                 idempotency.release(claim)
                 return Response(
@@ -2598,8 +2611,8 @@ class MeteredPromptView(views.APIView):
                     exc, model_label=f"metered prompt on {ai_model.model}")
                 price = _clamp_to_ceiling(
                     ai_model, exc.input_tokens, exc.settlement_output_tokens,
-                    max_price, endpoint="ai_prompt", user_id=request.user.pk, usage=exc.usage)
-                error = _ai_settled_interruption_response(error, price)
+                    max_price, endpoint="ai_prompt", user_id=request.user.pk, usage=exc.usage, quantum=self.pricing_quantum)
+                error = _ai_settled_interruption_response(error, price, fractional=self.pricing_quantum is not None)
                 with transaction.atomic():
                     ledger.settle_reservation(reservation, amount=price)
                     Event.objects.create(
@@ -2659,16 +2672,34 @@ class MeteredPromptView(views.APIView):
             price = _clamp_to_ceiling(
                 ai_model, input_tokens, generation.settlement_output_tokens,
                 max_price,
-                endpoint="ai_prompt", user_id=request.user.pk, usage=usage)
+                endpoint="ai_prompt", user_id=request.user.pk, usage=usage, quantum=self.pricing_quantum)
             data = {
                 "response": response_text,
                 "provider": ai_model.provider,
                 "model": ai_model.model,
                 "display_name": ai_model.display_name,
-                "tuzis_charged": price,
+                "tuzis_charged": str(price) if self.pricing_quantum is not None else price,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }
+            if self.pricing_quantum is not None:
+                cache_usage = {
+                    name: getattr(usage, name, 0) for name in (
+                        "cached_input_tokens", "cache_write_tokens", "cache_write_1h_tokens",
+                    )
+                }
+                data.update({
+                    "charge_status": "settled",
+                    "max_charge_tuzis": str(max_price),
+                    "settlement_output_tokens": generation.settlement_output_tokens,
+                    "usage_source": "provider" if usage is not None else "estimate",
+                    "cache_usage": cache_usage,
+                    "provider_usage_cost_usd": str(
+                        ai_model.get_provider_input_cost(input_tokens, **cache_usage)
+                        + Decimal(generation.settlement_output_tokens) * Decimal(str(ai_model.output_price))
+                    ),
+                    "markup_multiplier": str(ai_model.markup),
+                })
             with transaction.atomic():
                 ledger.settle_reservation(reservation, amount=price)
                 Event.objects.create(

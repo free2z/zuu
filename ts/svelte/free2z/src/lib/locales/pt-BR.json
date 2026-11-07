@@ -2800,7 +2800,8 @@
       "mcpRead": "Ler seu perfil público, páginas e mídias",
       "mcpWrite": "Criar ou editar rascunhos e atualizar seu perfil público",
       "mcpPublish": "Publicar ou editar páginas e mídias públicas",
-      "mcpUploads": "Enviar arquivos para sua conta"
+      "mcpUploads": "Enviar arquivos para sua conta",
+      "mcpAI": "Enviar instruções a provedores de IA e gastar créditos 2Z até o máximo cotado de cada solicitação"
     },
     "capPeriods": {
       "day": "por dia",

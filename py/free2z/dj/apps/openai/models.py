@@ -990,8 +990,8 @@ class AIModel(models.Model):
     def get_tuzi_price(
         self, input_tokens: int, output_tokens: int, *,
         cached_input_tokens: int = 0, cache_write_tokens: int = 0,
-        cache_write_1h_tokens: int = 0,
-    ) -> int:
+        cache_write_1h_tokens: int = 0, quantum: Decimal | None = None,
+    ) -> int | Decimal:
         """Price provider-reported input classes without counting any token twice.
 
         ``input_tokens`` is the total input count; cache counts are disjoint
@@ -1007,6 +1007,8 @@ class AIModel(models.Model):
         total_cost = (
             input_cost + Decimal(output_tokens) * Decimal(str(self.output_price))
         ) * 100 * Decimal(str(self.markup))
+        if quantum is not None:
+            return total_cost.quantize(quantum, rounding=ROUND_CEILING)
         return int(total_cost.to_integral_value(rounding=ROUND_CEILING))
 
     def get_provider_input_cost(
@@ -1122,7 +1124,7 @@ class AIModel(models.Model):
         # two sentences should not be charged the ceiling to get them.
         return max(1, min(int(requested), ceiling))
 
-    def get_max_tuzi_price(self, input_tokens: int, output_tokens=None) -> int:
+    def get_max_tuzi_price(self, input_tokens: int, output_tokens=None, *, quantum=None):
         """The largest charge one request on this model can produce.
 
         The prompt is already assembled when this is called, so
@@ -1162,7 +1164,7 @@ class AIModel(models.Model):
             input_tokens, output_tokens,
             cached_input_tokens=cache_counts[0],
             cache_write_tokens=cache_counts[1],
-            cache_write_1h_tokens=cache_counts[2],
+            cache_write_1h_tokens=cache_counts[2], quantum=quantum,
         )
 
     def get_reasoning_allowance(self) -> int:
@@ -1178,7 +1180,7 @@ class AIModel(models.Model):
         return max(0, int(reasoning_policy(
             self.provider, self.model).allowance_tokens))
 
-    def get_admission_price(self, input_tokens: int, output_tokens=None) -> int:
+    def get_admission_price(self, input_tokens: int, output_tokens=None, *, quantum=None):
         """The ceiling a request is ADMITTED, held and clamped at.
 
         :meth:`get_max_tuzi_price` for the visible ``output_tokens`` sent as
@@ -1198,7 +1200,7 @@ class AIModel(models.Model):
         if output_tokens is None:
             output_tokens = self.get_request_output_cap(input_tokens)
         return self.get_max_tuzi_price(
-            input_tokens, int(output_tokens) + self.get_reasoning_allowance())
+            input_tokens, int(output_tokens) + self.get_reasoning_allowance(), quantum=quantum)
 
     def get_affordable_output_tokens(self, input_tokens: int, tuzis) -> int:
         """The longest reply ``tuzis`` covers, for a prompt of ``input_tokens``.

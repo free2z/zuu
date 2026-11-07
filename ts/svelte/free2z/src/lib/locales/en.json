@@ -2800,7 +2800,8 @@
       "mcpRead": "Read your public profile, pages and media",
       "mcpWrite": "Create/edit drafts and update your public profile",
       "mcpPublish": "Publish or edit public pages and media",
-      "mcpUploads": "Upload files to your account"
+      "mcpUploads": "Upload files to your account",
+      "mcpAI": "Send prompts to AI providers and spend your 2Z credits up to each request’s quoted maximum"
     },
     "capPeriods": {
       "day": "per day",

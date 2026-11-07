@@ -42,6 +42,8 @@ def sweep_tokens(timestamp: int = 0):
     from dj.apps.identity.models import AuthContext
 
     clear_expired()
+    from dj.apps.mcpserver.ai import purge_content
+    purge_content()
     # Login now produces AuthContexts. Reuse this existing hourly
     # task: bounded batches keep naturally expired credentials from leaving
     # rows forever, without monopolizing a worker during a large backlog.
@@ -73,3 +75,10 @@ def reevaluate_ai_report_surges(timestamp: int = 0):
 
     evaluated = reevaluate_surges()
     logger.info("oidc: AI output report surge re-evaluated for %s app(s)", evaluated)
+
+
+@app.task(name="oidc.invoke_mcp_ai", queue="default", retry=False)
+def invoke_mcp_ai(request_id: str):
+    """Queue arguments contain only an opaque invocation ID, never a prompt."""
+    from dj.apps.mcpserver.ai import invoke
+    invoke(request_id)

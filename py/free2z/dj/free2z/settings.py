@@ -626,6 +626,7 @@ OAUTH2_PROVIDER = {
         'mcp:write': 'Create/edit drafts and update your public profile',
         'mcp:publish': 'Publish or edit public pages and media',
         'mcp:uploads': 'Upload and manage your media files',
+        'mcp:ai': 'Send prompts to AI providers and spend 2Z up to each request’s quoted maximum',
     },
     'DEFAULT_SCOPES': [],
     # Spec §6/§7/§8/§9.2, in seconds.
@@ -3316,3 +3317,6 @@ SENDGRID_TRACK_CLICKS_PLAIN = False
 if os.getenv('ENABLE_DEBUG_TOOLBAR', False):
     INSTALLED_APPS += ['debug_toolbar']
     MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
+
+# Enable only after every default-queue worker registers oidc.invoke_mcp_ai.
+MCP_AI_ENABLED = _boolean_env("MCP_AI_ENABLED", False)

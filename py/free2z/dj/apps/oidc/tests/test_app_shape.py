@@ -169,7 +169,7 @@ def test_scopes_are_exactly_the_contracts():
     assert tuple(settings.OAUTH2_PROVIDER["SCOPES"]) == ALL_SCOPES == (
         "openid", "profile", "email", "offline_access",
         "balance:read", "purchase:create", "ai:invoke",
-        "mcp:read", "mcp:write", "mcp:publish", "mcp:uploads",
+        "mcp:read", "mcp:write", "mcp:publish", "mcp:uploads", "mcp:ai",
     )
 
 
