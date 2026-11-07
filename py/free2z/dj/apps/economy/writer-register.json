@@ -4,7 +4,7 @@
     "python": "3.12",
     "django": "5.2.18",
     "dependency_lock": "py/free2z/requirements/main.txt",
-    "dependency_lock_sha256": "f3995a9b65701d306c68bad71e208e215e2b27ebfe91e600b6a05dc1f14c9d34"
+    "dependency_lock_sha256": "4206d8de6578ea71290937b01fe2f931b01e01654c36ad95375db3b04f699fb0"
   },
   "models": [
     {
@@ -1723,7 +1723,7 @@
     "py/free2z/dj/apps/g12f/translation/charges.py": "1880f2c28b822df00d4eeafabc7337e3ebfc66eb8b590ddd4745a8296253e451",
     "py/free2z/dj/apps/g12f/views/translate.py": "da6814a16c3693c675c4aeb40d62dd4e15057628ecb43ef26e2572a8f42c645d",
     "py/free2z/dj/apps/g12f/views/translate_batch.py": "042d4a092f6ec85e5d8a4785b536dee83867325f9378b03ea23cde17e79a9886",
-    "py/free2z/dj/apps/g12f/views/zpage.py": "7d9c5fcdb9d75b9fc18b0c1f95bac96a5fcd78eb5d81032aa464c1cb1c26b794",
+    "py/free2z/dj/apps/g12f/views/zpage.py": "1e2a95d88fbefce74e7e6fd74857dd34f359283234963ed814765ef053b0bfae",
     "py/free2z/dj/apps/handles/models.py": "4787949bbab9b905ca99b59918c492bcc1087e315605eea968526b9d45fdf808",
     "py/free2z/dj/apps/identity/models.py": "bc7779a97afd262f39bf6b38d332931fc68a9a1c5f34809f2f821cb4550edf1c",
     "py/free2z/dj/apps/jobs/models.py": "2fb699398f6cc4b66f52386fa769b652305c2832525f63240413ec65ef291b90",
