@@ -108,6 +108,7 @@ def _account_data(grant, *, effective_scopes=None):
         and grant.connection.revoked_at is None
         and grant.connection.primary_user.is_active
         and grant.connection.primary_epoch == grant.connection.primary_user.kt_account_epoch
+        and connection_available(grant.connection)
     )
     scopes = set(scope_list(grant.scope))
     if effective_scopes is not None:
@@ -191,6 +192,14 @@ def create_link_intent(raw_token: str, expected_username: str, scopes=None) -> d
         )
     return {"url": settings.OIDC_ISSUER.rstrip("/") + "/account/agent-link#intent=" + opaque,
             "expires_at": intent.expires_at.isoformat(), "expected_username": expected_username}
+
+
+def connection_available(connection):
+    try:
+        validate_connection_record(connection)
+        return True
+    except AuthenticationFailed:
+        return False
 
 
 def find_intent(opaque):
@@ -288,6 +297,8 @@ def authorized_upload(intent_id, capability):
         initial = MCPUploadIntent.objects.select_related("access_token").get(pk=intent_id)
     except (MCPUploadIntent.DoesNotExist, ValueError, DjangoValidationError):
         raise PermissionDenied("Invalid upload capability.") from None
+    if initial.access_token is None:
+        raise PermissionDenied("This upload capability has expired or been revoked.")
     digest = hashlib.sha256(capability.encode()).hexdigest()
     if not secrets.compare_digest(digest, initial.capability_hash):
         raise PermissionDenied("Invalid upload capability.")
@@ -303,3 +314,30 @@ def authorized_upload(intent_id, capability):
         ):
             raise PermissionDenied("This upload capability has expired or been revoked.")
         yield actor, intent
+
+
+@contextmanager
+def serialize_mcp_token_request(data):
+    """Order OAuth refresh/revoke against actions before token rows change.
+
+    Looking up a credential here grants nothing. The OAuth validator still
+    checks the code, PKCE, client, expiry and resource inside these locks.
+    """
+    from .models import AuthorizationCode, RefreshToken
+    connection_id = None
+    if data.get("code"):
+        connection_id = AuthorizationCode.objects.filter(code=data["code"]).values_list("mcp_connection_id", flat=True).first()
+    raw = data.get("refresh_token") or data.get("token")
+    if raw:
+        digest = hashlib.sha256(raw.encode()).hexdigest()
+        connection_id = RefreshToken.objects.filter(token_checksum=digest).values_list("access_token__mcp_connection_id", flat=True).first()
+    candidate = MCPConnection.objects.filter(pk=connection_id).first() if connection_id else None
+    if candidate is None:
+        yield
+        return
+    with transaction.atomic():
+        get_user_model().objects.select_for_update().filter(pk=candidate.primary_user_id).first()
+        F2ZApplication.objects.select_for_update().filter(pk=candidate.application_id).first()
+        AppAuthorization.objects.select_for_update().filter(user_id=candidate.primary_user_id, application_id=candidate.application_id).first()
+        MCPConnection.objects.select_for_update().filter(pk=candidate.pk).first()
+        yield

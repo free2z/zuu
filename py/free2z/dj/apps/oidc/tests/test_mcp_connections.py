@@ -11,7 +11,7 @@ from rest_framework.test import APIClient
 from dj.apps.oidc.authentication import verify_bearer
 from dj.apps.oidc.consent import revoke_authorization
 from dj.apps.oidc.mcp import authenticate_mcp, authorized_actor, create_link_intent, list_accounts
-from dj.apps.oidc.models import F2ZApplication, MCPAccountGrant, MCPConnection, MCPLinkIntent
+from dj.apps.oidc.models import F2ZApplication, MCPConnection, MCPLinkIntent
 from dj.apps.oidc.scopes import MCP_SCOPES, mcp_resource
 from .conftest import Flow, WEB_REDIRECT, form_post, query_of
 
@@ -61,6 +61,9 @@ def test_registration_pkce_resource_connection_refresh_and_issuer(signed_in, use
     _, _, claims = verify_bearer(token, audience=mcp_resource())
     assert claims["mcp_connection"] == str(primary.connection_id)
     assert mcp_resource() in claims["aud"]
+    for path in ("/api/auth/user/", "/api/oauth/grants/", "/api/creator/"):
+        denied = APIClient().get(path, HTTP_AUTHORIZATION=f"Bearer {token}")
+        assert denied.status_code in {401, 403}
     refreshed = form_post(APIClient(), "/api/oauth/token", {
         "grant_type": "refresh_token", "client_id": app.client_id,
         "refresh_token": tokens["refresh_token"], "resource": mcp_resource(),
@@ -179,7 +182,6 @@ def test_registration_rejects_privileged_scopes_and_bad_redirects():
 
 
 def test_browser_logout_switch_and_expired_access_cleanup_preserve_connection(signed_in, user, creator_factory):
-    from django.conf import settings
     from oauth2_provider.models import clear_expired
     from dj.apps.oidc.models import AccessToken
     app, _, tokens = issue(signed_in, user)
@@ -294,3 +296,101 @@ def test_revoke_serializes_with_action_on_separate_database_connections(signed_i
     with pytest.raises(APIException):
         with authorized_actor(tokens["access_token"], target.username, ["mcp:write"]):
             pytest.fail("revocation was not enforced after commit")
+
+
+def test_registration_and_mcp_cors_never_allow_browser_credentials(signed_in, user):
+    app, _, tokens = issue(signed_in, user)
+    origin = "https://app.example.com"
+    response = APIClient().options("/api/oauth/register", HTTP_ORIGIN=origin,
+                                   HTTP_ACCESS_CONTROL_REQUEST_METHOD="POST",
+                                   HTTP_ACCESS_CONTROL_REQUEST_HEADERS="content-type")
+    assert response.status_code == 200
+    assert response["Access-Control-Allow-Origin"] == origin
+    assert "Access-Control-Allow-Credentials" not in response
+    # Metadata and MCP strip credentials even on error responses. Their root
+    # routes are installed by the transport change, so a 404 is fine here.
+    for path in ("/api/mcp", "/.well-known/oauth-protected-resource/api/mcp", "/.well-known/oauth-authorization-server"):
+        response = APIClient().get(path, HTTP_ORIGIN=origin)
+        assert "Access-Control-Allow-Credentials" not in response
+
+
+@pytest.mark.django_db(transaction=True)
+def test_refresh_waits_for_action_then_keeps_the_connection(signed_in, user):
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError
+    import threading
+    from django.db import close_old_connections
+    app, _, tokens = issue(signed_in, user)
+    connection = authenticate_mcp(tokens["access_token"]).connection_id
+    started = threading.Event()
+
+    def refresh():
+        close_old_connections()
+        try:
+            started.set()
+            response = form_post(APIClient(), "/api/oauth/token", {
+                "grant_type": "refresh_token", "client_id": app.client_id,
+                "refresh_token": tokens["refresh_token"], "resource": mcp_resource(),
+            })
+            assert response.status_code == 200, response.content
+            return response.json()
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with authorized_actor(tokens["access_token"], user.username, ["mcp:write"]) as actor:
+            running = pool.submit(refresh)
+            assert started.wait(5)
+            with pytest.raises(TimeoutError):
+                running.result(timeout=0.2)
+            actor.user.full_name = "Action committed before refresh"
+            actor.user.save(update_fields=["full_name"])
+        refreshed = running.result(timeout=10)
+    assert authenticate_mcp(refreshed["access_token"]).connection_id == connection
+
+
+def test_narrow_new_connection_does_not_borrow_or_revoke_old_permissions(signed_in, user):
+    app, _, tokens = issue(signed_in, user)
+    narrow = Flow(signed_in, user, app, redirect_uri=WEB_REDIRECT, scope="mcp:read offline_access")
+    code = narrow.authorize(resource=mcp_resource())
+    answer = narrow.exchange(code, extra={"resource": mcp_resource()})
+    assert answer.status_code == 200, answer.content
+    read_only = answer.json()
+    assert read_only["scope"] == "mcp:read offline_access"
+    with authorized_actor(tokens["access_token"], user.username, ["mcp:write"]):
+        pass
+    with pytest.raises(APIException):
+        with authorized_actor(read_only["access_token"], user.username, ["mcp:write"]):
+            pytest.fail("new connection borrowed earlier permissions")
+    escalated = form_post(APIClient(), "/api/oauth/token", {
+        "grant_type": "refresh_token", "client_id": app.client_id,
+        "refresh_token": read_only["refresh_token"], "resource": mcp_resource(),
+        "scope": SCOPES,
+    })
+    assert escalated.status_code == 400
+    revoke_authorization(user, app)
+    for token in (tokens["access_token"], read_only["access_token"]):
+        with pytest.raises(APIException):
+            authenticate_mcp(token)
+
+
+def test_completed_upload_receipt_survives_original_token_removal(signed_in, user):
+    import secrets
+    from dj.apps.oidc.models import AccessToken, MCPAccountGrant, MCPUploadIntent
+    _, _, tokens = issue(signed_in, user)
+    principal = authenticate_mcp(tokens["access_token"])
+    grant = MCPAccountGrant.objects.get(connection_id=principal.connection_id, user=user)
+    token_row = AccessToken.objects.get(token=tokens["access_token"])
+    capability = secrets.token_urlsafe(32)
+    receipt = MCPUploadIntent.objects.create(
+        connection_id=principal.connection_id, account_grant=grant, access_token=token_row,
+        grant_generation=grant.generation, capability_hash=hashlib.sha256(capability.encode()).hexdigest(),
+        filename="image.png", mime_type="image/png", access="public", expected_bytes=10,
+        expected_sha256="0" * 64, expires_at=timezone.now() + timedelta(seconds=120), consumed_at=timezone.now(),
+    )
+    token_row.delete()
+    receipt.refresh_from_db()
+    assert receipt.access_token_id is None and receipt.consumed_at is not None
+    from dj.apps.oidc.mcp import authorized_upload
+    with pytest.raises(APIException):
+        with authorized_upload(receipt.pk, capability):
+            pytest.fail("removed original token allowed a new upload")

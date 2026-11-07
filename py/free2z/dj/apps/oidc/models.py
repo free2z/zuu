@@ -771,7 +771,7 @@ class MCPUploadIntent(models.Model):
     capability_hash = models.CharField(max_length=64)
     connection = models.ForeignKey(MCPConnection, on_delete=models.CASCADE)
     account_grant = models.ForeignKey(MCPAccountGrant, on_delete=models.CASCADE)
-    access_token = models.ForeignKey(AccessToken, on_delete=models.CASCADE)
+    access_token = models.ForeignKey(AccessToken, null=True, blank=True, on_delete=models.SET_NULL)
     grant_generation = models.PositiveIntegerField()
     filename = models.CharField(max_length=255)
     mime_type = models.CharField(max_length=100)

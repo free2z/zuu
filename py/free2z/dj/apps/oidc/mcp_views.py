@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+from urllib.parse import urlsplit
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from drf_spectacular.utils import extend_schema, OpenApiTypes
+from drf_spectacular.authentication import SessionScheme
 from rest_framework import serializers
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.exceptions import PermissionDenied, ValidationError
@@ -17,6 +20,10 @@ from rest_framework.views import APIView
 
 from dj.free2z.throttling import FailClosedAuthThrottleMixin, PublicAnonRateThrottle, POLLING_THROTTLES
 from .models import F2ZApplication, MCPAccountGrant, MCPConnection
+from .mcp_serializers import (
+    MCPConnectionsSerializer, MCPIntentSerializer, MCPLinkDecisionSerializer,
+    MCPLinkEvaluationSerializer, MCPLinkResultSerializer, MCPRegistrationResultSerializer,
+)
 from .scopes import MCP_SCOPES, SCOPE_OFFLINE_ACCESS, mcp_resource, scope_list, scope_string
 
 
@@ -38,6 +45,7 @@ class ProtectedResourceMetadataView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = POLLING_THROTTLES
 
+    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id="mcp_resource_metadata")
     def get(self, request):
         return Response({
             "resource": mcp_resource(), "resource_name": "Free2Z MCP",
@@ -52,6 +60,7 @@ class AuthorizationServerMetadataView(APIView):
     permission_classes = [AllowAny]
     throttle_classes = POLLING_THROTTLES
 
+    @extend_schema(responses=OpenApiTypes.OBJECT, operation_id="mcp_authorization_metadata")
     def get(self, request):
         from .views import discovery_document
         return Response(discovery_document(settings.OIDC_ISSUER))
@@ -84,6 +93,7 @@ class MCPRegisterView(PrivateResponseMixin, APIView):
     throttle_classes = [MCPRegistrationThrottle]
     parser_classes = [JSONParser]
 
+    @extend_schema(request=RegistrationSerializer, responses={201: MCPRegistrationResultSerializer}, operation_id="mcp_register")
     def post(self, request):
         # Bound actual bytes, including chunked requests, before parsing JSON.
         body = request._request.read(16385)
@@ -103,10 +113,17 @@ class MCPRegisterView(PrivateResponseMixin, APIView):
             return Response({"error": "invalid_client_metadata", "error_description": "Invalid client name, redirect, scopes or grant configuration."}, status=400)
         values = serializer.validated_data
         public = values["token_endpoint_auth_method"] == "none"
+        origins = []
+        if public:
+            for uri in values["redirect_uris"]:
+                parsed = urlsplit(uri)
+                if parsed.scheme == "https":
+                    origins.append(parsed.scheme + "://" + parsed.netloc)
         app = F2ZApplication(
             name=values["client_name"], user=None,
             client_type=F2ZApplication.CLIENT_PUBLIC if public else F2ZApplication.CLIENT_CONFIDENTIAL,
             redirect_uris=" ".join(values["redirect_uris"]), allowed_scopes=scope_string(values["scope"]),
+            allowed_origins=" ".join(dict.fromkeys(origins)),
             first_party=False, markup_bps=0, approved_markup_bps=0,
             registration_source="dcr", mcp_token_auth_method=values["token_endpoint_auth_method"],
         )
@@ -132,6 +149,10 @@ class MCPSessionAuthentication(SessionAuthentication):
         return "Session"
 
 
+class MCPSessionScheme(SessionScheme):
+    target_class = "dj.apps.oidc.mcp_views.MCPSessionAuthentication"
+
+
 class MCPSessionView(PrivateResponseMixin, APIView):
     authentication_classes = [MCPSessionAuthentication]
     permission_classes = [IsAuthenticated]
@@ -139,6 +160,7 @@ class MCPSessionView(PrivateResponseMixin, APIView):
 
 
 class MCPLinkEvaluateView(MCPSessionView):
+    @extend_schema(request=MCPIntentSerializer, responses=MCPLinkEvaluationSerializer, operation_id="mcp_link_evaluate")
     def post(self, request):
         from .mcp import find_intent
         intent = find_intent(request.data.get("intent"))
@@ -155,6 +177,7 @@ class MCPLinkEvaluateView(MCPSessionView):
         })
 
 class MCPLinkView(MCPSessionView):
+    @extend_schema(request=MCPLinkDecisionSerializer, responses=MCPLinkResultSerializer, operation_id="mcp_link_decide")
     def post(self, request):
         from .mcp import approve_link
         if not isinstance(request.data.get("allow"), bool):
@@ -166,16 +189,17 @@ class MCPLinkView(MCPSessionView):
 
 
 def _connection_data(connection):
-    from .mcp import _account_data
+    from .mcp import _account_data, connection_available
     return {
         "id": str(connection.pk), "application": {"name": connection.application.name, "client_id": connection.application.client_id},
         "primary_username": connection.primary_user.username, "scopes": scope_list(connection.scope),
         "accounts": [_account_data(g) for g in connection.account_grants.select_related("user", "connection__primary_user")],
-        "revoked": connection.revoked_at is not None,
+        "revoked": connection.revoked_at is not None, "available": connection_available(connection),
     }
 
 
 class MCPConnectionsView(MCPSessionView):
+    @extend_schema(responses=MCPConnectionsSerializer, operation_id="mcp_connections")
     def get(self, request):
         from .mcp import _account_data
         connections = MCPConnection.objects.filter(primary_user=request.user).select_related("primary_user", "application").order_by("-created_at")
@@ -190,6 +214,7 @@ class MCPConnectionsView(MCPSessionView):
 
 
 class MCPConnectionRevokeView(MCPSessionView):
+    @extend_schema(responses={204: None}, operation_id="mcp_connection_revoke")
     def delete(self, request, connection_id):
         with transaction.atomic():
             connection = MCPConnection.objects.select_for_update().filter(pk=connection_id, primary_user=request.user).first()
@@ -202,6 +227,7 @@ class MCPConnectionRevokeView(MCPSessionView):
 
 
 class MCPAccountRevokeView(MCPSessionView):
+    @extend_schema(responses={204: None}, operation_id="mcp_account_revoke")
     def delete(self, request, grant_id):
         with transaction.atomic():
             initial = MCPAccountGrant.objects.select_related("connection").filter(pk=grant_id).first()

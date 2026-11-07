@@ -818,7 +818,11 @@ class TokenView(OAuthLibMixin, APIView):
         responses={200: TokenResponseSerializer, 400: OAuthErrorSerializer, 401: OAuthErrorSerializer},
     )
     def post(self, request):
-        _, headers, body, response_status = self.create_token_response(request._request)
+        if len(request._request.POST.getlist("resource")) > 1:
+            return Response({"error": "invalid_target", "error_description": "Choose one resource."}, status=400)
+        from .mcp import serialize_mcp_token_request
+        with serialize_mcp_token_request(request._request.POST):
+            _, headers, body, response_status = self.create_token_response(request._request)
         return _oauthlib_response(headers, body, response_status)
 
 
@@ -848,7 +852,9 @@ class RevokeView(OAuthLibMixin, APIView):
                  "error_description": "access tokens cannot be revoked; revoke the grant"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        _, headers, body, response_status = self.create_revocation_response(request._request)
+        from .mcp import serialize_mcp_token_request
+        with serialize_mcp_token_request(request._request.POST):
+            _, headers, body, response_status = self.create_revocation_response(request._request)
         return _oauthlib_response(headers, body, response_status)
 
 

@@ -85,7 +85,7 @@ class Migration(migrations.Migration):
                 ('created_at', models.DateTimeField(auto_now_add=True)),
                 ('expires_at', models.DateTimeField()),
                 ('consumed_at', models.DateTimeField(blank=True, null=True)),
-                ('access_token', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to=settings.OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL)),
+                ('access_token', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to=settings.OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL)),
                 ('account_grant', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='oidc.mcpaccountgrant')),
                 ('connection', models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to='oidc.mcpconnection')),
                 ('media', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, to='uploads.genericfile')),
