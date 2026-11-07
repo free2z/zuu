@@ -26,6 +26,9 @@ av==19.0.2
 Django==5.2.18
 # Official MCP protocol transport, hosted through the Django request boundary.
 mcp==2.3.0
+# Uvicorn's CLI dependency also belongs to the isolated lock compiler. Keep
+# one version across the combined audit inventory without upgrading that tool.
+click==8.5.0
 # channels/channels_redis must be upgraded together. channels 4.2.1 renamed
 # BaseChannelLayer.valid_channel_name/valid_group_name -> require_valid_*
 # "without deprecation" (upstream considered them internal), which broke every
