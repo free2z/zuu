@@ -431,6 +431,11 @@ CORS_ALLOW_HEADERS = (
     # (or the image replay-only guard) unless each is explicitly allowed here.
     "x-expected-actor",
     "x-require-existing-receipt",
+    # Hosted MCP supports both handshake and per-request protocol eras.
+    "mcp-protocol-version",
+    "mcp-method",
+    "mcp-name",
+    "x-free2z-upload-capability",
 )
 CORS_EXPOSE_HEADERS = [
     "Set-Cookie",
@@ -441,6 +446,7 @@ CORS_EXPOSE_HEADERS = [
     # The SDK's polling and 429 hint: a browser app on a registered
     # origin cannot read it unless it is exposed.
     "Retry-After",
+    "WWW-Authenticate",
 ]
 
 # Public ZUULI release compatibility policy. Keep this as the single source of
