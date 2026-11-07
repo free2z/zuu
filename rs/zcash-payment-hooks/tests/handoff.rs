@@ -72,6 +72,10 @@ fn measure_handoff_child() -> Result<()> {
     loop {
         let result = unsafe { libc::wait4(child.id() as libc::pid_t, &mut status, 0, &mut usage) };
         if result >= 0 {
+            anyhow::ensure!(
+                result == child.id() as libc::pid_t,
+                "wait4 returned the wrong child"
+            );
             break;
         }
         let error = std::io::Error::last_os_error();
@@ -83,6 +87,7 @@ fn measure_handoff_child() -> Result<()> {
     stderr_file.rewind()?;
     stderr_file.read_to_string(&mut stderr)?;
     let peak = u64::try_from(usage.ru_maxrss)?;
+    anyhow::ensure!(peak > 0, "child RSS measurement unavailable");
     let peak_kib = if cfg!(target_os = "macos") {
         peak / 1024
     } else {
