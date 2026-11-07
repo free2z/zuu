@@ -1257,3 +1257,89 @@ fn corrupt_event_with_below_floor_receipt_keeps_diagnostics_and_unknown_derived_
     assert_eq!(snapshot(&c)?, before);
     Ok(())
 }
+
+#[test]
+fn noncanonical_consumer_flags_refuse_inventory_without_changing_journal() -> Result<()> {
+    use rusqlite::types::Value;
+    for field in ["active", "observe_unconfirmed"] {
+        for consumer in ["capture", "historical"] {
+            for value in [
+                Value::Integer(2),
+                Value::Integer(-1),
+                Value::Real(0.5),
+                Value::Text("invalid".into()),
+                Value::Blob(vec![1]),
+            ] {
+                let dir = TempDir::new()?;
+                let mut c = config(&dir);
+                financial(&mut c);
+                let lock = StateLock::acquire(&c.state_dir)?;
+                let mut historical = c.clone();
+                historical.consumers.push(Consumer {
+                    id: "historical".into(),
+                    observe_unconfirmed: false,
+                    argv: vec!["/usr/bin/true".into()],
+                    timeout_seconds: 1,
+                });
+                drop(Journal::open(&historical, "key")?);
+                let mut journal = Journal::open(&c, "key")?;
+                journal.append(&block(c.birthday_height, "birth", "parent", &[]))?;
+                journal.append(&block(c.automation_start_height, "fact", "birth", &[0]))?;
+                drop(journal);
+                // Both current and inactive historical consumers are valid
+                // before this one-field metadata change.
+                assert_eq!(
+                    Journal::inspect(&c)?.status(&c)?["delivery_inventory_verified"],
+                    true
+                );
+                let path = c.state_dir.join("journal.sqlite");
+                let db = Connection::open(&path)?;
+                assert_eq!(
+                    db.execute(
+                        &format!("UPDATE consumers SET {field}=?1 WHERE id=?2"),
+                        params![value, consumer],
+                    )?,
+                    1
+                );
+                drop(db);
+                let before = snapshot(&c)?;
+                let bytes = std::fs::read(&path)?;
+                let unchanged = || -> Result<()> {
+                    assert_eq!(snapshot(&c)?, before);
+                    assert_eq!(std::fs::read(&path)?, bytes);
+                    Ok(())
+                };
+                let status = Journal::inspect(&c)?.status(&c)?;
+                assert_eq!(
+                    status["delivery_inventory_verified"], false,
+                    "{consumer}.{field}={value:?}"
+                );
+                assert!(status["missing_deliveries"].is_null());
+                unchanged()?;
+                let preview =
+                    Journal::handoff_revocations(&lock, &c, "key", 1, 1, Duration::from_secs(2));
+                assert!(preview.is_err());
+                unchanged()?;
+                let mut stream = Vec::new();
+                assert!(
+                    Journal::handoff_revocations_stream(
+                        &lock,
+                        &c,
+                        "key",
+                        Duration::from_secs(2),
+                        &mut stream
+                    )
+                    .is_err()
+                );
+                assert!(
+                    stream.is_empty(),
+                    "invalid metadata must not produce a proof header"
+                );
+                unchanged()?;
+                assert!(prime(&c, &lock).is_err());
+                unchanged()?;
+            }
+        }
+    }
+    Ok(())
+}

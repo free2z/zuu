@@ -1096,6 +1096,17 @@ fn handoff_plan(
     check: &impl Fn() -> Result<()>,
 ) -> Result<HandoffPlan> {
     ensure!(consumers.len() <= 16, "handoff consumer cap exceeded");
+    // Validate stored flags before bool decoding or policy comparison. The
+    // inventory also covers inactive historical consumers.
+    let invalid_consumer_flags: u64 = tx.query_row(
+        "SELECT count(*) FROM consumers WHERE typeof(active)!='integer' OR active NOT IN (0,1) OR typeof(observe_unconfirmed)!='integer' OR observe_unconfirmed NOT IN (0,1)",
+        [],
+        |row| row.get(0),
+    )?;
+    ensure!(
+        invalid_consumer_flags == 0,
+        "invalid handoff consumer flags"
+    );
     for (consumer_id, observe_unconfirmed) in consumers {
         check()?;
         let old_policy: Option<bool> = tx
