@@ -136,7 +136,7 @@ def create_draft(raw, account, original, fields, idempotency_key):
     from dj.apps.g12f.views.zpage import zPageView
     return perform(raw, account, original, "create_draft", (WRITE,), lambda actor: _native(
         actor, original, zPageView, "POST", "/api/zpage/", action="create",
-        body={**fields, "is_published": False}, headers={"Idempotency-Key": str(idempotency_key)},
+        body={"tags": [], **fields, "is_published": False}, headers={"Idempotency-Key": str(idempotency_key)},
     ))
 
 
