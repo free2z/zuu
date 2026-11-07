@@ -8552,6 +8552,13 @@
           },
           {
             "in": "query",
+            "name": "resource",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
             "name": "response_mode",
             "schema": {
               "type": "string"
@@ -8946,6 +8953,167 @@
           },
           "503": {
             "description": "No signing key is configured."
+          }
+        }
+      }
+    },
+    "/api/oauth/mcp/connections/": {
+      "get": {
+        "operationId": "mcp_connections",
+        "tags": [
+          "oauth"
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPConnections"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/oauth/mcp/connections/{connection_id}/": {
+      "delete": {
+        "operationId": "mcp_connection_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "oauth"
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/api/oauth/mcp/grants/{grant_id}/": {
+      "delete": {
+        "operationId": "mcp_account_revoke",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "grant_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "oauth"
+        ],
+        "responses": {
+          "204": {
+            "description": "No response body"
+          }
+        }
+      }
+    },
+    "/api/oauth/mcp/link/": {
+      "post": {
+        "operationId": "mcp_link_decide",
+        "tags": [
+          "oauth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPLinkDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPLinkResult"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/oauth/mcp/link/evaluate/": {
+      "post": {
+        "operationId": "mcp_link_evaluate",
+        "tags": [
+          "oauth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPIntent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPLinkEvaluation"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/oauth/register": {
+      "post": {
+        "operationId": "mcp_register",
+        "tags": [
+          "oauth"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Registration"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {}
+        ],
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MCPRegistrationResult"
+                }
+              }
+            },
+            "description": ""
           }
         }
       }
@@ -14975,10 +15143,14 @@
           "offline_access",
           "balance:read",
           "purchase:create",
-          "ai:invoke"
+          "ai:invoke",
+          "mcp:read",
+          "mcp:write",
+          "mcp:publish",
+          "mcp:uploads"
         ],
         "type": "string",
-        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke"
+        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads"
       },
       "ApiStyleEnum": {
         "enum": [
@@ -15076,6 +15248,9 @@
         "description": "The authorization request parameters (spec §9.2), echoed back by the\nconsent GET and re-submitted by the consent POST.",
         "properties": {
           "response_type": {
+            "type": "string"
+          },
+          "resource": {
             "type": "string"
           },
           "client_id": {
@@ -16482,6 +16657,9 @@
         "type": "object",
         "description": "``action: consent`` -- what the consent screen shows.",
         "properties": {
+          "signed_in_username": {
+            "type": "string"
+          },
           "application": {
             "$ref": "#/components/schemas/ConsentApplication"
           },
@@ -16547,6 +16725,7 @@
           "is_raise_step_up_required",
           "scope_descriptions",
           "scopes",
+          "signed_in_username",
           "spend_cap",
           "spend_cap_source"
         ]
@@ -18766,6 +18945,14 @@
         "type": "string",
         "description": "* `authorization_code` - authorization_code\n* `refresh_token` - refresh_token"
       },
+      "GrantTypesEnum": {
+        "enum": [
+          "authorization_code",
+          "refresh_token"
+        ],
+        "type": "string",
+        "description": "* `authorization_code` - authorization_code\n* `refresh_token` - refresh_token"
+      },
       "HandleAssertionRequest": {
         "type": "object",
         "description": "What a device asks for when it enrolls.",
@@ -19580,6 +19767,373 @@
         ],
         "type": "string",
         "description": "* `One-Click` - One-Click"
+      },
+      "MCPAccount": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available",
+          "id",
+          "revoked",
+          "scopes",
+          "username"
+        ]
+      },
+      "MCPAccountGrant": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "connection_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primary_username": {
+            "type": "string"
+          },
+          "application": {
+            "$ref": "#/components/schemas/MCPApplication"
+          }
+        },
+        "required": [
+          "application",
+          "available",
+          "connection_id",
+          "id",
+          "primary_username",
+          "revoked",
+          "scopes",
+          "username"
+        ]
+      },
+      "MCPAction": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "operation": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "primary_username": {
+            "type": "string",
+            "nullable": true
+          },
+          "target_username": {
+            "type": "string",
+            "nullable": true
+          },
+          "application": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "application",
+          "created_at",
+          "id",
+          "operation",
+          "primary_username",
+          "status",
+          "target_username"
+        ]
+      },
+      "MCPApplication": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "client_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "client_id",
+          "name"
+        ]
+      },
+      "MCPConnection": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "application": {
+            "$ref": "#/components/schemas/MCPApplication"
+          },
+          "primary_username": {
+            "type": "string"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "accounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MCPAccount"
+            }
+          },
+          "revoked": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accounts",
+          "application",
+          "available",
+          "id",
+          "primary_username",
+          "revoked",
+          "scopes"
+        ]
+      },
+      "MCPConnections": {
+        "type": "object",
+        "properties": {
+          "connections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MCPConnection"
+            }
+          },
+          "account_grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MCPAccountGrant"
+            }
+          },
+          "recent_actions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MCPAction"
+            }
+          }
+        },
+        "required": [
+          "account_grants",
+          "connections",
+          "recent_actions"
+        ]
+      },
+      "MCPIntent": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 43,
+            "minLength": 43
+          }
+        },
+        "required": [
+          "intent"
+        ]
+      },
+      "MCPLinkConnection": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "primary_username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "primary_username"
+        ]
+      },
+      "MCPLinkDecision": {
+        "type": "object",
+        "properties": {
+          "intent": {
+            "type": "string",
+            "writeOnly": true,
+            "maxLength": 43,
+            "minLength": 43
+          },
+          "allow": {
+            "type": "boolean"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "allow",
+          "intent"
+        ]
+      },
+      "MCPLinkEvaluation": {
+        "type": "object",
+        "properties": {
+          "expected_username": {
+            "type": "string"
+          },
+          "signed_in_username": {
+            "type": "string"
+          },
+          "account_matches": {
+            "type": "boolean"
+          },
+          "application": {
+            "$ref": "#/components/schemas/MCPApplication"
+          },
+          "connection": {
+            "$ref": "#/components/schemas/MCPLinkConnection"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope_descriptions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "account_matches",
+          "application",
+          "connection",
+          "expected_username",
+          "expires_at",
+          "scope_descriptions",
+          "scopes",
+          "signed_in_username"
+        ]
+      },
+      "MCPLinkResult": {
+        "type": "object",
+        "properties": {
+          "linked": {
+            "type": "boolean"
+          },
+          "account": {
+            "$ref": "#/components/schemas/MCPAccount"
+          }
+        },
+        "required": [
+          "linked"
+        ]
+      },
+      "MCPRegistrationResult": {
+        "type": "object",
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_id_issued_at": {
+            "type": "integer"
+          },
+          "client_name": {
+            "type": "string"
+          },
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "token_endpoint_auth_method": {
+            "type": "string"
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "response_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "client_secret_expires_at": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "client_id",
+          "client_id_issued_at",
+          "client_name",
+          "grant_types",
+          "redirect_uris",
+          "response_types",
+          "scope",
+          "token_endpoint_auth_method"
+        ]
       },
       "MarkupApprovalEnum": {
         "enum": [
@@ -22201,20 +22755,54 @@
       "Registration": {
         "type": "object",
         "properties": {
-          "username": {
+          "client_name": {
             "type": "string",
-            "description": "Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.",
-            "pattern": "^[\\w.@+-]+$",
-            "maxLength": 150
+            "default": "MCP client",
+            "maxLength": 100
           },
-          "password": {
+          "redirect_uris": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 2048
+            },
+            "maxItems": 10,
+            "minItems": 1
+          },
+          "token_endpoint_auth_method": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TokenEndpointAuthMethodEnum"
+              }
+            ],
+            "default": "client_secret_basic"
+          },
+          "grant_types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GrantTypesEnum"
+            },
+            "default": [
+              "authorization_code",
+              "refresh_token"
+            ]
+          },
+          "response_types": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResponseTypesEnum"
+            },
+            "default": [
+              "code"
+            ]
+          },
+          "scope": {
             "type": "string",
-            "maxLength": 128
+            "default": "mcp:read mcp:write mcp:publish mcp:uploads offline_access"
           }
         },
         "required": [
-          "password",
-          "username"
+          "redirect_uris"
         ]
       },
       "ResetPasswordRequest": {
@@ -22239,6 +22827,13 @@
           "password",
           "token"
         ]
+      },
+      "ResponseTypesEnum": {
+        "enum": [
+          "code"
+        ],
+        "type": "string",
+        "description": "* `code` - code"
       },
       "RestAuthDetail": {
         "type": "object",
@@ -22315,10 +22910,14 @@
           "offline_access",
           "balance:read",
           "purchase:create",
-          "ai:invoke"
+          "ai:invoke",
+          "mcp:read",
+          "mcp:write",
+          "mcp:publish",
+          "mcp:uploads"
         ],
         "type": "string",
-        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke"
+        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads"
       },
       "SdkGrant": {
         "type": "object",
@@ -23462,6 +24061,15 @@
         "type": "string",
         "description": "* `public` - Public thread\n* `members` - Members thread\n* `private` - Private thread"
       },
+      "TokenEndpointAuthMethodEnum": {
+        "enum": [
+          "none",
+          "client_secret_basic",
+          "client_secret_post"
+        ],
+        "type": "string",
+        "description": "* `none` - none\n* `client_secret_basic` - client_secret_basic\n* `client_secret_post` - client_secret_post"
+      },
       "TokenRequest": {
         "type": "object",
         "description": "``application/x-www-form-urlencoded`` (spec §9.4).",
@@ -23482,6 +24090,9 @@
             "type": "string"
           },
           "code_verifier": {
+            "type": "string"
+          },
+          "resource": {
             "type": "string"
           },
           "refresh_token": {
@@ -25931,7 +26542,11 @@
               "offline_access": "Stay signed in (a refresh token)",
               "balance:read": "Read your 2Z balance",
               "purchase:create": "Start 2Z purchases on your behalf",
-              "ai:invoke": "Call AI through the gateway, paid from your 2Z"
+              "ai:invoke": "Call AI through the gateway, paid from your 2Z",
+              "mcp:read": "Read your public profile, pages and media",
+              "mcp:write": "Create/edit drafts and update your public profile",
+              "mcp:publish": "Publish or edit public pages and media",
+              "mcp:uploads": "Upload and manage your media files"
             }
           }
         }

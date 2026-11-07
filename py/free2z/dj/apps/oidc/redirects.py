@@ -11,6 +11,11 @@ exact string comparison of scheme, host, path and query, with the RFC 8252
 §7.3 port exemption for ``http://127.0.0.1`` and ``http://[::1]``. It refuses
 fragments, userinfo and wildcards. This module only decides what may be
 REGISTERED, which is stricter than what the matcher would tolerate.
+
+Public MCP-only dynamic registrations may also opt into an explicit
+``http://localhost:<port>/...`` callback for native client compatibility.
+That exception uses exact matching, including the registered port; it does
+not grant the IP-loopback port exemption or permit other localhost aliases.
 """
 from __future__ import annotations
 
@@ -33,7 +38,7 @@ class RedirectURIError(ValueError):
     """The URI cannot be registered; ``str(exc)`` says why, for the console."""
 
 
-def classify(uri: str) -> str:
+def classify(uri: str, *, allow_localhost: bool = False) -> str:
     """The shape of ``uri``, or raise :class:`RedirectURIError`.
 
     Registration and authorization both call this, so a URI that could not
@@ -62,6 +67,16 @@ def classify(uri: str) -> str:
     if scheme == "http":
         host = (parts.hostname or "").lower()
         if host == "localhost":
+            # Some native MCP clients use this fixed host. The opt-in is
+            # limited to public MCP registrations; unlike IP loopbacks,
+            # django-oauth-toolkit matches its registered port exactly.
+            if allow_localhost:
+                try:
+                    port = parts.port
+                except ValueError:
+                    port = None
+                if port and parts.netloc == f"localhost:{port}" and parts.path.startswith("/"):
+                    return KIND_LOOPBACK
             raise RedirectURIError(
                 "`localhost` is not accepted: it may resolve off-device. "
                 "Use http://127.0.0.1 or http://[::1] (RFC 8252 §8.3)"

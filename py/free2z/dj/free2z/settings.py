@@ -622,6 +622,10 @@ OAUTH2_PROVIDER = {
         'balance:read': 'Read your 2Z balance',
         'purchase:create': 'Start 2Z purchases on your behalf',
         'ai:invoke': 'Call AI through the gateway, paid from your 2Z',
+        'mcp:read': 'Read your public profile, pages and media',
+        'mcp:write': 'Create/edit drafts and update your public profile',
+        'mcp:publish': 'Publish or edit public pages and media',
+        'mcp:uploads': 'Upload and manage your media files',
     },
     'DEFAULT_SCOPES': [],
     # Spec §6/§7/§8/§9.2, in seconds.
@@ -1319,6 +1323,7 @@ REST_FRAMEWORK = {
         # human-paced and the machine-paced traffic must not share a bucket.
         'anon-oidc-authorize': '120/minute',
         'anon-oidc-token': '600/minute',
+        'mcp-registration': '10/hour',
         # Signed Checkout return URLs are replayable for their bounded lifetime
         # and success performs one Stripe lookup with five-second network-
         # inactivity and six-second total wall-clock bounds on a single sync

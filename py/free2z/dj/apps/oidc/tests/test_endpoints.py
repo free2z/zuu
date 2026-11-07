@@ -70,7 +70,7 @@ def test_userinfo_needs_openid_and_refuses_garbage(signed_in, user, web_app):
 
 # --------------------------------------------------------- default deny
 def test_oauth_tokens_are_refused_by_views_that_declared_no_scopes(signed_in, user, web_app):
-    tokens = Flow(signed_in, user, web_app, redirect_uri=WEB_REDIRECT, scope=" ".join(ALL_SCOPES)).run(
+    tokens = Flow(signed_in, user, web_app, redirect_uri=WEB_REDIRECT, scope=web_app.allowed_scopes).run(
         spend_cap_2z=10, cap_period="day",
     )
     token = tokens["access_token"]

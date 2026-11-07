@@ -24,6 +24,13 @@ def is_same_site_origin(origin: str) -> bool:
     return host_is_first_party_site(host)
 
 
+MCP_PUBLIC_CORS_PATHS = frozenset({
+    "/api/oauth/register",
+    "/.well-known/oauth-authorization-server",
+    "/.well-known/oauth-protected-resource/api/mcp",
+})
+MCP_PREFIX = "/api/mcp"
+
 OAUTH_CORS_PATHS = frozenset({
     "/api/oauth/token",
     "/api/oauth/revoke",
@@ -73,7 +80,9 @@ SDK_CORS_PREFIX = "/api/sdk/v1/"
 
 
 def _cors_allowed(sender, request, **kwargs) -> bool:
-    if request.path not in OAUTH_CORS_PATHS and not request.path.startswith(SDK_CORS_PREFIX):
+    if request.path in MCP_PUBLIC_CORS_PATHS:
+        return not is_same_site_origin(request.headers.get("Origin", ""))
+    if request.path not in OAUTH_CORS_PATHS and not request.path.startswith(SDK_CORS_PREFIX) and not (request.path == MCP_PREFIX or request.path.startswith(MCP_PREFIX + "/")):
         return False
     return origin_is_registered(request.headers.get("Origin", ""))
 
@@ -92,7 +101,7 @@ class SdkCorsWithoutCredentialsMiddleware:
 
     def __call__(self, request):
         response = self.get_response(request)
-        if request.path.startswith(SDK_CORS_PREFIX) and response.has_header(
+        if (request.path.startswith(SDK_CORS_PREFIX) or request.path in MCP_PUBLIC_CORS_PATHS or request.path == MCP_PREFIX or request.path.startswith(MCP_PREFIX + "/")) and response.has_header(
             "Access-Control-Allow-Credentials"
         ):
             del response["Access-Control-Allow-Credentials"]

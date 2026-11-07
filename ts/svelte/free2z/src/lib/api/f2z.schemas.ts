@@ -366,6 +366,10 @@ export interface Agreement {
  * * `balance:read` - balance:read
  * * `purchase:create` - purchase:create
  * * `ai:invoke` - ai:invoke
+ * * `mcp:read` - mcp:read
+ * * `mcp:write` - mcp:write
+ * * `mcp:publish` - mcp:publish
+ * * `mcp:uploads` - mcp:uploads
  */
 export type AllowedScopesEnum = typeof AllowedScopesEnum[keyof typeof AllowedScopesEnum];
 
@@ -378,6 +382,10 @@ export const AllowedScopesEnum = {
   'balance:read': 'balance:read',
   'purchase:create': 'purchase:create',
   'ai:invoke': 'ai:invoke',
+  'mcp:read': 'mcp:read',
+  'mcp:write': 'mcp:write',
+  'mcp:publish': 'mcp:publish',
+  'mcp:uploads': 'mcp:uploads',
 } as const;
 
 /**
@@ -472,6 +480,7 @@ export interface AuthorityUnavailable {
  */
 export interface AuthorizationRequest {
   response_type: string;
+  resource?: string;
   client_id: string;
   redirect_uri: string;
   scope: string;
@@ -589,6 +598,7 @@ export type ConsentPromptScopeDescriptions = {[key: string]: string};
  * ``action: consent`` -- what the consent screen shows.
  */
 export interface ConsentPrompt {
+  signed_in_username: string;
   application: ConsentApplication;
   /** The requested scopes, in request order. */
   scopes: string[];
@@ -1539,6 +1549,10 @@ export interface ConflictDetail {
  * * `balance:read` - balance:read
  * * `purchase:create` - purchase:create
  * * `ai:invoke` - ai:invoke
+ * * `mcp:read` - mcp:read
+ * * `mcp:write` - mcp:write
+ * * `mcp:publish` - mcp:publish
+ * * `mcp:uploads` - mcp:uploads
  */
 export type ScopeEnum = typeof ScopeEnum[keyof typeof ScopeEnum];
 
@@ -1551,6 +1565,10 @@ export const ScopeEnum = {
   'balance:read': 'balance:read',
   'purchase:create': 'purchase:create',
   'ai:invoke': 'ai:invoke',
+  'mcp:read': 'mcp:read',
+  'mcp:write': 'mcp:write',
+  'mcp:publish': 'mcp:publish',
+  'mcp:uploads': 'mcp:uploads',
 } as const;
 
 /**
@@ -2604,6 +2622,18 @@ export const GrantTypeEnum = {
 } as const;
 
 /**
+ * * `authorization_code` - authorization_code
+ * * `refresh_token` - refresh_token
+ */
+export type GrantTypesEnum = typeof GrantTypesEnum[keyof typeof GrantTypesEnum];
+
+
+export const GrantTypesEnum = {
+  authorization_code: 'authorization_code',
+  refresh_token: 'refresh_token',
+} as const;
+
+/**
  * * `bind` - bind
  * * `reset` - reset
  */
@@ -3149,6 +3179,113 @@ export const LevelEnum = {
   broad: 'broad',
   narrow: 'narrow',
 } as const;
+
+export interface MCPAccount {
+  id: string;
+  username: string;
+  scopes: string[];
+  revoked: boolean;
+  available: boolean;
+}
+
+export interface MCPApplication {
+  name: string;
+  client_id: string;
+}
+
+export interface MCPAccountGrant {
+  id: string;
+  username: string;
+  scopes: string[];
+  revoked: boolean;
+  available: boolean;
+  connection_id: string;
+  primary_username: string;
+  application: MCPApplication;
+}
+
+export interface MCPAction {
+  id: number;
+  operation: string;
+  status: number;
+  created_at: string;
+  /** @nullable */
+  primary_username: string | null;
+  /** @nullable */
+  target_username: string | null;
+  /** @nullable */
+  application: string | null;
+}
+
+export interface MCPConnection {
+  id: string;
+  application: MCPApplication;
+  primary_username: string;
+  scopes: string[];
+  accounts: MCPAccount[];
+  revoked: boolean;
+  available: boolean;
+}
+
+export interface MCPConnections {
+  connections: MCPConnection[];
+  account_grants: MCPAccountGrant[];
+  recent_actions: MCPAction[];
+}
+
+export interface MCPIntent {
+  /**
+     * @minLength 43
+     * @maxLength 43
+     */
+  intent: string;
+}
+
+export interface MCPLinkConnection {
+  id: string;
+  primary_username: string;
+}
+
+export interface MCPLinkDecision {
+  /**
+     * @minLength 43
+     * @maxLength 43
+     */
+  intent: string;
+  allow: boolean;
+  scopes?: string[];
+}
+
+export type MCPLinkEvaluationScopeDescriptions = {[key: string]: string};
+
+export interface MCPLinkEvaluation {
+  expected_username: string;
+  signed_in_username: string;
+  account_matches: boolean;
+  application: MCPApplication;
+  connection: MCPLinkConnection;
+  scopes: string[];
+  scope_descriptions: MCPLinkEvaluationScopeDescriptions;
+  expires_at: string;
+}
+
+export interface MCPLinkResult {
+  linked: boolean;
+  account?: MCPAccount;
+}
+
+export interface MCPRegistrationResult {
+  client_id: string;
+  client_id_issued_at: number;
+  client_name: string;
+  redirect_uris: string[];
+  token_endpoint_auth_method: string;
+  grant_types: string[];
+  response_types: string[];
+  scope: string;
+  client_secret?: string;
+  client_secret_expires_at?: number;
+}
 
 /**
  * * `host` - host
@@ -4438,15 +4575,43 @@ export interface RecoveryStatus {
   next_step: AccountRecoveryNextStepEnum | NullEnum | null;
 }
 
+/**
+ * * `none` - none
+ * * `client_secret_basic` - client_secret_basic
+ * * `client_secret_post` - client_secret_post
+ */
+export type TokenEndpointAuthMethodEnum = typeof TokenEndpointAuthMethodEnum[keyof typeof TokenEndpointAuthMethodEnum];
+
+
+export const TokenEndpointAuthMethodEnum = {
+  none: 'none',
+  client_secret_basic: 'client_secret_basic',
+  client_secret_post: 'client_secret_post',
+} as const;
+
+/**
+ * * `code` - code
+ */
+export type ResponseTypesEnum = typeof ResponseTypesEnum[keyof typeof ResponseTypesEnum];
+
+
+export const ResponseTypesEnum = {
+  code: 'code',
+} as const;
+
 export interface Registration {
+  /** @maxLength 100 */
+  client_name?: string;
   /**
-     * Required. 150 characters or fewer. Letters, digits and @/./+/-/_ only.
-     * @maxLength 150
-     * @pattern ^[\w.@+-]+$
+     * @minItems 1
+     * @maxItems 10
+     * @items.maxLength 2048
      */
-  username: string;
-  /** @maxLength 128 */
-  password: string;
+  redirect_uris: string[];
+  token_endpoint_auth_method?: TokenEndpointAuthMethodEnum;
+  grant_types?: GrantTypesEnum[];
+  response_types?: ResponseTypesEnum[];
+  scope?: string;
 }
 
 export interface ResetPasswordRequest {
@@ -4909,6 +5074,7 @@ export interface TokenRequest {
   code?: string;
   redirect_uri?: string;
   code_verifier?: string;
+  resource?: string;
   refresh_token?: string;
   scope?: string;
 }
@@ -6248,6 +6414,7 @@ max_age?: string;
 nonce?: string;
 prompt?: string;
 redirect_uri: string;
+resource?: string;
 response_mode?: string;
 response_type: string;
 scope: string;

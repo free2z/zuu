@@ -33,9 +33,16 @@ import type {
   InternalEpoch,
   IntrospectRequest,
   IntrospectResponse,
+  MCPConnections,
+  MCPIntent,
+  MCPLinkDecision,
+  MCPLinkEvaluation,
+  MCPLinkResult,
+  MCPRegistrationResult,
   OAuthError,
   OidcAuthorizeEvaluateParams,
   PatchedDeveloperApp,
+  Registration,
   RevokeRequest,
   TokenRequest,
   TokenResponse,
@@ -1206,7 +1213,372 @@ export function createOidcJwks<TData = Awaited<ReturnType<typeof oidcJwks>>, TEr
 
 
 
-/**
+export const mcpConnections = (
+
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<MCPConnections>(
+      {url: `/api/oauth/mcp/connections/`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpConnectionsQueryKey = () => {
+    return [
+    `/api/oauth/mcp/connections/`
+    ] as const;
+    }
+
+
+export const getMcpConnectionsQueryOptions = <TData = Awaited<ReturnType<typeof mcpConnections>>, TError = unknown>( options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMcpConnectionsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mcpConnections>>> = ({ signal }) => mcpConnections(requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof mcpConnections>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type McpConnectionsQueryResult = NonNullable<Awaited<ReturnType<typeof mcpConnections>>>
+export type McpConnectionsQueryError = unknown
+
+
+
+export function createMcpConnections<TData = Awaited<ReturnType<typeof mcpConnections>>, TError = unknown>(
+  options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpConnections>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMcpConnectionsQueryOptions(options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+export const mcpConnectionRevoke = (
+    connectionId: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<void>(
+      {url: `/api/oauth/mcp/connections/${connectionId}/`, method: 'DELETE', signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpConnectionRevokeMutationKey = () => ['mcpConnectionRevoke'] as const;
+
+export const getMcpConnectionRevokeMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpConnectionRevoke>>, TError,McpConnectionRevokeMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof mcpConnectionRevoke>>, TError,McpConnectionRevokeMutationVariables, TContext> => {
+
+const mutationKey = getMcpConnectionRevokeMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mcpConnectionRevoke>>, McpConnectionRevokeMutationVariables> = (props) => {
+          const {connectionId} = props ?? {};
+
+          return  mcpConnectionRevoke(connectionId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type McpConnectionRevokeMutationResult = NonNullable<Awaited<ReturnType<typeof mcpConnectionRevoke>>>
+
+    export type McpConnectionRevokeMutationError = unknown
+    export type McpConnectionRevokeMutationVariables = {connectionId: string}
+
+    export const createMcpConnectionRevoke = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpConnectionRevoke>>, TError,McpConnectionRevokeMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof mcpConnectionRevoke>>,
+        TError,
+        McpConnectionRevokeMutationVariables,
+        TContext
+      > => {
+      return createMutation(getMcpConnectionRevokeMutationOptions(options));
+    }
+    export const mcpAccountRevoke = (
+    grantId: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<void>(
+      {url: `/api/oauth/mcp/grants/${grantId}/`, method: 'DELETE', signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpAccountRevokeMutationKey = () => ['mcpAccountRevoke'] as const;
+
+export const getMcpAccountRevokeMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpAccountRevoke>>, TError,McpAccountRevokeMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof mcpAccountRevoke>>, TError,McpAccountRevokeMutationVariables, TContext> => {
+
+const mutationKey = getMcpAccountRevokeMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mcpAccountRevoke>>, McpAccountRevokeMutationVariables> = (props) => {
+          const {grantId} = props ?? {};
+
+          return  mcpAccountRevoke(grantId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type McpAccountRevokeMutationResult = NonNullable<Awaited<ReturnType<typeof mcpAccountRevoke>>>
+
+    export type McpAccountRevokeMutationError = unknown
+    export type McpAccountRevokeMutationVariables = {grantId: string}
+
+    export const createMcpAccountRevoke = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpAccountRevoke>>, TError,McpAccountRevokeMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof mcpAccountRevoke>>,
+        TError,
+        McpAccountRevokeMutationVariables,
+        TContext
+      > => {
+      return createMutation(getMcpAccountRevokeMutationOptions(options));
+    }
+    export const mcpLinkDecide = (
+    mCPLinkDecision: MCPLinkDecision,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<MCPLinkResult>(
+      {url: `/api/oauth/mcp/link/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: mCPLinkDecision, signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpLinkDecideMutationKey = () => ['mcpLinkDecide'] as const;
+
+export const getMcpLinkDecideMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpLinkDecide>>, TError,McpLinkDecideMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof mcpLinkDecide>>, TError,McpLinkDecideMutationVariables, TContext> => {
+
+const mutationKey = getMcpLinkDecideMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mcpLinkDecide>>, McpLinkDecideMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  mcpLinkDecide(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type McpLinkDecideMutationResult = NonNullable<Awaited<ReturnType<typeof mcpLinkDecide>>>
+    export type McpLinkDecideMutationBody = MCPLinkDecision
+    export type McpLinkDecideMutationError = unknown
+    export type McpLinkDecideMutationVariables = {data: MCPLinkDecision}
+
+    export const createMcpLinkDecide = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpLinkDecide>>, TError,McpLinkDecideMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof mcpLinkDecide>>,
+        TError,
+        McpLinkDecideMutationVariables,
+        TContext
+      > => {
+      return createMutation(getMcpLinkDecideMutationOptions(options));
+    }
+    export const mcpLinkEvaluate = (
+    mCPIntent: MCPIntent,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<MCPLinkEvaluation>(
+      {url: `/api/oauth/mcp/link/evaluate/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: mCPIntent, signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpLinkEvaluateMutationKey = () => ['mcpLinkEvaluate'] as const;
+
+export const getMcpLinkEvaluateMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpLinkEvaluate>>, TError,McpLinkEvaluateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof mcpLinkEvaluate>>, TError,McpLinkEvaluateMutationVariables, TContext> => {
+
+const mutationKey = getMcpLinkEvaluateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mcpLinkEvaluate>>, McpLinkEvaluateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  mcpLinkEvaluate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type McpLinkEvaluateMutationResult = NonNullable<Awaited<ReturnType<typeof mcpLinkEvaluate>>>
+    export type McpLinkEvaluateMutationBody = MCPIntent
+    export type McpLinkEvaluateMutationError = unknown
+    export type McpLinkEvaluateMutationVariables = {data: MCPIntent}
+
+    export const createMcpLinkEvaluate = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpLinkEvaluate>>, TError,McpLinkEvaluateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof mcpLinkEvaluate>>,
+        TError,
+        McpLinkEvaluateMutationVariables,
+        TContext
+      > => {
+      return createMutation(getMcpLinkEvaluateMutationOptions(options));
+    }
+    export const mcpRegister = (
+    registration: Registration,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<MCPRegistrationResult>(
+      {url: `/api/oauth/register`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: registration, signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpRegisterMutationKey = () => ['mcpRegister'] as const;
+
+export const getMcpRegisterMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpRegister>>, TError,McpRegisterMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof mcpRegister>>, TError,McpRegisterMutationVariables, TContext> => {
+
+const mutationKey = getMcpRegisterMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mcpRegister>>, McpRegisterMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  mcpRegister(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type McpRegisterMutationResult = NonNullable<Awaited<ReturnType<typeof mcpRegister>>>
+    export type McpRegisterMutationBody = Registration
+    export type McpRegisterMutationError = unknown
+    export type McpRegisterMutationVariables = {data: Registration}
+
+    export const createMcpRegister = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpRegister>>, TError,McpRegisterMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof mcpRegister>>,
+        TError,
+        McpRegisterMutationVariables,
+        TContext
+      > => {
+      return createMutation(getMcpRegisterMutationOptions(options));
+    }
+    /**
  * RFC 7009 revocation (spec §9.5): a refresh token revokes its family;
  * an access token is `unsupported_token_type`.
  * @summary Revoke a refresh token and its family
@@ -1311,6 +1683,9 @@ if(tokenRequest.redirect_uri !== undefined) {
  }
 if(tokenRequest.code_verifier !== undefined) {
  formUrlEncoded.append(`code_verifier`, tokenRequest.code_verifier);
+ }
+if(tokenRequest.resource !== undefined) {
+ formUrlEncoded.append(`resource`, tokenRequest.resource);
  }
 if(tokenRequest.refresh_token !== undefined) {
  formUrlEncoded.append(`refresh_token`, tokenRequest.refresh_token);

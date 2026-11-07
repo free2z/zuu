@@ -23,7 +23,18 @@ from .views import (
     UserInfoView,
 )
 
+from .mcp_views import (
+    MCPRegisterView, MCPLinkView, MCPLinkEvaluateView, MCPConnectionsView,
+    MCPConnectionRevokeView, MCPAccountRevokeView,
+)
+
 urlpatterns = [
+    path("register", MCPRegisterView.as_view(), name="mcp-register"),
+    path("mcp/link/evaluate/", MCPLinkEvaluateView.as_view(), name="mcp-link-evaluate"),
+    path("mcp/link/", MCPLinkView.as_view(), name="mcp-link"),
+    path("mcp/connections/", MCPConnectionsView.as_view(), name="mcp-connections"),
+    path("mcp/connections/<uuid:connection_id>/", MCPConnectionRevokeView.as_view(), name="mcp-connection-revoke"),
+    path("mcp/grants/<uuid:grant_id>/", MCPAccountRevokeView.as_view(), name="mcp-account-revoke"),
     path("authorize", AuthorizeView.as_view(), name="oidc-authorize"),
     path("token", TokenView.as_view(), name="oidc-token"),
     path("revoke", RevokeView.as_view(), name="oidc-revoke"),
