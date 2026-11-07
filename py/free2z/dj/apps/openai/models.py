@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
 
+from django.utils import timezone
 from django.db import models
 from django.contrib.auth import get_user_model
 
@@ -464,7 +465,10 @@ class AIModelQuerySet(models.QuerySet):
         content, but only after the user had been handed a conversation that
         503s on every prompt. Found by the codex adversarial review.
         """
-        return self.filter(is_enabled=True).exclude(
+        return self.filter(is_enabled=True).filter(
+            models.Q(price_valid_until__isnull=True)
+            | models.Q(price_valid_until__gt=timezone.now())
+        ).exclude(
             provider__in=list(POLICY_DISABLED_PROVIDERS)
         ).exclude(
             models.Q(provider=OPENAI) & (
@@ -485,7 +489,7 @@ class AIModelQuerySet(models.QuerySet):
         """
         return self.filter(provider__in=sorted(configured_providers()))
 
-    def discovered(self, upstream=True):
+    def discovered(self, upstream=True, *, require_snapshot=False):
         """Rows whose id the PROVIDER ITSELF lists as available -- the
         upstream id the gateway sends (``upstream=True``, the catalogue) or
         the ``model`` Django's own chat sends (``upstream=False``).
@@ -495,6 +499,9 @@ class AIModelQuerySet(models.QuerySet):
         provider's ``GET /v1/models`` answer in:class:`ProviderModel`; a row
         is discovered when that table holds its provider and
         :attr:`AIModel.upstream_model_id` with ``missing_since`` unset.
+
+        ``require_snapshot=True`` refuses models until a successful listing
+        proves this exact provider/id is available. Use it for new integrations.
 
         FAIL-OPEN UNTIL THE FIRST SNAPSHOT, PER PROVIDER. A provider with no
         recorded listing at all (discovery has never succeeded for it: the
@@ -527,6 +534,8 @@ class AIModelQuerySet(models.QuerySet):
             provider_model_id=OuterRef("sent_id"),
             missing_since__isnull=True,
         )
+        if require_snapshot:
+            return self.annotate(sent_id=sent_id).filter(Exists(listed))
         snapshot = ProviderModel.objects.filter(provider=OuterRef("provider"))
         return self.annotate(sent_id=sent_id).filter(
             ~Exists(snapshot) | Exists(listed)
@@ -700,6 +709,12 @@ class AIModel(models.Model):
         decimal_places=2,
         default=1,
         help_text="The multiplier that we charge above our cost. Default: at cost"
+    )
+
+    price_checked_at = models.DateField(null=True, blank=True, db_default=None)
+    price_valid_until = models.DateTimeField(
+        null=True, blank=True, db_default=None,
+        help_text="Exclusive expiry for time-limited provider prices; unavailable after this instant.",
     )
 
     # --- Gateway catalogue fields  -------------------------------

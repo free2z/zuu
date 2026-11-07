@@ -104,6 +104,7 @@ RECORDED_SEED_DIGESTS = {
     1: "d392b010746cbddb15b8dd6ec5e17dadc1a728d2a2c4b4700bed3677d1931d23",
     2: "b4f8166d303be50760aa2c20447fa6963f43d7e8adaec8e031c08ee4523883c8",
     3: "bae214ae6770ec1ac846bb482206d67de5ff205dc2627b34556a962263b8994d",
+    4: "bca7125bd8fd3336b676c7c5520ef51954c18211e18cd0cb2f165612e7fcc50e",
 }
 
 
@@ -141,12 +142,12 @@ def test_a_lineup_change_without_a_new_seed_names_the_right_remedy(monkeypatch):
         *original[1:],
     ])
     version, name, _module = rate_card_seeds.newest_seed()
-    assert (version, name) == (3, "0006_seed_rate_card_v3")
+    assert (version, name) == (4, "0007_seed_rate_card_v4")
     drift = seed_ai_models.lineup_drift()
     assert any(line.startswith("gpt-4o:") for line in drift)
     remedy = drift[-1]
-    assert remedy.startswith("REMEDY: add a NEW migration pricing/migrations/0007_seed_rate_card_v4.py")
-    assert "Do NOT edit 0006_seed_rate_card_v3.py" in remedy
+    assert remedy.startswith("REMEDY: add a NEW migration pricing/migrations/0008_seed_rate_card_v5.py")
+    assert "Do NOT edit 0007_seed_rate_card_v4.py" in remedy
 
 
 def test_a_new_lineup_model_without_a_new_seed_is_drift(monkeypatch):
@@ -156,7 +157,7 @@ def test_a_new_lineup_model_without_a_new_seed_is_drift(monkeypatch):
         (seed_ai_models.OPENAI, "gpt-new", "New", "0.000001", "0.000002", 128000, 8192, 8192, 1, True),
     ])
     drift = seed_ai_models.lineup_drift()
-    assert "gpt-new: in LINEUP, not on card v3" in drift
+    assert "gpt-new: in LINEUP, not on card v4" in drift
     assert drift[-1].startswith("REMEDY: add a NEW migration")
 
 
@@ -169,9 +170,9 @@ def test_seed_prices_are_lineup_prices_exactly():
     assert sonnet["cached_input_nusd_per_mtok"] == 200_000_000
     assert sonnet["cache_write_5m_nusd_per_mtok"] == 2_500_000_000
     assert sonnet["cache_write_1h_nusd_per_mtok"] == 4_000_000_000
-    sol = rows["gpt-5.6-sol"]  # $5 in: 0.1x read, 1.25x write (GPT-5.6+)
-    assert sol["cached_input_nusd_per_mtok"] == 500_000_000
-    assert sol["cache_write_5m_nusd_per_mtok"] == 6_250_000_000
+    sol = rows["gpt-5.6-sol"]  # $4 promo input: 0.1x read, 1.25x write (GPT-5.6+)
+    assert sol["cached_input_nusd_per_mtok"] == 400_000_000
+    assert sol["cache_write_5m_nusd_per_mtok"] == 5_000_000_000
     for row in rows.values():
         # No class below input except a documented cache read.
         assert row["cached_input_nusd_per_mtok"] <= row["input_nusd_per_mtok"]
@@ -187,7 +188,7 @@ def test_seed_refuses_image_prices_for_token_billed_providers(monkeypatch):
 
 def test_seed_command_is_idempotent_and_never_edits_a_published_card(monkeypatch):
     card, created, drift = seed_ai_models.ensure_rate_card()
-    assert card.version == 3 and created == [] and drift == []
+    assert card.version == 4 and created == [] and drift == []
     # A LINEUP that moved on is REPORTED (with the remedy), never written.
     original = seed_ai_models.LINEUP
     monkeypatch.setattr(seed_ai_models, "LINEUP", [
@@ -200,7 +201,7 @@ def test_seed_command_is_idempotent_and_never_edits_a_published_card(monkeypatch
     assert card.model_rows.get(model_id="gpt-4o").input_nusd_per_mtok == 2_500_000_000
     out = io.StringIO()
     call_command("seed_ai_models", stdout=out)
-    assert "0007_seed_rate_card_v4.py" in out.getvalue()
+    assert "0008_seed_rate_card_v5.py" in out.getvalue()
 
 
 def test_seed_command_recreates_a_missing_card_from_its_migration(monkeypatch):

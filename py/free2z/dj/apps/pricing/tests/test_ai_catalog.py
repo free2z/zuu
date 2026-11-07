@@ -1652,3 +1652,13 @@ def test_schema2_ttl_publication_preserves_v1(sample_dataset, at_sample_now):
         bad["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = value
         with pytest.raises(catalog.CatalogRefused):
             catalog.validate_catalog(bad)
+
+
+def test_catalog_cannot_outlive_a_promotional_price(sample_dataset):
+    expiry = SAMPLE_NOW + 3600
+    AIModel.objects.filter(model="gpt-5.6-luna").update(price_valid_until=_at(expiry))
+    document = catalog.build_catalog(SAMPLE_NOW)
+    assert document["expires_at"] == expiry
+    assert "gpt-5.6-luna" in {m["id"] for m in document["models"]}
+    after = catalog.build_catalog(expiry)
+    assert "gpt-5.6-luna" not in {m["id"] for m in after["models"]}

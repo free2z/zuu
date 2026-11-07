@@ -18,6 +18,7 @@ Django, e.g. from ``f2z/openai/example.py``).
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +162,8 @@ XAI_DEFAULT_REASONING_ALLOWANCE = 16384
 #Raise the allowance if ``ai_charge_clamped`` fires for a model, and lower
 #it if the entry bar is what users trip on.
 REASONING_POLICIES = {
+    (XAI, "grok-4.7"): ReasoningPolicy(effort="low", allowance_tokens=16384),
+    (XAI, "grok-4.6"): ReasoningPolicy(effort="low", allowance_tokens=16384),
     (XAI, "grok-4.5"): ReasoningPolicy(effort="low", allowance_tokens=16384),
     (XAI, "grok-4.3"): ReasoningPolicy(effort="low", allowance_tokens=16384),
 }
@@ -1219,6 +1222,10 @@ def _stream_chat(
             f"AI provider {provider!r} is disabled by policy; refusing to send "
             f"content to {provider}/{model}. Reason: {reason}"
         )
+
+    price_expiry = getattr(ai_model, "price_valid_until", None)
+    if price_expiry is not None and price_expiry <= datetime.now(timezone.utc):
+        raise ModelDisabled(f"AI model {provider}/{model} requires a price review before use.")
 
     if not getattr(ai_model, "is_enabled", True):
         raise ModelDisabled(

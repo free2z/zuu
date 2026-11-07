@@ -20,6 +20,12 @@ _OPENAI_WRITE_BILLED = ((1, 10), (5, 4), (5, 4))
 MODEL_CACHE_PRICE_FRACTIONS = {
     (OPENAI, "gpt-4o"): ((1, 2), (1, 1), (1, 1)),
     (OPENAI, "gpt-4o-mini"): ((1, 2), (1, 1), (1, 1)),
+    (OPENAI, "gpt-6.1-terra"): ((1, 20), (5, 4), (5, 4)),
+    (ANTHROPIC, "claude-fable-5-1"): ((1, 40), (5, 4), (2, 1)),
+    (ANTHROPIC, "claude-opus-5-5"): ((1, 20), (5, 4), (2, 1)),
+    (ANTHROPIC, "claude-sonnet-5-5"): ((1, 20), (5, 4), (2, 1)),
+    (XAI, "grok-4.7"): ((1, 4), (1, 1), (1, 1)),
+    (XAI, "grok-4.6"): ((1, 4), (1, 1), (1, 1)),
     (OPENAI, "gpt-6.1-sol"): ((1, 20), (5, 4), (5, 4)),
     (OPENAI, "gpt-6-astra"): _OPENAI_WRITE_BILLED,
     (OPENAI, "gpt-6-sol"): _OPENAI_WRITE_BILLED,
