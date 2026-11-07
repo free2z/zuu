@@ -431,6 +431,11 @@ CORS_ALLOW_HEADERS = (
     # (or the image replay-only guard) unless each is explicitly allowed here.
     "x-expected-actor",
     "x-require-existing-receipt",
+    # Hosted MCP supports both handshake and per-request protocol eras.
+    "mcp-protocol-version",
+    "mcp-method",
+    "mcp-name",
+    "x-free2z-upload-capability",
 )
 CORS_EXPOSE_HEADERS = [
     "Set-Cookie",
@@ -441,6 +446,7 @@ CORS_EXPOSE_HEADERS = [
     # The SDK's polling and 429 hint: a browser app on a registered
     # origin cannot read it unless it is exposed.
     "Retry-After",
+    "WWW-Authenticate",
 ]
 
 # Public ZUULI release compatibility policy. Keep this as the single source of
@@ -1573,6 +1579,7 @@ SPECTACULAR_SETTINGS = {
     # silently renames every operation and tag in f2z.yaml and, with them,
     # every function in the generated client.
     'SCHEMA_PATH_PREFIX': r'/api/',
+    'DEFAULT_GENERATOR_CLASS': 'dj.apps.mcpserver.schema.MCPSchemaGenerator',
     # 'SERVE_INCLUDE_SCHEMA': False,
     # OTHER SETTINGS
     # Must mirror REST_FRAMEWORK['DEFAULT_AUTHENTICATION_CLASSES']: this list
@@ -1580,6 +1587,10 @@ SPECTACULAR_SETTINGS = {
     # leaving `BasicAuthentication` here would keep advertising `basicAuth` to
     # every generated client after the server stopped honouring it.
     'AUTHENTICATION_WHITELIST': [
+        # Schema-only descriptors for raw Django protocol handlers. They are
+        # never mounted or added to REST_FRAMEWORK authentication classes.
+        "dj.apps.mcpserver.schema.MCPBearerAuthentication",
+        "dj.apps.mcpserver.schema.MCPUploadAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "dj.apps.ktauth.authentication.AccountEpochTokenAuthentication",
         # Published as the `oauth2Jwt` scheme, and attached ONLY to operations

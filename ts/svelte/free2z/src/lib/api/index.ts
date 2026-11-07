@@ -13,6 +13,7 @@ export * from './get-type/get-type.ts';
 export * from './kt/kt.ts';
 export * from './kyc/kyc.ts';
 export * from './languages/languages.ts';
+export * from './mcp/mcp.ts';
 export * from './myuploads/myuploads.ts';
 export * from './oauth/oauth.ts';
 export * from './openai/openai.ts';

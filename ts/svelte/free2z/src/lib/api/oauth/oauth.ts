@@ -33,6 +33,7 @@ import type {
   InternalEpoch,
   IntrospectRequest,
   IntrospectResponse,
+  MCPClientRegistration,
   MCPConnections,
   MCPIntent,
   MCPLinkDecision,
@@ -42,7 +43,6 @@ import type {
   OAuthError,
   OidcAuthorizeEvaluateParams,
   PatchedDeveloperApp,
-  Registration,
   RevokeRequest,
   TokenRequest,
   TokenResponse,
@@ -1518,7 +1518,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return createMutation(getMcpLinkEvaluateMutationOptions(options));
     }
     export const mcpRegister = (
-    registration: Registration,
+    mCPClientRegistration: MCPClientRegistration,
  options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
 ) => {
 
@@ -1526,7 +1526,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return customInstance<MCPRegistrationResult>(
       {url: `/api/oauth/register`, method: 'POST',
       headers: {'Content-Type': 'application/json', },
-      data: registration, signal
+      data: mCPClientRegistration, signal
     },
       options);
     }
@@ -1564,9 +1564,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type McpRegisterMutationResult = NonNullable<Awaited<ReturnType<typeof mcpRegister>>>
-    export type McpRegisterMutationBody = Registration
+    export type McpRegisterMutationBody = MCPClientRegistration
     export type McpRegisterMutationError = unknown
-    export type McpRegisterMutationVariables = {data: Registration}
+    export type McpRegisterMutationVariables = {data: MCPClientRegistration}
 
     export const createMcpRegister = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpRegister>>, TError,McpRegisterMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}

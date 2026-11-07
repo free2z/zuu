@@ -2531,9 +2531,7 @@ class zPageView(
                 vanity=vanity,
                 is_verified=self.request.user.is_verified,
             )
-        except IntegrityError as e:
-            print(e)
-            print("CREATE PAGE", request.data)
+        except IntegrityError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"vanity": "The vanity URL must be unique!"}

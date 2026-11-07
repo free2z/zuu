@@ -40,6 +40,12 @@ for, turned into a ratchet: the list may shrink, never grow. drf-spectacular
 cannot see any of these, so anything added to that set is a new endpoint with
 no contract, no generated client and nothing to detect a breaking change to it.
 
+The MCP HTTP boundary is a narrow documented exception: raw Django requests
+preserve SDK JSON-RPC dispatch and streaming binary bodies. Its schema-only
+drf-spectacular enumerator must match exact runtime callbacks, paths, methods and
+headers. Negative controls reject a changed callback or missing contract. This
+does not add an undocumented route to the legacy inventory.
+
 The second one exists because the first is not enough, and the codex review of
 this PR proved it by naming three endpoints the ninja guard is blind to.
 `/api/twitter/start` is a plain Django `View` returning `JsonResponse`, the
@@ -74,6 +80,10 @@ reads its coverage as "every URL the server answers" -- and, since this list is
 not empty, it does not claim to be complete either.
 """
 
+from pathlib import Path
+
+import pytest
+import yaml
 from django.urls import get_resolver
 from django.urls.resolvers import URLResolver
 from rest_framework.views import APIView
@@ -190,8 +200,49 @@ NON_DRF_ROUTES = {
 }
 
 
+def _documented_mcp_boundary(pattern, callback, contract):
+    """Exact protocol exception, positively bound to its generated HTTP contract.
+
+    MCP JSON-RPC and binary streams stay on raw Django requests. A schema-only
+    drf-spectacular enumerator documents their HTTP boundary without parsing bodies
+    through a second runtime dispatcher. This is not a contract-less route
+    allowance: callback identity, path, sole method and every control header
+    must agree, or the ordinary invisibility ratchet rejects the route.
+    """
+    from dj.apps.mcpserver import uploads, views
+    http_headers = {'Origin', 'Host', 'Content-Length',
+                    'MCP-Protocol-Version', 'Mcp-Method', 'Mcp-Name'}
+    expected = {
+        'api/mcp': (views.mcp_endpoint, '/api/mcp', 'post', http_headers, 'mcpBearer'),
+        'api/mcp/': (views.mcp_endpoint, '/api/mcp/', 'post', http_headers, 'mcpBearer'),
+        'api/mcp/uploads/<uuid:upload_id>': (
+            uploads.upload_binary, '/api/mcp/uploads/{upload_id}', 'put',
+            {'Content-Length'}, 'mcpUploadCapability'),
+        'api/mcp/uploads/authorize': (
+            uploads.authorize_upload, '/api/mcp/uploads/authorize', 'get',
+            {'X-Original-URI', 'X-Original-Content-Length'}, 'mcpUploadCapability'),
+    }
+    if pattern not in expected:
+        return False
+    actual_callback, path, method, headers, security = expected[pattern]
+    entry = contract["paths"].get(path, {})
+    parameters = entry.get(method, {}).get('parameters', [])
+    actual_headers = {p.get('name') for p in parameters if p.get('in') == 'header'}
+    scheme = contract.get('components', {}).get('securitySchemes', {}).get(security, {})
+    expected_scheme = ({'type': 'http', 'scheme': 'bearer'} if security == 'mcpBearer' else
+                       {'type': 'apiKey', 'in': 'header', 'name': 'X-Free2Z-Upload-Capability'})
+    return (callback is actual_callback and set(entry) == {method} and actual_headers == headers
+            and entry[method].get('security') == [{security: []}]
+            and all(scheme.get(k) == v for k, v in expected_scheme.items()))
+
+
+def _committed_contract():
+    spec = Path(__file__).resolve().parents[1] / 'free2z/openapi/f2z.yaml'
+    return yaml.safe_load(spec.read_text())
+
+
 def _non_drf_api_routes():
-    """Routed views under the API prefixes that drf-spectacular cannot see.
+    """Routed views without a DRF callback or the verified MCP HTTP contract.
 
     The signal is `callback.cls`, which `APIView.as_view()` sets and plain
     Django's `View.as_view()` does not -- so it covers `APIView` subclasses,
@@ -210,11 +261,14 @@ def _non_drf_api_routes():
     means the URL-to-spec membership check rejected above.
     """
     found = set()
+    contract = _committed_contract()
     for pattern, callback in _routes(get_resolver().url_patterns):
         if not pattern.lstrip('^').startswith(API_PREFIXES):
             continue
         cls = getattr(callback, 'cls', None)
         if isinstance(cls, type) and issubclass(cls, APIView):
+            continue
+        if _documented_mcp_boundary(pattern, callback, contract):
             continue
         found.add(pattern)
     return found
@@ -251,6 +305,37 @@ def test_no_new_endpoint_is_invisible_to_the_spec():
     assert not removed, (
         f"NON_DRF_ROUTES is stale -- these no longer exist: {removed}"
     )
+
+
+@pytest.mark.parametrize('mutation', ['callback', 'missing_callback', 'unknown_route', 'missing_path', 'missing_put', 'get_instead', 'missing_header', 'anonymous', 'missing_scheme'])
+def test_mcp_boundary_requires_real_callback_and_generated_wire_contract(mutation):
+    from copy import deepcopy
+    from dj.apps.mcpserver.uploads import upload_binary
+    contract = deepcopy(_committed_contract())
+    paths = contract["paths"]
+    pattern = 'api/mcp/uploads/<uuid:upload_id>'
+    path = '/api/mcp/uploads/{upload_id}'
+    callback = upload_binary
+    assert _documented_mcp_boundary(pattern, callback, contract)
+    if mutation == 'callback':
+        callback = lambda request: None
+    elif mutation == 'missing_callback':
+        callback = None
+    elif mutation == 'unknown_route':
+        pattern = 'api/mcp/unreviewed'
+    elif mutation == 'missing_path':
+        del paths[path]
+    elif mutation == 'missing_put':
+        del paths[path]['put']
+    elif mutation == 'get_instead':
+        paths[path]['get'] = paths[path].pop('put')
+    elif mutation == 'missing_header':
+        paths[path]['put']['parameters'] = []
+    elif mutation == 'anonymous':
+        paths[path]['put']['security'].append({})
+    else:
+        del contract['components']['securitySchemes']['mcpUploadCapability']
+    assert not _documented_mcp_boundary(pattern, callback, contract)
 
 
 def test_the_invisibility_detector_sees_a_plain_django_view():

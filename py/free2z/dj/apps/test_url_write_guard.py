@@ -127,6 +127,48 @@ MAX_DEPTH = 5
 #the two provider-webhook entries are outside the client contract entirely.
 ALLOWED_METADATA_IN_WRITE = {
     (
+        "dj/apps/mcpserver/views.py::mcp_endpoint -> dj/apps/mcpserver/views.py::_bearer",
+        "request.headers['Authorization']",
+    ): "MCP resource-bound bearer authentication; OpenAPI declares required bearer security and the 401 challenge. "
+       "Selected action account and mutable fields come only from authorized tool body arguments.",
+    (
+        "dj/apps/mcpserver/views.py::mcp_endpoint",
+        "request.headers['Origin']",
+    ): "MCP browser-origin admission, documented with 403 refusal; never a persisted content field.",
+    (
+        "dj/apps/mcpserver/views.py::mcp_endpoint -> dj/apps/mcpserver/transport.py::serve_mcp",
+        "request.get_host()",
+    ): "Django host validation before protocol dispatch; OpenAPI declares Host and 400/421 refusal, not model data.",
+    (
+        "dj/apps/mcpserver/views.py::mcp_endpoint -> dj/apps/mcpserver/transport.py::serve_mcp",
+        "request.META['CONTENT_LENGTH']",
+    ): "Bounded JSON framing only; declared Content-Length has 400/413 failures and cannot change tool fields.",
+    (
+        "dj/apps/mcpserver/operations.py::create_draft.create -> dj/apps/mcpserver/operations.py::_request",
+        "original.META['REMOTE_ADDR']",
+    ): "Server-derived peer address preserves native throttling in the fixed adapter; not a client body or model field.",
+    (
+        "dj/apps/mcpserver/operations.py::update_page.update -> dj/apps/mcpserver/operations.py::_request",
+        "original.META['REMOTE_ADDR']",
+    ): "Server-derived peer address preserves native throttling; page changes come exclusively from validated tool fields.",
+    (
+        "dj/apps/mcpserver/uploads.py::upload_binary -> dj/apps/mcpserver/operations.py::_request",
+        "original.META['REMOTE_ADDR']",
+    ): "Preserve native upload throttling using the server peer address; all media metadata is fixed in the prepared intent.",
+    (
+        "dj/apps/mcpserver/uploads.py::upload_binary",
+        "request.headers['X-Free2Z-Upload-Capability']",
+    ): "Prepared-upload authentication, declared with 403 refusal; the capability selects authority, never file metadata.",
+    (
+        "dj/apps/mcpserver/uploads.py::upload_binary -> dj/apps/mcpserver/uploads.py::_expected_length",
+        "request.META['CONTENT_LENGTH']",
+    ): "Required exact prepared binary length; OpenAPI declares 400 for mismatch and bytes are independently counted/hashed.",
+    (
+        "dj/apps/mcpserver/uploads.py::upload_binary -> dj/apps/mcpserver/uploads.py::_expected_length",
+        "request.headers['X-Original-Content-Length']",
+    ): "The scanner sees the helper's separate read-only edge-preflight branch; PUT passes preflight=False and uses only "
+       "Content-Length. The edge header is documented on admission GET and cannot alter the prepared model fields.",
+    (
         "dj/apps/ztripe/views.py::native_checkout_success -> dj/apps/ztripe/views.py::_one_query",
         "request.GET",
     ): "The declared signed Stripe return query selects validation input only; "
@@ -2052,6 +2094,22 @@ def test_request_metadata_never_reaches_a_write(index, routed):
         ),
     )
     assert not message, message
+
+
+def test_mcp_capability_exception_does_not_allow_query_content_writes():
+    synthetic = index_sources({"dj.apps.mcpserver.uploads": """
+@require_http_methods(['PUT'])
+def upload_binary(request, upload_id):
+    capability = request.headers.get('X-Free2Z-Upload-Capability')
+    Thing.objects.create(title=request.GET.get('title'))
+"""})
+    found = _findings(synthetic, "metadata", "is_write_context")
+    allowed = set(ALLOWED_METADATA_IN_WRITE)
+    assert ('dj/apps/mcpserver/uploads.py::upload_binary',
+            "request.headers['X-Free2Z-Upload-Capability']") in found.keys() & allowed
+    assert set(found) - allowed == {
+        ('dj/apps/mcpserver/uploads.py::upload_binary', "request.GET['title']"),
+    }
 
 
 def test_a_read_never_writes(index, routed):

@@ -23,8 +23,9 @@ reachable view -- global default and per-view override alike -- the way
 The companion facts asserted here:
 
 * the two remaining authenticators are exactly session and Knox;
-* drf-spectacular's ``AUTHENTICATION_WHITELIST`` mirrors the runtime list, so
-  the published contract and the server agree;
+* drf-spectacular's runtime ``AUTHENTICATION_WHITELIST`` entries mirror the
+  runtime list; two named, unmounted schema-only MCP descriptors document the
+  raw Django protocol handlers' bearer/capability authentication;
 * the committed ``f2z.yaml`` no longer advertises ``basicAuth`` to generated
   clients.
 * ``rest_framework.authtoken`` stays uninstalled, and no view wires DRF's
@@ -214,10 +215,16 @@ def test_the_project_knox_authenticator_enforces_the_account_epoch():
 
 
 def test_spectacular_whitelist_mirrors_the_runtime_authenticators():
-    """A spec that advertises an authenticator the server dropped is a lie."""
-    assert list(settings.SPECTACULAR_SETTINGS["AUTHENTICATION_WHITELIST"]) == list(
-        settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"]
-    )
+    """Runtime equality is exact; raw MCP descriptors cannot become runtime auth."""
+    from dj.apps.mcpserver.schema import MCPBearerAuthentication, MCPUploadAuthentication
+    descriptors = [MCPBearerAuthentication, MCPUploadAuthentication]
+    descriptor_names = [f'{cls.__module__}.{cls.__name__}' for cls in descriptors]
+    runtime = list(settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"])
+    actual = list(settings.SPECTACULAR_SETTINGS["AUTHENTICATION_WHITELIST"])
+    assert actual == descriptor_names + runtime
+    assert not set(descriptor_names) & set(runtime)
+    for _, view in _drf_views():
+        assert not set(descriptors) & set(view.authentication_classes)
 
 
 def test_committed_openapi_spec_does_not_advertise_basic_auth():
