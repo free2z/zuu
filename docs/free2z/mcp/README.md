@@ -85,7 +85,7 @@ Browser account changes do not change the MCP selection or revoke the existing c
 | `mcp:uploads` | Prepare file transfers and inspect their receipts |
 | `offline_access` | Refresh authorization without another browser sign-in |
 
-Free2Z's normal content and upload fees apply to the selected account. Account ownership, membership visibility, validation, throttling and upload limits apply. Profile access excludes email, balances and private settings. Hosted tools do not transfer money, buy subscriptions, change credentials, delete content permanently, fetch arbitrary URLs or run arbitrary API operations.
+Free2Z's ordinary account requirements and upload limits apply. Account ownership, membership visibility, validation, throttling and upload limits apply. Profile access excludes email, balances and private settings. Hosted tools do not transfer money, buy subscriptions, change credentials, delete content permanently, fetch arbitrary URLs or run arbitrary API operations.
 
 Open [Connected apps](https://free2z.cash/account/apps) on your deployment to inspect connections, linked accounts and recent attributed actions. A connection owner can remove one linked account or the whole connection; a linked account owner can remove its individual grant. Removing a direct application's access also revokes every primary connection authorized by that account for that application and their linked access. Removing a client's local configuration is not a substitute for revoking access in Free2Z.
 
