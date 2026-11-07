@@ -285,6 +285,18 @@ class F2ZApplication(AbstractApplication):
         return secret
 
     # --------------------------------------------------------- validation
+    @property
+    def allows_mcp_localhost_redirect(self) -> bool:
+        from .scopes import MCP_SCOPES, SCOPE_OFFLINE_ACCESS
+        scopes = set(self.allowed_scope_list)
+        return (
+            self.registration_source == "dcr"
+            and self.client_type == self.CLIENT_PUBLIC
+            and self.mcp_token_auth_method == "none"
+            and bool(scopes.intersection(MCP_SCOPES))
+            and scopes <= {*MCP_SCOPES, SCOPE_OFFLINE_ACCESS}
+        )
+
     def clean(self) -> None:
         """The registration invariants (spec §2, §3).
 
@@ -302,7 +314,7 @@ class F2ZApplication(AbstractApplication):
             )
         for uri in uris:
             try:
-                kind = redirects.classify(uri)
+                kind = redirects.classify(uri, allow_localhost=self.allows_mcp_localhost_redirect)
             except redirects.RedirectURIError as exc:
                 errors.setdefault("redirect_uris", []).append(f"{uri}: {exc}")
                 continue

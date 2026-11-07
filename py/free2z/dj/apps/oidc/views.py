@@ -412,10 +412,6 @@ class AuthorizeView(OAuthLibMixin, APIView):
         if acr_values - set(ACR_VALUES_SUPPORTED):
             return refuse("invalid_request", "unsupported acr_values")
 
-        try:
-            kind = redirects.classify(redirect_uri)
-        except redirects.RedirectURIError as exc:
-            return _fatal("invalid_request", f"redirect_uri: {exc}")
         application = F2ZApplication.objects.select_related("user").filter(
             client_id=credentials["client_id"],
         ).first()
@@ -424,6 +420,10 @@ class AuthorizeView(OAuthLibMixin, APIView):
                 {"code": "application_unavailable", "detail": "this app is no longer available"},
                 status=status.HTTP_409_CONFLICT,
             )
+        try:
+            kind = redirects.classify(redirect_uri, allow_localhost=application.allows_mcp_localhost_redirect)
+        except redirects.RedirectURIError as exc:
+            return _fatal("invalid_request", f"redirect_uri: {exc}")
         if application.frozen:
             return refuse("access_denied", "this app is frozen")
 

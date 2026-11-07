@@ -183,9 +183,56 @@ def test_registration_rejects_privileged_scopes_and_bad_redirects():
     ):
         response = client.post("/api/oauth/register", payload, format="json")
         assert response.status_code == 400, response.content
-    response = client.post("/api/oauth/register", {"redirect_uris": [WEB_REDIRECT], "client_name": "Free2Z official"}, format="json")
+    response = client.post("/api/oauth/register", {"redirect_uris": [WEB_REDIRECT], "client_name": "Free2Z\u202e official"}, format="json")
     assert response.status_code == 400
     assert client.post("/api/oauth/register", "x" * 16385, content_type="application/json").status_code == 413
+
+
+def test_native_mcp_localhost_callback_is_exact_and_pkce_bound(signed_in, user):
+    from django.core.exceptions import ValidationError
+    callback = "http://localhost:62876/callback"
+    result = APIClient().post("/api/oauth/register", {
+        "client_name": "Claude Code (free2z_hosted_review)",
+        "redirect_uris": [callback], "token_endpoint_auth_method": "none",
+        "grant_types": ["authorization_code", "refresh_token"], "response_types": ["code"],
+    }, format="json")
+    assert result.status_code == 201, result.content
+    app = F2ZApplication.objects.get(client_id=result.json()["client_id"])
+    assert app.name == "MCP client"
+    assert not app.first_party
+    assert app.redirect_uri_allowed(callback)
+    assert not app.redirect_uri_allowed("http://localhost:62877/callback")
+    assert not app.redirect_uri_allowed("http://127.0.0.1:62876/callback")
+    flow = Flow(signed_in, user, app, redirect_uri=callback, scope=SCOPES)
+    denied = flow.evaluate(resource=mcp_resource(), code_challenge_method="plain")
+    assert denied.status_code == 200
+    assert query_of(denied.json()["redirect_to"])["error"] == "invalid_request"
+    code = flow.authorize(resource=mcp_resource())
+    assert flow.exchange(code, verifier="wrong", extra={"resource": mcp_resource()}).status_code == 400
+    token = flow.exchange(code, extra={"resource": mcp_resource()})
+    assert token.status_code == 200, token.content
+    assert authenticate_mcp(token.json()["access_token"]).user_id == user.pk
+    # This compatibility does not apply to ordinary apps or broader grants.
+    app.registration_source = "admin"
+    with pytest.raises(ValidationError):
+        app.clean()
+    app.registration_source = "dcr"
+    app.allowed_scopes += " profile"
+    with pytest.raises(ValidationError):
+        app.clean()
+
+
+@pytest.mark.parametrize("redirect", [
+    "http://localhost/callback", "http://localhost:0/callback",
+    "http://localhost:65536/callback", "http://localhost.:62876/callback",
+    "http://sub.localhost:62876/callback", "http://localhost.example:62876/callback",
+    "http://user@localhost:62876/callback", "http://LOCALHOST:62876/callback",
+])
+def test_native_mcp_localhost_rejects_aliases_and_malformed_ports(redirect):
+    result = APIClient().post("/api/oauth/register", {
+        "redirect_uris": [redirect], "token_endpoint_auth_method": "none",
+    }, format="json")
+    assert result.status_code == 400, result.content
 
 
 def test_browser_logout_switch_and_expired_access_cleanup_preserve_connection(signed_in, user, creator_factory):

@@ -112,6 +112,15 @@ class MCPRegisterView(PrivateResponseMixin, APIView):
         if not serializer.is_valid():
             return Response({"error": "invalid_client_metadata", "error_description": "Invalid client name, redirect, scopes or grant configuration."}, status=400)
         values = serializer.validated_data
+        from .registration_policy import name_problem
+        name = values["client_name"]
+        if name_problem(name, first_party=True):
+            return Response({"error": "invalid_client_metadata"}, status=400)
+        # Native clients often include the user-chosen server alias in their
+        # name. A reserved brand alias receives a neutral, untrusted label;
+        # it never becomes a first-party application or a verified identity.
+        if name_problem(name, first_party=False):
+            name = "MCP client"
         public = values["token_endpoint_auth_method"] == "none"
         origins = []
         if public:
@@ -123,7 +132,7 @@ class MCPRegisterView(PrivateResponseMixin, APIView):
             except ValueError:
                 return Response({"error": "invalid_redirect_uri"}, status=400)
         app = F2ZApplication(
-            name=values["client_name"], user=None,
+            name=name, user=None,
             client_type=F2ZApplication.CLIENT_PUBLIC if public else F2ZApplication.CLIENT_CONFIDENTIAL,
             redirect_uris=" ".join(values["redirect_uris"]), allowed_scopes=scope_string(values["scope"]),
             allowed_origins=" ".join(dict.fromkeys(origins)),

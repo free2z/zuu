@@ -33,7 +33,7 @@ class RedirectURIError(ValueError):
     """The URI cannot be registered; ``str(exc)`` says why, for the console."""
 
 
-def classify(uri: str) -> str:
+def classify(uri: str, *, allow_localhost: bool = False) -> str:
     """The shape of ``uri``, or raise :class:`RedirectURIError`.
 
     Registration and authorization both call this, so a URI that could not
@@ -62,6 +62,16 @@ def classify(uri: str) -> str:
     if scheme == "http":
         host = (parts.hostname or "").lower()
         if host == "localhost":
+            # Some native MCP clients use this fixed host. The opt-in is
+            # limited to public MCP registrations; unlike IP loopbacks,
+            # django-oauth-toolkit matches its registered port exactly.
+            if allow_localhost:
+                try:
+                    port = parts.port
+                except ValueError:
+                    port = None
+                if port and parts.netloc == f"localhost:{port}" and parts.path.startswith("/"):
+                    return KIND_LOOPBACK
             raise RedirectURIError(
                 "`localhost` is not accepted: it may resolve off-device. "
                 "Use http://127.0.0.1 or http://[::1] (RFC 8252 §8.3)"
