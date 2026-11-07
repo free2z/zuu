@@ -83,6 +83,9 @@ def test_selected_account_draft_idempotency_etag_and_unknown_fields(signed_in, u
     audit = MCPActionAudit.objects.filter(operation="create_draft", status=201).first()
     assert audit.primary_user_id == user.pk and audit.target_user_id == target.pk
     assert APIClient().post("/api/mcp", {}, format="json", secure=True).status_code == 401
+    _, unsupported = tool(raw, "free2z_get_profile", {"account": target.username, "base_url": "https://example.com"})
+    assert unsupported["status"] == 400
+    assert zPage.objects.filter(creator=target).count() == 1
 
 
 def test_public_edits_and_account_revocation_are_checked_by_native_tools(signed_in, user, creator_factory):

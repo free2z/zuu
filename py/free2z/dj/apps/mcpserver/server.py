@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from typing import Annotated, Literal
 from uuid import UUID
 
 from asgiref.sync import sync_to_async
 from django.core.serializers.json import DjangoJSONEncoder
 from mcp.server import MCPServer
-from mcp_types import CallToolResult, TextContent, ToolAnnotations
+from mcp_types import CallToolResult, ListToolsResult, TextContent, ToolAnnotations
 from pydantic import BaseModel, ConfigDict, Field
 from rest_framework.exceptions import APIException
 
@@ -82,6 +83,25 @@ def create_server(raw_token, original_request):
             "before publishing, uploading public media, or deleting content."
         ),
     )
+
+    async def strict_arguments(ctx, call_next):
+        # The SDK generates schemas from typed functions but its default
+        # function argument model ignores extras. Use its public middleware
+        # and generated schemas to reject them, without a parallel registry.
+        if ctx.method == "tools/call" and isinstance(ctx.params, Mapping):
+            name = ctx.params.get("name")
+            arguments = ctx.params.get("arguments")
+            if isinstance(name, str) and isinstance(arguments, dict):
+                schemas = {tool.name: tool.input_schema for tool in await server.list_tools()}
+                if name in schemas and arguments.keys() - schemas[name].get("properties", {}).keys():
+                    return _result({"status": 400, "data": {"detail": "Unsupported tool arguments. Use the listed input schema."}})
+        result = await call_next(ctx)
+        if ctx.method == "tools/list" and isinstance(result, ListToolsResult):
+            for tool in result.tools:
+                tool.input_schema = {**tool.input_schema, "additionalProperties": False}
+        return result
+
+    server.middleware.append(strict_arguments)
 
     @server.tool(annotations=READ_ONLY)
     async def free2z_list_accounts() -> CallToolResult:
