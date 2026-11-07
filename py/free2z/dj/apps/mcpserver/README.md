@@ -18,7 +18,7 @@ To add an account, call `free2z_connect_account` with its exact username. Open t
 | `mcp:uploads` | Prepare uploads, transfer their exact bytes, and reconcile upload receipts |
 | `offline_access` | Let the client refresh its connection without another browser sign-in |
 
-Each action uses the intersection of the connection token's permissions and the selected account grant's permissions. Ordinary Free2Z ownership, membership visibility, validation, throttling, and media limits also apply. Profile responses contain only `id`, `username`, `full_name`, `description`, `avatar_image`, and `banner_image`; these scopes do not expose email, balances, or private account settings.
+Each action uses the intersection of the connection token's permissions and the selected account grant's permissions. Ordinary Free2Z ownership, membership visibility, validation, throttling, balance requirements, and media limits also apply. An insufficient balance can prevent creation even when the app has permission to create drafts. Profile responses contain only `id`, `username`, `full_name`, `description`, `avatar_image`, and `banner_image`; these scopes do not expose email, balances, or private account settings.
 
 ## Tools
 

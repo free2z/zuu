@@ -2,6 +2,7 @@
 """Exercise the actual release image under the deployed runtime restrictions."""
 import argparse
 import json
+from pathlib import Path
 import subprocess
 import time
 
@@ -19,6 +20,7 @@ def inspect(kind, image, commit):
     if kind == 'backend':
         program = "import importlib.util,os; assert os.environ['BUILD_SHA']==" + repr(commit) + "; assert importlib.util.find_spec('pytest_settings') is None; assert importlib.util.find_spec('pytest') is None; import django; django.setup(); import dj.free2z.urls; import dj.apps.g12f.paymentd_runtime; import zcashrpc.nodewatch; from django.core.management import call_command; call_command('check')"
         print(run(*options, '-e', 'DJANGO_SETTINGS_MODULE=dj.free2z.settings', '-e', 'OPENAPI_GEN=1', '-e', 'SECRET_KEY=fixture-image-import-check-not-a-production-key', image, '-c', program))
+        mcp_protocol_smoke(image, options)
     elif kind == 'web':
         print(run(*options, '--entrypoint=node', image, 'scripts/check-og-runtime.mjs'))
         print(run(*options, '--entrypoint=node', image, '-e', "const fs=require('fs');for(const p of ['/usr/local/bin/npm','/usr/local/bin/npx','/usr/local/bin/corepack','/usr/local/bin/yarn'])if(fs.existsSync(p))throw Error(p);if(process.env.PUBLIC_BUILD_SHA!=="+repr(commit)+")throw Error('source identity');import('./build/handler.js')"))
@@ -31,6 +33,25 @@ def inspect(kind, image, commit):
     else:
         raise ValueError('unknown image kind')
     http_smoke(kind, image, commit, options)
+
+
+def mcp_protocol_smoke(image, options):
+    """Exercise packaged transport/SDK bytes; mount only the isolated test driver."""
+    driver = Path(__file__).resolve().parents[2] / 'py/free2z/dj/apps/mcpserver/test_transport.py'
+    program = """
+import os, sys, types, unittest
+os.environ.pop('DJANGO_SETTINGS_MODULE', None)
+module = types.ModuleType('mcp_transport_image_test')
+module.__package__ = 'dj.apps.mcpserver'
+sys.modules[module.__name__] = module
+with open('/tmp/mcp_transport_image_test.py') as source:
+    exec(compile(source.read(), '/tmp/mcp_transport_image_test.py', 'exec'), module.__dict__)
+suite = unittest.defaultTestLoader.loadTestsFromModule(module)
+result = unittest.TextTestRunner(verbosity=2).run(suite)
+sys.exit(0 if result.wasSuccessful() else 1)
+"""
+    print(run(*options, '--mount', f'type=bind,source={driver},target=/tmp/mcp_transport_image_test.py,readonly', image, '-c', program))
+    print('backend packaged MCP HTTP protocol and isolation checks passed')
 
 
 def http_smoke(kind, image, commit, options):
