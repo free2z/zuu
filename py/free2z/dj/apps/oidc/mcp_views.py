@@ -8,7 +8,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_serializer, OpenApiTypes
 from drf_spectacular.authentication import SessionScheme
 from rest_framework import serializers
 from rest_framework.authentication import SessionAuthentication
@@ -65,6 +65,7 @@ class AuthorizationServerMetadataView(APIView):
         return Response(discovery_document(settings.OIDC_ISSUER))
 
 
+@extend_schema_serializer(component_name="MCPClientRegistration")
 class RegistrationSerializer(serializers.Serializer):
     client_name = serializers.CharField(max_length=100, required=False, default="MCP client", trim_whitespace=False)
     redirect_uris = serializers.ListField(child=serializers.CharField(max_length=2048, trim_whitespace=False), min_length=1, max_length=10)
