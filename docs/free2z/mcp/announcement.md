@@ -14,4 +14,4 @@ Uploads use the same authorized connection. A client with file and HTTP tools ca
 
 Draft creation leaves the page unpublished. Publishing is a separate action, and editing public content requires publication permission. Review your client's tool approvals and check [Connected apps](https://free2z.cash/account/apps) to see delegated accounts, recent activity or remove access.
 
-The hosted tools focus on pages, public profiles and media. They do not hold wallet keys, transfer money or change account credentials. Browse the [source](https://github.com/free2z/zuu/tree/main/py/free2z) and [connection guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md), or try it with an unpublished draft.
+Free2Z's normal content and upload fees apply to the selected account. The hosted tools focus on pages, public profiles and media. They do not hold wallet keys, transfer money or change account credentials. Browse the [source](https://github.com/free2z/zuu/tree/main/py/free2z) and [connection guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md), or try it with an unpublished draft.
