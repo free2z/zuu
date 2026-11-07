@@ -34,7 +34,7 @@ Free2Z. To install a standalone package outside the checkout:
 
 ```sh
 npm pack
-npm install --global ./free2z-mcp-0.1.0.tgz
+npm install --global ./free2z-mcp-0.2.0.tgz
 free2z-mcp --check
 ```
 
@@ -48,11 +48,76 @@ Keep this checkout at a stable location. Use the absolute path to its built
 entry point in your MCP client configuration. Updating the checkout requires
 running `npm ci` and `npm run build` again.
 
-## Connect your account
+## Connect your accounts
 
 Public API reads work without credentials. For your own drafts, account data,
 and writes, configure a Free2Z session or Knox token. Store credentials outside
 this repository and out of chat messages.
+
+### Named accounts
+
+Use `FREE2Z_ACCOUNTS_FILE` to make multiple accounts available in one MCP
+connection. Save a private JSON registry outside the checkout:
+
+```json
+{
+  "accounts": {
+    "alice": {
+      "username": "alice",
+      "session_file": "/absolute/private/alice-session.json"
+    },
+    "team": {
+      "username": "example-team",
+      "token_file": "/absolute/private/team-token.txt"
+    }
+  }
+}
+```
+
+Aliases such as `alice` and `team` are local names you choose; `username` is the
+exact Free2Z username expected for that credential. Preserve characters such as
+an internal `@`; do not add an extra display-prefix `@`. Each profile
+requires exactly one absolute `session_file` or `token_file` path. Use letters,
+digits, underscores, or hyphens for aliases, up to 64 characters. `anonymous`,
+`__proto__`, `constructor`, and `prototype` are reserved. Registry fields other
+than those shown are rejected. Protect the registry and every credential file
+with mode `0600` on macOS/Linux or an account-restricted ACL on Windows. Each
+file must be a regular file of at most 64 KiB.
+
+Configure `FREE2Z_ACCOUNTS_FILE` with the registry's absolute path. Do not also
+set `FREE2Z_SESSION_FILE`, `FREE2Z_TOKEN_FILE`, or `FREE2Z_TOKEN`.
+`free2z_list_accounts` lists aliases, configured usernames, and authentication
+modes without reading credentials or making network requests. Its username
+values describe the configuration; they do not prove a session is signed in.
+
+Every `free2z_read` and `free2z_execute` call must supply `account` in this mode.
+Before sending the requested operation, the server reads the selected credential
+and calls `auth_user_retrieve`. The returned username must match exactly.
+Expired credentials, a different account, unknown aliases, and omitted account
+selection stop the request; the server never falls back to another account.
+Successful calls include `account` and `verified_username` beside the API response.
+
+The reserved `account: "anonymous"` sends no credentials and skips the identity
+check. The API decides which anonymous operations are permitted. There is no
+shared active account: selecting one profile does not change another call.
+All profiles use the same configured Free2Z origin.
+
+The registry and selected credential file reload for every call. Replace a file
+atomically after reauthentication, keeping its private permissions; no server
+restart is needed. An in-flight call keeps the same credential snapshot for its
+identity check and requested operation. Rotation affects subsequent calls only.
+The server does not renew expired sessions or tokens for you.
+
+### Single-account compatibility
+
+Without `FREE2Z_ACCOUNTS_FILE`, configure one of the three legacy credential
+variables or omit them all for anonymous access. Calls without `account` keep
+using that startup credential; no expected-username check is configured in this
+mode. Explicit `account: "anonymous"` strips the credential for that call.
+Other aliases require a registry. Restart the server after changing legacy
+credential files. To migrate, create the registry, replace the legacy credential
+environment variable with `FREE2Z_ACCOUNTS_FILE`, restart once, then include an
+account alias in each read or execute call.
 
 ### Browser session, including media uploads
 
@@ -63,17 +128,25 @@ Copy the values of `sessionid` and `csrftoken`. `sessionid` is HttpOnly, so
 editor or perform an ordinary authenticated action in the website and inspect
 cookies again.
 
-Save the two values to a private JSON file. This optional Python 3 helper for
-macOS and Linux prompts without echoing them or putting them in shell history:
+Save each account's two values to its own private JSON file. This optional
+Python 3 helper for macOS and Linux asks for a local alias, then prompts for the
+cookies without echoing them or putting them in shell history. Run it once per
+account, using distinct aliases:
 
 ```sh
 python3 - <<'PY'
 import getpass
 import json
 import os
+import re
 from pathlib import Path
 
-path = Path.home() / ".config/free2z/session.json"
+print("Local account alias (for example, alice): ", end="", flush=True)
+with open("/dev/tty") as terminal:
+    alias = terminal.readline().strip()
+if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", alias) or alias in {"anonymous", "__proto__", "constructor", "prototype"}:
+    raise SystemExit("Choose a non-reserved alias using letters, digits, underscores or hyphens.")
+path = Path.home() / ".config/free2z" / f"{alias}-session.json"
 path.parent.mkdir(parents=True, exist_ok=True)
 values = {
     "sessionid": getpass.getpass("Free2Z sessionid: "),
@@ -91,15 +164,17 @@ On Windows, create the same JSON object with `sessionid` and `csrftoken` and
 restrict the file's access to your own operating-system account. The server
 checks POSIX file permissions on macOS and Linux; it does not check Windows ACLs.
 
-Set `FREE2Z_SESSION_FILE` to the absolute filename in your client's server
-configuration. Configure only one credential source: `FREE2Z_SESSION_FILE`,
-`FREE2Z_TOKEN_FILE`, or `FREE2Z_TOKEN`. Sign-in renewal or sign-out can invalidate the saved session;
-replace the file with the current cookies and restart the MCP server when needed.
+For a named account, put this absolute filename in its `session_file` field.
+Capture each account's cookies in its own signed-in browser session and verify
+the registry's expected username. For a legacy single account, set
+`FREE2Z_SESSION_FILE` instead. Sign-in renewal or sign-out can invalidate a saved
+session; replace it after reauthentication. Named profiles reload on the next
+call; legacy mode requires a restart.
 
 ### Knox token for API operations
 
 Free2Z accepts `Authorization: Token <key>`. Supply the raw key through
-`FREE2Z_TOKEN_FILE` or `FREE2Z_TOKEN`, without the `Token ` prefix. A token covers
+a profile's `token_file`, or legacy `FREE2Z_TOKEN_FILE`/`FREE2Z_TOKEN`, without the `Token ` prefix. A token covers
 token-authenticated API operations; legacy media-upload routes require a browser
 session.
 
@@ -136,16 +211,16 @@ revoke credentials at Free2Z.
 
 ## Configure an MCP client
 
-Replace `/absolute/path/to/zuu` and `/absolute/path/to/session.json` below with
+Replace `/absolute/path/to/zuu` and `/absolute/path/to/accounts.json` below with
 your paths. Use a Node executable available to the client; a desktop application
-may need its absolute path. The examples use a session so media uploads and API
-calls use the same account.
+may need its absolute path. The examples use a named-account registry. Use a
+session-backed profile for media uploads.
 
 ### Claude Code
 
 ```sh
 claude mcp add --scope user \
-  --env FREE2Z_SESSION_FILE=/absolute/path/to/session.json \
+  --env FREE2Z_ACCOUNTS_FILE=/absolute/path/to/accounts.json \
   --transport stdio free2z -- node /absolute/path/to/zuu/ts/free2z/mcp/dist/cli.js
 claude mcp get free2z
 ```
@@ -157,7 +232,7 @@ Open `/mcp` in Claude Code to inspect the connection. See
 
 ```sh
 codex mcp add free2z \
-  --env FREE2Z_SESSION_FILE=/absolute/path/to/session.json \
+  --env FREE2Z_ACCOUNTS_FILE=/absolute/path/to/accounts.json \
   -- node /absolute/path/to/zuu/ts/free2z/mcp/dist/cli.js
 codex mcp get free2z
 ```
@@ -169,7 +244,7 @@ Start a new Codex session to load the server. See the
 
 ```sh
 grok mcp add --scope user \
-  --env FREE2Z_SESSION_FILE=/absolute/path/to/session.json \
+  --env FREE2Z_ACCOUNTS_FILE=/absolute/path/to/accounts.json \
   free2z -- node /absolute/path/to/zuu/ts/free2z/mcp/dist/cli.js
 grok mcp doctor free2z
 ```
@@ -182,11 +257,12 @@ is for the installed Grok Build client. See
 
 Start with a read:
 
-> Use Free2Z to show my zPage drafts. Include each page's title and URL.
+> List my configured Free2Z accounts, then use account alice to show its zPage
+> drafts. Include each page's title and URL.
 
 A writing task can name the desired publication state:
 
-> Create an unpublished zPage titled “My project notes” with the following
+> Using Free2Z account alice, create an unpublished zPage titled “My project notes” with the following
 > Markdown. Read it back and show me the draft URL.
 
 Publication, donations, subscription changes, paid AI requests, and deletion are
@@ -197,6 +273,7 @@ The server exposes a small tool set over the bundled Free2Z API schema:
 
 | Tool | Purpose |
 | --- | --- |
+| `free2z_list_accounts` | List local aliases and expected identities; no network or credential disclosure |
 | `free2z_search_operations` | Find operations by name, path, description, or tag |
 | `free2z_describe_operation` | Inspect an operation's parameters, request body, and response contract |
 | `free2z_read` | Invoke a read operation |
@@ -214,20 +291,22 @@ the package, so discovery does not send requests to Free2Z. For example, invoke 
 ```
 
 ```json
-{"operation_id":"zpage_list", "query":{"mine":true,"page":1}}
+{"account":"alice", "operation_id":"zpage_list", "query":{"mine":true,"page":1}}
 ```
 
 These are arguments for `free2z_search_operations`,
 `free2z_describe_operation`, and `free2z_read`, respectively. Search results have
 `offset`/`limit` pagination, separate from the API's own list pagination.
 `free2z_read` permits GET operations. `free2z_execute` accepts both GET and
-mutation operations. Both accept `operation_id` and optional `path`, `query`, `headers`,
+mutation operations. Both accept `operation_id`, an `account` alias (required in profile mode), and optional `path`, `query`, `headers`,
 `body`, `content_type`, and `files`; the described operation determines which
 are meaningful. Known query parameters are validated against the schema.
 Additional query parameters can contain strings, numbers, booleans, or arrays
 of these values for filters that the API supports but its schema omits.
 `zpage_list` discovery includes `search` and `username` filters. Successful HTTP calls return an envelope with `operation_id`,
-`status`, `ok`, `headers`, and `data`. Response header names are lowercase:
+`status`, `ok`, `headers`, and `data`. Profile calls also return `account` and
+`verified_username` outside the untrusted API `data`; anonymous calls return a
+null verified username. Response header names are lowercase:
 read `headers.etag` for concurrency control and
 `headers["idempotency-key-honored"]` before relying on safe create retries.
 `data` contains the API response body. The running server only calls the configured Free2Z origin; it does not accept arbitrary destination
@@ -247,6 +326,7 @@ unchanged for retries of that page:
 
 ```json
 {
+  "account": "alice",
   "operation_id": "zpage_create",
   "headers": {"Idempotency-Key": "NEW_UUIDV4_FOR_THIS_PAGE"},
   "body": {
@@ -272,6 +352,7 @@ actual page UUID and its complete, quoted ETag:
 
 ```json
 {
+  "account": "alice",
   "operation_id": "zpage_partial_update",
   "path": {"id": "PAGE_UUID"},
   "headers": {"If-Match": "\"ETAG_FROM_READ\""},
@@ -297,6 +378,7 @@ invoke `free2z_execute`:
 
 ```json
 {
+  "account": "alice",
   "operation_id": "uploads_single_public",
   "content_type": "multipart/form-data",
   "body": {"title": "Project diagram", "access": "private"},
@@ -319,6 +401,9 @@ account's current upload limit rather than assuming a file-size allowance.
 
 ## Errors and authority
 
+Account verification failures are tool errors without executing the requested
+operation. Check the selected profile's expected username and replace expired
+credentials; the listing tool itself does not verify them. After verification,
 API failures are tool errors, with the HTTP status and available server detail.
 A `401` or `403` can indicate missing, expired, or revoked credentials, a required
 recent login, or insufficient permission. Signing in again does not grant access
@@ -347,6 +432,7 @@ step, not in an assistant tool response.
 | Variable | Meaning / default |
 | --- | --- |
 | `FREE2Z_BASE_URL` | Free2Z origin, default `https://free2z.cash`; HTTPS required except HTTP loopback for development |
+| `FREE2Z_ACCOUNTS_FILE` | Absolute path to a private named-account registry; exclusive with legacy credential variables |
 | `FREE2Z_SESSION_FILE` | Absolute path to private JSON containing `sessionid` and `csrftoken` |
 | `FREE2Z_TOKEN_FILE` | Absolute path to a private file containing a raw Knox token |
 | `FREE2Z_TOKEN` | Raw Knox token supplied by the process environment |
@@ -354,8 +440,11 @@ step, not in an assistant tool response.
 | `FREE2Z_MAX_RESPONSE_BYTES` | Response limit; default `8388608` bytes (8 MiB) |
 | `FREE2Z_MAX_UPLOAD_BYTES` | Local upload limit; default `104857600` bytes (100 MiB) |
 
-Choose one credential variable, or none for public reads. Configuration and
-credential files are read at startup. Restart the server after changes.
+Choose one credential variable, or none for anonymous access. Origin and limits
+are read at startup. Named-account registry and selected credential files reload
+per call; legacy credential files are read at startup. `--check` validates the
+registry structure and permissions without contacting Free2Z or opening its
+credential files. Verify a profile by making an explicit authenticated read.
 The upload cap is an additional local bound; Free2Z can impose a lower
 account-specific limit. Requests do not follow redirects. The configured
 origin cannot contain a username, password, path, query, or fragment.

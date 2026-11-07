@@ -9,24 +9,28 @@ you request.
 MCP stands for Model Context Protocol, a standard for connecting AI assistants
 to tools. The Free2Z server runs on your computer and talks to Free2Z over HTTPS.
 It works with local MCP clients including Claude Code, Codex, and Grok Build.
-You can use the same account connection from whichever of these clients you
-prefer.
+Configure named accounts such as `alice` and `team` in one connection. Tell the
+assistant which account to use for each action. The server verifies that the
+selected credential belongs to its expected Free2Z username before acting, and
+refuses a missing selection, expired credential, or mismatched identity. There
+is no shared active account or fallback to another profile.
 
 ## What to try
 
-> Find my unpublished zPages and show me their titles and links.
+> Using account alice, find my unpublished zPages and show me their titles and links.
 
-> Turn these project notes into a zPage draft. Keep it unpublished, read it back,
+> Using account team, turn these project notes into a zPage draft. Keep it unpublished, read it back,
 > and give me the draft link.
 
-> Upload this diagram as private media and show me its ID and URL.
+> Using account alice, upload this diagram as private media and show me its ID and URL.
 
-> Read my article, update its title, and preserve the rest of its content.
+> Using account alice, read my article, update its title, and preserve the rest of its content.
 
 The tools cover the public Free2Z API: pages, profiles, comments, follows,
 subscriptions, translations, and more. Media uploads use your signed-in browser
-session. Public reads need no credential; account operations use a saved session
-or API token.
+session. Use the explicit anonymous account for public access; named account
+operations use separate saved sessions or API tokens. Replace one profile's
+credential after signing in again without restarting or switching other accounts.
 
 Your account's permissions and Free2Z's pricing rules apply. Publishing makes a
 page public. Paid operations use the account's balance. The server does not
