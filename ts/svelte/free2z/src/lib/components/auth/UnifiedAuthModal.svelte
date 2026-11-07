@@ -554,26 +554,9 @@
           currentView = "checkEmail";
           isLoading = false;
         } else {
-          // No email provided, just log them in
-          const loginResult = await authStore.loginOnly(
-            submittedUsername,
-            submittedPassword,
-            recaptchaToken,
-            undefined,
-            () => !destroyed,
-          );
-          if (destroyed) return;
-          if (loginResult.success) {
-            dispatch("success", { creator: loginResult.creator });
-            close();
-          } else {
-            errors.general =
-              timedOut(loginResult) ||
-              $t(
-                "auth.errors.accountCreatedLoginFailed",
-                "Account created, but login failed",
-              );
-          }
+          // Signup already established and verified the authenticated session.
+          dispatch("success", { creator: authResult.creator });
+          close();
         }
       } else {
         // If user exists, fall back to login
