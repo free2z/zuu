@@ -84,7 +84,7 @@ logger = logging.getLogger(__name__)
 #The authorization request parameters the consent step reads (spec §9.2).
 #Anything else on the query string is ignored, never echoed.
 AUTHORIZATION_PARAMETERS = (
-    "response_type", "client_id", "redirect_uri", "scope", "state",
+    "response_type", "resource", "client_id", "redirect_uri", "scope", "state",
     "code_challenge", "code_challenge_method", "nonce", "prompt", "max_age",
     "acr_values", "login_hint", "ui_locales", "response_mode",
     "f2z_login_ticket", "f2z_spend_cap", "f2z_spend_period",
@@ -427,6 +427,10 @@ class AuthorizeView(OAuthLibMixin, APIView):
         if application.frozen:
             return refuse("access_denied", "this app is frozen")
 
+        from .scopes import MCP_SCOPES, mcp_resource
+        if set(scopes).intersection(MCP_SCOPES) and params.get("resource") != mcp_resource():
+            return refuse("invalid_target", "Select the Free2Z MCP resource.")
+
         clean_credentials = {
             "client_id": credentials["client_id"],
             "redirect_uri": redirect_uri,
@@ -437,6 +441,8 @@ class AuthorizeView(OAuthLibMixin, APIView):
         }
         if params.get("nonce"):
             clean_credentials["nonce"] = params["nonce"]
+        if set(scopes).intersection(MCP_SCOPES):
+            clean_credentials["resource"] = [mcp_resource()]
         return _Evaluated(application, kind, list(scopes), clean_credentials, prompt, params)
 
     @staticmethod
@@ -613,6 +619,7 @@ class AuthorizeView(OAuthLibMixin, APIView):
             "request_id": request_id,
             "authorization_request": params,
             "consent": {
+                "signed_in_username": request.user.username,
                 "application": {
                     "client_id": application.client_id,
                     "name": application.name,
@@ -987,6 +994,7 @@ def discovery_document(issuer: str) -> dict:
         "issuer": issuer,
         "authorization_endpoint": f"{issuer}/oauth/authorize",
         "token_endpoint": f"{issuer}/api/oauth/token",
+        "registration_endpoint": f"{issuer}/api/oauth/register",
         "userinfo_endpoint": f"{issuer}/api/oauth/userinfo",
         "jwks_uri": f"{issuer}/api/oauth/jwks",
         "revocation_endpoint": f"{issuer}/api/oauth/revoke",

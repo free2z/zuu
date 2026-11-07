@@ -616,6 +616,10 @@ OAUTH2_PROVIDER = {
         'balance:read': 'Read your 2Z balance',
         'purchase:create': 'Start 2Z purchases on your behalf',
         'ai:invoke': 'Call AI through the gateway, paid from your 2Z',
+        'mcp:read': 'Read your Free2Z profile, pages and uploaded media',
+        'mcp:write': 'Create and edit drafts and update your profile',
+        'mcp:publish': 'Publish pages and change content that is already public',
+        'mcp:uploads': 'Upload and manage your media files',
     },
     'DEFAULT_SCOPES': [],
     # Spec §6/§7/§8/§9.2, in seconds.

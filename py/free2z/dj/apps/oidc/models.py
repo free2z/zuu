@@ -137,6 +137,8 @@ class F2ZApplication(AbstractApplication):
         max_length=255, blank=True, default="", db_index=True,
     )
 
+    mcp_token_auth_method = models.CharField(max_length=32, blank=True, default="", db_default="")
+
     first_party = models.BooleanField(
         default=False,
         help_text="Free2Z's own app. Same PKCE flow as everyone else; the "
@@ -414,6 +416,10 @@ class AuthorizationCode(AbstractGrant):
     redeemable after it: ``validate_code`` compares this stamp with the row.
     """
 
+    mcp_connection = models.ForeignKey(
+        "MCPConnection", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="authorization_codes",
+    )
     account_epoch = models.PositiveIntegerField()
     auth_time = models.DateTimeField(null=True, blank=True)
     acr = models.CharField(max_length=64, blank=True)
@@ -442,6 +448,10 @@ class AccessToken(AbstractAccessToken):
     what the stamps below are compared against.
     """
 
+    mcp_connection = models.ForeignKey(
+        "MCPConnection", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="access_tokens",
+    )
     account_epoch = models.PositiveIntegerField()
     grant_generation = models.PositiveIntegerField()
     auth_time = models.DateTimeField(null=True, blank=True)
@@ -692,3 +702,85 @@ class AiOutputReport(models.Model):
 
     def __str__(self) -> str:
         return f"AI report {self.pk} ({self.reason}) on call {self.call_id}"
+
+
+class MCPConnection(models.Model):
+    """One independently authorized MCP connection, bound into its JWTs."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    primary_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="mcp_connections")
+    application = models.ForeignKey(F2ZApplication, on_delete=models.CASCADE, related_name="mcp_connections")
+    primary_epoch = models.PositiveIntegerField()
+    primary_grant_generation = models.PositiveIntegerField()
+    scope = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+
+class MCPAccountGrant(models.Model):
+    """An account owner's consent to one connection, independent of other apps."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    connection = models.ForeignKey(MCPConnection, on_delete=models.CASCADE, related_name="account_grants")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="mcp_account_grants")
+    account_epoch = models.PositiveIntegerField()
+    scope = models.TextField()
+    generation = models.PositiveIntegerField(default=1)
+    consented_at = models.DateTimeField(default=timezone.now)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["connection", "user"], name="oidc_mcp_connection_user")]
+
+
+class MCPLinkIntent(models.Model):
+    """A short-lived single-use account-link request; the bearer is stored hashed."""
+
+    token_hash = models.CharField(primary_key=True, max_length=64)
+    connection = models.ForeignKey(MCPConnection, on_delete=models.CASCADE, related_name="link_intents")
+    expected_username = models.CharField(max_length=150)
+    scope = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+
+class MCPActionAudit(models.Model):
+    """Content-free action attribution visible to both consenting accounts."""
+
+    connection = models.ForeignKey(MCPConnection, null=True, on_delete=models.SET_NULL, related_name="actions")
+    application = models.ForeignKey(F2ZApplication, null=True, on_delete=models.SET_NULL)
+    primary_user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="mcp_primary_actions")
+    target_user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL, related_name="mcp_target_actions")
+    account_grant = models.ForeignKey(MCPAccountGrant, null=True, on_delete=models.SET_NULL)
+    operation = models.CharField(max_length=100)
+    status = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["primary_user", "-created_at"], name="oidc_mcp_audit_primary"),
+            models.Index(fields=["target_user", "-created_at"], name="oidc_mcp_audit_target"),
+        ]
+
+
+class MCPUploadIntent(models.Model):
+    """A bounded single-file upload capability for one token and account grant."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    capability_hash = models.CharField(max_length=64)
+    connection = models.ForeignKey(MCPConnection, on_delete=models.CASCADE)
+    account_grant = models.ForeignKey(MCPAccountGrant, on_delete=models.CASCADE)
+    access_token = models.ForeignKey(AccessToken, on_delete=models.CASCADE)
+    grant_generation = models.PositiveIntegerField()
+    filename = models.CharField(max_length=255)
+    mime_type = models.CharField(max_length=100)
+    access = models.CharField(max_length=20)
+    title = models.CharField(max_length=255, blank=True)
+    description = models.TextField(blank=True)
+    expected_bytes = models.PositiveBigIntegerField()
+    expected_sha256 = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    media = models.ForeignKey("uploads.GenericFile", null=True, blank=True, on_delete=models.SET_NULL)

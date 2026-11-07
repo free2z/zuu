@@ -31,7 +31,7 @@ from dj.apps.ktauth.epoch import account_epoch_for
 from dj.apps.ktauth.signing import AuthorityUnavailable
 
 from .keys import ALG_ES256, SigningKeysUnavailable, get_keyring
-from .scopes import audiences_for, scope_list
+from .scopes import MCP_SCOPES, audiences_for, scope_list
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,7 @@ class TokenContext:
     auth_time: datetime | None
     acr: str
     amr: tuple[str, ...]
+    mcp_connection_id: object | None = None
 
 
 class InvalidAccessToken(Exception):
@@ -156,6 +157,23 @@ def build_token_context(request) -> TokenContext:
             description="the grant no longer covers any requested scope", request=request,
         )
     auth_time, acr, amr = _auth_context_from(request)
+    mcp_connection_id = None
+    if set(scopes).intersection(MCP_SCOPES):
+        code = getattr(request, "f2z_authorization_code", None)
+        refresh = getattr(request, "refresh_token_instance", None)
+        previous = getattr(refresh, "access_token", None) if refresh else None
+        source = code if code is not None else previous
+        mcp_connection_id = getattr(source, "mcp_connection_id", None)
+        if mcp_connection_id is None:
+            raise errors.InvalidGrantError(description="MCP connection missing", request=request)
+        from .models import MCPConnection
+        connection = MCPConnection.objects.filter(
+            pk=mcp_connection_id, primary_user=user, application=application,
+            primary_epoch=account_epoch, primary_grant_generation=authorization.generation,
+            revoked_at__isnull=True,
+        ).first()
+        if connection is None or not set(scopes).intersection(MCP_SCOPES) <= set(scope_list(connection.scope)):
+            raise errors.InvalidGrantError(description="MCP connection is revoked", request=request)
     context = TokenContext(
         user=user,
         application=application,
@@ -165,6 +183,7 @@ def build_token_context(request) -> TokenContext:
         auth_time=auth_time,
         acr=acr,
         amr=amr,
+        mcp_connection_id=mcp_connection_id,
     )
     request.f2z_token_context = context
     return context
@@ -186,6 +205,8 @@ def access_token_claims(context: TokenContext, *, now: int | None = None) -> dic
         "aep": context.account_epoch,
         "agen": context.grant_generation,
     }
+    if context.mcp_connection_id is not None:
+        claims["mcp_connection"] = str(context.mcp_connection_id)
     if context.auth_time is not None:
         claims["auth_time"] = int(context.auth_time.timestamp())
     if context.acr:

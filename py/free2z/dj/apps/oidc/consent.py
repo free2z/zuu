@@ -83,6 +83,9 @@ def consent_requirement(user, application, scopes, redirect_kind: str, prompt) -
     prompt = set(prompt or ())
     requested = set(scope_list(scopes))
     existing = live_authorization(user, application)
+    from .scopes import MCP_SCOPES
+    if requested.intersection(MCP_SCOPES):
+        return ConsentRequirement(True, REASON_INTERACTION, existing)
     if "consent" in prompt:
         return ConsentRequirement(True, REASON_PROMPT_CONSENT, existing)
     if is_interactive_only(redirect_kind) and requested & INTERACTIVE_ONLY_SCOPES:
