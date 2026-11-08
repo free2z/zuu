@@ -45,7 +45,7 @@ def _models():
     # A provider must have actually returned this identifier and its reviewed
     # price must still be valid. Legacy catalogue discovery can fail open.
     return AIModel.objects.selectable().discovered(upstream=False, require_snapshot=True).filter(
-        input_price__gt=0, output_price__gt=0, price_checked_at__isnull=False,
+        input_price__gt=0, output_price__gt=0, markup__gte=0, price_checked_at__isnull=False,
     )
 
 
@@ -138,8 +138,11 @@ def _owned(actor, request_id):
 
 
 def _result(row, actor):
+    receipt = {k: v for k, v in row.receipt.items() if not k.startswith("_")}
+    if receipt.get("charge_status") != "settled":
+        receipt.pop("response", None)
     return {"account": actor.user.username, "request_id": str(row.pk),
-            "state": row.state, "quote": row.quote, "receipt": {k: v for k, v in row.receipt.items() if not k.startswith("_")},
+            "state": row.state, "quote": row.quote, "receipt": receipt,
             "content_expires_at": row.content_expires_at.isoformat(),
             "content_purged": row.content_purged}
 
@@ -365,9 +368,13 @@ def recover_settlement(request_id):
                 data, response_status = claim.response_body, claim.response_status
             elif "_prepared" in row.receipt:
                 data = row.receipt["_prepared"]
-                response_status = row.receipt["_prepared_status"]
+                response_status = row.receipt.get("_prepared_status")
+                if response_status is None:
+                    # The first prepared-receipt shape distinguished successful
+                    # text from an interrupted stream by the response field.
+                    response_status = 200 if isinstance(data.get("response"), str) else 503
                 reservation = native._provider_reservation(user, row.native_key, "ai_prompt")
-                if reservation is None or claim is None:
+                if claim is None or (reservation is None and Decimal(data["tuzis_charged"]) > 0):
                     raise native.ledger.InsufficientFunds(user, Decimal(data["tuzis_charged"]))
                 view = MCPMeteredPromptView(invocation_id=row.pk)
                 model = AIModel(id=row.intent["model"])

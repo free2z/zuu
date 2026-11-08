@@ -27,6 +27,7 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
+from django.db import DatabaseError
 from procrastinate.contrib.django import app
 from procrastinate import RetryStrategy
 
@@ -91,7 +92,7 @@ class MCPSettlementRetry(RetryStrategy):
 
 
 @app.task(name="oidc.invoke_mcp_ai", queue="mcp-ai", retry=MCPSettlementRetry(
-    max_attempts=10, wait=30, retry_exceptions=(MCPSettlementPending,),
+    max_attempts=10, wait=30, retry_exceptions=(MCPSettlementPending, DatabaseError),
 ))
 def invoke_mcp_ai(request_id: str):
     """Queue arguments contain only an opaque invocation ID, never a prompt."""

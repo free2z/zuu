@@ -2638,22 +2638,22 @@ class MeteredPromptView(views.APIView):
                 status=status.HTTP_409_CONFLICT,
             )
         reservation = None
-        if max_price > 0:
-            operation_key = idempotency.request_key(request) or uuid.uuid4()
-            try:
-                with self.reservation_context(request, ai_model, max_price):
+        operation_key = idempotency.request_key(request) or uuid.uuid4()
+        try:
+            with self.reservation_context(request, ai_model, max_price):
+                if max_price > 0:
                     reservation = ledger.reserve(
                         request.user, max_price,
                         scope="ai_prompt", operation_key=operation_key,
                     )
-            except ledger.InsufficientFunds as exc:
-                self.release_claim(claim)
-                return Response(
-                    _ai_not_charged_payload(
-                        ledger.insufficient_funds_payload(exc, action="ai_prompt")
-                    ),
-                    status=status.HTTP_402_PAYMENT_REQUIRED,
-                )
+        except ledger.InsufficientFunds as exc:
+            self.release_claim(claim)
+            return Response(
+                _ai_not_charged_payload(
+                    ledger.insufficient_funds_payload(exc, action="ai_prompt")
+                ),
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
 
         # STEP 1 -- generate, OUTSIDE any transaction. Failures
         # before the provider returns a stream release the hold. An accepted

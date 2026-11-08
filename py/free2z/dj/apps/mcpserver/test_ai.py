@@ -311,7 +311,8 @@ def test_settlement_retries_real_creator_lock_contention_without_provider_retry(
     assert before - balance(user) == Decimal("0.003") and len(calls) == 1
 
 
-def test_exhausted_settlement_recovers_charge_before_releasing_answer(auth, user, model, generation, monkeypatch):
+@pytest.mark.parametrize("legacy_shape", [False, True])
+def test_exhausted_settlement_recovers_charge_before_releasing_answer(auth, user, model, generation, monkeypatch, legacy_shape):
     from django.db import OperationalError
     accepted = queued(auth, user, model)
     original = ai.native.ledger.settle_reservation
@@ -327,6 +328,18 @@ def test_exhausted_settlement_recovers_charge_before_releasing_answer(auth, user
     receipt = ai.get(auth, user.username, accepted["request_id"])["receipt"]
     assert "response" not in receipt and receipt["charge_status"] == "pending"
     assert len(attempts) == 10 and len(generation) == 1
+    if legacy_shape:
+        row = MCPAIRequest.objects.get(pk=accepted["request_id"])
+        row.receipt.pop("_prepared_status")
+        row.save(update_fields=["receipt"])
+    else:
+        from dj.apps.oidc.tasks import invoke_mcp_ai
+        def read_failure(*args, **kwargs):
+            raise OperationalError("fixture entry connection failure")
+        with monkeypatch.context() as entry_patch:
+            entry_patch.setattr(MCPAIRequest.objects, "select_for_update", read_failure)
+            with pytest.raises(OperationalError):
+                invoke_mcp_ai(request_id=accepted["request_id"])
     monkeypatch.setattr(ai.native.ledger, "settle_reservation", original)
     receipt = ai.get(auth, user.username, accepted["request_id"])["receipt"]
     assert receipt["response"] == "a useful answer" and receipt["tuzis_charged"] == "0.003"
@@ -367,9 +380,30 @@ def test_expired_settlement_hold_withholds_answer_and_never_debits_again(auth, u
 
 def test_queue_retries_only_saved_settlement_and_prioritizes_it():
     from types import SimpleNamespace
-    from dj.apps.oidc.tasks import MCPSettlementPending, MCPSettlementRetry
-    strategy = MCPSettlementRetry(max_attempts=10, wait=30, retry_exceptions=(MCPSettlementPending,))
+    from django.db import OperationalError
+    from dj.apps.oidc.tasks import MCPSettlementPending, invoke_mcp_ai
+    strategy = invoke_mcp_ai.retry_strategy
     decision = strategy.get_retry_decision(exception=MCPSettlementPending(), job=SimpleNamespace(attempts=1))
     assert decision.priority == 100
+    assert strategy.get_retry_decision(exception=OperationalError(), job=SimpleNamespace(attempts=1)).priority == 100
     assert strategy.get_retry_decision(exception=RuntimeError(), job=SimpleNamespace(attempts=1)) is None
     assert strategy.get_retry_decision(exception=MCPSettlementPending(), job=SimpleNamespace(attempts=10)) is None
+
+
+def test_zero_charge_still_rechecks_authorization_before_provider(auth, user, model, generation):
+    AIModel.objects.filter(pk=model.pk).update(markup=0)
+    accepted = queued(auth, user, model)
+    assert accepted["quote"]["max_charge_tuzis"] == "0.000"
+    MCPAccountGrant.objects.filter(user=user).update(revoked_at=timezone.now())
+    ai.invoke(accepted["request_id"])
+    assert not generation
+    assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "failed"
+
+
+def test_unconfirmed_legacy_receipt_cannot_expose_a_free_answer(auth, user, model):
+    accepted = queued(auth, user, model)
+    row = MCPAIRequest.objects.get(pk=accepted["request_id"])
+    row.state = "unknown"
+    row.receipt = {"response": "uncollected answer", "charge_status": "unknown", "tuzis_charged": None}
+    row.save()
+    assert "response" not in ai.get(auth, user.username, row.pk)["receipt"]
