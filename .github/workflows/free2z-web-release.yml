@@ -81,7 +81,7 @@ jobs:
         with:
           name: free2z-image-${{ matrix.kind }}-${{ github.sha }}-${{ github.run_attempt }}
           path: image-bundle
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # reviewed immutable repository pin
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # reviewed immutable repository pin
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
