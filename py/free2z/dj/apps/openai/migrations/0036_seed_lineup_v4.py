@@ -22,6 +22,11 @@ DEFAULT_MARKUP = "1.5"
 
 # Frozen copy of f2z.ai.providers.POLICY_DISABLED_PROVIDERS at this commit.
 POLICY_DISABLED_PROVIDERS = ("kimi",)
+RETIRED_OPENAI_IDS = (
+    "gpt-4.1-nano", "gpt-4.1-nano-2025-04-14", "gpt-4o-2024-05-13",
+    "o1", "o1-2024-12-17", "o3-mini", "o3-mini-2025-01-31",
+    "o4-mini", "o4-mini-2025-04-16",
+)
 
 # (provider, model, display_name, input_price, output_price, max_tokens,
 #  max_output_tokens (= the RESERVE), max_response_tokens, order, is_ga)
@@ -148,6 +153,9 @@ def seed(apps, schema_editor):
         permitted = provider not in POLICY_DISABLED_PROVIDERS
         declared = (provider, model) in STRUCTURED_OUTPUT_MODELS
         existing = AIModel.objects.filter(provider=provider, model=model).first()
+        permitted = permitted and not (provider == "openai" and (
+            model in RETIRED_OPENAI_IDS or
+            (existing is not None and existing.provider_model_id in RETIRED_OPENAI_IDS)))
         if existing is None:
             row = AIModel.objects.create(
                 provider=provider, model=model, display_name=display_name,
