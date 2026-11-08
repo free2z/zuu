@@ -199,8 +199,9 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'Paid provider dispatch has no upstream idempotency guarantee. The '
         'MCP invocation records running before dispatch and never resends; '
         'polling recovers a committed receipt or reports an uncertain outcome, '
-        'and the ledger expires orphaned holds. Queue retry/reclaim must not '
-        'create another dispatch.',
+        'and the ledger expires orphaned holds. Only a saved settlement intent '
+        'retries (ten attempts, 30-second spacing), never provider generation. '
+        'Automatic stalled-job reclaim remains disabled.',
         health_alert_after_seconds=390,
     ),
     'oidc.sweep_tokens': TaskPolicy(

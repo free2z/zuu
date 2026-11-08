@@ -2317,6 +2317,9 @@ class MeteredPromptView(views.APIView):
     def claim_context(self):
         return nullcontext()
 
+    def release_claim(self, claim):
+        return idempotency.release(claim)
+
     def release_reservation(self, reservation):
         return ledger.release_reservation(reservation)
 
@@ -2327,6 +2330,16 @@ class MeteredPromptView(views.APIView):
     def settle_result(self, request, ai_model, reservation, price, claim, response_status, data):
         """The authoritative debit, event and replay receipt commit together."""
         with self.billing_transaction():
+            from dj.apps.ledger import api as ledger_api
+            ledger_api.lock_creator(request.user.pk)
+            if self.pricing_quantum is not None and claim is not None:
+                finished = idempotency.IdempotencyKey.objects.filter(
+                    pk=claim.pk, response_status__isnull=False,
+                ).first()
+                if finished is not None:
+                    if finished.response_status != response_status or finished.response_body != data:
+                        raise idempotency.DuplicateRequest(finished)
+                    return
             ledger.settle_reservation(reservation, amount=price)
             Event.objects.create(
                 read=False, type="CHAT2Z", receiving_user=request.user,
@@ -2466,7 +2479,7 @@ class MeteredPromptView(views.APIView):
             and claim is not None
             and not getattr(claim, "stale_takeover", False)
         ):
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {"detail": "No such model."}, status=status.HTTP_404_NOT_FOUND
             )
@@ -2531,14 +2544,14 @@ class MeteredPromptView(views.APIView):
         # same clean 409 the conversation path gives, before anything costs
         # anything.
         if requested_model is None or not requested_model.is_ga:
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {"detail": "No such model."}, status=status.HTTP_404_NOT_FOUND)
         ai_model = requested_model
         if not AIModel.objects.selectable().filter(
             pk=ai_model.pk, input_price__gt=0, output_price__gt=0,
         ).exists():
-            idempotency.release(claim)
+            self.release_claim(claim)
             return model_unavailable_response(ai_model)
 
         # STEP 0 -- ADMISSION. Price the CEILING of this request and refuse
@@ -2555,7 +2568,7 @@ class MeteredPromptView(views.APIView):
         try:
             input_tokens = num_tokens_from_messages(messages, ai_model.model)
         except Exception as exc:
-            idempotency.release(claim)
+            self.release_claim(claim)
             return _ai_error_response(exc, model_label=str(ai_model))
 
         # A single turn has nothing to trim. A prompt that does not leave the
@@ -2566,7 +2579,7 @@ class MeteredPromptView(views.APIView):
         # count for the charge -- see the conversation endpoint.
         window_tokens = count_prompt_tokens(messages, ai_model.model)
         if window_tokens > ai_model.get_input_token_budget():
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {
                     "detail": (
@@ -2619,7 +2632,7 @@ class MeteredPromptView(views.APIView):
             ai_model, prompt, system_message, requested_output, input_tokens,
             window_tokens, output_cap, max_price,
         ):
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {"detail": "The model price or settings changed. Review the updated quote before submitting."},
                 status=status.HTTP_409_CONFLICT,
@@ -2634,7 +2647,7 @@ class MeteredPromptView(views.APIView):
                         scope="ai_prompt", operation_key=operation_key,
                     )
             except ledger.InsufficientFunds as exc:
-                idempotency.release(claim)
+                self.release_claim(claim)
                 return Response(
                     _ai_not_charged_payload(
                         ledger.insufficient_funds_payload(exc, action="ai_prompt")
@@ -2669,7 +2682,7 @@ class MeteredPromptView(views.APIView):
                 )
             except ledger.InsufficientFunds as settle_exc:
                 self.release_reservation(reservation)
-                idempotency.release(claim)
+                self.release_claim(claim)
                 return Response(
                     _ai_not_charged_payload(
                         ledger.insufficient_funds_payload(
@@ -2680,13 +2693,13 @@ class MeteredPromptView(views.APIView):
                 )
             except Exception:
                 self.release_reservation(reservation)
-                idempotency.release(claim)
+                self.release_claim(claim)
                 raise
             return error
         except Exception as exc:
             self.release_reservation(reservation)
             if claim is not None and _provider_rejected_before_generation(exc):
-                idempotency.release(claim)
+                self.release_claim(claim)
             return _ai_error_response(exc, model_label=str(ai_model))
 
         # STEP 2 -- settle the L2 reservation at the actual fixed price.
@@ -2736,7 +2749,7 @@ class MeteredPromptView(views.APIView):
             # Idempotent: a hold the sweep already returned is a no-op. Found
             # by the codex adversarial review.
             self.release_reservation(reservation)
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 _ai_not_charged_payload(
                     ledger.insufficient_funds_payload(exc, action="ai_prompt")
@@ -2749,7 +2762,7 @@ class MeteredPromptView(views.APIView):
             # may stay held. The error itself still surfaces as a 500 -- see
             # the note at the end of PromptResponseViewSet.create.
             self.release_reservation(reservation)
-            idempotency.release(claim)
+            self.release_claim(claim)
             raise
         return Response(data)
 

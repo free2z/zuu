@@ -128,7 +128,7 @@ support metered AI; `free2z_list_ai_models` reports whether it is enabled.
    fresh UUIDv4 idempotency key. The account must cover the quote before the
    provider is called. Retry a lost response with the same quote and key.
 4. Poll `free2z_get_ai_request` for the reply, token usage and exact charge.
-   Requests are asynchronous; polling never generates another paid response. Each account can have at most two live queued or running requests across its connections.
+   Requests are asynchronous. Polling may finalize the already-authorized charge from a retained result, but never calls the provider again or authorizes a new charge. Each account can have at most two live queued or running requests across its connections.
    `free2z_cancel_ai_request` prevents queued dispatch. A running provider call
    cannot be cancelled and settles within the quoted maximum.
 
@@ -137,7 +137,9 @@ so the charge increment is $0.00001. The model's quoted markup multiplier
 applies to its provider usage cost; for example, `1.5` means cost plus 50%.
 Reported usage is priced and capped at the quoted maximum, with unused reserved credits returned. Free2Z absorbs provider usage cost above that maximum; the quote is a spending ceiling, not a guarantee of the provider’s eventual invoice. Where a
 provider omits usage, the receipt identifies an estimate. Reasoning and cache
-categories follow the selected model's pricing rules. A provider error can have
+categories follow the selected model's pricing rules. A result awaiting settlement is withheld until its charge commits. Transient
+database failures retry settlement using the retained result; an expired hold
+produces a no-charge receipt and the answer stays withheld. A provider error can have
 billable usage; inspect the receipt before deciding whether to start a new call.
 An uncertain outcome is never automatically dispatched again.
 

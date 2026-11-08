@@ -139,7 +139,7 @@ def _owned(actor, request_id):
 
 def _result(row, actor):
     return {"account": actor.user.username, "request_id": str(row.pk),
-            "state": row.state, "quote": row.quote, "receipt": {k: v for k, v in row.receipt.items() if k != "_prepared"},
+            "state": row.state, "quote": row.quote, "receipt": {k: v for k, v in row.receipt.items() if not k.startswith("_")},
             "content_expires_at": row.content_expires_at.isoformat(),
             "content_purged": row.content_purged}
 
@@ -170,7 +170,7 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
         # authorized_actor holds the selected Creator lock, serializing this
         # account-wide limit across applications, connections and linked grants.
         live = Q(state="queued", quote_expires_at__gt=timezone.now()) | Q(
-            state="running", started_at__gt=timezone.now() - timedelta(minutes=20),
+            state__in=("running", "settle_pending"), started_at__gt=timezone.now() - timedelta(minutes=20),
         )
         if MCPAIRequest.objects.filter(live, account_grant__user=actor.user).count() >= 2:
             raise Throttled(wait=60, detail="This account already has two pending AI requests. Poll or cancel one before starting another.")
@@ -194,6 +194,9 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
 def get(raw, account, request_id, cancel=False):
     with bounded_transaction(), authorized_actor(raw, account, [SCOPE]) as actor:
         row = _owned(actor, request_id)
+        if row.state == "settle_pending" or "_prepared" in row.receipt:
+            recover_settlement(row.pk)
+            row.refresh_from_db()
         if row.state in {"running", "unknown"}:
             from dj.apps.tuzis.models import IdempotencyKey
             committed = IdempotencyKey.objects.filter(
@@ -239,7 +242,7 @@ class MCPMeteredPromptView(native.MeteredPromptView):
         # Save the already-generated result before contending for the money
         # lock. This is never authority to call the provider again.
         with bounded_transaction():
-            MCPAIRequest.objects.filter(pk=self.invocation_id).update(receipt={"_prepared": data})
+            MCPAIRequest.objects.filter(pk=self.invocation_id).update(receipt={"_prepared": data, "_prepared_status": response_status})
         for attempt in range(5):
             try:
                 return super().settle_result(
@@ -255,9 +258,17 @@ class MCPMeteredPromptView(native.MeteredPromptView):
     def claim_context(self):
         return bounded_transaction()
 
+    def has_prepared_result(self):
+        return MCPAIRequest.objects.filter(pk=self.invocation_id, receipt__has_key="_prepared").exists()
+
+    def release_claim(self, claim):
+        if not self.has_prepared_result():
+            return super().release_claim(claim)
+
     def release_reservation(self, reservation):
-        with bounded_transaction():
-            return native.ledger.release_reservation(reservation)
+        if not self.has_prepared_result():
+            with bounded_transaction():
+                return super().release_reservation(reservation)
 
     @contextmanager
     def reservation_context(self, request, ai_model, max_price):
@@ -285,10 +296,17 @@ def invoke(request_id):
             "access_token", "account_grant__user",
         ).get(pk=request_id)
         if row.state != "queued":
-            return row.state
-        row.state, row.started_at = "running", timezone.now()
-        row.save(update_fields=["state", "started_at"])
+            recover = row.state == "settle_pending" or "_prepared" in row.receipt
+            existing_state = row.state
+        else:
+            recover = False
+            existing_state = None
+        if existing_state is None:
+            row.state, row.started_at = "running", timezone.now()
+            row.save(update_fields=["state", "started_at"])
         intent, native_key, user, token = row.intent, row.native_key, row.account_grant.user, row.access_token
+    if existing_state is not None:
+        return recover_settlement(request_id) if recover else existing_state
     # The request row and every account lock are released before provider I/O.
     class Authentication(BaseAuthentication):
         def authenticate(self, request):
@@ -316,15 +334,69 @@ def invoke(request_id):
     except Exception:
         # Never log prompt/provider exception text or automatically re-dispatch.
         prepared = MCPAIRequest.objects.filter(pk=request_id).values_list("receipt", flat=True).first() or {}
-        receipt = {**prepared.get("_prepared", {}), "charge_status": "unknown", "tuzis_charged": None,
-                   "detail": "Settlement unavailable. The generated result is retained, but its charge is not confirmed. This request will not be sent again."}
-        state = "unknown"
+        if "_prepared" in prepared:
+            receipt = {**prepared, "charge_status": "pending", "tuzis_charged": None,
+                       "detail": "The generated result is retained privately while its authorized charge is settled. No provider call will be repeated."}
+            state = "settle_pending"
+        else:
+            receipt = {"charge_status": "unknown", "tuzis_charged": None,
+                       "detail": "Outcome unavailable. This request will not be sent again."}
+            state = "unknown"
     with bounded_transaction():
         row = MCPAIRequest.objects.select_for_update().get(pk=request_id)
         row.state, row.receipt, row.finished_at = state, receipt, timezone.now()
         row.content_expires_at = row.finished_at + timedelta(hours=24)
         row.save(update_fields=["state", "receipt", "finished_at", "content_expires_at"])
     return state
+
+
+def recover_settlement(request_id):
+    """Collect an existing hold and receipt, never obtain a fresh provider answer."""
+    from dj.apps.ledger import api as ledger_api
+    from dj.apps.tuzis.models import IdempotencyKey
+    initial = MCPAIRequest.objects.select_related("account_grant__user").get(pk=request_id)
+    user = initial.account_grant.user
+    try:
+        with bounded_transaction():
+            ledger_api.lock_creator(user.pk)
+            row = MCPAIRequest.objects.select_for_update().get(pk=request_id)
+            claim = IdempotencyKey.objects.filter(scope="mcp_ai_prompt", user=user, key=str(row.native_key)).first()
+            if claim is not None and claim.response_status is not None:
+                data, response_status = claim.response_body, claim.response_status
+            elif "_prepared" in row.receipt:
+                data = row.receipt["_prepared"]
+                response_status = row.receipt["_prepared_status"]
+                reservation = native._provider_reservation(user, row.native_key, "ai_prompt")
+                if reservation is None or claim is None:
+                    raise native.ledger.InsufficientFunds(user, Decimal(data["tuzis_charged"]))
+                view = MCPMeteredPromptView(invocation_id=row.pk)
+                model = AIModel(id=row.intent["model"])
+                view.settle_result(SimpleNamespace(user=user), model, reservation,
+                                   Decimal(data["tuzis_charged"]), claim, response_status, data)
+            else:
+                return row.state
+            row.receipt = {**data, "http_status": response_status}
+            row.state = "completed" if response_status == 200 else "failed"
+            row.finished_at = timezone.now()
+            row.content_expires_at = row.finished_at + timedelta(hours=24)
+            row.save(update_fields=["receipt", "state", "finished_at", "content_expires_at"])
+            return row.state
+    except DatabaseError:
+        return "settle_pending"
+    except native.ledger.InsufficientFunds:
+        # An expired/released hold cannot authorize a fresh debit. Keep the
+        # answer private, preserve the retry tombstone, and report no charge.
+        with bounded_transaction():
+            ledger_api.lock_creator(user.pk)
+            row = MCPAIRequest.objects.select_for_update().get(pk=request_id)
+            terminal = {"charge_status": "not_charged", "tuzis_charged": "0.000",
+                        "detail": "Settlement authorization expired; the provider result is withheld. This request will not be sent again."}
+            row.receipt = {**row.receipt, **terminal}
+            row.state, row.finished_at = "failed", timezone.now()
+            row.save(update_fields=["receipt", "state", "finished_at"])
+            if claim is not None:
+                claim.finish(409, terminal)
+        return "failed"
 
 
 def purge_content():
@@ -343,8 +415,9 @@ def purge_content():
             row.content_purged = True
             if row.state in {"quoted", "queued"}:
                 row.state = "expired"
-            elif row.state == "running":
+            elif row.state in {"running", "settle_pending"}:
                 row.state = "unknown"
+                row.receipt.update(charge_status="unknown", tuzis_charged=None)
             row.save(update_fields=["intent", "receipt", "content_purged", "state"])
             IdempotencyKey.objects.filter(scope="mcp_ai_prompt", key=str(row.native_key)).update(
                 response_body=RawSQL("response_body - 'response'", []),

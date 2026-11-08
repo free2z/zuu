@@ -311,9 +311,10 @@ def test_settlement_retries_real_creator_lock_contention_without_provider_retry(
     assert before - balance(user) == Decimal("0.003") and len(calls) == 1
 
 
-def test_exhausted_settlement_retains_result_and_does_not_regenerate(auth, user, model, generation, monkeypatch):
+def test_exhausted_settlement_recovers_charge_before_releasing_answer(auth, user, model, generation, monkeypatch):
     from django.db import OperationalError
     accepted = queued(auth, user, model)
+    original = ai.native.ledger.settle_reservation
     attempts = []
     def fail(*args, **kwargs):
         attempts.append(1)
@@ -321,12 +322,16 @@ def test_exhausted_settlement_retains_result_and_does_not_regenerate(auth, user,
         cause.sqlstate = "55P03"
         raise OperationalError("fixture lock timeout") from cause
     monkeypatch.setattr(ai.native.ledger, "settle_reservation", fail)
-    ai.invoke(accepted["request_id"])
-    ai.invoke(accepted["request_id"])
+    before = balance(user)
+    assert ai.invoke(accepted["request_id"]) == "settle_pending"
     receipt = ai.get(auth, user.username, accepted["request_id"])["receipt"]
-    assert receipt["response"] == "a useful answer" and receipt["charge_status"] == "unknown"
-    assert receipt["tuzis_charged"] is None
-    assert len(attempts) == 5 and len(generation) == 1
+    assert "response" not in receipt and receipt["charge_status"] == "pending"
+    assert len(attempts) == 10 and len(generation) == 1
+    monkeypatch.setattr(ai.native.ledger, "settle_reservation", original)
+    receipt = ai.get(auth, user.username, accepted["request_id"])["receipt"]
+    assert receipt["response"] == "a useful answer" and receipt["tuzis_charged"] == "0.003"
+    assert before - balance(user) == Decimal("0.003")
+    assert ai.invoke(accepted["request_id"]) == "completed" and len(generation) == 1
 
 
 def test_worker_marks_uncertain_outcome_failed_for_billing_health(auth, user, model, monkeypatch):
@@ -338,3 +343,33 @@ def test_worker_marks_uncertain_outcome_failed_for_billing_health(auth, user, mo
     with pytest.raises(RuntimeError, match="requires reconciliation"):
         invoke_mcp_ai(request_id=accepted["request_id"])
     assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "unknown"
+
+
+def test_expired_settlement_hold_withholds_answer_and_never_debits_again(auth, user, model, generation, monkeypatch):
+    from django.db import OperationalError
+    accepted = queued(auth, user, model)
+    original = ai.native.ledger.settle_reservation
+    def fail(*args, **kwargs):
+        cause = Exception("fixture rollback")
+        cause.sqlstate = "55P03"
+        raise OperationalError("fixture lock timeout") from cause
+    monkeypatch.setattr(ai.native.ledger, "settle_reservation", fail)
+    before = balance(user)
+    assert ai.invoke(accepted["request_id"]) == "settle_pending"
+    monkeypatch.setattr(ai.native.ledger, "settle_reservation", original)
+    row = MCPAIRequest.objects.get(pk=accepted["request_id"])
+    ai.native.ledger.release_reservation(ai.native._provider_reservation(user, row.native_key, "ai_prompt"))
+    result = ai.get(auth, user.username, row.pk)
+    assert result["state"] == "failed" and "response" not in result["receipt"]
+    assert result["receipt"]["tuzis_charged"] == "0.000" and balance(user) == before
+    assert ai.invoke(row.pk) == "failed" and len(generation) == 1
+
+
+def test_queue_retries_only_saved_settlement_and_prioritizes_it():
+    from types import SimpleNamespace
+    from dj.apps.oidc.tasks import MCPSettlementPending, MCPSettlementRetry
+    strategy = MCPSettlementRetry(max_attempts=10, wait=30, retry_exceptions=(MCPSettlementPending,))
+    decision = strategy.get_retry_decision(exception=MCPSettlementPending(), job=SimpleNamespace(attempts=1))
+    assert decision.priority == 100
+    assert strategy.get_retry_decision(exception=RuntimeError(), job=SimpleNamespace(attempts=1)) is None
+    assert strategy.get_retry_decision(exception=MCPSettlementPending(), job=SimpleNamespace(attempts=10)) is None

@@ -205,9 +205,9 @@ def create_server(raw_token, original_request):
         from .ai import start
         return await _call(start, raw_token, account, quote_token, max_charge_tuzis, str(idempotency_key))
 
-    @server.tool(annotations=READ_ONLY)
+    @server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True))
     async def free2z_get_ai_request(account: Account, request_id: UUID) -> CallToolResult:
-        """Poll an AI request for its result, token usage and exact 2Z charge receipt. Polling never starts another provider call. Prompts/results expire; billing and retry tombstones persist."""
+        """Poll an AI request for its result, token usage and exact 2Z charge receipt. Polling may finalize its already-authorized charge from a retained result; it never starts another provider call. Prompts/results expire; billing and retry tombstones persist."""
         from .ai import get
         return await _call(get, raw_token, account, request_id)
 
