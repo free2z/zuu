@@ -128,7 +128,7 @@ support metered AI; `free2z_list_ai_models` reports whether it is enabled.
    fresh UUIDv4 idempotency key. The account must cover the quote before the
    provider is called. Retry a lost response with the same quote and key.
 4. Poll `free2z_get_ai_request` for the reply, token usage and exact charge.
-   Requests are asynchronous; polling never generates another paid response.
+   Requests are asynchronous; polling never generates another paid response. Each account can have at most two live queued or running requests across its connections.
    `free2z_cancel_ai_request` prevents queued dispatch. A running provider call
    cannot be cancelled and settles within the quoted maximum.
 
@@ -152,6 +152,7 @@ idempotency metadata persist after content expiry. Provider privacy links are
 included in the catalogue.
 
 For deployment operators, `MCP_AI_ENABLED` defaults to false. Apply migrations
-and deploy all default-queue workers with the `oidc.invoke_mcp_ai` task registered
-before enabling admission. Populate provider discovery and reviewed prices;
+and deploy dedicated `mcp-ai` queue workers with the `oidc.invoke_mcp_ai` task
+registered before enabling admission. Keep this queue separate from general
+background work and bound its worker concurrency. Populate provider discovery and reviewed prices;
 unlisted, unpriced or expired-price models must not be offered.

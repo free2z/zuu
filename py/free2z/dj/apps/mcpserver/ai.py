@@ -10,9 +10,10 @@ from uuid import UUID
 from django.conf import settings
 from django.core import signing
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
 
 from dj.apps.oidc.mcp import authorized_actor, record_action
 from dj.apps.oidc.models import MCPAIRequest
@@ -156,6 +157,13 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
             return _result(prior, actor)
         if row.state != "quoted":
             raise ValidationError("This quote has already been used; poll its request ID.")
+        # authorized_actor holds the selected Creator lock, serializing this
+        # account-wide limit across applications, connections and linked grants.
+        live = Q(state="queued", quote_expires_at__gt=timezone.now()) | Q(
+            state="running", started_at__gt=timezone.now() - timedelta(minutes=20),
+        )
+        if MCPAIRequest.objects.filter(live, account_grant__user=actor.user).count() >= 2:
+            raise Throttled(wait=60, detail="This account already has two pending AI requests. Poll or cancel one before starting another.")
         if row.quote_expires_at <= timezone.now() or row.content_purged:
             raise ValidationError("Quote expired; request a fresh quote.")
         if ceiling < Decimal(row.quote["max_charge_tuzis"]):
@@ -282,6 +290,7 @@ def invoke(request_id):
 def purge_content():
     """Bound prompt/result retention without deleting billing/retry identity."""
     from dj.apps.tuzis.models import IdempotencyKey
+    from django.db.models.expressions import RawSQL
     due = MCPAIRequest.objects.filter(content_purged=False, content_expires_at__lte=timezone.now())
     for pk in due.values_list("pk", flat=True).iterator(chunk_size=500):
         with transaction.atomic():
@@ -297,5 +306,12 @@ def purge_content():
                 row.state = "unknown"
             row.save(update_fields=["intent", "receipt", "content_purged", "state"])
             IdempotencyKey.objects.filter(scope="mcp_ai_prompt", key=str(row.native_key)).update(
-                response_body={"detail": "Result content expired; request will not be dispatched again."},
+                response_body=RawSQL("response_body - 'response'", []),
             )
+
+    # Connections/grants can be deleted independently of the billed account.
+    # Scrub orphaned native receipts too; their financial metadata survives.
+    IdempotencyKey.objects.filter(
+        scope="mcp_ai_prompt", created_at__lte=timezone.now() - timedelta(hours=24),
+        response_body__has_key="response",
+    ).update(response_body=RawSQL("response_body - 'response'", []))

@@ -77,7 +77,7 @@ def reevaluate_ai_report_surges(timestamp: int = 0):
     logger.info("oidc: AI output report surge re-evaluated for %s app(s)", evaluated)
 
 
-@app.task(name="oidc.invoke_mcp_ai", queue="default", retry=False)
+@app.task(name="oidc.invoke_mcp_ai", queue="mcp-ai", retry=False)
 def invoke_mcp_ai(request_id: str):
     """Queue arguments contain only an opaque invocation ID, never a prompt."""
     from dj.apps.mcpserver.ai import invoke

@@ -2315,6 +2315,30 @@ class MeteredPromptView(views.APIView):
         """Internal callers can recheck authority atomically with the hold."""
         return nullcontext()
 
+    def metering_details(self, ai_model, input_tokens, output_tokens, usage, max_price):
+        if self.pricing_quantum is None:
+            return {}
+        cache_usage = {
+            name: getattr(usage, name, 0) for name in (
+                "cached_input_tokens", "cache_write_tokens", "cache_write_1h_tokens",
+            )
+        }
+        source = "estimate" if usage is None else (
+            "provider" if getattr(usage, "input_tokens", None) is not None
+            else "provider_with_input_estimate"
+        )
+        return {
+            "charge_status": "settled", "provider": ai_model.provider, "model": ai_model.model,
+            "max_charge_tuzis": str(max_price), "input_tokens": input_tokens,
+            "settlement_output_tokens": output_tokens, "usage_source": source,
+            "cache_usage": cache_usage,
+            "provider_usage_cost_usd": str(
+                ai_model.get_provider_input_cost(input_tokens, **cache_usage)
+                + Decimal(output_tokens) * Decimal(str(ai_model.output_price))
+            ),
+            "markup_multiplier": str(ai_model.markup),
+        }
+
 
     # Issue: opt OUT of `AtomicMiddleware`'s request-wide transaction.
     # The provider call below is 10-90s of third-party I/O and must not hold
@@ -2615,6 +2639,9 @@ class MeteredPromptView(views.APIView):
                     ai_model, exc.input_tokens, exc.settlement_output_tokens,
                     max_price, endpoint="ai_prompt", user_id=request.user.pk, usage=exc.usage, quantum=self.pricing_quantum)
                 error = _ai_settled_interruption_response(error, price, fractional=self.pricing_quantum is not None)
+                error.data.update(self.metering_details(
+                    ai_model, exc.input_tokens, exc.settlement_output_tokens, exc.usage, max_price,
+                ))
                 with transaction.atomic():
                     ledger.settle_reservation(reservation, amount=price)
                     Event.objects.create(
@@ -2684,24 +2711,9 @@ class MeteredPromptView(views.APIView):
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }
-            if self.pricing_quantum is not None:
-                cache_usage = {
-                    name: getattr(usage, name, 0) for name in (
-                        "cached_input_tokens", "cache_write_tokens", "cache_write_1h_tokens",
-                    )
-                }
-                data.update({
-                    "charge_status": "settled",
-                    "max_charge_tuzis": str(max_price),
-                    "settlement_output_tokens": generation.settlement_output_tokens,
-                    "usage_source": "provider" if usage is not None else "estimate",
-                    "cache_usage": cache_usage,
-                    "provider_usage_cost_usd": str(
-                        ai_model.get_provider_input_cost(input_tokens, **cache_usage)
-                        + Decimal(generation.settlement_output_tokens) * Decimal(str(ai_model.output_price))
-                    ),
-                    "markup_multiplier": str(ai_model.markup),
-                })
+            data.update(self.metering_details(
+                ai_model, input_tokens, generation.settlement_output_tokens, usage, max_price,
+            ))
             with transaction.atomic():
                 ledger.settle_reservation(reservation, amount=price)
                 Event.objects.create(

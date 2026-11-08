@@ -156,6 +156,8 @@ def test_provider_errors_never_redispatch(auth, user, model, monkeypatch, interr
     assert result["state"] == ("failed" if interrupted else "unknown"), result
     if interrupted:
         assert result["receipt"]["tuzis_charged"] == "0.003"
+        assert result["receipt"]["input_tokens"] == 10
+        assert result["receipt"]["settlement_output_tokens"] == 2
         assert before - balance(user) == Decimal("0.003")
     ai.invoke(accepted["request_id"])
     assert len(calls) == 1
@@ -173,7 +175,8 @@ def test_retention_retry_tombstone_and_committed_receipt_recovery(auth, user, mo
     ai.purge_content()
     row.refresh_from_db()
     assert row.intent == {} and "response" not in row.receipt and row.content_purged
-    assert "response" not in IdempotencyKey.objects.get(scope="mcp_ai_prompt", key=str(row.native_key)).response_body
+    native_receipt = IdempotencyKey.objects.get(scope="mcp_ai_prompt", key=str(row.native_key)).response_body
+    assert "response" not in native_receipt and native_receipt["tuzis_charged"] == "0.003"
     ai.invoke(row.pk)
     assert len(generation) == 1
 
@@ -227,14 +230,16 @@ def test_provider_usage_above_quote_is_clamped_to_fractional_ceiling(auth, user,
 
 @pytest.mark.django_db(transaction=True)
 def test_real_queue_arguments_commit_and_rollback_with_invocation(auth, user, model, monkeypatch):
+    import json
     from django.db import connection, transaction
     monkeypatch.undo()  # Use the registered task's real Django connector.
     quote = quoted(auth, user, model)
     key = str(uuid4())
+    quote_id = ai.signing.loads(quote["quote_token"], salt=ai.SALT)
     def jobs():
         with connection.cursor() as cursor:
-            cursor.execute("SELECT args FROM procrastinate_jobs WHERE task_name = %s", ["oidc.invoke_mcp_ai"])
-            return cursor.fetchall()
+            cursor.execute("SELECT args FROM procrastinate_jobs WHERE task_name = %s AND args->>'request_id' = %s", ["oidc.invoke_mcp_ai", quote_id])
+            return [(json.loads(row[0]),) for row in cursor.fetchall()]
     with pytest.raises(RuntimeError, match="rollback fixture"):
         with transaction.atomic():
             accepted = ai.start(auth, user.username, quote["quote_token"], quote["max_charge_tuzis"], key)
@@ -245,3 +250,28 @@ def test_real_queue_arguments_commit_and_rollback_with_invocation(auth, user, mo
     accepted = ai.start(auth, user.username, quote["quote_token"], quote["max_charge_tuzis"], key)
     assert jobs() == [({"request_id": accepted["request_id"]},)]
     assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "queued"
+
+
+def test_retention_scrubs_orphaned_native_receipt(auth, user, model, generation):
+    accepted = queued(auth, user, model)
+    ai.invoke(accepted["request_id"])
+    row = MCPAIRequest.objects.get(pk=accepted["request_id"])
+    key = row.native_key
+    row.delete()
+    IdempotencyKey.objects.filter(scope="mcp_ai_prompt", key=str(key)).update(created_at=timezone.now()-timedelta(hours=25))
+    ai.purge_content()
+    receipt = IdempotencyKey.objects.get(scope="mcp_ai_prompt", key=str(key)).response_body
+    assert "response" not in receipt and receipt["tuzis_charged"] == "0.003"
+
+
+def test_pending_limit_is_account_wide_and_retry_does_not_consume_capacity(auth, signed_in, user, model):
+    first = queued(auth, user, model)
+    second_connection = issue(signed_in, user)[2]["access_token"]
+    second = queued(second_connection, user, model)
+    quote = quoted(second_connection, user, model)
+    with pytest.raises(APIException) as error:
+        ai.start(second_connection, user.username, quote["quote_token"], quote["max_charge_tuzis"], str(uuid4()))
+    assert error.value.status_code == 429
+    ai.get(auth, user.username, first["request_id"], True)
+    assert ai.start(second_connection, user.username, quote["quote_token"], quote["max_charge_tuzis"], str(uuid4()))["state"] == "queued"
+    assert MCPAIRequest.objects.get(pk=second["request_id"]).state == "queued"

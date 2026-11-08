@@ -3318,5 +3318,5 @@ if os.getenv('ENABLE_DEBUG_TOOLBAR', False):
     INSTALLED_APPS += ['debug_toolbar']
     MIDDLEWARE += ['debug_toolbar.middleware.DebugToolbarMiddleware']
 
-# Enable only after every default-queue worker registers oidc.invoke_mcp_ai.
+# Enable only after dedicated mcp-ai workers register oidc.invoke_mcp_ai.
 MCP_AI_ENABLED = _boolean_env("MCP_AI_ENABLED", False)
