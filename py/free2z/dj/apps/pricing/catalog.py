@@ -643,6 +643,9 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     card = active_rate_card()
     # BEFORE the content -- see the module docstring. Do not move.
     revision = content_revision(card, now_unix)
+    # Accepted clock skew can put issued_at ahead of now. A model's price
+    # must cover the document's actual expiry, not merely now + validity.
+    price_horizon = max(now_unix, revision // VERSION_UNITS_PER_SECOND) + VALIDITY_SECONDS
     rows = {row.model_id: row for row in card.model_rows.all()}
     disabled = sorted(POLICY_DISABLED_PROVIDERS)
     candidates = []
@@ -660,7 +663,7 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
             continue
         if ai_model.price_valid_until is not None:
             expiry = int(ai_model.price_valid_until.timestamp())
-            if expiry <= now_unix + VALIDITY_SECONDS:
+            if expiry <= price_horizon:
                 continue
         row = rows.get(ai_model.model)
         if row is None:
