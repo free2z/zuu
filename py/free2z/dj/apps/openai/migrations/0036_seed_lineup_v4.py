@@ -150,6 +150,11 @@ def seed(apps, schema_editor):
     created_ids = []
     for (provider, model, display_name, input_price, output_price, max_tokens,
          max_output_tokens, max_response_tokens, order, is_ga) in LINEUP:
+        # Preserve the existing gateway fence introduced by 0030. LINEUP
+        # records provider specifications; the service deliberately offers less.
+        if provider == "openai" and model == "gpt-4.1":
+            max_tokens = min(max_tokens, 128000)
+            max_response_tokens = min(max_response_tokens, 16384)
         permitted = provider not in POLICY_DISABLED_PROVIDERS
         declared = (provider, model) in STRUCTURED_OUTPUT_MODELS
         existing = AIModel.objects.filter(provider=provider, model=model).first()

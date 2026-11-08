@@ -1660,7 +1660,8 @@ def test_schema2_ttl_publication_preserves_v1(sample_dataset, at_sample_now):
 
 
 def test_catalog_drops_promotion_early_and_preserves_full_validity(sample_dataset):
-    cutoff = SAMPLE_NOW + 3600
+    cutoff = SAMPLE_NOW + 1
+    assert catalog.window_start(cutoff) == catalog.window_start(SAMPLE_NOW)
     expiry = cutoff + catalog.VALIDITY_SECONDS
     AIModel.objects.filter(model="gpt-5.6-luna").update(price_valid_until=_at(expiry))
     document = catalog.build_catalog(SAMPLE_NOW)
@@ -1671,7 +1672,7 @@ def test_catalog_drops_promotion_early_and_preserves_full_validity(sample_datase
     assert "gpt-5.6-luna" not in {m["id"] for m in after["models"]}
     assert after["version"] > document["version"]
     assert after["expires_at"] == after["issued_at"] + catalog.VALIDITY_SECONDS
-    assert after["expires_at"] >= expiry - 3600
+    assert after["expires_at"] == expiry
     assert {m["id"] for m in after["models"]} == {m["id"] for m in document["models"]} - {"gpt-5.6-luna"}
 
 
