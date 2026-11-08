@@ -370,6 +370,16 @@ REASONING_EFFORT_LEVELS = {
     (XAI, "grok-4.5"): ("low", "medium", "high"),
 }
 
+# Reasoning is independent of the adapter's ability to select an effort.
+# In particular, interrupted gateway settlement must reserve hidden output
+# for Grok Build and Grok 4.20 Reasoning even though no effort is exposed.
+REASONING_MODELS = frozenset(REASONING_EFFORT_LEVELS) | {
+    (XAI, "grok-4.20-0309-reasoning"), (XAI, "grok-build-0.1"),
+    (ANTHROPIC, "claude-fable-5-1"), (ANTHROPIC, "claude-fable-5"),
+    (ANTHROPIC, "claude-opus-5-5"), (ANTHROPIC, "claude-opus-5"),
+    (ANTHROPIC, "claude-sonnet-5-5"), (ANTHROPIC, "claude-haiku-5-5"),
+}
+
 # Signed ``ttfb_timeout_ms`` / ``idle_timeout_ms`` for OpenAI's
 # silent-reasoning families (migration
 # ``0029_reasoning_idle_timeouts``). A reasoning model streams nothing while
@@ -587,8 +597,10 @@ class Command(BaseCommand):
                 "display_name": display_name,
                 "system_message": GENERIC_SYSTEM_MESSAGE,
                 "max_tokens": window,
-                "max_output_tokens": min(max_output_tokens, window),
-                "max_response_tokens": min(max_response_tokens, window),
+                "max_output_tokens": min(max_output_tokens, window,
+                    existing.max_output_tokens if existing and existing.max_output_tokens > 0 else max_output_tokens),
+                "max_response_tokens": min(max_response_tokens, window,
+                    existing.max_response_tokens if existing and existing.max_response_tokens > 0 else max_response_tokens),
                 "order": order,
                 "is_ga": effective_is_ga,
             }
@@ -624,7 +636,7 @@ class Command(BaseCommand):
                     "supports_structured_output": (provider, model) in STRUCTURED_OUTPUT_MODELS,
                     "supports_tools": (provider, model) in TOOL_MODELS,
                     "supports_strict_tools": (provider, model) in STRICT_TOOL_MODELS,
-                    "supports_reasoning": (provider, model) in REASONING_EFFORT_LEVELS or model.startswith(("claude-fable-", "claude-opus-5")),
+                    "supports_reasoning": (provider, model) in REASONING_MODELS,
                     "supports_reasoning_effort": (provider, model) in REASONING_EFFORT_LEVELS,
                     "tools_require_effort_none": (provider, model) in TOOLS_REQUIRE_EFFORT_NONE,
                     "reasoning_effort_levels": list(

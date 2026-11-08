@@ -651,8 +651,12 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     for ai_model in catalogue_models():
         exclusion = GATEWAY_MODEL_EXCLUSIONS.get((ai_model.provider, ai_model.model))
         if exclusion:
-            log_model_excluded(ai_model.model, ai_model.provider, exclusion,
-                               "Text is supported through Django/MCP; gateway controls need review")
+            logger.info(
+                "Gateway model intentionally excluded: %s/%s (%s)",
+                ai_model.provider, ai_model.model, exclusion,
+                extra={"event": "ai_catalog_model_intentionally_excluded", "model": ai_model.model,
+                       "provider": ai_model.provider, "reason": exclusion},
+            )
             continue
         if ai_model.price_valid_until is not None:
             expiry = int(ai_model.price_valid_until.timestamp())
