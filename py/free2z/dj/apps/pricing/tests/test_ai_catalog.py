@@ -1701,3 +1701,13 @@ def test_new_grok_reasoning_is_signed_independently_of_effort_controls(db):
         assert rows[name]["capabilities"]["reasoning"] is True
         assert rows[name]["capabilities"]["reasoning_effort"] is False
     assert rows["grok-4.20-0309-non-reasoning"]["capabilities"]["reasoning"] is False
+
+
+def test_promotional_price_covers_catalog_expiry_even_with_accepted_clock_skew(sample_dataset):
+    expiry = SAMPLE_NOW + catalog.VALIDITY_SECONDS + 60
+    AIModel.objects.filter(model="gpt-5.6-luna").update(
+        price_valid_until=_at(expiry), updated_at=_at(SAMPLE_NOW + 120))
+    document = catalog.build_catalog(SAMPLE_NOW)
+    assert document["issued_at"] == SAMPLE_NOW + 120
+    assert "gpt-5.6-luna" not in {row["id"] for row in document["models"]}
+    assert document["expires_at"] == document["issued_at"] + catalog.VALIDITY_SECONDS
