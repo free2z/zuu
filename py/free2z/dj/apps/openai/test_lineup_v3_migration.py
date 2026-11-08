@@ -329,7 +329,8 @@ def test_the_public_model_list_fits_on_one_page(settings, api_client):
     _seed_historical_lineup()
     response = api_client.get("/api/ai/models/")
     assert response.status_code == 200
-    openai_rows = [m for p, m, *_ in seed.LINEUP if p == OPENAI and not model_is_retired(p, m)]
+    openai_rows = [m for p, m, *_ in seed.LINEUP
+                   if p == OPENAI and not model_is_retired(p, m) and m != "gpt-5.6-sol"]
     assert response.data["count"] == len(openai_rows)
     assert len(response.data["results"]) == len(openai_rows)
     assert response.data["next"] is None

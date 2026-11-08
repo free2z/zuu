@@ -48,12 +48,21 @@ cost 5%. The adapter's default OpenAI cache retention uses the published
 30-minute write rate, 1.25 times input. The interface does not request the
 12-hour premium retention mode.
 
-GPT-5.6 Sol's promotional price expires in Free2Z at **2026-11-21 00:00 UTC**.
-After that instant, requests are unavailable until the price is reviewed again.
-The signed gateway stops offering the promotional model 72 hours before its
-price expires. Every signed catalog retains its full 72-hour validity, so one
+GPT-5.6 Sol is **disabled pending guarded activation**. Its reviewed promotional
+price is staged in the database, but the migration turns off this alias and
+ordinary reseeding preserves that switch. This also disables an operator pin
+stored on that same alias; independently named snapshot rows are unaffected.
+Other models can be deployed without activating the promotion.
+
+Activate it only through a separately reviewed release after every permitted
+rollback image enforces price expiry. Keep that rollback floor in the release
+record. If a pre-guard rollback is required, disable the alias before restoring
+the older image. The promotional price expires at **2026-11-21 00:00 UTC**;
+after that instant the model needs a new price review before activation.
+After guarded activation, the signed gateway stops offering the model 72 hours
+before its price expires. Every signed catalog retains its full 72-hour validity, so one
 model's deadline cannot shorten other models' protection during a catalog
-service outage. Django/MCP continues to offer the model until its actual price
+service outage. Django/MCP can offer the activated model until its actual price
 expiry. Review promotional rates before these deadlines. A new immutable card and
 reviewed validity update are required to extend or change the price.
 

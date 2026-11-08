@@ -627,7 +627,7 @@ class Command(BaseCommand):
                 create_defaults={
                     **defaults,
                     "markup": DEFAULT_MARKUP,
-                    "is_enabled": permitted,
+                    "is_enabled": permitted and (provider, model) != (OPENAI, "gpt-5.6-sol"),
                     **({"sampling_temperature": False, "sampling_top_p": False}
                        if model in NO_SAMPLING_MODELS else {}),
                     # Declared capability, written on CREATE only (0024's
