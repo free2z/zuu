@@ -111,3 +111,14 @@ def test_derived_anthropic_alias_preserves_deprecation():
         id="claude-test-20260101", metadata={"lifecycle": "deprecated"})])[0]
     assert alias.id == "claude-test"
     assert alias.metadata["lifecycle"] == "deprecated"
+
+
+@pytest.mark.parametrize("text", ["hello " * 17000, "🦀" * 25000])
+def test_haiku_tier_budget_rejects_prompts_an_openai_tokenizer_underestimates(text):
+    from .models import count_prompt_tokens, num_tokens_from_messages
+    messages = [{"role": "user", "content": text}]
+    row = next(row for row in LINEUP if row[1] == "claude-haiku-5-5")
+    assert num_tokens_from_messages(messages, "claude-haiku-5-5") < row[5]
+    budget = count_prompt_tokens(messages, "claude-haiku-5-5")
+    assert budget >= len(text.encode("utf-8")) + 256
+    assert budget > row[5]  # shared quote/dispatch context admission refuses it

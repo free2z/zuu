@@ -319,6 +319,16 @@ def count_prompt_tokens(messages, model):
     max is a slightly earlier trim on ordinary prose; the alternative is a
     reproducible undercharge.
     """
+    # Haiku 5.5 changes the price of the WHOLE request above 100K input
+    # tokens. Its tokenizer is not an OpenAI encoding: a 15% multiplier on
+    # tiktoken is not a defensible tier boundary. Budget UTF-8 bytes instead,
+    # plus conservative framing allowances. This deliberately rejects some
+    # prompts the provider could accept; settlement still uses provider usage.
+    if model == "claude-haiku-5-5":
+        return 256 + sum(
+            32 + sum(len(value.encode("utf-8")) for value in message.values())
+            for message in messages
+        )
     encodings = _budget_encodings(model)
     if not encodings:
         return num_tokens_from_messages(messages, model)
