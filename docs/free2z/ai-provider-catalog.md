@@ -50,11 +50,11 @@ cost 5%. The adapter's default OpenAI cache retention uses the published
 
 GPT-5.6 Sol's promotional price expires in Free2Z at **2026-11-21 00:00 UTC**.
 After that instant, requests are unavailable until the price is reviewed again.
-Signed catalogs expire no later than the promotion. Refresh the gateway's
-catalog before the cutover and verify the next refresh succeeds: every gateway
-model pauses while an expired catalog awaits replacement (normally up to one
-poll interval, longer if the catalog service is unavailable). Django/MCP expiry
-is per model. A new immutable card and
+The signed gateway stops offering the promotional model 72 hours before its
+price expires. Every signed catalog retains its full 72-hour validity, so one
+model's deadline cannot shorten other models' protection during a catalog
+service outage. Django/MCP continues to offer the model until its actual price
+expiry. Review promotional rates before these deadlines. A new immutable card and
 reviewed validity update are required to extend or change the price.
 
 OpenAI's tiered models charge higher rates above 272,000 input tokens, xAI

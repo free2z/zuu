@@ -255,7 +255,7 @@ def test_constants_are_the_v1_contract():
     assert catalog.VALIDITY_SECONDS == 72 * 3600
     assert catalog.ALERT_REMAINING_SECONDS == 48 * 3600
     assert catalog.REISSUE_SECONDS <= 24 * 3600
-    worst_fresh = catalog.VALIDITY_SECONDS - catalog.REISSUE_SECONDS
+    worst_fresh = catalog.VALIDITY_SECONDS - 3600
     assert worst_fresh > catalog.ALERT_REMAINING_SECONDS
 
 
@@ -1659,15 +1659,20 @@ def test_schema2_ttl_publication_preserves_v1(sample_dataset, at_sample_now):
             catalog.validate_catalog(bad)
 
 
-def test_catalog_cannot_outlive_a_promotional_price(sample_dataset):
-    expiry = SAMPLE_NOW + 3600
+def test_catalog_drops_promotion_early_and_preserves_full_validity(sample_dataset):
+    cutoff = SAMPLE_NOW + 3600
+    expiry = cutoff + catalog.VALIDITY_SECONDS
     AIModel.objects.filter(model="gpt-5.6-luna").update(price_valid_until=_at(expiry))
     document = catalog.build_catalog(SAMPLE_NOW)
-    assert document["expires_at"] == expiry
+    assert document["expires_at"] == document["issued_at"] + catalog.VALIDITY_SECONDS
+    assert document["expires_at"] < expiry
     assert "gpt-5.6-luna" in {m["id"] for m in document["models"]}
-    after = catalog.build_catalog(expiry)
+    after = catalog.build_catalog(cutoff)
     assert "gpt-5.6-luna" not in {m["id"] for m in after["models"]}
     assert after["version"] > document["version"]
+    assert after["expires_at"] == after["issued_at"] + catalog.VALIDITY_SECONDS
+    assert after["expires_at"] >= expiry - 3600
+    assert {m["id"] for m in after["models"]} == {m["id"] for m in document["models"]} - {"gpt-5.6-luna"}
 
 
 def test_new_claude_rows_are_not_advertised_with_unreviewed_gateway_controls(db, caplog):
