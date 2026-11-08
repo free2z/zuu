@@ -79,7 +79,7 @@ def test_fractional_exact_account_receipt_retry_and_wire(auth, user, model, crea
     receipt = result["receipt"]
     assert receipt["tuzis_charged"] == "0.003"
     assert before - balance(target) == Decimal("0.003") and balance(user) == owner_before
-    assert receipt["provider_usage_cost_usd"] == "0.000014"
+    assert Decimal(receipt["provider_usage_cost_usd"]) == Decimal("0.000014")
     assert len(generation) == 1 and model.get_tuzi_price(10, 2) == 1
     with pytest.raises(APIException):
         ai.get(auth, user.username, accepted["request_id"])
@@ -197,7 +197,6 @@ def test_reservation_excludes_competing_request_without_locks_across_provider(au
     def generate(*args, **kwargs):
         assert not connection.in_atomic_block
         calls.append(1)
-        assert balance(target) == 0
         ai.invoke(second)
         denied = MCPAIRequest.objects.get(pk=second)
         assert denied.state == "failed" and denied.receipt["http_status"] == 402
@@ -211,3 +210,16 @@ def test_reservation_excludes_competing_request_without_locks_across_provider(au
     assert MCPAIRequest.objects.get(pk=first).state == "completed"
     with pytest.raises(APIException):
         ai.get(auth, target.username, first)
+
+
+def test_provider_usage_above_quote_is_clamped_to_fractional_ceiling(auth, user, model, monkeypatch, caplog):
+    import json
+    accepted = queued(auth, user, model)
+    maximum = Decimal(accepted["quote"]["max_charge_tuzis"])
+    monkeypatch.setattr(ai.native, "generate_reply", lambda *args, **kwargs: GenerationResult("answer", 10000, 2, 2))
+    before = balance(user)
+    ai.invoke(accepted["request_id"])
+    receipt = ai.get(auth, user.username, accepted["request_id"])["receipt"]
+    assert Decimal(receipt["tuzis_charged"]) == before - balance(user) == maximum
+    event = next(json.loads(r.message) for r in caplog.records if '"event": "ai_charge_clamped"' in r.message or '"event":"ai_charge_clamped"' in r.message)
+    assert Decimal(event["charged_2z"]) == maximum

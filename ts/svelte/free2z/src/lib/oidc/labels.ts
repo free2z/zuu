@@ -46,7 +46,10 @@ export function scopeLabel(
         "Use AI features that spend your 2Z credits; an app budget is optional",
       );
     case "mcp:ai":
-      return t("oauth.scopes.mcpAI", "Send prompts to AI providers and spend your 2Z credits up to each request’s quoted maximum");
+      return t(
+        "oauth.scopes.mcpAI",
+        "Send prompts to AI providers and spend your 2Z credits up to each request’s quoted maximum",
+      );
     case "mcp:read":
       return t(
         "oauth.scopes.mcpRead",

@@ -236,7 +236,7 @@ class MCPMeteredPromptView(native.MeteredPromptView):
 def invoke(request_id):
     """At most one dispatch, even if the queue redelivers after worker death."""
     with transaction.atomic():
-        row = MCPAIRequest.objects.select_for_update().select_related(
+        row = MCPAIRequest.objects.select_for_update(of=("self",)).select_related(
             "access_token", "account_grant__user",
         ).get(pk=request_id)
         if row.state != "queued":
@@ -258,6 +258,11 @@ def invoke(request_id):
         import json
         from django.core.serializers.json import DjangoJSONEncoder
         receipt = json.loads(json.dumps(response.data, cls=DjangoJSONEncoder))
+        if not isinstance(receipt, dict):
+            receipt = {"detail": receipt}
+        if response.status_code < 500 and response.status_code != 200:
+            receipt.setdefault("charge_status", "not_charged")
+            receipt.setdefault("tuzis_charged", "0.000")
         receipt["http_status"] = response.status_code
         state = "completed" if response.status_code == 200 else "failed"
         # A generic provider failure can mean its acceptance was unobservable.

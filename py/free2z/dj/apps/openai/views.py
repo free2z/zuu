@@ -2153,7 +2153,9 @@ def charge_clamped_payload(ai_model, input_tokens, output_tokens, metered,
         )
         + Decimal(int(output_tokens)) * Decimal(str(ai_model.output_price))
     ) * 100
-    absorbed = max(Decimal(0), provider_cost - Decimal(int(charged)))
+    absorbed = max(Decimal(0), provider_cost - Decimal(str(charged)))
+    # Preserve fractional MCP amounts in telemetry without changing legacy integers.
+    money = str if isinstance(metered, Decimal) else int
     return {
         "severity": "WARNING",
         "message": (
@@ -2170,9 +2172,9 @@ def charge_clamped_payload(ai_model, input_tokens, output_tokens, metered,
         "input_tokens": int(input_tokens),
         "output_tokens": int(output_tokens),
         "reasoning_allowance_tokens": ai_model.get_reasoning_allowance(),
-        "metered_2z": int(metered),
-        "charged_2z": int(charged),
-        "uncharged_2z": int(metered) - int(charged),
+        "metered_2z": money(metered),
+        "charged_2z": money(charged),
+        "uncharged_2z": money(metered - charged),
         "provider_cost_2z": float(round(provider_cost, 3)),
         "absorbed_2z": float(round(absorbed, 3)),
     }

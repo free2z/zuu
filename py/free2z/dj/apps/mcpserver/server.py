@@ -194,7 +194,7 @@ def create_server(raw_token, original_request):
         return await _call(list_models, raw_token, account)
 
     @server.tool(annotations=WRITE)
-    async def free2z_quote_ai(account: Account, model: UUID, prompt: Annotated[str, Field(min_length=1, max_length=100000)], max_output_tokens: Annotated[int, Field(ge=1, le=100000)], system_message: Annotated[str, Field(max_length=100000)] | None = None) -> CallToolResult:
+    async def free2z_quote_ai(account: Account, model: UUID, prompt: Annotated[str, Field(min_length=1, max_length=100000)], max_output_tokens: Annotated[int, Field(ge=1, le=1000000)], system_message: Annotated[str, Field(max_length=100000)] | None = None) -> CallToolResult:
         """Prepare a free 15-minute quote for one text prompt. Read its provider, markup and maximum charge before authorizing spending with start_ai. Prompt content is retained for up to 24 hours plus the hourly cleanup interval."""
         from .ai import quote
         return await _call(quote, raw_token, account, str(model), prompt, max_output_tokens, system_message)
