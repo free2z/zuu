@@ -271,7 +271,8 @@ def test_a_throttle_that_names_reasoning_effort_is_not_retried():
 # --------------------------------------------------------------------------- #
 def test_only_xai_rows_carry_a_reasoning_allowance():
     """OpenAI and Anthropic caps bound reasoning, so their admission price is
-    unchanged. Every seeded xAI row gets an allowance."""
+    unchanged. Reasoning xAI rows get an allowance; the reviewed
+    non-reasoning model needs none."""
     for (provider, model, _d, in_p, out_p, max_tok, reserve, limit, _o,
          _ga) in LINEUP:
         ai_model = AIModel(
@@ -280,7 +281,7 @@ def test_only_xai_rows_carry_a_reasoning_allowance():
             max_response_tokens=limit, input_price=Decimal(in_p),
             output_price=Decimal(out_p), markup=Decimal("1.5"))
         allowance = ai_model.get_reasoning_allowance()
-        if provider == "xai":
+        if provider == "xai" and model != "grok-4.20-0309-non-reasoning":
             assert allowance > 0, model
             assert ai_model.get_admission_price(1000, 256) == \
                 ai_model.get_tuzi_price(1000, 256 + allowance), model
