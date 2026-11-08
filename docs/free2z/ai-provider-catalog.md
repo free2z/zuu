@@ -55,8 +55,11 @@ reviewed validity update are required to extend or change the price.
 
 OpenAI's tiered models charge higher rates above 272,000 input tokens, xAI
 from 200,000, and Haiku 5.5 above 100,000. Free2Z caps context conservatively
-below those thresholds, allowing for tokenizer estimation, instead of charging
-short-context rates for a long-context request. These are service limits, not
+below those thresholds instead of charging short-context rates for a
+long-context request. Haiku 5.5 admission counts UTF-8 bytes plus conservative
+message framing allowances, because an OpenAI tokenizer cannot establish its
+provider token count. This can reject prompts that Anthropic would accept;
+settlement uses Anthropic's reported tokens. These are service limits, not
 claims about the providers' maximum windows. Anthropic models may offer 1M
 context; this integration conservatively offers 200,000, or 86,000 for Haiku 5.5.
 
