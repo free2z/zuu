@@ -39,7 +39,9 @@ def provider_inventory():
         provider, model = key
         row, listing = models.get(key), listings.get(key)
         reason = None
-        if row is None:
+        if listing and listing.metadata.get("lifecycle") in ("deprecated", "retired"):
+            reason = "provider_" + listing.metadata["lifecycle"]
+        elif row is None:
             reason = unreviewed_reason(provider, model)
         elif row.price_checked_at is None:
             reason = "price_and_capabilities_not_reviewed"

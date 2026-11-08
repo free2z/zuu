@@ -619,7 +619,8 @@ def test_the_seeded_lineup_publishes_on_the_seeded_card(db):
     assert c["rate_card_version"] == RateCard.objects.filter(active=True).order_by("-version")[0].version
     ids = {m["id"] for m in c["models"]}
     expected = set(
-        AIModel.objects.enabled().filter(is_ga=True).values_list("model", flat=True)
+        row.model for row in AIModel.objects.enabled().filter(is_ga=True)
+        if row.price_valid_until is None or row.price_valid_until.timestamp() > SAMPLE_NOW
     )
     assert ids == expected and ids
     assert not any(m["provider"] == "kimi" for m in c["models"])
@@ -857,9 +858,9 @@ def test_the_revision_is_read_before_the_content(sample_dataset, monkeypatch):
     original = catalog.catalogue_models
     order = []
 
-    def revision_then(card):
+    def revision_then(card, now_unix=None):
         order.append("revision")
-        return real_revision(card)
+        return real_revision(card, now_unix)
 
     def content_with_a_concurrent_disable():
         order.append("content")
@@ -1444,7 +1445,9 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
     c = catalog.build_catalog(SAMPLE_NOW + 1)
     retired = {"gpt-4.1-nano", "o1", "o3-mini", "o4-mini"}
     assert retired <= set(card.model_rows.values_list("model_id", flat=True))
-    expected = sorted(m for p, m, *_ in seed_ai_models.LINEUP if p != "kimi" and m not in retired)
+    expected = sorted(m for p, m, *_ in seed_ai_models.LINEUP if p != "kimi" and m not in retired
+                      and (m not in seed_ai_models.PRICE_VALID_UNTIL
+                           or seed_ai_models.PRICE_VALID_UNTIL[m].timestamp() > SAMPLE_NOW + 1))
     assert sorted(_ids(c)) == expected  # the builder orders by DB collation
     by_id = {m["id"]: m for m in c["models"]}
     for model in ("gpt-5.4",):
@@ -1461,7 +1464,7 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
                 "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
     # OpenAI documents no Chat Completions tool calling for these at the
     # gateway's default reasoning effort (migration 0027).
-    for model in ("gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+    for model in ("gpt-5.5", "gpt-5.6-terra", "gpt-5.6-luna",
                   "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"):
         assert by_id[model]["context_window"] == 236_000
         assert by_id[model]["max_output_tokens"] == 128_000
@@ -1662,3 +1665,4 @@ def test_catalog_cannot_outlive_a_promotional_price(sample_dataset):
     assert "gpt-5.6-luna" in {m["id"] for m in document["models"]}
     after = catalog.build_catalog(expiry)
     assert "gpt-5.6-luna" not in {m["id"] for m in after["models"]}
+    assert after["version"] > document["version"]

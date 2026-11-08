@@ -535,6 +535,9 @@ class AIModelQuerySet(models.QuerySet):
             missing_since__isnull=True,
         )
         if require_snapshot:
+            listed = listed.filter(
+                models.Q(metadata__lifecycle__isnull=True) | models.Q(metadata__lifecycle="active")
+            )
             return self.annotate(sent_id=sent_id).filter(Exists(listed))
         snapshot = ProviderModel.objects.filter(provider=OuterRef("provider"))
         return self.annotate(sent_id=sent_id).filter(

@@ -166,6 +166,10 @@ LINEUP = [
     (OPENAI, "o1", "o1", "0.000015", "0.00006", 200000, 8192, 100000, 32, True),
 
     # --- Anthropic ---
+    (ANTHROPIC, "claude-opus-4-7", "Claude Opus 4.7", "0.000005", "0.000025", 200000, 8192, 128000, 97, True),
+    (ANTHROPIC, "claude-opus-4-6", "Claude Opus 4.6", "0.000005", "0.000025", 200000, 8192, 128000, 96, True),
+    (ANTHROPIC, "claude-opus-4-5", "Claude Opus 4.5", "0.000005", "0.000025", 172000, 8192, 64000, 94, True),
+    (ANTHROPIC, "claude-sonnet-4-6", "Claude Sonnet 4.6", "0.000003", "0.000015", 200000, 8192, 128000, 89, True),
     (ANTHROPIC, "claude-fable-5-1", "Claude Fable 5.1", "0.00001", "0.00005", 200000, 8192, 128000, 149, True),
     (ANTHROPIC, "claude-opus-5-5", "Claude Opus 5.5", "0.000004", "0.00002", 200000, 8192, 128000, 147, True),
     (ANTHROPIC, "claude-sonnet-5-5", "Claude Sonnet 5.5", "0.000002", "0.00001", 200000, 8192, 128000, 146, True),
@@ -180,6 +184,9 @@ LINEUP = [
     (ANTHROPIC, "claude-haiku-4-5", "Claude Haiku 4.5", "0.000001", "0.000005", 200000, 8192, 64000, 50, True),
 
     # --- xAI ---
+    (XAI, "grok-4.20-0309-reasoning", "Grok 4.20 Reasoning", "0.00000125", "0.0000025", 172000, 8192, 8192, 69, True),
+    (XAI, "grok-4.20-0309-non-reasoning", "Grok 4.20 Non-Reasoning", "0.00000125", "0.0000025", 172000, 8192, 8192, 68, True),
+    (XAI, "grok-build-0.1", "Grok Build 0.1", "0.000001", "0.000002", 172000, 8192, 8192, 67, True),
     (XAI, "grok-4.7", "Grok 4.7", "0.000002", "0.000006", 172000, 8192, 8192, 144, True),
     (XAI, "grok-4.6", "Grok 4.6", "0.000002", "0.000006", 172000, 8192, 8192, 143, True),
 
@@ -583,7 +590,6 @@ class Command(BaseCommand):
                 "max_response_tokens": min(max_response_tokens, window),
                 "order": order,
                 "is_ga": effective_is_ga,
-                "markup": DEFAULT_MARKUP,
             }
             if not pinned_elsewhere:
                 defaults["input_price"] = input_price
@@ -607,6 +613,7 @@ class Command(BaseCommand):
                 # path rather than adding to it, hence the explicit merge.
                 create_defaults={
                     **defaults,
+                    "markup": DEFAULT_MARKUP,
                     "is_enabled": permitted,
                     # Declared capability, written on CREATE only (0024's
                     # rule: an operator who pinned the row to another
