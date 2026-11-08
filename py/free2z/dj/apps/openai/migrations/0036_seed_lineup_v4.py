@@ -115,7 +115,7 @@ CAPABILITIES = {'claude-fable-5': {'idle_timeout_ms': 300000,
                       'supports_reasoning_effort': False,
                       'ttfb_timeout_ms': 300000},
  'claude-haiku-5-5': {'reasoning_effort_levels': [],
-                      'supports_reasoning': False,
+                      'supports_reasoning': True,
                       'supports_reasoning_effort': False},
  'claude-opus-5': {'idle_timeout_ms': 300000,
                    'reasoning_effort_levels': [],
@@ -128,7 +128,7 @@ CAPABILITIES = {'claude-fable-5': {'idle_timeout_ms': 300000,
                      'supports_reasoning_effort': False,
                      'ttfb_timeout_ms': 300000},
  'claude-sonnet-5-5': {'reasoning_effort_levels': [],
-                       'supports_reasoning': False,
+                       'supports_reasoning': True,
                        'supports_reasoning_effort': False},
  'gpt-6.1-terra': {'idle_timeout_ms': 300000,
                    'reasoning_effort_levels': ['none', 'low', 'medium', 'high', 'xhigh', 'max'],
@@ -136,12 +136,18 @@ CAPABILITIES = {'claude-fable-5': {'idle_timeout_ms': 300000,
                    'supports_reasoning': True,
                    'supports_reasoning_effort': True,
                    'ttfb_timeout_ms': 300000},
+ 'grok-4.20-0309-reasoning': {'reasoning_effort_levels': [],
+                              'supports_reasoning': True,
+                              'supports_reasoning_effort': False},
  'grok-4.6': {'reasoning_effort_levels': ['low', 'medium', 'high', 'xhigh'],
               'supports_reasoning': True,
               'supports_reasoning_effort': True},
  'grok-4.7': {'reasoning_effort_levels': ['low', 'medium', 'high', 'xhigh'],
               'supports_reasoning': True,
-              'supports_reasoning_effort': True}}
+              'supports_reasoning_effort': True},
+ 'grok-build-0.1': {'reasoning_effort_levels': [],
+                    'supports_reasoning': True,
+                    'supports_reasoning_effort': False}}
 PRICE_VALID_UNTIL = {"gpt-5.6-sol": datetime(2026, 11, 21, tzinfo=datetime_timezone.utc)}
 
 def seed(apps, schema_editor):
@@ -195,12 +201,14 @@ def seed(apps, schema_editor):
             **prices,
             **({"price_checked_at": date(2026, 11, 7), "price_valid_until": PRICE_VALID_UNTIL.get(model)} if not pinned_elsewhere else {}),
             max_tokens=window,
-            max_output_tokens=min(max_output_tokens, window),
+            max_output_tokens=min(max_output_tokens, window,
+                existing.max_output_tokens if existing.max_output_tokens > 0 else max_output_tokens),
             # The catalogue refuses a ceiling above the window
             # (``max_output_tokens exceeds context_window``), so a ceiling
             # the lineup raised is clamped to a window an operator kept
             # narrow (codex review of #2490).
-            max_response_tokens=min(max_response_tokens, window),
+            max_response_tokens=min(max_response_tokens, window,
+                existing.max_response_tokens if existing.max_response_tokens > 0 else max_response_tokens),
             order=order, is_ga=is_ga and permitted,
             updated_at=now,
         )

@@ -1677,6 +1677,7 @@ def test_catalog_drops_promotion_early_and_preserves_full_validity(sample_datase
 
 
 def test_new_claude_rows_are_not_advertised_with_unreviewed_gateway_controls(db, caplog):
+    caplog.set_level(logging.INFO, logger=catalog.logger.name)
     from dj.apps.openai.management.commands import seed_ai_models
     call_command("seed_ai_models", stdout=io.StringIO())
     document = catalog.build_catalog(catalog.now_unix())
@@ -1685,6 +1686,18 @@ def test_new_claude_rows_are_not_advertised_with_unreviewed_gateway_controls(db,
         assert model not in ids
         assert AIModel.objects.enabled().filter(provider=provider, model=model, is_ga=True).exists()
     assert "gateway_adapter_capabilities_not_reviewed" in caplog.text
+    assert any(getattr(record, "event", "") == "ai_catalog_model_intentionally_excluded" for record in caplog.records)
+    assert not any(getattr(record, "event", "") == "ai_catalog_model_excluded" for record in caplog.records)
     for name in seed_ai_models.NO_SAMPLING_MODELS:
         row = AIModel.objects.get(model=name)
         assert row.sampling_temperature is False and row.sampling_top_p is False
+
+
+def test_new_grok_reasoning_is_signed_independently_of_effort_controls(db):
+    call_command("seed_ai_models", stdout=io.StringIO())
+    document = catalog.build_catalog(catalog.now_unix())
+    rows = {row["id"]: row for row in document["models"]}
+    for name in ("grok-4.20-0309-reasoning", "grok-build-0.1"):
+        assert rows[name]["capabilities"]["reasoning"] is True
+        assert rows[name]["capabilities"]["reasoning_effort"] is False
+    assert rows["grok-4.20-0309-non-reasoning"]["capabilities"]["reasoning"] is False

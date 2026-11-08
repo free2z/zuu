@@ -138,3 +138,19 @@ def test_v4_migration_preserves_gpt41_fence_without_reapplying_older_migration()
     migration.seed(apps, None)
     row.refresh_from_db()
     assert (row.max_tokens, row.max_response_tokens) == (50000, 16384)
+
+
+@pytest.mark.django_db
+def test_model_refresh_preserves_operator_output_limits():
+    import importlib
+    from django.apps import apps
+    from django.core.management import call_command
+    from io import StringIO
+    row, _ = AIModel.objects.update_or_create(provider="openai", model="gpt-6.1-sol",
+        defaults={"max_tokens": 100000, "max_output_tokens": 1024, "max_response_tokens": 4096})
+    importlib.import_module("dj.apps.openai.migrations.0036_seed_lineup_v4").seed(apps, None)
+    row.refresh_from_db()
+    assert (row.max_tokens, row.max_output_tokens, row.max_response_tokens) == (100000, 1024, 4096)
+    call_command("seed_ai_models", stdout=StringIO())
+    row.refresh_from_db()
+    assert (row.max_tokens, row.max_output_tokens, row.max_response_tokens) == (100000, 1024, 4096)
