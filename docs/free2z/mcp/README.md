@@ -135,7 +135,7 @@ support metered AI; `free2z_list_ai_models` reports whether it is enabled.
 Charges round up to **0.001 2Z**. One 2Z represents $0.01 of platform credit,
 so the charge increment is $0.00001. The model's quoted markup multiplier
 applies to its provider usage cost; for example, `1.5` means cost plus 50%.
-Actual reported usage is charged, with unused reserved credits returned. Where a
+Reported usage is priced and capped at the quoted maximum, with unused reserved credits returned. Free2Z absorbs provider usage cost above that maximum; the quote is a spending ceiling, not a guarantee of the provider’s eventual invoice. Where a
 provider omits usage, the receipt identifies an estimate. Reasoning and cache
 categories follow the selected model's pricing rules. A provider error can have
 billable usage; inspect the receipt before deciding whether to start a new call.

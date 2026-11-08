@@ -34,17 +34,27 @@ def _models():
     # A provider must have actually returned this identifier and its reviewed
     # price must still be valid. Legacy catalogue discovery can fail open.
     return AIModel.objects.selectable().discovered(upstream=False, require_snapshot=True).filter(
-        input_price__gt=0, output_price__gt=0,
+        input_price__gt=0, output_price__gt=0, price_checked_at__isnull=False,
     )
 
 
 def _metadata(model):
+    from dj.apps.openai.cache_pricing import cache_price_fractions
     expiry = getattr(model, "price_valid_until", None)
+    fractions = cache_price_fractions(model.provider, model.model)
     return {
         "id": str(model.pk), "provider": model.provider, "model": model.model,
         "display_name": model.display_name,
         "input_usd_per_token": str(model.input_price),
         "output_usd_per_token": str(model.output_price),
+        "cache_input_usd_per_token": {
+            name: str(Decimal(str(model.input_price)) * Decimal(num) / Decimal(den))
+            for name, (num, den) in zip(("read", "write_5m", "write_1h"), fractions)
+        },
+        "cache_price_fractions": [list(pair) for pair in fractions],
+        "price_checked_at": model.price_checked_at.isoformat(),
+        "charge_rounding": "ceiling",
+        "maximum_response_tokens": model.get_max_response_tokens(),
         "markup_multiplier": str(model.markup),
         "charge_quantum_tuzis": "0.001", "usd_per_2z": "0.01",
         "price_valid_until": expiry.isoformat() if expiry else None,
@@ -53,8 +63,9 @@ def _metadata(model):
 
 
 def list_models(raw, account):
+    from dj.apps.openai.provider_inventory import provider_inventory
     with authorized_actor(raw, account, [SCOPE]) as actor:
-        return {"account": actor.user.username, "models": [_metadata(m) for m in _models()] if settings.MCP_AI_ENABLED else [],
+        return {"account": actor.user.username, "inventory": provider_inventory(), "models": [_metadata(m) for m in _models()] if settings.MCP_AI_ENABLED else [],
                 "enabled": settings.MCP_AI_ENABLED,
                 "retention": "Prompt and result content is kept for up to 24 hours plus hourly cleanup; billing and retry records persist. Provider policies also apply."}
 
@@ -94,7 +105,7 @@ def quote(raw, account, model, prompt, max_output_tokens, system_message=None):
             expires = min(expires, selected.price_valid_until)
         row = MCPAIRequest.objects.create(
             connection=actor.connection, account_grant_id=actor.account_id,
-            access_token=actor.auth,
+            access_token=actor.auth.row,
             grant_generation=actor.connection.account_grants.get(pk=actor.account_id).generation,
             intent=intent, quote=pricing, quote_expires_at=expires,
             content_expires_at=timezone.now() + timedelta(hours=24),
@@ -154,7 +165,7 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
             raise PermissionDenied("Account consent changed; request a fresh quote.")
         row.state = "queued"
         row.idempotency_key = key
-        row.access_token = actor.auth
+        row.access_token = actor.auth.row
         row.save(update_fields=["state", "idempotency_key", "access_token"])
         from dj.apps.oidc.tasks import invoke_mcp_ai
         invoke_mcp_ai.defer(str(row.pk))
@@ -165,6 +176,26 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
 def get(raw, account, request_id, cancel=False):
     with authorized_actor(raw, account, [SCOPE]) as actor:
         row = _owned(actor, request_id)
+        if row.state == "running":
+            from dj.apps.tuzis.models import IdempotencyKey
+            committed = IdempotencyKey.objects.filter(
+                scope="mcp_ai_prompt", key=str(row.native_key), user=actor.user,
+                response_status__isnull=False,
+            ).first()
+            if committed is not None:
+                row.receipt = committed.response_body
+                row.receipt["http_status"] = committed.response_status
+                row.state = "completed" if committed.response_status == 200 else "failed"
+                row.finished_at = committed.created_at
+                row.content_expires_at = row.finished_at + timedelta(hours=24)
+                row.save(update_fields=["receipt", "state", "finished_at", "content_expires_at"])
+            elif row.started_at < timezone.now() - timedelta(minutes=20):
+                row.state = "unknown"
+                row.receipt = {"charge_status": "unknown", "detail": "Provider outcome is uncertain. This request will never be dispatched again. Expired reservations are returned by the ledger's hold expiry process."}
+                row.finished_at = timezone.now()
+                row.save(update_fields=["state", "receipt", "finished_at"])
+        if row.content_expires_at <= timezone.now():
+            row.receipt.pop("response", None)
         if cancel and row.state in {"quoted", "queued"}:
             row.state, row.finished_at = "cancelled", timezone.now()
             row.receipt = {"charge_status": "not_charged", "tuzis_charged": "0.000"}
@@ -247,7 +278,7 @@ def purge_content():
     """Bound prompt/result retention without deleting billing/retry identity."""
     from dj.apps.tuzis.models import IdempotencyKey
     due = MCPAIRequest.objects.filter(content_purged=False, content_expires_at__lte=timezone.now())
-    for pk in list(due.values_list("pk", flat=True)[:1000]):
+    for pk in due.values_list("pk", flat=True).iterator(chunk_size=500):
         with transaction.atomic():
             row = MCPAIRequest.objects.select_for_update().get(pk=pk)
             if row.content_purged or row.content_expires_at > timezone.now():
