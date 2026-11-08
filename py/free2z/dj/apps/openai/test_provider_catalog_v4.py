@@ -122,3 +122,19 @@ def test_haiku_tier_budget_rejects_prompts_an_openai_tokenizer_underestimates(te
     budget = count_prompt_tokens(messages, "claude-haiku-5-5")
     assert budget >= len(text.encode("utf-8")) + 256
     assert budget > row[5]  # shared quote/dispatch context admission refuses it
+
+
+@pytest.mark.django_db
+def test_v4_migration_preserves_gpt41_fence_without_reapplying_older_migration():
+    import importlib
+    from django.apps import apps
+    migration = importlib.import_module("dj.apps.openai.migrations.0036_seed_lineup_v4")
+    AIModel.objects.filter(model="gpt-4.1").delete()
+    migration.seed(apps, None)
+    row = AIModel.objects.get(model="gpt-4.1")
+    assert (row.max_tokens, row.max_response_tokens) == (128000, 16384)
+    row.max_tokens = 50000
+    row.save()
+    migration.seed(apps, None)
+    row.refresh_from_db()
+    assert (row.max_tokens, row.max_response_tokens) == (50000, 16384)
