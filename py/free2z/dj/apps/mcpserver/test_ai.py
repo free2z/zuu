@@ -358,6 +358,18 @@ def test_worker_marks_uncertain_outcome_failed_for_billing_health(auth, user, mo
     assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "unknown"
 
 
+def test_lost_running_commit_acknowledgement_never_reports_job_success(auth, user, model, generation):
+    from dj.apps.oidc.tasks import invoke_mcp_ai
+    accepted = queued(auth, user, model)
+    # Model a committed dispatch marker whose acknowledgement was lost. The
+    # retry cannot know whether provider dispatch followed that transaction.
+    MCPAIRequest.objects.filter(pk=accepted["request_id"]).update(state="running", started_at=timezone.now())
+    with pytest.raises(RuntimeError, match="requires reconciliation"):
+        invoke_mcp_ai(request_id=accepted["request_id"])
+    assert generation == []
+    assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "running"
+
+
 def test_expired_settlement_hold_withholds_answer_and_never_debits_again(auth, user, model, generation, monkeypatch):
     from django.db import OperationalError
     accepted = queued(auth, user, model)

@@ -100,5 +100,5 @@ def invoke_mcp_ai(request_id: str):
     state = invoke(request_id)
     if state == "settle_pending":
         raise MCPSettlementPending("The authorized AI settlement will be retried without another provider call.")
-    if state == "unknown":
+    if state in {"unknown", "running"}:
         raise RuntimeError("MCP AI outcome requires reconciliation; inspect its retained receipt.")
