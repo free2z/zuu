@@ -162,6 +162,7 @@ XAI_DEFAULT_REASONING_ALLOWANCE = 16384
 #Raise the allowance if ``ai_charge_clamped`` fires for a model, and lower
 #it if the entry bar is what users trip on.
 REASONING_POLICIES = {
+    (XAI, "grok-4.20-0309-non-reasoning"): NO_REASONING_ALLOWANCE,
     (XAI, "grok-4.7"): ReasoningPolicy(effort="low", allowance_tokens=16384),
     (XAI, "grok-4.6"): ReasoningPolicy(effort="low", allowance_tokens=16384),
     (XAI, "grok-4.5"): ReasoningPolicy(effort="low", allowance_tokens=16384),

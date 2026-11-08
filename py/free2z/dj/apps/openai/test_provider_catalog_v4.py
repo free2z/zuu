@@ -1,6 +1,5 @@
 """Price validity, strict discovery and honest inventory availability."""
 from datetime import date, timedelta
-from types import SimpleNamespace
 
 import pytest
 from django.utils import timezone
@@ -11,16 +10,30 @@ from .management.commands.seed_ai_models import LINEUP
 from f2z.ai.providers import ModelDisabled, _stream_chat
 
 
+def _model(**kwargs):
+    return AIModel.objects.create(max_tokens=128000, **kwargs)
+
+
+def _listing(**kwargs):
+    now = timezone.now()
+    return ProviderModel.objects.create(first_seen_at=now, last_seen_at=now,
+                                        availability_changed_at=now, **kwargs)
+
+
 @pytest.mark.django_db
 def test_strict_discovery_requires_the_exact_current_upstream_id():
     AIModel.objects.all().delete()
     ProviderModel.objects.all().delete()
-    model = AIModel.objects.create(provider="anthropic", model="claude-test", provider_model_id="claude-pinned")
+    model = _model(provider="anthropic", model="claude-test", provider_model_id="claude-pinned")
     assert AIModel.objects.discovered().filter(pk=model.pk).exists()
     assert not AIModel.objects.discovered(require_snapshot=True).exists()
-    listing = ProviderModel.objects.create(provider="anthropic", provider_model_id="claude-test")
+    listing = _listing(provider="anthropic", provider_model_id="claude-test")
     assert AIModel.objects.discovered(upstream=False, require_snapshot=True).exists()
     assert not AIModel.objects.discovered(require_snapshot=True).exists()
+    listing.metadata = {"lifecycle": "deprecated"}
+    listing.save()
+    assert not AIModel.objects.discovered(upstream=False, require_snapshot=True).exists()
+    listing.metadata = {}
     listing.missing_since = timezone.now()
     listing.save()
     assert not AIModel.objects.discovered(upstream=False, require_snapshot=True).exists()
@@ -28,7 +41,7 @@ def test_strict_discovery_requires_the_exact_current_upstream_id():
 
 @pytest.mark.django_db
 def test_expired_price_cannot_be_selected_or_sent(monkeypatch):
-    row = AIModel.objects.create(provider="openai", model="promo", price_valid_until=timezone.now()-timedelta(seconds=1))
+    row = _model(provider="openai", model="promo", price_valid_until=timezone.now()-timedelta(seconds=1))
     assert not AIModel.objects.enabled().filter(pk=row.pk).exists()
     with pytest.raises(ModelDisabled, match="price review"):
         list(_stream_chat(row, [{"role": "user", "content": "never send"}]))
@@ -42,18 +55,18 @@ def test_inventory_requires_review_listing_and_key(settings):
     AIModel.objects.all().delete()
     ProviderModel.objects.all().delete()
     settings.OPENAI_API_KEY = "test-key"
-    row = AIModel.objects.create(provider="openai", model="test-text", is_ga=True)
+    row = _model(provider="openai", model="test-text", is_ga=True)
     def entry():
         return next(r for r in provider_inventory() if r["model"] == row.model)
     assert entry()["unavailable_reason"] == "price_and_capabilities_not_reviewed"
     row.price_checked_at = date(2026, 11, 7)
     row.save()
     assert entry()["unavailable_reason"] == "not_discovered"
-    ProviderModel.objects.create(provider="openai", provider_model_id=row.model)
+    _listing(provider="openai", provider_model_id=row.model)
     assert entry()["available"]
     settings.OPENAI_API_KEY = ""
     assert entry()["unavailable_reason"] == "provider_not_configured"
-    ProviderModel.objects.create(provider="openai", provider_model_id="gpt-image-future")
+    _listing(provider="openai", provider_model_id="gpt-image-future")
     unknown = next(r for r in provider_inventory() if r["model"] == "gpt-image-future")
     assert not unknown["available"]
     assert unknown["unavailable_reason"] == "unsupported_modality_or_endpoint"
@@ -73,3 +86,20 @@ def test_haiku_service_cap_excludes_its_higher_price_tier():
 ])
 def test_unknown_models_are_explained_without_price_guesses(provider, model, reason):
     assert unreviewed_reason(provider, model) == reason
+
+
+@pytest.mark.django_db
+def test_seed_and_migration_preserve_operator_markup():
+    import importlib
+    from django.apps import apps
+    from django.core.management import call_command
+    from decimal import Decimal
+    from io import StringIO
+    row, _ = AIModel.objects.update_or_create(provider="openai", model="gpt-4o",
+        defaults={"max_tokens": 128000, "markup": Decimal("1.23")})
+    importlib.import_module("dj.apps.openai.migrations.0036_seed_lineup_v4").seed(apps, None)
+    row.refresh_from_db()
+    assert row.markup == Decimal("1.23")
+    call_command("seed_ai_models", stdout=StringIO())
+    row.refresh_from_db()
+    assert row.markup == Decimal("1.23")

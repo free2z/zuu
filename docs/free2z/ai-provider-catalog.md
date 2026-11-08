@@ -30,9 +30,13 @@ models default to 50%, while the separate signed gateway card uses 20%.
 | Claude Fable 5 | $10 | $1 | $50 | 200,000 |
 | Claude Opus 5.5 | $4 | $0.20 | $20 | 200,000 |
 | Claude Opus 5 | $5 | $0.50 | $25 | 200,000 |
+| Claude Opus 4.7 / 4.6 / 4.5 | $5 | $0.50 | $25 | 200,000 / 200,000 / 172,000 |
+| Claude Sonnet 4.6 | $3 | $0.30 | $15 | 200,000 |
 | Claude Sonnet 5.5 | $2 | $0.10 | $10 | 200,000 |
 | Claude Haiku 5.5 | $0.10 | $0.01 | $0.50 | 86,000 |
 | Grok 4.7 / 4.6 | $2 | $0.50 | $6 | 172,000 |
+| Grok 4.20 reasoning / non-reasoning | $1.25 | $0.20 | $2.50 | 172,000 |
+| Grok Build 0.1 | $1 | $0.20 | $2 | 172,000 |
 | GPT-5.6 Sol promotion | $4 | $0.40 | $20 | 236,000 |
 
 The complete reviewed lineup and exact decimal prices are in
@@ -63,9 +67,9 @@ embeddings, moderation, provider-hosted search, multi-agent execution or provide
 computer-use tools. OpenAI Pro/Codex models requiring Responses and search
 models requiring separately billed tools are unavailable through this adapter.
 Dated snapshots need their own reviewed prices and capabilities; an alias's
-price is never assumed to cover every snapshot. Unknown text models, including
-older Claude/Grok IDs absent from the reviewed lineup, are reported as awaiting
-price and capability review rather than silently offered.
+price is never assumed to cover every snapshot. Unknown text models are reported as awaiting price and capability review.
+Claude Sonnet 4.5 is excluded because it is deprecated; xAI multi-agent mode
+needs a separate adapter and billing review.
 
 Claude Mythos models require separate access review. Fable availability must be
 verified with the deployment key; neither a public model page nor a seeded row

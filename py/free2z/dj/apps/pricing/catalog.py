@@ -549,7 +549,7 @@ def _micros(stamp) -> int:
     return (delta.days * 86_400 + delta.seconds) * VERSION_UNITS_PER_SECOND + delta.microseconds
 
 
-def content_revision(card) -> int:
+def content_revision(card, now_unix=None) -> int:
     """Unix MICROSECONDS of the newest change that can alter the catalogue's
     content: the latest ``AIModel.updated_at`` over ALL rows (a row that has
     just been disabled or taken out of the lineup is exactly the change that
@@ -575,6 +575,12 @@ def content_revision(card) -> int:
         # (``last_seen_at`` moves every run and is deliberately NOT here).
         ProviderModel.objects.aggregate(t=Max("availability_changed_at"))["t"],
     ]
+    if now_unix is not None:
+        # Expiry changes availability without an UPDATE. Give that transition
+        # its own monotonic version, even inside a reissue window.
+        now = datetime.datetime.fromtimestamp(now_unix, tz=datetime.timezone.utc)
+        stamps.append(AIModel.objects.filter(price_valid_until__lte=now).aggregate(
+            t=Max("price_valid_until"))["t"])
     return max((_micros(s) for s in stamps if s is not None), default=0)
 
 
@@ -617,7 +623,7 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
 
     card = active_rate_card()
     # BEFORE the content -- see the module docstring. Do not move.
-    revision = content_revision(card)
+    revision = content_revision(card, now_unix)
     rows = {row.model_id: row for row in card.model_rows.all()}
     disabled = sorted(POLICY_DISABLED_PROVIDERS)
     candidates = []

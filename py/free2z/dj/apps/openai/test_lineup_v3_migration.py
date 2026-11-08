@@ -72,6 +72,10 @@ OPENAI_OFFICIAL = {
 # https://platform.claude.com/docs/en/docs/about-claude/pricing, 2026-10-05:
 # (input, cache read, 5m write, 1h write, output).
 ANTHROPIC_OFFICIAL = {
+    "claude-opus-4-7": ("5", "0.50", "6.25", "10", "25"),
+    "claude-opus-4-6": ("5", "0.50", "6.25", "10", "25"),
+    "claude-opus-4-5": ("5", "0.50", "6.25", "10", "25"),
+    "claude-sonnet-4-6": ("3", "0.30", "3.75", "6", "15"),
     "claude-fable-5-1": ("10", "0.25", "12.5", "20", "50"),
     "claude-fable-5": ("10", "1", "12.5", "20", "50"),
     "claude-opus-5-5": ("4", "0.20", "5", "8", "20"),
@@ -84,6 +88,9 @@ ANTHROPIC_OFFICIAL = {
 }
 # https://docs.x.ai/docs/models, 2026-10-05: (input, cached, output).
 XAI_OFFICIAL = {
+    "grok-4.20-0309-reasoning": ("1.25", "0.20", "2.50"),
+    "grok-4.20-0309-non-reasoning": ("1.25", "0.20", "2.50"),
+    "grok-build-0.1": ("1", "0.20", "2"),
     "grok-4.7": ("2", "0.50", "6"),
     "grok-4.6": ("2", "0.50", "6"),
     "grok-4.5": ("2", "0.30", "6"),
