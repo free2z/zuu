@@ -714,9 +714,9 @@ class AIModel(models.Model):
         help_text="The multiplier that we charge above our cost. Default: at cost"
     )
 
-    price_checked_at = models.DateField(null=True, blank=True, db_default=None)
+    price_checked_at = models.DateField(null=True, blank=True, default=None, db_default=None)
     price_valid_until = models.DateTimeField(
-        null=True, blank=True, db_default=None,
+        null=True, blank=True, default=None, db_default=None,
         help_text="Exclusive expiry for time-limited provider prices; unavailable after this instant.",
     )
 
