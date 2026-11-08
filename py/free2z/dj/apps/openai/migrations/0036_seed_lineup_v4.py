@@ -167,6 +167,8 @@ def seed(apps, schema_editor):
                 markup=Decimal(DEFAULT_MARKUP),
                 supports_structured_output=declared,
                 **CAPABILITIES.get(model, {}),
+                **({"sampling_temperature": False, "sampling_top_p": False}
+                   if model in ("claude-sonnet-5-5", "claude-haiku-5-5") else {}),
                 price_checked_at=date(2026, 11, 7),
                 price_valid_until=PRICE_VALID_UNTIL.get(model),
             )
