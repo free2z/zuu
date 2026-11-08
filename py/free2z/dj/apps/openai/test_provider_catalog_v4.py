@@ -154,3 +154,42 @@ def test_model_refresh_preserves_operator_output_limits():
     call_command("seed_ai_models", stdout=StringIO())
     row.refresh_from_db()
     assert (row.max_tokens, row.max_output_tokens, row.max_response_tokens) == (100000, 1024, 4096)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("pinned", [False, True])
+def test_promotional_migration_stages_alias_off_without_changing_other_switches(pinned):
+    import importlib
+    from django.apps import apps
+    from django.core.management import call_command
+    from io import StringIO
+    AIModel.objects.all().delete()
+    promo = _model(provider="openai", model="gpt-5.6-sol", is_enabled=True,
+                   provider_model_id="operator-snapshot" if pinned else "")
+    disabled = _model(provider="openai", model="gpt-4o", is_enabled=False)
+    enabled = _model(provider="openai", model="gpt-6.1-sol", is_enabled=True)
+    independent_pin = _model(provider="openai", model="operator-alias", is_enabled=True,
+                             provider_model_id="operator-snapshot")
+    migration = importlib.import_module("dj.apps.openai.migrations.0036_seed_lineup_v4")
+    migration.seed(apps, None)
+    call_command("seed_ai_models", stdout=StringIO())
+    for row in (promo, disabled, enabled, independent_pin):
+        row.refresh_from_db()
+    assert not promo.is_enabled and not disabled.is_enabled
+    assert enabled.is_enabled and independent_pin.is_enabled
+    # This is the selector an expiry-unaware rollback image already uses.
+    assert not AIModel.objects.filter(pk=promo.pk, is_enabled=True).exists()
+
+
+@pytest.mark.django_db
+def test_new_promotional_rows_are_disabled_in_migration_and_seed_command():
+    import importlib
+    from django.apps import apps
+    from django.core.management import call_command
+    from io import StringIO
+    migration = importlib.import_module("dj.apps.openai.migrations.0036_seed_lineup_v4")
+    for seed in (lambda: migration.seed(apps, None),
+                 lambda: call_command("seed_ai_models", stdout=StringIO())):
+        AIModel.objects.filter(provider="openai", model="gpt-5.6-sol").delete()
+        seed()
+        assert not AIModel.objects.get(provider="openai", model="gpt-5.6-sol").is_enabled

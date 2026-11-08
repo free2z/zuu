@@ -162,6 +162,9 @@ def seed(apps, schema_editor):
             max_tokens = min(max_tokens, 128000)
             max_response_tokens = min(max_response_tokens, 16384)
         permitted = provider not in POLICY_DISABLED_PROVIDERS
+        # Older rollback images honor is_enabled but do not know expiry.
+        # Leave this one promotional alias off until a guarded activation.
+        staged_promotion = provider == "openai" and model == "gpt-5.6-sol"
         declared = (provider, model) in STRUCTURED_OUTPUT_MODELS
         existing = AIModel.objects.filter(provider=provider, model=model).first()
         permitted = permitted and not (provider == "openai" and (
@@ -174,7 +177,7 @@ def seed(apps, schema_editor):
                 input_price=Decimal(input_price), output_price=Decimal(output_price),
                 max_tokens=max_tokens, max_output_tokens=max_output_tokens,
                 max_response_tokens=max_response_tokens, order=order,
-                is_ga=is_ga and permitted, is_enabled=permitted,
+                is_ga=is_ga and permitted, is_enabled=permitted and not staged_promotion,
                 markup=Decimal(DEFAULT_MARKUP),
                 supports_structured_output=declared,
                 **CAPABILITIES.get(model, {}),
@@ -198,6 +201,7 @@ def seed(apps, schema_editor):
             "input_price": Decimal(input_price), "output_price": Decimal(output_price)}
         AIModel.objects.filter(pk=existing.pk).update(
             display_name=display_name,
+            **({"is_enabled": False} if staged_promotion else {}),
             **prices,
             **({"price_checked_at": date(2026, 11, 7), "price_valid_until": PRICE_VALID_UNTIL.get(model)} if not pinned_elsewhere else {}),
             max_tokens=window,
