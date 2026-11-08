@@ -103,3 +103,11 @@ def test_seed_and_migration_preserve_operator_markup():
     call_command("seed_ai_models", stdout=StringIO())
     row.refresh_from_db()
     assert row.markup == Decimal("1.23")
+
+
+def test_derived_anthropic_alias_preserves_deprecation():
+    from .discovery import DiscoveredModel, _anthropic_aliases
+    alias = _anthropic_aliases([DiscoveredModel(
+        id="claude-test-20260101", metadata={"lifecycle": "deprecated"})])[0]
+    assert alias.id == "claude-test"
+    assert alias.metadata["lifecycle"] == "deprecated"

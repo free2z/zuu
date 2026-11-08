@@ -50,7 +50,12 @@ STREAMING = {
     "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5", "grok-4.5", "grok-4.3",
     "kimi-k3", "kimi-k2.6",
 }
-OPENAI_ROWS = {m for p, m, *_ in seed.LINEUP if p == "openai"}
+OPENAI_ROWS = {m for p, m, *_ in LINEUP_V3.LINEUP if p == "openai"}
+CURRENT_OPENAI_ROWS = OPENAI_ROWS | {"gpt-6.1-terra"}
+CURRENT_REASONING = REASONING | {
+    "gpt-6.1-terra", "claude-fable-5-1", "claude-fable-5",
+    "claude-opus-5-5", "claude-opus-5",
+}
 LONG_PREFILL = {"gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"}
 
 
@@ -78,8 +83,8 @@ def test_the_migration_mirrors_the_seed_rule():
 
 def test_the_rule_selects_exactly_the_reasoning_rows():
     assert len(REASONING) == 20
-    assert REASONING | STREAMING == {m for _, m, *_ in seed.LINEUP}
-    assert {m for p, m, *_ in seed.LINEUP if seed.is_silent_reasoning(p, m)} == REASONING
+    assert REASONING | STREAMING == {m for _, m, *_ in LINEUP_V3.LINEUP}
+    assert {m for p, m, *_ in seed.LINEUP if seed.is_silent_reasoning(p, m)} == CURRENT_REASONING
     assert {m for p, m, *_ in seed.LINEUP if seed.is_long_prefill(p, m)} == LONG_PREFILL
 
 
@@ -139,11 +144,11 @@ def test_the_seed_command_creates_reasoning_rows_at_the_ceiling():
     AIModel.objects.all().delete()
     call_command("seed_ai_models", stdout=StringIO())
     seeded = _timeouts()
-    assert {m for m, v in seeded.items() if v == RAISED} == REASONING
+    assert {m for m, v in seeded.items() if v == RAISED} == CURRENT_REASONING
     assert {seeded[m] for m in LONG_PREFILL} == {LONG_PREFILL_TIMEOUTS}
     assert {seeded[m] for m in STREAMING - LONG_PREFILL} == {DEFAULTS}
     safety = _safety()
-    assert {m for m, v in safety.items() if v == OPENAI_SAFETY} == OPENAI_ROWS
+    assert {m for m, v in safety.items() if v == OPENAI_SAFETY} == CURRENT_OPENAI_ROWS
     assert {safety[m] for m in STREAMING - OPENAI_ROWS} == {DEFAULT_SAFETY_FACTOR_BPS}
     # Create-only: a reseed keeps an operator's values.
     AIModel.objects.filter(model="gpt-5").update(
