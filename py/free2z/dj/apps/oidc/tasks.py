@@ -81,4 +81,5 @@ def reevaluate_ai_report_surges(timestamp: int = 0):
 def invoke_mcp_ai(request_id: str):
     """Queue arguments contain only an opaque invocation ID, never a prompt."""
     from dj.apps.mcpserver.ai import invoke
-    invoke(request_id)
+    if invoke(request_id) == "unknown":
+        raise RuntimeError("MCP AI outcome requires reconciliation; inspect its retained receipt.")

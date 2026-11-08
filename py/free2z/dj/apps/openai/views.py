@@ -2324,6 +2324,18 @@ class MeteredPromptView(views.APIView):
         """Internal callers can recheck authority atomically with the hold."""
         return nullcontext()
 
+    def settle_result(self, request, ai_model, reservation, price, claim, response_status, data):
+        """The authoritative debit, event and replay receipt commit together."""
+        with self.billing_transaction():
+            ledger.settle_reservation(reservation, amount=price)
+            Event.objects.create(
+                read=False, type="CHAT2Z", receiving_user=request.user,
+                contributor=request.user, amount=price,
+                content_type=ContentType.objects.get_for_model(ai_model), object_id=ai_model.id,
+            )
+            if claim is not None:
+                claim.finish(response_status, data)
+
     def metering_details(self, ai_model, input_tokens, output_tokens, usage, max_price):
         if self.pricing_quantum is None:
             return {}
@@ -2652,19 +2664,9 @@ class MeteredPromptView(views.APIView):
                 error.data.update(self.metering_details(
                     ai_model, exc.input_tokens, exc.settlement_output_tokens, exc.usage, max_price,
                 ))
-                with self.billing_transaction():
-                    ledger.settle_reservation(reservation, amount=price)
-                    Event.objects.create(
-                        read=False,
-                        type="CHAT2Z",
-                        receiving_user=request.user,
-                        contributor=request.user,
-                        amount=price,
-                        content_type=ContentType.objects.get_for_model(ai_model),
-                        object_id=ai_model.id,
-                    )
-                    if claim is not None:
-                        claim.finish(error.status_code, error.data)
+                self.settle_result(
+                    request, ai_model, reservation, price, claim, error.status_code, error.data,
+                )
             except ledger.InsufficientFunds as settle_exc:
                 self.release_reservation(reservation)
                 idempotency.release(claim)
@@ -2724,19 +2726,9 @@ class MeteredPromptView(views.APIView):
             data.update(self.metering_details(
                 ai_model, input_tokens, generation.settlement_output_tokens, usage, max_price,
             ))
-            with self.billing_transaction():
-                ledger.settle_reservation(reservation, amount=price)
-                Event.objects.create(
-                    read=False,
-                    type="CHAT2Z",
-                    receiving_user=request.user,
-                    contributor=request.user,
-                    amount=price,
-                    content_type=ContentType.objects.get_for_model(ai_model),
-                    object_id=ai_model.id,
-                )
-                if claim is not None:
-                    claim.finish(status.HTTP_200_OK, data)
+            self.settle_result(
+                request, ai_model, reservation, price, claim, status.HTTP_200_OK, data,
+            )
         except ledger.InsufficientFunds as exc:
             # The rollback above undid the release too. Return the hold from
             # OUTSIDE the failed transaction so the user is not left with

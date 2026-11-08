@@ -9,7 +9,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
-from django.db import connection, transaction
+from django.db import DatabaseError, connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
@@ -139,7 +139,7 @@ def _owned(actor, request_id):
 
 def _result(row, actor):
     return {"account": actor.user.username, "request_id": str(row.pk),
-            "state": row.state, "quote": row.quote, "receipt": row.receipt,
+            "state": row.state, "quote": row.quote, "receipt": {k: v for k, v in row.receipt.items() if k != "_prepared"},
             "content_expires_at": row.content_expires_at.isoformat(),
             "content_purged": row.content_purged}
 
@@ -194,7 +194,7 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
 def get(raw, account, request_id, cancel=False):
     with bounded_transaction(), authorized_actor(raw, account, [SCOPE]) as actor:
         row = _owned(actor, request_id)
-        if row.state == "running":
+        if row.state in {"running", "unknown"}:
             from dj.apps.tuzis.models import IdempotencyKey
             committed = IdempotencyKey.objects.filter(
                 scope="mcp_ai_prompt", key=str(row.native_key), user=actor.user,
@@ -207,9 +207,9 @@ def get(raw, account, request_id, cancel=False):
                 row.finished_at = committed.created_at
                 row.content_expires_at = row.finished_at + timedelta(hours=24)
                 row.save(update_fields=["receipt", "state", "finished_at", "content_expires_at"])
-            elif row.started_at < timezone.now() - timedelta(minutes=20):
+            elif row.state == "running" and row.started_at < timezone.now() - timedelta(minutes=20):
                 row.state = "unknown"
-                row.receipt = {"charge_status": "unknown", "detail": "Provider outcome is uncertain. This request will never be dispatched again. Expired reservations are returned by the ledger's hold expiry process."}
+                row.receipt = {**row.receipt.get("_prepared", {}), "charge_status": "unknown", "tuzis_charged": None, "detail": "Provider or settlement outcome is uncertain. Any prepared result is retained; this request will never be dispatched again. Expired reservations are returned by the ledger's hold expiry process."}
                 row.finished_at = timezone.now()
                 row.save(update_fields=["state", "receipt", "finished_at"])
         if row.content_expires_at <= timezone.now():
@@ -234,6 +234,23 @@ class MCPMeteredPromptView(native.MeteredPromptView):
 
     def billing_transaction(self):
         return bounded_transaction()
+
+    def settle_result(self, request, ai_model, reservation, price, claim, response_status, data):
+        # Save the already-generated result before contending for the money
+        # lock. This is never authority to call the provider again.
+        with bounded_transaction():
+            MCPAIRequest.objects.filter(pk=self.invocation_id).update(receipt={"_prepared": data})
+        for attempt in range(5):
+            try:
+                return super().settle_result(
+                    request, ai_model, reservation, price, claim, response_status, data,
+                )
+            except DatabaseError as exc:
+                # These errors prove the entire atomic attempt rolled back.
+                # Never retry ambiguous connection/commit failures.
+                code = getattr(exc.__cause__, "sqlstate", None) or getattr(exc.__cause__, "pgcode", None)
+                if code not in {"55P03", "57014", "40001", "40P01"} or attempt == 4:
+                    raise
 
     def claim_context(self):
         return bounded_transaction()
@@ -268,7 +285,7 @@ def invoke(request_id):
             "access_token", "account_grant__user",
         ).get(pk=request_id)
         if row.state != "queued":
-            return
+            return row.state
         row.state, row.started_at = "running", timezone.now()
         row.save(update_fields=["state", "started_at"])
         intent, native_key, user, token = row.intent, row.native_key, row.account_grant.user, row.access_token
@@ -298,13 +315,16 @@ def invoke(request_id):
             state = "unknown"
     except Exception:
         # Never log prompt/provider exception text or automatically re-dispatch.
-        receipt = {"charge_status": "unknown", "detail": "Outcome unavailable. This request will not be sent again."}
+        prepared = MCPAIRequest.objects.filter(pk=request_id).values_list("receipt", flat=True).first() or {}
+        receipt = {**prepared.get("_prepared", {}), "charge_status": "unknown", "tuzis_charged": None,
+                   "detail": "Settlement unavailable. The generated result is retained, but its charge is not confirmed. This request will not be sent again."}
         state = "unknown"
     with bounded_transaction():
         row = MCPAIRequest.objects.select_for_update().get(pk=request_id)
         row.state, row.receipt, row.finished_at = state, receipt, timezone.now()
         row.content_expires_at = row.finished_at + timedelta(hours=24)
         row.save(update_fields=["state", "receipt", "finished_at", "content_expires_at"])
+    return state
 
 
 def purge_content():
@@ -319,6 +339,7 @@ def purge_content():
                 continue
             row.intent = {}
             row.receipt.pop("response", None)
+            row.receipt.pop("_prepared", None)
             row.content_purged = True
             if row.state in {"quoted", "queued"}:
                 row.state = "expired"

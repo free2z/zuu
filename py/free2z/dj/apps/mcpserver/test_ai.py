@@ -275,3 +275,66 @@ def test_pending_limit_is_account_wide_and_retry_does_not_consume_capacity(auth,
     ai.get(auth, user.username, first["request_id"], True)
     assert ai.start(second_connection, user.username, quote["quote_token"], quote["max_charge_tuzis"], str(uuid4()))["state"] == "queued"
     assert MCPAIRequest.objects.get(pk=second["request_id"]).state == "queued"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_settlement_retries_real_creator_lock_contention_without_provider_retry(auth, user, model, monkeypatch):
+    import threading
+    from django.db import connections, transaction
+    accepted = queued(auth, user, model)
+    locked, release = threading.Event(), threading.Event()
+    def contend():
+        try:
+            with transaction.atomic():
+                Creator.objects.select_for_update().get(pk=user.pk)
+                locked.set()
+                release.wait(timeout=4)
+        finally:
+            connections.close_all()
+    calls = []
+    thread = threading.Thread(target=contend)
+    def generate(*args, **kwargs):
+        calls.append(1)
+        thread.start()
+        assert locked.wait(timeout=5)
+        return GenerationResult("retained answer", 10, 2, 2)
+    monkeypatch.setattr(ai.native, "generate_reply", generate)
+    before = balance(user)
+    try:
+        ai.invoke(accepted["request_id"])
+    finally:
+        release.set()
+        thread.join(timeout=6)
+    receipt = ai.get(auth, user.username, accepted["request_id"])["receipt"]
+    assert receipt["response"] == "retained answer"
+    assert receipt["tuzis_charged"] == "0.003"
+    assert before - balance(user) == Decimal("0.003") and len(calls) == 1
+
+
+def test_exhausted_settlement_retains_result_and_does_not_regenerate(auth, user, model, generation, monkeypatch):
+    from django.db import OperationalError
+    accepted = queued(auth, user, model)
+    attempts = []
+    def fail(*args, **kwargs):
+        attempts.append(1)
+        cause = Exception("fixture rollback")
+        cause.sqlstate = "55P03"
+        raise OperationalError("fixture lock timeout") from cause
+    monkeypatch.setattr(ai.native.ledger, "settle_reservation", fail)
+    ai.invoke(accepted["request_id"])
+    ai.invoke(accepted["request_id"])
+    receipt = ai.get(auth, user.username, accepted["request_id"])["receipt"]
+    assert receipt["response"] == "a useful answer" and receipt["charge_status"] == "unknown"
+    assert receipt["tuzis_charged"] is None
+    assert len(attempts) == 5 and len(generation) == 1
+
+
+def test_worker_marks_uncertain_outcome_failed_for_billing_health(auth, user, model, monkeypatch):
+    from dj.apps.oidc.tasks import invoke_mcp_ai
+    accepted = queued(auth, user, model)
+    def timeout(*args, **kwargs):
+        raise TimeoutError("fixture uncertainty")
+    monkeypatch.setattr(ai.native, "generate_reply", timeout)
+    with pytest.raises(RuntimeError, match="requires reconciliation"):
+        invoke_mcp_ai(request_id=accepted["request_id"])
+    assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "unknown"
