@@ -576,11 +576,15 @@ def content_revision(card, now_unix=None) -> int:
         ProviderModel.objects.aggregate(t=Max("availability_changed_at"))["t"],
     ]
     if now_unix is not None:
-        # Expiry changes availability without an UPDATE. Give that transition
-        # its own monotonic version, even inside a reissue window.
+        # A promotional model leaves this catalog one full validity period
+        # before expiry, preserving offline resilience for every other model.
+        # That transition changes content without an UPDATE, even in a window.
         now = datetime.datetime.fromtimestamp(now_unix, tz=datetime.timezone.utc)
-        stamps.append(AIModel.objects.filter(price_valid_until__lte=now).aggregate(
-            t=Max("price_valid_until"))["t"])
+        expired = AIModel.objects.filter(
+            price_valid_until__lte=now + datetime.timedelta(seconds=VALIDITY_SECONDS)
+        ).aggregate(t=Max("price_valid_until"))["t"]
+        if expired is not None:
+            stamps.append(expired - datetime.timedelta(seconds=VALIDITY_SECONDS))
     return max((_micros(s) for s in stamps if s is not None), default=0)
 
 
@@ -642,7 +646,6 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     rows = {row.model_id: row for row in card.model_rows.all()}
     disabled = sorted(POLICY_DISABLED_PROVIDERS)
     candidates = []
-    price_expiries = {}
     for ai_model in undiscovered_models():
         log_model_not_discovered(ai_model)
     for ai_model in catalogue_models():
@@ -653,9 +656,8 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
             continue
         if ai_model.price_valid_until is not None:
             expiry = int(ai_model.price_valid_until.timestamp())
-            if expiry <= now_unix:
+            if expiry <= now_unix + VALIDITY_SECONDS:
                 continue
-            price_expiries[ai_model.model] = expiry
         row = rows.get(ai_model.model)
         if row is None:
             log_model_excluded(
@@ -789,10 +791,7 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
         "schema": schema,
         "version": version,
         "issued_at": issued_at,
-        "expires_at": min(
-            [issued_at + VALIDITY_SECONDS]
-            + [price_expiries[m["id"]] for m in models if m["id"] in price_expiries]
-        ),
+        "expires_at": issued_at + VALIDITY_SECONDS,
         "rate_card_version": card.version,
         "platform_margin_bps": card.platform_margin_bps,
         "disabled_providers": disabled,
