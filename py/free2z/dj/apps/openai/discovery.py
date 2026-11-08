@@ -164,7 +164,7 @@ def _anthropic_aliases(models: list[DiscoveredModel]) -> list[DiscoveredModel]:
         # The alias means the NEWEST snapshot; keep the latest date.
         if current is None or match["date"] > current.metadata["alias_of"][-8:]:
             aliases[alias] = DiscoveredModel(
-                id=alias, metadata={"alias_of": model.id, "derived": True})
+                id=alias, metadata={**model.metadata, "alias_of": model.id, "derived": True})
     return list(aliases.values())
 
 
