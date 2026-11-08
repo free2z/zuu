@@ -1489,7 +1489,7 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
     assert by_id["gpt-4o"]["context_window"] == 128_000
     assert by_id["gpt-4o"]["prices"]["input_nusd_per_mtok"] == 2_500_000_000
     assert by_id["gpt-5.6-luna"]["prices"]["input_nusd_per_mtok"] == 200_000_000
-    assert by_id["gpt-5.6-sol"]["prices"]["cache_write_nusd_per_mtok"] == 6_250_000_000
+    assert "gpt-5.6-sol" not in by_id  # promotional price expired at SAMPLE_NOW
 
 
 def rate_card_seeds_newest_version():

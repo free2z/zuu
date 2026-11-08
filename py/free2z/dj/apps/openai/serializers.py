@@ -14,6 +14,7 @@ class AIModelSerializer(serializers.ModelSerializer):
         # endpoint, not this one: excluded so `/api/ai/models/` and every
         # nested `ai_model` answer exactly what they did before they landed.
         exclude = [
+            'price_checked_at', 'price_valid_until',
             'provider_model_id',
             'api_style',
             'ttfb_timeout_ms',
