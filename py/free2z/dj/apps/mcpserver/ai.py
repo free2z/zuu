@@ -168,7 +168,7 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
         row.access_token = actor.auth.row
         row.save(update_fields=["state", "idempotency_key", "access_token"])
         from dj.apps.oidc.tasks import invoke_mcp_ai
-        invoke_mcp_ai.defer(str(row.pk))
+        invoke_mcp_ai.defer(request_id=str(row.pk))
         record_action(actor, "start_ai", 202)
         return _result(row, actor)
 

@@ -23,7 +23,7 @@ pytestmark = pytest.mark.django_db
 def enabled(settings, monkeypatch):
     settings.MCP_AI_ENABLED = True
     settings.OPENAI_API_KEY = "fixture-key"
-    monkeypatch.setattr("dj.apps.oidc.tasks.invoke_mcp_ai.defer", lambda *args: None)
+    monkeypatch.setattr("dj.apps.oidc.tasks.invoke_mcp_ai.defer", lambda *args, **kwargs: None)
 
 
 @pytest.fixture
@@ -223,3 +223,25 @@ def test_provider_usage_above_quote_is_clamped_to_fractional_ceiling(auth, user,
     assert Decimal(receipt["tuzis_charged"]) == before - balance(user) == maximum
     event = next(json.loads(r.message) for r in caplog.records if '"event": "ai_charge_clamped"' in r.message or '"event":"ai_charge_clamped"' in r.message)
     assert Decimal(event["charged_2z"]) == maximum
+
+
+@pytest.mark.django_db(transaction=True)
+def test_real_queue_arguments_commit_and_rollback_with_invocation(auth, user, model, monkeypatch):
+    from django.db import connection, transaction
+    monkeypatch.undo()  # Use the registered task's real Django connector.
+    quote = quoted(auth, user, model)
+    key = str(uuid4())
+    def jobs():
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT args FROM procrastinate_jobs WHERE task_name = %s", ["oidc.invoke_mcp_ai"])
+            return cursor.fetchall()
+    with pytest.raises(RuntimeError, match="rollback fixture"):
+        with transaction.atomic():
+            accepted = ai.start(auth, user.username, quote["quote_token"], quote["max_charge_tuzis"], key)
+            assert jobs() == [({"request_id": accepted["request_id"]},)]
+            raise RuntimeError("rollback fixture")
+    assert jobs() == []
+    assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "quoted"
+    accepted = ai.start(auth, user.username, quote["quote_token"], quote["max_charge_tuzis"], key)
+    assert jobs() == [({"request_id": accepted["request_id"]},)]
+    assert MCPAIRequest.objects.get(pk=accepted["request_id"]).state == "queued"
