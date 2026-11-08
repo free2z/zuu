@@ -9,7 +9,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework.authentication import BaseAuthentication
@@ -24,6 +24,16 @@ from .operations import _request
 SCOPE = "mcp:ai"
 QUANTUM = Decimal("0.001")
 SALT = "free2z.mcp.ai.quote.v1"
+
+
+@contextmanager
+def bounded_transaction():
+    """Transaction-local limits are safe through transaction-mode poolers."""
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute("SET LOCAL lock_timeout = '3s'")
+            cursor.execute("SET LOCAL statement_timeout = '10s'")
+        yield
 
 
 def _enabled():
@@ -65,7 +75,7 @@ def _metadata(model):
 
 def list_models(raw, account):
     from dj.apps.openai.provider_inventory import provider_inventory
-    with authorized_actor(raw, account, [SCOPE]) as actor:
+    with bounded_transaction(), authorized_actor(raw, account, [SCOPE]) as actor:
         return {"account": actor.user.username, "inventory": provider_inventory(), "models": [_metadata(m) for m in _models()] if settings.MCP_AI_ENABLED else [],
                 "enabled": settings.MCP_AI_ENABLED,
                 "retention": "Prompt and result content is kept for up to 24 hours plus hourly cleanup; billing and retry records persist. Provider policies also apply."}
@@ -93,7 +103,7 @@ def quote(raw, account, model, prompt, max_output_tokens, system_message=None):
         "system_message": system_message,
     })
     serializer.is_valid(raise_exception=True)
-    with authorized_actor(raw, account, [SCOPE]) as actor:
+    with bounded_transaction(), authorized_actor(raw, account, [SCOPE]) as actor:
         selected = _models().filter(pk=serializer.validated_data["model"]).first()
         if selected is None:
             raise ValidationError("Model is unavailable or has no current reviewed price.")
@@ -146,7 +156,7 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
             raise ValueError()
     except (signing.BadSignature, ValueError, InvalidOperation):
         raise ValidationError("Use an issued quote, a UUIDv4 retry key and a finite maximum charge with at most three decimal places.")
-    with authorized_actor(raw, account, [SCOPE]) as actor:
+    with bounded_transaction(), authorized_actor(raw, account, [SCOPE]) as actor:
         row = _owned(actor, request_id)
         prior = MCPAIRequest.objects.filter(
             connection=actor.connection, account_grant_id=actor.account_id, idempotency_key=key,
@@ -182,7 +192,7 @@ def start(raw, account, quote_token, max_charge_tuzis, idempotency_key):
 
 
 def get(raw, account, request_id, cancel=False):
-    with authorized_actor(raw, account, [SCOPE]) as actor:
+    with bounded_transaction(), authorized_actor(raw, account, [SCOPE]) as actor:
         row = _owned(actor, request_id)
         if row.state == "running":
             from dj.apps.tuzis.models import IdempotencyKey
@@ -222,13 +232,23 @@ class MCPMeteredPromptView(native.MeteredPromptView):
     idempotency_scope = "mcp_ai_prompt"
     invocation_id = None
 
+    def billing_transaction(self):
+        return bounded_transaction()
+
+    def claim_context(self):
+        return bounded_transaction()
+
+    def release_reservation(self, reservation):
+        with bounded_transaction():
+            return native.ledger.release_reservation(reservation)
+
     @contextmanager
     def reservation_context(self, request, ai_model, max_price):
         _enabled()
         initial = MCPAIRequest.objects.select_related("access_token").get(pk=self.invocation_id)
         if initial.access_token is None:
             raise PermissionDenied("Connection token is no longer valid.")
-        with authorized_actor(initial.access_token.token, str(initial.account_grant_id), [SCOPE]) as actor:
+        with bounded_transaction(), authorized_actor(initial.access_token.token, str(initial.account_grant_id), [SCOPE]) as actor:
             row = _owned(actor, initial.pk)
             grant = actor.connection.account_grants.get(pk=actor.account_id)
             if row.state != "running" or row.grant_generation != grant.generation:
@@ -243,7 +263,7 @@ class MCPMeteredPromptView(native.MeteredPromptView):
 
 def invoke(request_id):
     """At most one dispatch, even if the queue redelivers after worker death."""
-    with transaction.atomic():
+    with bounded_transaction():
         row = MCPAIRequest.objects.select_for_update(of=("self",)).select_related(
             "access_token", "account_grant__user",
         ).get(pk=request_id)
@@ -280,7 +300,7 @@ def invoke(request_id):
         # Never log prompt/provider exception text or automatically re-dispatch.
         receipt = {"charge_status": "unknown", "detail": "Outcome unavailable. This request will not be sent again."}
         state = "unknown"
-    with transaction.atomic():
+    with bounded_transaction():
         row = MCPAIRequest.objects.select_for_update().get(pk=request_id)
         row.state, row.receipt, row.finished_at = state, receipt, timezone.now()
         row.content_expires_at = row.finished_at + timedelta(hours=24)
@@ -293,7 +313,7 @@ def purge_content():
     from django.db.models.expressions import RawSQL
     due = MCPAIRequest.objects.filter(content_purged=False, content_expires_at__lte=timezone.now())
     for pk in due.values_list("pk", flat=True).iterator(chunk_size=500):
-        with transaction.atomic():
+        with bounded_transaction():
             row = MCPAIRequest.objects.select_for_update().get(pk=pk)
             if row.content_purged or row.content_expires_at > timezone.now():
                 continue

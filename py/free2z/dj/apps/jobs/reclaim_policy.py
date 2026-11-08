@@ -194,6 +194,15 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'the next tick is its retry; a duplicate run is harmless (the page '
         'is deduplicated per app per hour).',
     ),
+    'oidc.invoke_mcp_ai': TaskPolicy(
+        NEVER,
+        'Paid provider dispatch has no upstream idempotency guarantee. The '
+        'MCP invocation records running before dispatch and never resends; '
+        'polling recovers a committed receipt or reports an uncertain outcome, '
+        'and the ledger expires orphaned holds. Queue retry/reclaim must not '
+        'create another dispatch.',
+        health_alert_after_seconds=390,
+    ),
     'oidc.sweep_tokens': TaskPolicy(
         NEVER,
         'unbounded: oauth2_provider.models.clear_expired deletes expired '

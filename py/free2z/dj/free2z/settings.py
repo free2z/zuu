@@ -2549,7 +2549,7 @@ JOB_HEALTH_FAILURE_WINDOW_SECONDS = int(
 # `billing` gets.
 JOB_HEALTH_BILLING_QUEUES = [
     q for q in os.environ.get(
-        "JOB_HEALTH_BILLING_QUEUES", "billing,translation").split(",")
+        "JOB_HEALTH_BILLING_QUEUES", "billing,translation,mcp-ai").split(",")
     if q.strip()
 ]
 

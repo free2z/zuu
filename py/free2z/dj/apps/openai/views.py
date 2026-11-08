@@ -2311,6 +2311,15 @@ class MeteredPromptView(views.APIView):
     pricing_quantum = None
     idempotency_scope = "ai_prompt"
 
+    def billing_transaction(self):
+        return transaction.atomic()
+
+    def claim_context(self):
+        return nullcontext()
+
+    def release_reservation(self, reservation):
+        return ledger.release_reservation(reservation)
+
     def reservation_context(self, request, ai_model, max_price):
         """Internal callers can recheck authority atomically with the hold."""
         return nullcontext()
@@ -2420,17 +2429,18 @@ class MeteredPromptView(views.APIView):
             "system_message": system_message,
             "max_output_tokens": requested_output,
         }
-        claim, duplicate_response = _provider_claim(
-            request,
-            self.idempotency_scope,
-            stable_intent,
-            intent_snapshot=_creator_model_intent_snapshot(requested_model),
-            # The stream endpoint has no upstream idempotency contract. Once
-            # a call may have reached the provider, a stale claim must never
-            # make an automatic second paid call.
-            allow_stale_takeover=True,
-            stale_takeover_requires_matching_hash=True,
-        )
+        with self.claim_context():
+            claim, duplicate_response = _provider_claim(
+                request,
+                self.idempotency_scope,
+                stable_intent,
+                intent_snapshot=_creator_model_intent_snapshot(requested_model),
+                # The stream endpoint has no upstream idempotency contract. Once
+                # a call may have reached the provider, a stale claim must never
+                # make an automatic second paid call.
+                allow_stale_takeover=True,
+                stale_takeover_requires_matching_hash=True,
+            )
         if duplicate_response is not None:
             return duplicate_response
 
@@ -2459,7 +2469,7 @@ class MeteredPromptView(views.APIView):
                 ),
             }
             from dj.apps.ledger import api as ledger_api
-            with transaction.atomic():
+            with self.billing_transaction():
                 ledger_api.lock_creator(request.user.pk)
                 reservation = _provider_reservation(request.user, claim.key, "ai_prompt")
                 snapshot = (claim.response_body or {}).get("_provider_intent_snapshot")
@@ -2472,7 +2482,7 @@ class MeteredPromptView(views.APIView):
                     "reservation_released": reservation is None,
                 }
                 if reservation is not None:
-                    ledger.release_reservation(reservation)
+                    self.release_reservation(reservation)
                     operation["reservation_released"] = True
                 claim.finish(status.HTTP_409_CONFLICT, {
                     **result, "_provider_intent_snapshot": snapshot,
@@ -2642,7 +2652,7 @@ class MeteredPromptView(views.APIView):
                 error.data.update(self.metering_details(
                     ai_model, exc.input_tokens, exc.settlement_output_tokens, exc.usage, max_price,
                 ))
-                with transaction.atomic():
+                with self.billing_transaction():
                     ledger.settle_reservation(reservation, amount=price)
                     Event.objects.create(
                         read=False,
@@ -2656,7 +2666,7 @@ class MeteredPromptView(views.APIView):
                     if claim is not None:
                         claim.finish(error.status_code, error.data)
             except ledger.InsufficientFunds as settle_exc:
-                ledger.release_reservation(reservation)
+                self.release_reservation(reservation)
                 idempotency.release(claim)
                 return Response(
                     _ai_not_charged_payload(
@@ -2667,12 +2677,12 @@ class MeteredPromptView(views.APIView):
                     status=status.HTTP_402_PAYMENT_REQUIRED,
                 )
             except Exception:
-                ledger.release_reservation(reservation)
+                self.release_reservation(reservation)
                 idempotency.release(claim)
                 raise
             return error
         except Exception as exc:
-            ledger.release_reservation(reservation)
+            self.release_reservation(reservation)
             if claim is not None and _provider_rejected_before_generation(exc):
                 idempotency.release(claim)
             return _ai_error_response(exc, model_label=str(ai_model))
@@ -2714,7 +2724,7 @@ class MeteredPromptView(views.APIView):
             data.update(self.metering_details(
                 ai_model, input_tokens, generation.settlement_output_tokens, usage, max_price,
             ))
-            with transaction.atomic():
+            with self.billing_transaction():
                 ledger.settle_reservation(reservation, amount=price)
                 Event.objects.create(
                     read=False,
@@ -2733,7 +2743,7 @@ class MeteredPromptView(views.APIView):
             # their balance depleted until the stale sweep 15 minutes later.
             # Idempotent: a hold the sweep already returned is a no-op. Found
             # by the codex adversarial review.
-            ledger.release_reservation(reservation)
+            self.release_reservation(reservation)
             idempotency.release(claim)
             return Response(
                 _ai_not_charged_payload(
@@ -2746,7 +2756,7 @@ class MeteredPromptView(views.APIView):
             # failure writing the receipt): nothing was charged, so nothing
             # may stay held. The error itself still surfaces as a 500 -- see
             # the note at the end of PromptResponseViewSet.create.
-            ledger.release_reservation(reservation)
+            self.release_reservation(reservation)
             idempotency.release(claim)
             raise
         return Response(data)
