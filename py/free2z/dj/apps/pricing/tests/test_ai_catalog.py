@@ -620,7 +620,8 @@ def test_the_seeded_lineup_publishes_on_the_seeded_card(db):
     ids = {m["id"] for m in c["models"]}
     expected = set(
         row.model for row in AIModel.objects.enabled().filter(is_ga=True)
-        if row.price_valid_until is None or row.price_valid_until.timestamp() > SAMPLE_NOW
+        if (row.provider, row.model) not in catalog.GATEWAY_MODEL_EXCLUSIONS
+        and (row.price_valid_until is None or row.price_valid_until.timestamp() > SAMPLE_NOW)
     )
     assert ids == expected and ids
     assert not any(m["provider"] == "kimi" for m in c["models"])
@@ -1446,6 +1447,7 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
     retired = {"gpt-4.1-nano", "o1", "o3-mini", "o4-mini"}
     assert retired <= set(card.model_rows.values_list("model_id", flat=True))
     expected = sorted(m for p, m, *_ in seed_ai_models.LINEUP if p != "kimi" and m not in retired
+                      and (p, m) not in catalog.GATEWAY_MODEL_EXCLUSIONS
                       and (m not in seed_ai_models.PRICE_VALID_UNTIL
                            or seed_ai_models.PRICE_VALID_UNTIL[m].timestamp() > SAMPLE_NOW + 1))
     assert sorted(_ids(c)) == expected  # the builder orders by DB collation
@@ -1666,3 +1668,17 @@ def test_catalog_cannot_outlive_a_promotional_price(sample_dataset):
     after = catalog.build_catalog(expiry)
     assert "gpt-5.6-luna" not in {m["id"] for m in after["models"]}
     assert after["version"] > document["version"]
+
+
+def test_new_claude_rows_are_not_advertised_with_unreviewed_gateway_controls(db, caplog):
+    from dj.apps.openai.management.commands import seed_ai_models
+    call_command("seed_ai_models", stdout=io.StringIO())
+    document = catalog.build_catalog(catalog.now_unix())
+    ids = {row["id"] for row in document["models"]}
+    for provider, model in catalog.GATEWAY_MODEL_EXCLUSIONS:
+        assert model not in ids
+        assert AIModel.objects.enabled().filter(provider=provider, model=model, is_ga=True).exists()
+    assert "gateway_adapter_capabilities_not_reviewed" in caplog.text
+    for name in seed_ai_models.NO_SAMPLING_MODELS:
+        row = AIModel.objects.get(model=name)
+        assert row.sampling_temperature is False and row.sampling_top_p is False

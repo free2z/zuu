@@ -618,6 +618,21 @@ def _in_outer_transaction() -> bool:
     return len(connection.atomic_blocks) > 1
 
 
+# Django/MCP send text without sampling controls. The independent gateway
+# accepts additional controls, including top_k for every Anthropic model.
+# New Claude rows need that adapter reviewed before being advertised there;
+# Sonnet/Haiku 5.5 explicitly reject temperature/top_p/top_k. Existing rows
+# preserve their compatibility policy. No inference from an absent capability.
+GATEWAY_MODEL_EXCLUSIONS = {
+    ("anthropic", model): "gateway_adapter_capabilities_not_reviewed"
+    for model in (
+        "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5",
+        "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-4-7",
+        "claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-4-6",
+    )
+}
+
+
 def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     from f2z.ai.providers import POLICY_DISABLED_PROVIDERS
 
@@ -631,6 +646,11 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     for ai_model in undiscovered_models():
         log_model_not_discovered(ai_model)
     for ai_model in catalogue_models():
+        exclusion = GATEWAY_MODEL_EXCLUSIONS.get((ai_model.provider, ai_model.model))
+        if exclusion:
+            log_model_excluded(ai_model.model, ai_model.provider, exclusion,
+                               "Text is supported through Django/MCP; gateway controls need review")
+            continue
         if ai_model.price_valid_until is not None:
             expiry = int(ai_model.price_valid_until.timestamp())
             if expiry <= now_unix:

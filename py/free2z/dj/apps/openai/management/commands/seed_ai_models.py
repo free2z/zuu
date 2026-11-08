@@ -55,6 +55,7 @@ GENERIC_SYSTEM_MESSAGE = (
 )
 
 DEFAULT_MARKUP = "1.5"
+NO_SAMPLING_MODELS = {"claude-sonnet-5-5", "claude-haiku-5-5"}
 PRICE_CHECKED_AT = date(2026, 11, 7)
 PRICE_VALID_UNTIL = {"gpt-5.6-sol": datetime(2026, 11, 21, tzinfo=timezone.utc)}
 
@@ -615,6 +616,8 @@ class Command(BaseCommand):
                     **defaults,
                     "markup": DEFAULT_MARKUP,
                     "is_enabled": permitted,
+                    **({"sampling_temperature": False, "sampling_top_p": False}
+                       if model in NO_SAMPLING_MODELS else {}),
                     # Declared capability, written on CREATE only (0024's
                     # rule: an operator who pinned the row to another
                     # snapshot or turned it off keeps their decision).

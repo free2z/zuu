@@ -50,7 +50,11 @@ cost 5%. The adapter's default OpenAI cache retention uses the published
 
 GPT-5.6 Sol's promotional price expires in Free2Z at **2026-11-21 00:00 UTC**.
 After that instant, requests are unavailable until the price is reviewed again.
-Signed catalogs expire no later than the promotion. A new immutable card and
+Signed catalogs expire no later than the promotion. Refresh the gateway's
+catalog before the cutover and verify the next refresh succeeds: every gateway
+model pauses while an expired catalog awaits replacement (normally up to one
+poll interval, longer if the catalog service is unavailable). Django/MCP expiry
+is per model. A new immutable card and
 reviewed validity update are required to extend or change the price.
 
 OpenAI's tiered models charge higher rates above 272,000 input tokens, xAI
@@ -64,6 +68,12 @@ claims about the providers' maximum windows. Anthropic models may offer 1M
 context; this integration conservatively offers 200,000, or 86,000 for Haiku 5.5.
 
 ## Supported scope and exclusions
+
+The separate signed gateway excludes the ten Claude models added in this
+catalog review until its broader sampling controls are qualified. Django/MCP
+supports their text calls without those controls. In particular, Sonnet 5.5
+and Haiku 5.5 reject temperature, top-p and top-k. A model's availability on
+one interface does not grant every capability on another.
 
 Text requests do not expose image/audio/video generation, realtime sessions,
 embeddings, moderation, provider-hosted search, multi-agent execution or provider
