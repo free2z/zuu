@@ -208,3 +208,102 @@ def test_public_conversation_alias_redirects_to_paginated_operation(
         raw, user.username, "ai_public_conversations_list", read=True, query={"page": 1}
     )
     assert listed["status"] == 200 and "results" in listed["data"], listed
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("operation", ["emails_status_retrieve", "reports_create"])
+def test_native_account_lock_upgrade_serializes_with_consent(
+    signed_in,
+    user,
+    monkeypatch,
+    operation,
+):
+    """Consent must wait before the app, not hold a key-share lock during upgrade."""
+    import time
+    from dj.apps.oidc.consent import record_consent
+    from dj.apps.oidc.tests.test_mcp_connections import SCOPES
+    from dj.apps.comments.models import ContentReport
+    from . import dispatch
+
+    app, _, tokens = issue(signed_in, user)
+    raw = tokens["access_token"]
+    native_started, consent_started = Event(), Event()
+    consent_pid = []
+    native = dispatch._native
+
+    def gated_native(*a, **kw):
+        native_started.set()
+        assert consent_started.wait(10)
+        deadline = time.monotonic() + 8
+        while True:
+            # Both the old and corrected consent paths eventually wait for this
+            # request. Observe the real wait, not a timing-dependent sleep.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))",
+                    [consent_pid[0]],
+                )
+                waiting = cursor.fetchone()[0]
+            if waiting:
+                break
+            assert time.monotonic() < deadline, (
+                "consent never waited for the MCP transaction"
+            )
+            Event().wait(0.01)
+        return native(*a, **kw)
+
+    monkeypatch.setattr(dispatch, "_native", gated_native)
+
+    def invoke():
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET statement_timeout = '12s'")
+                cursor.execute("SET lock_timeout = '6s'")
+            kwargs = (
+                {}
+                if operation == "emails_status_retrieve"
+                else {
+                    "body": {
+                        "target_kind": "creator",
+                        "target_id": user.username,
+                        "reason": "spam",
+                    }
+                }
+            )
+            return call(
+                raw,
+                user.username,
+                operation,
+                read=operation == "emails_status_retrieve",
+                **kwargs,
+            )
+        finally:
+            close_old_connections()
+
+    def consent():
+        close_old_connections()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET statement_timeout = '12s'")
+                cursor.execute("SET lock_timeout = '6s'")
+                cursor.execute("SELECT pg_backend_pid()")
+                consent_pid.append(cursor.fetchone()[0])
+            consent_started.set()
+            return record_consent(
+                user, app, SCOPES.split(), spend_cap_2z=None, cap_period="month"
+            )
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        action = pool.submit(invoke)
+        assert native_started.wait(10)
+        authorization = pool.submit(consent)
+        result, grant = action.result(timeout=20), authorization.result(timeout=20)
+    assert result["status"] == (
+        200 if operation == "emails_status_retrieve" else 201
+    ), result
+    assert grant.user_id == user.pk and grant.application_id == app.pk
+    if operation == "reports_create":
+        assert ContentReport.objects.filter(reporter=user).count() == 1
