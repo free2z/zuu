@@ -216,8 +216,10 @@ def test_the_project_knox_authenticator_enforces_the_account_epoch():
 
 def test_spectacular_whitelist_mirrors_the_runtime_authenticators():
     """Runtime equality is exact; raw MCP descriptors cannot become runtime auth."""
-    from dj.apps.mcpserver.schema import MCPBearerAuthentication, MCPUploadAuthentication
-    descriptors = [MCPBearerAuthentication, MCPUploadAuthentication]
+    from dj.apps.mcpserver.schema import (
+        MCPBearerAuthentication, MCPUploadAuthentication, MCPDownloadAuthentication,
+    )
+    descriptors = [MCPBearerAuthentication, MCPUploadAuthentication, MCPDownloadAuthentication]
     descriptor_names = [f'{cls.__module__}.{cls.__name__}' for cls in descriptors]
     runtime = list(settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"])
     actual = list(settings.SPECTACULAR_SETTINGS["AUTHENTICATION_WHITELIST"])

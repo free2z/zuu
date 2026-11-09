@@ -209,7 +209,7 @@ def _documented_mcp_boundary(pattern, callback, contract):
     allowance: callback identity, path, sole method and every control header
     must agree, or the ordinary invisibility ratchet rejects the route.
     """
-    from dj.apps.mcpserver import uploads, views
+    from dj.apps.mcpserver import uploads, views, downloads
     http_headers = {'Origin', 'Host', 'Content-Length',
                     'MCP-Protocol-Version', 'Mcp-Method', 'Mcp-Name'}
     expected = {
@@ -218,6 +218,12 @@ def _documented_mcp_boundary(pattern, callback, contract):
         'api/mcp/uploads/<uuid:upload_id>': (
             uploads.upload_binary, '/api/mcp/uploads/{upload_id}', 'put',
             {'Content-Length'}, 'mcpUploadCapability'),
+        'api/mcp/downloads/<int:upload_id>': (
+            downloads.download_binary, '/api/mcp/downloads/{upload_id}', 'get',
+            set(), 'mcpDownloadCapability'),
+        'api/mcp/exports/<uuid:export_id>': (
+            downloads.download_export, '/api/mcp/exports/{export_id}', 'get',
+            set(), 'mcpDownloadCapability'),
         'api/mcp/uploads/authorize': (
             uploads.authorize_upload, '/api/mcp/uploads/authorize', 'get',
             {'X-Original-URI', 'X-Original-Content-Length'}, 'mcpUploadCapability'),
@@ -230,7 +236,8 @@ def _documented_mcp_boundary(pattern, callback, contract):
     actual_headers = {p.get('name') for p in parameters if p.get('in') == 'header'}
     scheme = contract.get('components', {}).get('securitySchemes', {}).get(security, {})
     expected_scheme = ({'type': 'http', 'scheme': 'bearer'} if security == 'mcpBearer' else
-                       {'type': 'apiKey', 'in': 'header', 'name': 'X-Free2Z-Upload-Capability'})
+                       {'type': 'apiKey', 'in': 'header', 'name': ('X-Free2Z-Download-Capability'
+                                if security == 'mcpDownloadCapability' else 'X-Free2Z-Upload-Capability')})
     return (callback is actual_callback and set(entry) == {method} and actual_headers == headers
             and entry[method].get('security') == [{security: []}]
             and all(scheme.get(k) == v for k, v in expected_scheme.items()))

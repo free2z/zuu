@@ -22,6 +22,8 @@ Each action uses the intersection of the connection token's permissions and the 
 
 ## Tools
 
+The server also exposes the five bounded text-AI tools and four discovery/dispatch tools described below.
+
 | Tools | Purpose |
 | --- | --- |
 | `free2z_list_accounts`, `free2z_connect_account` | Inspect the connection and authorize additional accounts |
@@ -33,7 +35,7 @@ Each action uses the intersection of the connection token's permissions and the 
 | `free2z_list_uploads`, `free2z_get_upload` | Find the selected account's media and image variants |
 | `free2z_prepare_upload`, `free2z_get_upload_status` | Transfer a file and recover its media ID after an interrupted response |
 
-Tool input schemas come from the SDK and reject unsupported fields. The hosted surface excludes money transfers, subscription purchases, credential changes, hard deletion, arbitrary API requests, local server filesystem paths, and server-side URL fetching. The optional local stdio package has its own API catalog and configuration; its broader catalog is not the hosted server's permission contract.
+Tool input schemas come from the SDK and reject unsupported fields. The hosted surface excludes money transfers, subscription purchases, credential changes, arbitrary API requests, local server filesystem paths, and server-side URL fetching. The optional local stdio package has its own API catalog and configuration; its broader catalog is not the hosted server's permission contract.
 
 ## Writing and uploading
 
@@ -54,3 +56,13 @@ MCP JSON input is limited to 4 MiB and output to 8 MiB. Binary uploads use their
 The Django bridge runs under WSGI or ASGI without an additional MCP server process. Native tool work runs on the Django request thread inside account and grant authorization locks. Tool errors unwind the action transaction before becoming MCP error results. A timeout or lost response cannot prove whether a mutation committed: read the page, reuse its creation receipt, or inspect upload status before retrying.
 
 Run the protocol-only HTTP tests from `py/free2z` with `python -m dj.apps.mcpserver.test_transport`. Run `pytest dj/apps/mcpserver` with the project's test dependencies and PostgreSQL configuration for real OAuth, selected-account writes, public-page permissions, rollback, upload replay, and token-refresh reconciliation.
+
+## Reviewed operation catalog
+
+The four discovery/dispatch tools (`free2z_search_operations`, `free2z_describe_operation`, `free2z_read`, `free2z_execute`) expose the reviewed native registry. See the [account operation guide](../../../../../docs/free2z/mcp/README.md) and [capability manifest](../../../../../docs/free2z/mcp/capabilities.json).
+
+`registry.py` fixes each method, path and native identity; OpenAPI supplies descriptions, never authority. `dispatch.py` rejects extra body/query fields and enforces paid ceilings and retry keys. Native paid claims, debit and queued work commit together under selected-account lifecycle locks. Same-account concurrent calls serialize; post-commit retry replays the native receipt. All native owner checks, validation and balance rules apply. Broad account/security/financial routes without reviewed delegation are rejected before a native callback.
+
+Separate `mcp:social`, `mcp:account`, `mcp:media`, `mcp:live` and `mcp:spend` consent covers these domains. `mcp:ai` authorizes bounded metered text AI through model/quote/start/status tools. Neither permission silently expands an existing account grant. Publication permission is required conservatively for variant, conversation, personality and series mutations, and dynamically for edits/deletion of public media.
+
+File and export downloads use two-minute, resource-bound capabilities. Their payload contains identifiers, not OAuth credentials. Authorization is rechecked before streaming; storage I/O occurs outside account locks.

@@ -50,6 +50,46 @@ class MCPUploadScheme(OpenApiAuthenticationExtension):
                 "exact file. Missing, expired or revoked authority returns 403; it cannot change media metadata."}
 
 
+class MCPDownloadAuthentication(BaseAuthentication):
+    def authenticate(self, request):
+        raise RuntimeError("Schema-only authentication must not be mounted.")
+
+
+class MCPDownloadScheme(OpenApiAuthenticationExtension):
+    target_class = MCPDownloadAuthentication
+    name = "mcpDownloadCapability"
+
+    def get_security_definition(self, auto_schema):
+        return {"type": "apiKey", "in": "header", "name": "X-Free2Z-Download-Capability",
+                "description": "Two-minute exact-file capability with live issuing-token, connection and account-grant checks."}
+
+
+class MCPDownloadBoundary(APIView):
+    authentication_classes = [MCPDownloadAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(operation_id="mcp_download_binary", tags=["mcp"],
+        description="Stream an owned original file using the capability returned by mcp_prepare_download. The URL alone is not authorized.",
+        parameters=[OpenApiParameter("upload_id", OpenApiTypes.INT, OpenApiParameter.PATH, required=True)],
+        responses={(200, "application/octet-stream"): OpenApiResponse(OpenApiTypes.BINARY, "Original file attachment."),
+                   409: OpenApiResponse(description="Stored content encoding cannot guarantee unchanged original bytes; encoded objects require stored Cache-Control: no-transform."),
+                   403: OpenApiResponse(description="Invalid, expired or revoked authority."),
+                   405: OpenApiResponse(description="Only GET is supported.")})
+    def get(self, request, upload_id):
+        raise RuntimeError("Schema-only view must not be mounted.")
+
+
+class MCPExportBoundary(MCPDownloadBoundary):
+    @extend_schema(operation_id="mcp_export_binary", tags=["mcp"],
+        description="Stream the exact unexpired publication archive using its account-authorized capability.",
+        parameters=[OpenApiParameter("export_id", OpenApiTypes.UUID, OpenApiParameter.PATH, required=True)],
+        responses={(200, "application/zip"): OpenApiResponse(OpenApiTypes.BINARY, "Publication ZIP attachment."),
+                   403: OpenApiResponse(description="Invalid, expired or revoked authority."),
+                   405: OpenApiResponse(description="Only GET is supported.")})
+    def get(self, request, export_id):
+        raise RuntimeError("Schema-only view must not be mounted.")
+
+
 class MCPHTTPBoundary(APIView):
     authentication_classes = [MCPBearerAuthentication]
     permission_classes = [IsAuthenticated]
@@ -168,9 +208,11 @@ class MCPHTTPAliasBoundary(MCPHTTPBoundary):
 class MCPBoundaryEnumerator(EndpointEnumerator):
     def get_api_endpoints(self, patterns=None, prefix=''):
         """Describe only exact raw callbacks present in this generator's URL subset."""
-        from . import uploads, views
+        from . import uploads, views, downloads
         endpoints = super().get_api_endpoints(patterns, prefix)
         expected = {
+            'api/mcp/downloads/<int:upload_id>': (downloads.download_binary, '/api/mcp/downloads/{upload_id}', 'GET', MCPDownloadBoundary),
+            'api/mcp/exports/<uuid:export_id>': (downloads.download_export, '/api/mcp/exports/{export_id}', 'GET', MCPExportBoundary),
             'api/mcp': (views.mcp_endpoint, '/api/mcp', 'POST', MCPHTTPBoundary),
             'api/mcp/': (views.mcp_endpoint, '/api/mcp/', 'POST', MCPHTTPAliasBoundary),
             'api/mcp/uploads/<uuid:upload_id>': (uploads.upload_binary, '/api/mcp/uploads/{upload_id}', 'PUT', MCPUploadBoundary),

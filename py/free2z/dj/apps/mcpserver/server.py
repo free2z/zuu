@@ -217,13 +217,39 @@ def create_server(raw_token, original_request):
         from .ai import get
         return await _call(get, raw_token, account, request_id, True)
 
+    @server.tool(annotations=READ_ONLY)
+    async def free2z_search_operations(query: str = "", supported: bool | None = None, offset: Annotated[int, Field(ge=0)] = 0, limit: Annotated[int, Field(ge=1, le=100)] = 25) -> CallToolResult:
+        """Search the native operation catalog. supported=true lists executable operations; unsupported entries explain the gap and next step. Describe an operation before using it."""
+        from .catalog import search
+        return await _call(search, raw_token, query, supported, offset, limit)
+
+    @server.tool(annotations=READ_ONLY)
+    async def free2z_describe_operation(operation_id: str) -> CallToolResult:
+        """Read parameters, body schema, required permissions and spending rules for one operation. Schema presence alone does not make an operation executable."""
+        from .catalog import describe
+        return await _call(describe, raw_token, operation_id)
+
+    @server.tool(annotations=READ_ONLY)
+    async def free2z_read(account: Account, operation_id: str, path: dict | None = None, query: dict | None = None) -> CallToolResult:
+        """Read a supported operation using the exact selected account and described path/query parameters. Never pass an arbitrary URL."""
+        from .dispatch import invoke
+        return await _call(invoke, raw_token, account, original_request, operation_id, write=False, path=path, query=query)
+
+    @server.tool(annotations=WRITE)
+    async def free2z_execute(account: Account, operation_id: str, path: dict | None = None, query: dict | None = None, body: dict | None = None, if_match: str | None = None, if_none_match: str | None = None, source_language: str | None = None, idempotency_key: str | None = None, max_charge_tuzis: str | None = None) -> CallToolResult:
+        """Execute a supported account operation. Describe it first. Paid comments, votes and translations require mcp:spend, a UUIDv4 retry key and an explicit maximum in 2Z. Retain identical arguments after a lost response. Publishing needs the user's decision and mcp:publish."""
+        from .dispatch import invoke
+        return await _call(invoke, raw_token, account, original_request, operation_id, write=True, path=path, query=query, body=body, if_match=if_match, if_none_match=if_none_match, source_language=source_language, idempotency_key=idempotency_key, max_charge_tuzis=max_charge_tuzis)
+
     @server.resource("free2z://guide")
     def guide() -> str:
         return json.dumps({
             "transport": "Stateless Streamable HTTP; JSON responses",
             "accounts": "Use free2z_list_accounts, then select account for each action. Connect additional accounts with separate browser consent.",
-            "scopes": ["mcp:read", "mcp:write", "mcp:publish", "mcp:uploads", "mcp:ai"],
-            "limitations": "No money transfers, subscription purchases, credential changes, arbitrary API requests, client filesystem access, or server-side URL fetching. Normal Free2Z balance requirements and upload limits apply. Local stdio is a separate option for the broader API catalog.",
+            "scopes": ["mcp:read", "mcp:write", "mcp:publish", "mcp:uploads", "mcp:ai", "mcp:social", "mcp:account", "mcp:media", "mcp:live", "mcp:spend", "mcp:delete"],
+            "catalog": "Search and describe native operations, then read or execute with an explicit account. Unsupported operations include a reason and closure path. Paid comments, votes and translations require mcp:spend plus domain permissions and an explicit per-call maximum. Existing grants do not acquire new permissions.",
+            "files": "Prepare uploads with the named upload tool. Use mcp_prepare_download through execute for original media or publication_exports_download through read for completed archives. Stream bytes with HTTP/file tools and private capability headers; a vision-capable agent can inspect downloaded images.",
+            "limitations": "No arbitrary URLs, provider credential exports, ongoing PPV/recording spending or implicit wallet signing. Financial self-service and sensitive account actions require a reviewed delegation/step-up design. Camera and microphone require a broadcast client.",
             "ai": "List models, quote a bounded prompt, authorize its maximum with start_ai and poll the request. Dedicated mcp:ai consent is required; existing content grants cannot spend. Provider policies apply; Free2Z retains prompt/result content up to 24 hours plus hourly cleanup, and keeps billing/retry metadata.",
             "publication": "Create drafts, review them, then explicitly publish. Updates require an ETag; creating drafts requires an idempotency key.",
         })

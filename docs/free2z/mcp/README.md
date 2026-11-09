@@ -1,8 +1,8 @@
 # Free2Z MCP
 
-Free2Z MCP connects an assistant to accounts you authorize. The hosted server supports browsing pages, writing drafts, editing public profiles, managing media, explicitly publishing content and using metered text AI when enabled by the deployment. MCP means Model Context Protocol, the interface clients use to discover and call these tools. Free2Z runs the server; your client connects over HTTPS and asks you to authorize access in your browser.
+Free2Z MCP connects an assistant to accounts you authorize. The hosted server supports pages, social activity, notifications, translations, media storage, saved conversations, publication exports and metered text AI. MCP means Model Context Protocol, the interface clients use to discover and call these tools. Free2Z runs the server; your client connects over HTTPS and asks you to authorize access in your browser.
 
-**Prerequisite:** use a Free2Z deployment with hosted MCP enabled. The examples use `https://free2z.cash/api/mcp`; confirm that your deployment provides this endpoint before connecting. The [optional local stdio server](local-stdio.md) has a separate setup and broader API catalog.
+**Prerequisite:** use a Free2Z deployment with hosted MCP enabled. The examples use `https://free2z.cash/api/mcp`; confirm that your deployment provides this endpoint before connecting. The [optional local stdio server](local-stdio.md) has a separate setup and a separate credential-based API catalog.
 
 ## Connect
 
@@ -84,9 +84,15 @@ Browser account changes do not change the MCP selection or revoke the existing c
 | `mcp:publish` | Publish or unpublish pages, edit public pages and upload public media, together with the corresponding write/upload permission |
 | `mcp:uploads` | Prepare file transfers and inspect their receipts |
 | `mcp:ai` | Quote text AI, authorize a maximum 2Z charge, queue a provider call and retrieve its receipt |
+| `mcp:social` | Read and manage follows, mutes, blocks, comments and reports |
+| `mcp:account` | Private account details, notifications, conversations and owner collections |
+| `mcp:media` | Download and manage owned media and retrieve publication archives |
+| `mcp:live` | Inspect, heartbeat or release the account's existing host session |
+| `mcp:spend` | Bounded paid comments, votes and native translations, with their domain permissions |
+| `mcp:delete` | Permanently delete content, together with its domain and publication permissions |
 | `offline_access` | Refresh authorization without another browser sign-in |
 
-Free2Z's normal balance requirements and upload limits apply to the selected account. Account ownership, membership visibility, validation and throttling also apply. Profile access excludes email, balances and private settings. Hosted tools do not transfer money, buy subscriptions, change credentials, delete content permanently, fetch arbitrary URLs or run arbitrary API operations.
+Free2Z's normal balance requirements and upload limits apply to the selected account. Account ownership, membership visibility, validation and throttling also apply. Public profile tools exclude private fields; `auth_user_retrieve` requires separate `mcp:account` consent. Permanent content deletion additionally requires `mcp:delete`; an existing write or publication grant cannot delete content. Transfers, subscriptions, credential changes and arbitrary API requests require additional reviewed delegation; their catalog entries explain the gap. Existing connections and registered clients do not acquire new permissions automatically. A client registered before these permissions existed must register a new OAuth client (usually by removing and adding the server in its client settings), then request the needed scopes and complete fresh browser consent. Refreshing an old token or requesting scopes outside the old registration returns no additional authority. Existing connections continue to support their previously granted operations.
 
 Open [Connected apps](https://free2z.cash/account/apps) on your deployment to inspect connections, linked accounts and recent attributed actions. A connection owner can remove one linked account or the whole connection; a linked account owner can remove its individual grant. Removing a direct application's access also revokes every primary connection authorized by that account for that application and their linked access. Removing a client's local configuration is not a substitute for revoking access in Free2Z.
 
@@ -158,3 +164,37 @@ and deploy dedicated `mcp-ai` queue workers with the `oidc.invoke_mcp_ai` task
 registered before enabling admission. Keep this queue separate from general
 background work and bound its worker concurrency. Populate provider discovery and reviewed prices;
 unlisted, unpriced or expired-price models must not be offered.
+
+## Discover account operations
+
+Use `free2z_search_operations` with a task such as “notifications”, “translations”, “cloud storage” or “personas”. Set `supported=true` to find executable operations. Read `free2z_describe_operation` for the selected operation's path/query parameters, accepted body fields, permissions and retry requirements. Call `free2z_read` for a reviewed GET or `free2z_execute` for a mutation, always with the exact account. Follow pagination instead of loading the whole API schema into a prompt.
+
+Page queries support native author, tag, language and date filters; use `ordering=-published_at` for latest publications. Text search uses a cached semantic vector when available and PostgreSQL full-text search otherwise. A hosted search does not request a new provider embedding. Native search ordering takes precedence over explicit sorting. Media queries support filename search, MIME-type prefix, access and ordering filters. Inspect each operation for its exact query names.
+
+The [capability manifest](capabilities.json) lists every schema operation, whether it is supported, and each remaining gap's reason and closure path.
+
+| Task | Supported operations |
+| --- | --- |
+| Catch up | Notifications/unread counts, email notification/visibility preferences, comments/replies, follows, mutes and blocks |
+| Find content | Page and creator search, related pages, topic tags and language catalog |
+| Translate and publish | Owner quote, purchase, status/jobs, batch purchase, variant read/edit/publish |
+| Manage files | Owner media search/details, metadata/audience changes, deletion and private original-file downloads |
+| Organize publications | Series, page order, tag suggestions, publication export jobs and ZIP downloads |
+| Manage AI content | Saved conversations and forks, visible transcripts, owner personalities; generation uses the separate metered AI tools |
+| Manage a broadcast | Stored public meeting discovery and the owner's existing session heartbeat/release |
+
+Comments and replies cost at least 1 2Z; votes cost 1 2Z. Supply `mcp:spend`, the operation's domain permissions, a UUIDv4 `idempotency_key` and `max_charge_tuzis`. The server checks the limit before invoking the native ledger path. Retry an uncertain paid call with the identical key and arguments; changing the intent requires a new authorization. Free follows are distinct from paid subscriptions.
+
+For a Mandarin translation, find the owned page, request `zpage_translation_quote` for the desired language, then pass the quote's price as `expected_price` and its `source_digest` to `zpage_translation_purchase`. Preserve any quoted settlement policy. Poll translation status until the draft is ready; read the variant and use its ETag to publish with `zpage_variants_partial_update`. Batch purchases retain each quoted language/price and must fit the combined ceiling. Native translation pricing, capacity and refund rules apply, separately from metered text-AI token pricing. Variant, conversation, personality and series mutations conservatively require both write and publish permission. Permanent deletion also requires `mcp:delete`. Read a page or variant and supply its single exact current ETag as `if_match` before deletion; wildcard and stale values are refused. Creating a missing translation with PUT uses `if_none_match="*"`; omit `tags` so the current parent tags are preserved. Change parent tags separately with its ETag.
+
+## Download and inspect a file
+
+Search `myuploads_list`, then execute `mcp_prepare_download` with `body.upload_id`. Download the original file using the returned GET URL and private `X-Free2Z-Download-Capability` header. The capability expires within two minutes, is restricted to that original file and checks the issuing credential and account grant again at transfer. The URL alone is not authorized. Completed publication archives use `publication_exports_download` to obtain the equivalent ZIP capability.
+
+For an interrupted original-file transfer, retain the HTTP response's ETag and the number of bytes successfully written. Request a fresh capability if the old one expired, then send `Range: bytes=<written>-` and `If-Match: <original-etag>`. Append only a `206` response with the same ETag and a Content-Range starting at that offset and naming the expected total length. Never append a full `200` response. On `412` or a changed representation, discard the partial file and start a fresh download. Before using the completed file, verify its expected byte count and any trusted checksum from the upload record or object metadata. See the [Cloud Storage range and precondition contract](https://docs.cloud.google.com/storage/docs/xml-api/get-object-download).
+
+A vision-capable agent can search media metadata, download candidate images and inspect them locally. This workflow requires the client's file/HTTP and vision tools; Free2Z does not provide a visual similarity index. Neither binary files nor credentials belong in chat or public logs.
+
+Cloud deployments must configure protected internal offload routes for original media and publication archives. Original-media redirects use `/_internal_mcp_media/` with an exact object generation; publication archives use the native `/_internal_exports/` route. These routes must reject direct public access, strip client credentials, preserve original bytes and use bounded proxy buffers/timeouts. Django authorizes the capability and performs a bounded metadata lookup outside account transactions; the proxy transfers cloud bytes. Local filesystem deployments use a streaming file response.
+
+Cloud objects with a nonempty Content-Encoding require unquoted stored Cache-Control directives including `no-transform` for original-file offload. Otherwise the download returns `409 original_encoding_unsupported` instead of potentially transformed bytes. Unencoded objects are unaffected. See the [Cloud Storage transcoding contract](https://docs.cloud.google.com/storage/docs/transcoding#using_gzip_on_compressed_objects).
