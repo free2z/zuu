@@ -1330,6 +1330,12 @@ ZPAGE_MINE_PARAMETER = OpenApiParameter(
 
 @extend_schema_view(
     list=extend_schema(parameters=[
+        OpenApiParameter("search", str, OpenApiParameter.QUERY, description="Search visible page text; use mine=true for owned drafts."),
+        OpenApiParameter("username", str, OpenApiParameter.QUERY, description="Filter pages by the exact creator username; visibility checks still apply."),
+        OpenApiParameter("unverified", str, OpenApiParameter.QUERY, description="Use 0 to exclude unverified pages."),
+        OpenApiParameter("created_at__gte", str, OpenApiParameter.QUERY, description="Inclusive creation lower bound as an ISO 8601 date or datetime."),
+        OpenApiParameter("created_at__lte", str, OpenApiParameter.QUERY, description="Inclusive creation upper bound as an ISO 8601 date or datetime."),
+        OpenApiParameter("homeSort", str, OpenApiParameter.QUERY, enum=["score", "updated", "random", "popular"], description="Homepage ordering; also requires a featured image. Explicit ordering and search retain native precedence."),
         ZPAGE_LANGUAGE_PARAMETER,
         ZPAGE_ACCEPT_LANGUAGE_PARAMETER,
         ZPAGE_PAGINATION_PARAMETER,

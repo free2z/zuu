@@ -2806,6 +2806,7 @@
       "mcpAccount": "Read private account details and conversations; manage notifications",
       "mcpMedia": "Download, edit and delete your stored files",
       "mcpLive": "Read and manage your livestream host session",
+      "mcpDelete": "Permanently delete your pages, translations, comments, conversations, collections and files",
       "mcpSpend": "Spend 2Z on comments, votes and translations within each explicit limit"
     },
     "capPeriods": {

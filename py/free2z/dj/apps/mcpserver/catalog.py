@@ -77,6 +77,12 @@ def policy(operation):
         scopes = [ACCOUNT]
     elif operation.startswith("dyte_host_session_"):
         scopes = [LIVE]
+    if operation == "zpage_destroy":
+        scopes = ["mcp:write", "mcp:publish"]
+    if REGISTRY[operation]["method"] == "DELETE" and not operation.startswith(
+        "creator_"
+    ):
+        scopes += ["mcp:delete"]
     if paid:
         scopes += [SPEND]
     return {"required_scopes": scopes, "paid": paid}
@@ -125,20 +131,6 @@ def gap(operation):
             "The full native profile serializer includes settings outside the hosted public-profile field allowlist.",
             "Use free2z_update_profile for public display fields. Add a separately described account-settings adapter for membership prices, addresses and their side effects; credential fields require their own proof.",
         )
-    if operation in {
-        "emails_notifications_create",
-        "emails_public_create",
-        "emails_status_retrieve",
-    }:
-        return (
-            "Ordinary email preferences/status need a field-bounded private-account adapter; these routes are distinct from credential changes.",
-            "Add an account-settings adapter preserving native ownership; making an email public also requires explicit publication consent.",
-        )
-    if operation == "zpage_destroy":
-        return (
-            "Permanent page deletion is outside the draft-edit permission contract.",
-            "Add explicit permanent-content deletion consent and a narrow adapter preserving native ownership, publication and deletion checks.",
-        )
     if operation.startswith("economy_"):
         return (
             "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
@@ -150,6 +142,11 @@ def gap(operation):
         return (
             "Identity, credential or account security operation requires its native authentication context.",
             "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile.",
+        )
+    if operation == "dyte_live_status_retrieve":
+        return (
+            "This native live-status probe calls the provider on a cache miss and cannot run while hosted account authorization locks are held.",
+            "Use public meeting discovery for stored live state; add an authorized cached snapshot or a probe outside lifecycle locks before enabling this provider-backed status route.",
         )
     if operation.startswith("dyte_"):
         return (

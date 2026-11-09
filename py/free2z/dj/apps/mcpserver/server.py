@@ -246,7 +246,7 @@ def create_server(raw_token, original_request):
         return json.dumps({
             "transport": "Stateless Streamable HTTP; JSON responses",
             "accounts": "Use free2z_list_accounts, then select account for each action. Connect additional accounts with separate browser consent.",
-            "scopes": ["mcp:read", "mcp:write", "mcp:publish", "mcp:uploads", "mcp:ai", "mcp:social", "mcp:account", "mcp:media", "mcp:live", "mcp:spend"],
+            "scopes": ["mcp:read", "mcp:write", "mcp:publish", "mcp:uploads", "mcp:ai", "mcp:social", "mcp:account", "mcp:media", "mcp:live", "mcp:spend", "mcp:delete"],
             "catalog": "Search and describe native operations, then read or execute with an explicit account. Unsupported operations include a reason and closure path. Paid comments, votes and translations require mcp:spend plus domain permissions and an explicit per-call maximum. Existing grants do not acquire new permissions.",
             "files": "Prepare uploads with the named upload tool. Use mcp_prepare_download through execute for original media or publication_exports_download through read for completed archives. Stream bytes with HTTP/file tools and private capability headers; a vision-capable agent can inspect downloaded images.",
             "limitations": "No arbitrary URLs, provider credential exports, ongoing PPV/recording spending or implicit wallet signing. Financial self-service and sensitive account actions require a reviewed delegation/step-up design. Camera and microphone require a broadcast client.",

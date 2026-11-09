@@ -376,6 +376,7 @@ export interface Agreement {
  * * `mcp:media` - mcp:media
  * * `mcp:live` - mcp:live
  * * `mcp:spend` - mcp:spend
+ * * `mcp:delete` - mcp:delete
  */
 export type AllowedScopesEnum = typeof AllowedScopesEnum[keyof typeof AllowedScopesEnum];
 
@@ -398,6 +399,7 @@ export const AllowedScopesEnum = {
   'mcp:media': 'mcp:media',
   'mcp:live': 'mcp:live',
   'mcp:spend': 'mcp:spend',
+  'mcp:delete': 'mcp:delete',
 } as const;
 
 /**
@@ -1571,6 +1573,7 @@ export interface ConflictDetail {
  * * `mcp:media` - mcp:media
  * * `mcp:live` - mcp:live
  * * `mcp:spend` - mcp:spend
+ * * `mcp:delete` - mcp:delete
  */
 export type ScopeEnum = typeof ScopeEnum[keyof typeof ScopeEnum];
 
@@ -1593,6 +1596,7 @@ export const ScopeEnum = {
   'mcp:media': 'mcp:media',
   'mcp:live': 'mcp:live',
   'mcp:spend': 'mcp:spend',
+  'mcp:delete': 'mcp:delete',
 } as const;
 
 /**
@@ -6756,9 +6760,21 @@ export type ZpageListParams = {
  */
 any_tags?: string[];
 /**
+ * Inclusive creation lower bound as an ISO 8601 date or datetime.
+ */
+created_at__gte?: string;
+/**
+ * Inclusive creation upper bound as an ISO 8601 date or datetime.
+ */
+created_at__lte?: string;
+/**
  * Opaque continuation token returned in `next`; use only with `pagination=cursor`.
  */
 cursor?: string;
+/**
+ * Homepage ordering; also requires a featured image. Explicit ordering and search retain native precedence.
+ */
+homeSort?: ZpageListHomeSort;
 /**
  * A public tag-hub slug. The server resolves the complete canonical component and filters by it, so the bounded `names` display list cannot strand pages from a hub with more than 50 spellings. This is the list counterpart to `GET /api/tagging/hub/{slug}`.
  */
@@ -6788,10 +6804,32 @@ page_size?: number;
  */
 pagination?: ZpageListPagination;
 /**
+ * Search visible page text; use mine=true for owned drafts.
+ */
+search?: string;
+/**
  * Comma-separated tag names. A zPage matches only if it carries **all** of them (AND, not OR). Matching is case-insensitive, so `zcash` and `ZCASh` select the same pages. Tags are a free-form vocabulary (`django-taggit`) — there is no fixed list to choose from; `GET /api/tagging/autocomplete` enumerates the ones in use.
  */
 tags?: string;
+/**
+ * Use 0 to exclude unverified pages.
+ */
+unverified?: string;
+/**
+ * Filter pages by the exact creator username; visibility checks still apply.
+ */
+username?: string;
 };
+
+export type ZpageListHomeSort = typeof ZpageListHomeSort[keyof typeof ZpageListHomeSort];
+
+
+export const ZpageListHomeSort = {
+  popular: 'popular',
+  random: 'random',
+  score: 'score',
+  updated: 'updated',
+} as const;
 
 export type ZpageListPagination = typeof ZpageListPagination[keyof typeof ZpageListPagination];
 

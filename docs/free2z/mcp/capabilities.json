@@ -76,7 +76,8 @@
       "required_scopes": [
         "mcp:account",
         "mcp:write",
-        "mcp:publish"
+        "mcp:publish",
+        "mcp:delete"
       ],
       "paid": null
     },
@@ -286,7 +287,8 @@
       "required_scopes": [
         "mcp:account",
         "mcp:write",
-        "mcp:publish"
+        "mcp:publish",
+        "mcp:delete"
       ],
       "paid": null
     },
@@ -605,7 +607,8 @@
       "keywords": "social comments replies threads interactions catchup",
       "required_scopes": [
         "mcp:social",
-        "mcp:publish"
+        "mcp:publish",
+        "mcp:delete"
       ],
       "paid": null
     },
@@ -882,12 +885,10 @@
       "method": "GET",
       "path": "/api/dyte/{username}/live-status",
       "summary": "",
-      "supported": true,
+      "supported": false,
       "keywords": "live livestream stream broadcast session",
-      "required_scopes": [
-        "mcp:read"
-      ],
-      "paid": null
+      "reason": "This native live-status probe calls the provider on a cache miss and cannot run while hosted account authorization locks are held.",
+      "next_step": "Use public meeting discovery for stored live state; add an authorized cached snapshot or a probe outside lifecycle locks before enabling this provider-backed status route."
     },
     {
       "operation_id": "dyte_private_create",
@@ -1480,7 +1481,8 @@
       "required_scopes": [
         "mcp:account",
         "mcp:write",
-        "mcp:publish"
+        "mcp:publish",
+        "mcp:delete"
       ],
       "paid": null
     },
@@ -1518,7 +1520,8 @@
       "required_scopes": [
         "mcp:account",
         "mcp:write",
-        "mcp:publish"
+        "mcp:publish",
+        "mcp:delete"
       ],
       "paid": null
     },
@@ -1880,7 +1883,8 @@
       "supported": true,
       "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
       "required_scopes": [
-        "mcp:media"
+        "mcp:media",
+        "mcp:delete"
       ],
       "paid": null
     },
@@ -2813,10 +2817,14 @@
       "method": "DELETE",
       "path": "/api/zpage/{id}/",
       "summary": "Delete a zPage. Owner only. Honours the optional `If-Match` precondition: a delete issued from a stale editor — one that never saw somebody else's newer draft — returns **412** and deletes nothing.",
-      "supported": false,
+      "supported": true,
       "keywords": "pages zpages articles posts search semantic latest release update",
-      "reason": "Permanent page deletion is outside the draft-edit permission contract.",
-      "next_step": "Add explicit permanent-content deletion consent and a narrow adapter preserving native ownership, publication and deletion checks."
+      "required_scopes": [
+        "mcp:write",
+        "mcp:publish",
+        "mcp:delete"
+      ],
+      "paid": null
     },
     {
       "operation_id": "zpage_fund_create",
@@ -3001,7 +3009,8 @@
       "keywords": "translations languages variants publish Mandarin Chinese pages zpages articles posts search semantic latest release update",
       "required_scopes": [
         "mcp:write",
-        "mcp:publish"
+        "mcp:publish",
+        "mcp:delete"
       ],
       "paid": null
     },

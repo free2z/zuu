@@ -2,11 +2,14 @@
 
 from datetime import timedelta
 import hashlib
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
+from django.conf import settings
 from django.core import signing
-from django.http import FileResponse, JsonResponse
+from django.db import transaction
+from django.http import FileResponse, HttpResponse, JsonResponse
 from django.utils import timezone
+from django.utils.http import content_disposition_header
 from django.views.decorators.http import require_GET
 from rest_framework.exceptions import APIException, PermissionDenied
 
@@ -22,28 +25,62 @@ def _file_digest(media):
     return hashlib.sha256(media.file.name.encode()).hexdigest()
 
 
-def _open_stream(storage, name):
-    """Use bounded ranged GCS reads, not django-storages' whole-file spool."""
-    from storages.backends.gcloud import GoogleCloudFile
+def _attachment(response, filename):
+    response["Content-Disposition"] = content_disposition_header(True, filename)
+    response["Cache-Control"] = "private, no-store"
+    response["X-Content-Type-Options"] = "nosniff"
+    return response
 
-    handle = storage.open(name, "rb")
-    if isinstance(handle, GoogleCloudFile):
-        try:
-            # GoogleCloudStorage._open uses get_blob (metadata only). Resolve
-            # generation explicitly if a backend wrapper omitted it, so all
-            # ranged reads/retries target one immutable object version.
-            blob = handle.blob
-            if blob.generation is None:
-                blob.reload()
-            if blob.generation is None:
-                raise FileNotFoundError("Object generation is unavailable.")
-            # Preserve stored bytes and Range semantics even when the object
-            # carries Content-Encoding:gzip; transparent transcoding can
-            # otherwise return a full decompressed object for a ranged read.
-            return blob.open("rb", chunk_size=256 * 1024, raw_download=True)
-        finally:
-            handle.close()
-    return handle
+
+def _offload(prefix, key, filename, content_type, *, generation=None):
+    response = HttpResponse(content_type=content_type)
+    response["X-Accel-Redirect"] = prefix + quote(key, safe="/-_.~")
+    if generation is not None:
+        value = str(generation)
+        if not value.isascii() or not value.isdigit():
+            raise PermissionDenied("Invalid object generation.")
+        response["X-Accel-Redirect"] += "?generation=" + value
+    return _attachment(response, filename)
+
+
+def _media_response(storage, name, filename):
+    """Cloud bytes belong on the internal proxy, never a Django web worker."""
+    from storages.backends.gcloud import GoogleCloudStorage
+
+    if isinstance(storage, GoogleCloudStorage):
+        from storages.utils import clean_name
+
+        # Same storage-key normalization as GoogleCloudStorage._open, with
+        # an explicit metadata deadline and no retry while occupying a web
+        # worker. Neither object bytes nor django-storages' spool are opened.
+        key = storage._normalize_name(clean_name(name))
+        blob = storage.bucket.get_blob(key, timeout=5, retry=None)
+        if blob is None or blob.generation is None:
+            raise PermissionDenied("Object generation is unavailable.")
+        return _offload(
+            "/_internal_mcp_media/",
+            blob.name,
+            filename,
+            "application/octet-stream",
+            generation=blob.generation,
+        )
+    return _attachment(
+        FileResponse(storage.open(name, "rb"), content_type="application/octet-stream"),
+        filename,
+    )
+
+
+def _export_response(storage, name, filename):
+    from storages.backends.gcloud import GoogleCloudStorage
+
+    if isinstance(storage, GoogleCloudStorage) or getattr(
+        settings, "USE_X_ACCEL_REDIRECT", False
+    ):
+        # Same internal route and key contract as the native export endpoint.
+        return _offload("/_internal_exports/", name, filename, "application/zip")
+    return _attachment(
+        FileResponse(storage.open(name, "rb"), content_type="application/zip"), filename
+    )
 
 
 def prepare(raw, account, original, upload_id):
@@ -80,9 +117,9 @@ def prepare(raw, account, original, upload_id):
         }
 
 
+@transaction.non_atomic_requests
 @require_GET
 def download_binary(request, upload_id):
-    handle = None
     try:
         capability = request.headers.get(HEADER, "")
         if len(capability) > 2048:
@@ -112,20 +149,9 @@ def download_binary(request, upload_id):
             filename = media.file.name.rsplit("/", 1)[-1]
             field = media.file
             record_action(actor, "download_file", 200)
-        # Opening cloud storage and streaming must not hold account locks.
-        handle = _open_stream(field.storage, field.name)
-        response = FileResponse(
-            handle,
-            as_attachment=True,
-            filename=filename,
-            content_type="application/octet-stream",
-        )
-        response["Cache-Control"] = "private, no-store"
-        response["X-Content-Type-Options"] = "nosniff"
-        return response
+        # Cloud metadata I/O and byte delivery happen outside account locks.
+        return _media_response(field.storage, field.name, filename)
     except (signing.BadSignature, KeyError, TypeError, ValueError, APIException):
-        if handle:
-            handle.close()
         response = JsonResponse(
             {"detail": "File capability is invalid, expired or revoked."}, status=403
         )
@@ -179,6 +205,7 @@ def prepare_export(raw, account, original, export_id):
         }
 
 
+@transaction.non_atomic_requests
 @require_GET
 def download_export(request, export_id):
     from dj.apps.exports.models import PublicationExportJob, ExportStatus
@@ -218,15 +245,9 @@ def download_export(request, export_id):
                 raise PermissionDenied("Export or account authority changed.")
             storage_path, filename = job.file_path, job.file_name
             record_action(actor, "download_export", 200)
-        response = FileResponse(
-            _open_stream(get_export_storage(), storage_path),
-            as_attachment=True,
-            filename=filename or "publication-export.zip",
-            content_type="application/zip",
+        return _export_response(
+            get_export_storage(), storage_path, filename or "publication-export.zip"
         )
-        response["Cache-Control"] = "private, no-store"
-        response["X-Content-Type-Options"] = "nosniff"
-        return response
     except (signing.BadSignature, KeyError, TypeError, ValueError, APIException):
         response = JsonResponse(
             {"detail": "Export capability is invalid, expired or revoked."}, status=403

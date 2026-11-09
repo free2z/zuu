@@ -8228,10 +8228,31 @@ paths:
         explode: true
         style: form
       - in: query
+        name: created_at__gte
+        schema:
+          type: string
+        description: Inclusive creation lower bound as an ISO 8601 date or datetime.
+      - in: query
+        name: created_at__lte
+        schema:
+          type: string
+        description: Inclusive creation upper bound as an ISO 8601 date or datetime.
+      - in: query
         name: cursor
         schema:
           type: string
         description: Opaque continuation token returned in `next`; use only with `pagination=cursor`.
+      - in: query
+        name: homeSort
+        schema:
+          type: string
+          enum:
+          - popular
+          - random
+          - score
+          - updated
+        description: Homepage ordering; also requires a featured image. Explicit ordering
+          and search retain native precedence.
       - in: query
         name: hub_slug
         schema:
@@ -8283,6 +8304,11 @@ paths:
         description: Opt into stable keyset pagination for infinite feeds. Omit this
           parameter to retain the default page-number contract.
       - in: query
+        name: search
+        schema:
+          type: string
+        description: Search visible page text; use mine=true for owned drafts.
+      - in: query
         name: tags
         schema:
           type: string
@@ -8291,6 +8317,17 @@ paths:
           and `ZCASh` select the same pages. Tags are a free-form vocabulary (`django-taggit`)
           — there is no fixed list to choose from; `GET /api/tagging/autocomplete`
           enumerates the ones in use.
+      - in: query
+        name: unverified
+        schema:
+          type: string
+        description: Use 0 to exclude unverified pages.
+      - in: query
+        name: username
+        schema:
+          type: string
+        description: Filter pages by the exact creator username; visibility checks
+          still apply.
       tags:
       - zpage
       security:
@@ -10610,6 +10647,7 @@ components:
       - mcp:media
       - mcp:live
       - mcp:spend
+      - mcp:delete
       type: string
       description: |-
         * `openid` - openid
@@ -10629,6 +10667,7 @@ components:
         * `mcp:media` - mcp:media
         * `mcp:live` - mcp:live
         * `mcp:spend` - mcp:spend
+        * `mcp:delete` - mcp:delete
     ApiStyleEnum:
       enum:
       - openai_responses
@@ -14573,7 +14612,7 @@ components:
         scope:
           type: string
           default: mcp:read mcp:write mcp:publish mcp:uploads mcp:ai mcp:social mcp:account
-            mcp:media mcp:live mcp:spend offline_access
+            mcp:media mcp:live mcp:spend mcp:delete offline_access
       required:
       - redirect_uris
     MCPConnection:
@@ -17008,6 +17047,7 @@ components:
       - mcp:media
       - mcp:live
       - mcp:spend
+      - mcp:delete
       type: string
       description: |-
         * `openid` - openid
@@ -17027,6 +17067,7 @@ components:
         * `mcp:media` - mcp:media
         * `mcp:live` - mcp:live
         * `mcp:spend` - mcp:spend
+        * `mcp:delete` - mcp:delete
     SdkGrant:
       type: object
       properties:
@@ -20112,3 +20153,5 @@ components:
             mcp:live: Read and manage your livestream host session
             mcp:spend: Spend 2Z on comments, votes and translations within each explicit
               limit
+            mcp:delete: Permanently delete your pages, translations, comments, conversations,
+              collections and files

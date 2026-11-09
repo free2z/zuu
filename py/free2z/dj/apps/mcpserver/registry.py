@@ -316,13 +316,6 @@ REGISTRY = {
         "url_name": "host_session",
         "view": "dj.apps.dyte.views.HostSession",
     },
-    "dyte_live_status_retrieve": {
-        "action": None,
-        "method": "GET",
-        "path": "/api/dyte/{username}/live-status",
-        "url_name": "live_meeting_status",
-        "view": "dj.apps.dyte.views.live_meeting_status",
-    },
     "dyte_public_discovery_list": {
         "action": "discovery",
         "method": "GET",
@@ -608,6 +601,13 @@ REGISTRY = {
         "method": "GET",
         "path": "/api/zpage/{id}/related/",
         "url_name": "zpage-related",
+        "view": "dj.apps.g12f.views.zpage.zPageView",
+    },
+    "zpage_destroy": {
+        "action": "destroy",
+        "method": "DELETE",
+        "path": "/api/zpage/{id}/",
+        "url_name": "zpage-detail",
         "view": "dj.apps.g12f.views.zpage.zPageView",
     },
     "zpage_retrieve": {

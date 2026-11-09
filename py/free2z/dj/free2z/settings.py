@@ -632,6 +632,7 @@ OAUTH2_PROVIDER = {
         'mcp:media': 'Download, edit and delete your stored files',
         'mcp:live': 'Read and manage your livestream host session',
         'mcp:spend': 'Spend 2Z on comments, votes and translations within each explicit limit',
+        'mcp:delete': 'Permanently delete your pages, translations, comments, conversations, collections and files',
     },
     'DEFAULT_SCOPES': [],
     # Spec §6/§7/§8/§9.2, in seconds.

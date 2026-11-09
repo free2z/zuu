@@ -127,6 +127,16 @@ MAX_DEPTH = 5
 #the two provider-webhook entries are outside the client contract entirely.
 ALLOWED_METADATA_IN_WRITE = {
     (
+        "dj/apps/mcpserver/downloads.py::download_binary",
+        "request.headers['X-Free2Z-Download-Capability']",
+    ): "Declared exact-file capability authentication; validates live token, grant and object ownership. "
+       "It selects download authority, never content fields; the sole write is an attributed access audit.",
+    (
+        "dj/apps/mcpserver/downloads.py::download_export",
+        "request.headers['X-Free2Z-Download-Capability']",
+    ): "Declared exact-file capability authentication; validates live token, grant and object ownership. "
+       "It selects download authority, never content fields; the sole write is an attributed access audit.",
+    (
         "dj/apps/mcpserver/views.py::mcp_endpoint -> dj/apps/mcpserver/views.py::_bearer",
         "request.headers['Authorization']",
     ): "MCP resource-bound bearer authentication; OpenAPI declares required bearer security and the 401 challenge. "
@@ -818,6 +828,16 @@ ALLOWED_METADATA_IN_WRITE = {
 
 #Rule B exceptions: reads that legitimately write.
 ALLOWED_WRITE_IN_READ = {
+    (
+        "dj/apps/mcpserver/downloads.py::download_binary -> dj/apps/oidc/mcp.py::record_action",
+        "MCPActionAudit.objects.create(...)",
+    ): "Records authorized download access after live credential, grant and owner checks. "
+       "Only the audit row changes; no content, consent or financial state is mutated by GET.",
+    (
+        "dj/apps/mcpserver/downloads.py::download_export -> dj/apps/oidc/mcp.py::record_action",
+        "MCPActionAudit.objects.create(...)",
+    ): "Records authorized download access after live credential, grant and owner checks. "
+       "Only the audit row changes; no content, consent or financial state is mutated by GET.",
     (
         "dj/apps/exports/views.py::PublicationExportListCreateView.get",
         "job.save(...)",

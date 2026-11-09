@@ -482,55 +482,47 @@ def test_paid_vote_and_unbounded_get_refusal(
     )
 
 
-@pytest.mark.parametrize("compressed", [False, True])
-def test_cloud_download_uses_generation_bound_chunks_and_closes_reader(compressed):
-    from io import BytesIO
-    from django.http import FileResponse
-    from storages.backends.gcloud import GoogleCloudFile
-    from .downloads import _open_stream
+def test_cloud_download_offloads_without_opening_or_spooling_bytes():
+    from storages.backends.gcloud import GoogleCloudStorage
+    from .downloads import _media_response, _export_response
 
     calls = []
-    import gzip
-
-    stored = gzip.compress(b"bounded bytes") if compressed else b"bounded bytes"
-    stream = BytesIO(stored)
 
     class Blob:
-        generation = None
-
-        def reload(self):
-            calls.append("metadata")
-            self.generation = 1234
+        generation = 1234
+        name = "private/owner/a file%25.pdf"
 
         def download_to_file(self, *args, **kwargs):
-            pytest.fail("A whole cloud object was spooled")
+            pytest.fail("Cloud bytes must never spool in Django")
 
-        def open(self, mode, *, chunk_size, raw_download):
-            assert self.generation == 1234
-            assert mode == "rb" and chunk_size == 256 * 1024 and raw_download is True
-            calls.append("ranged-reader")
-            return stream
+        def open(self, *args, **kwargs):
+            pytest.fail("Cloud bytes must never stream through Django workers")
 
-    blob = Blob()
-    handle = object.__new__(GoogleCloudFile)
-    handle.blob = blob
-    handle._file = None
+    class Bucket:
+        def get_blob(self, name, *, timeout, retry):
+            assert name == "owned/original" and timeout == 5 and retry is None
+            calls.append("metadata")
+            return Blob()
 
-    class Storage:
-        def open(self, name, mode):
-            assert name == "owned/original" and mode == "rb"
-            return handle
+    class Storage(GoogleCloudStorage):
+        @property
+        def bucket(self):
+            return Bucket()
 
-    # Accessing GoogleCloudFile.file would exercise its real whole-blob
-    # download path. The bounded adapter must bypass that property entirely.
-    handle._storage = type("StorageSettings", (), {"max_memory_size": 0})()
-    handle._mode = "rb"
-    handle._is_dirty = False
-    response = FileResponse(_open_stream(Storage(), "owned/original"))
-    assert calls == ["metadata", "ranged-reader"]
-    assert b"".join(response.streaming_content) == stored
-    response.close()
-    assert stream.closed and handle._file is None
+        def open(self, *args, **kwargs):
+            pytest.fail("django-storages byte path must never be opened")
+
+    response = _media_response(Storage(), "owned/original", "original.pdf")
+    assert calls == ["metadata"]
+    assert not response.streaming and response.content == b""
+    assert (
+        response["X-Accel-Redirect"]
+        == "/_internal_mcp_media/private/owner/a%20file%2525.pdf?generation=1234"
+    )
+    assert response["Cache-Control"] == "private, no-store"
+    export = _export_response(Storage(), "owner/archive.zip", "archive.zip")
+    assert export["X-Accel-Redirect"] == "/_internal_exports/owner/archive.zip"
+    assert not export.streaming and export.content == b""
 
 
 def test_selected_email_preferences_do_not_mutate_other_account_or_credentials(
@@ -607,3 +599,229 @@ def test_selected_email_preferences_do_not_mutate_other_account_or_credentials(
         and address.email == "owner@example.test"
     )
     assert not owner_address.get_notifications and not owner_address.is_public
+
+
+def test_old_content_grant_cannot_delete_and_variant_delete_requires_exact_etag(
+    signed_in, user, creator_factory
+):
+    from dj.apps.g12f.test_translation_purchase import make_page
+    from dj.apps.g12f.models import zPage, ZPageVariant
+
+    raw = issue(signed_in, user)[2]["access_token"]
+    target = creator_factory(username="variantowner")
+    linked, _ = link(raw, target, scopes=["mcp:read", "mcp:write", "mcp:publish"])
+    page = make_page(target)
+    path = {"id": str(page.free2zaddr), "language": "es"}
+    created = call(
+        raw,
+        target.username,
+        "zpage_variants_update",
+        path=path,
+        body={
+            "title": "Título",
+            "tags": [],
+            "content": "Contenido traducido.",
+            "is_published": False,
+        },
+        if_none_match="*",
+    )
+    assert created["status"] == 200, created
+    etag = created["headers"]["etag"]
+    assert (
+        call(raw, target.username, "zpage_variants_destroy", path=path, if_match=etag)[
+            "status"
+        ]
+        == 403
+    )
+    MCPAccountGrant.objects.filter(pk=linked["id"]).update(
+        scope="mcp:read mcp:write mcp:publish mcp:delete"
+    )
+    for args in [{"if_none_match": "*"}, {"if_match": "*"}, {"if_match": etag + ",*"}]:
+        assert (
+            call(raw, target.username, "zpage_variants_destroy", path=path, **args)[
+                "status"
+            ]
+            == 400
+        )
+    assert (
+        call(
+            raw,
+            target.username,
+            "zpage_variants_destroy",
+            path=path,
+            if_match='"stale"',
+        )["status"]
+        == 412
+    )
+    assert ZPageVariant.objects.filter(zpage=page, language="es").exists()
+    assert (
+        call(raw, target.username, "zpage_variants_destroy", path=path, if_match=etag)[
+            "status"
+        ]
+        == 204
+    )
+    _, article = tool(
+        raw,
+        "free2z_get_page",
+        {"account": target.username, "page_id": str(page.free2zaddr)},
+    )
+    result = call(
+        raw,
+        target.username,
+        "zpage_destroy",
+        path={"id": str(page.free2zaddr)},
+        if_match=article["headers"]["etag"],
+    )
+    assert result["status"] == 204, result
+    assert not zPage.objects.filter(pk=page.pk).exists()
+
+
+def test_generic_page_filters_search_and_cached_vector_path(
+    signed_in, user, creator_factory, monkeypatch
+):
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from django.utils import timezone
+    from dj.apps.g12f.test_translation_purchase import make_page
+    from dj.apps.g12f.models import zPage
+    from dj.apps.search import drf_filters
+
+    raw = issue(signed_in, user)[2]["access_token"]
+    author = creator_factory(username="searchauthor")
+    older = make_page(
+        author,
+        title="Orchid older",
+        vanity="orchid-older",
+        content="Orchid botanical notes.",
+    )
+    newer = make_page(
+        author,
+        title="Orchid newest",
+        vanity="orchid-newest",
+        content="Orchid botanical findings.",
+    )
+    zPage.objects.filter(pk=older.pk).update(
+        published_at=timezone.now() - timedelta(days=1)
+    )
+    zPage.objects.filter(pk=newer.pk).update(published_at=timezone.now())
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only")
+    monkeypatch.setattr(
+        dr_filters := drf_filters, "cached_query_embedding", lambda query: None
+    )
+    monkeypatch.setattr(
+        dr_filters,
+        "query_embedding_client",
+        lambda: pytest.fail("MCP search performed provider I/O under account locks"),
+    )
+    listed = call(
+        raw,
+        user.username,
+        "zpage_list",
+        read=True,
+        query={
+            "username": author.username,
+            "ordering": "-published_at",
+            "created_at__gte": "2020-01-01",
+        },
+    )
+    assert listed["status"] == 200, listed
+    assert [p["free2zaddr"] for p in listed["data"]["results"]][:2] == [
+        str(newer.free2zaddr),
+        str(older.free2zaddr),
+    ]
+    searched = call(
+        raw,
+        user.username,
+        "zpage_list",
+        read=True,
+        query={
+            "username": author.username,
+            "search": "Orchid",
+            "ordering": "-published_at",
+        },
+    )
+    assert searched["status"] == 200 and len(searched["data"]["results"]) == 2, searched
+    native_filter = drf_filters.VectorSearchFilter()
+    monkeypatch.setattr(dr_filters, "cached_query_embedding", lambda query: [0.25])
+    monkeypatch.setattr(
+        native_filter, "_semantic", lambda queryset, vector: (queryset, vector)
+    )
+    result = native_filter.filter_queryset(
+        SimpleNamespace(query_params={"search": "Orchid"}, mcp_actor=object()),
+        "rows",
+        None,
+    )
+    assert result == ("rows", [0.25])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_download_offload_runs_after_commit_and_rejects_invalid_authority(
+    signed_in, user, monkeypatch
+):
+    from datetime import timedelta
+    from django.db import connection
+    from django.http import HttpResponse
+    from django.utils import timezone
+    from dj.apps.exports.models import PublicationExportJob, ExportStatus
+    from . import downloads
+
+    raw = issue(signed_in, user)[2]["access_token"]
+    media = GenericFile.objects.create(
+        owner=user, file=ContentFile(b"private", name="private.pdf"), access="private"
+    )
+    job = PublicationExportJob.objects.create(
+        creator=user,
+        status=ExportStatus.READY,
+        file_path="owner/archive.zip",
+        file_name="archive.zip",
+        expires_at=timezone.now() + timedelta(hours=1),
+    )
+    prepared = [
+        call(raw, user.username, "mcp_prepare_download", body={"upload_id": media.pk}),
+        call(
+            raw,
+            user.username,
+            "publication_exports_download",
+            read=True,
+            path={"id": str(job.pk)},
+        ),
+    ]
+    calls = []
+
+    def offload(*args):
+        assert not connection.in_atomic_block
+        # Audit writes are committed before metadata or transfer I/O starts.
+        assert MCPActionAudit.objects.filter(
+            operation__in=["download_file", "download_export"]
+        ).exists()
+        calls.append(args)
+        return HttpResponse()
+
+    monkeypatch.setattr(downloads, "_media_response", offload)
+    monkeypatch.setattr(downloads, "_export_response", offload)
+    client = APIClient()
+    paths = [f"/api/mcp/downloads/{media.pk}", f"/api/mcp/exports/{job.pk}"]
+    for path, result in zip(paths, prepared):
+        assert result["status"] == 200, result
+        cap = result["data"]["headers"][downloads.HEADER]
+        assert client.get(path).status_code == 403
+        assert (
+            client.get(path, HTTP_X_FREE2Z_DOWNLOAD_CAPABILITY="invalid").status_code
+            == 403
+        )
+        assert (
+            client.get(path, HTTP_X_FREE2Z_DOWNLOAD_CAPABILITY=cap).status_code == 200
+        )
+    assert len(calls) == 2
+    MCPAccountGrant.objects.filter(user=user).update(generation=2)
+    for path, result in zip(paths, prepared):
+        assert (
+            client.get(
+                path,
+                HTTP_X_FREE2Z_DOWNLOAD_CAPABILITY=result["data"]["headers"][
+                    downloads.HEADER
+                ],
+            ).status_code
+            == 403
+        )
+    assert len(calls) == 2

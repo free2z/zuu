@@ -12610,11 +12610,41 @@
           },
           {
             "in": "query",
+            "name": "created_at__gte",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Inclusive creation lower bound as an ISO 8601 date or datetime."
+          },
+          {
+            "in": "query",
+            "name": "created_at__lte",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Inclusive creation upper bound as an ISO 8601 date or datetime."
+          },
+          {
+            "in": "query",
             "name": "cursor",
             "schema": {
               "type": "string"
             },
             "description": "Opaque continuation token returned in `next`; use only with `pagination=cursor`."
+          },
+          {
+            "in": "query",
+            "name": "homeSort",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "popular",
+                "random",
+                "score",
+                "updated"
+              ]
+            },
+            "description": "Homepage ordering; also requires a featured image. Explicit ordering and search retain native precedence."
           },
           {
             "in": "query",
@@ -12680,11 +12710,35 @@
           },
           {
             "in": "query",
+            "name": "search",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search visible page text; use mine=true for owned drafts."
+          },
+          {
+            "in": "query",
             "name": "tags",
             "schema": {
               "type": "string"
             },
             "description": "Comma-separated tag names. A zPage matches only if it carries **all** of them (AND, not OR). Matching is case-insensitive, so `zcash` and `ZCASh` select the same pages. Tags are a free-form vocabulary (`django-taggit`) — there is no fixed list to choose from; `GET /api/tagging/autocomplete` enumerates the ones in use."
+          },
+          {
+            "in": "query",
+            "name": "unverified",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Use 0 to exclude unverified pages."
+          },
+          {
+            "in": "query",
+            "name": "username",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter pages by the exact creator username; visibility checks still apply."
           }
         ],
         "tags": [
@@ -15642,10 +15696,11 @@
           "mcp:account",
           "mcp:media",
           "mcp:live",
-          "mcp:spend"
+          "mcp:spend",
+          "mcp:delete"
         ],
         "type": "string",
-        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads\n* `mcp:ai` - mcp:ai\n* `mcp:social` - mcp:social\n* `mcp:account` - mcp:account\n* `mcp:media` - mcp:media\n* `mcp:live` - mcp:live\n* `mcp:spend` - mcp:spend"
+        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads\n* `mcp:ai` - mcp:ai\n* `mcp:social` - mcp:social\n* `mcp:account` - mcp:account\n* `mcp:media` - mcp:media\n* `mcp:live` - mcp:live\n* `mcp:spend` - mcp:spend\n* `mcp:delete` - mcp:delete"
       },
       "ApiStyleEnum": {
         "enum": [
@@ -20438,7 +20493,7 @@
           },
           "scope": {
             "type": "string",
-            "default": "mcp:read mcp:write mcp:publish mcp:uploads mcp:ai mcp:social mcp:account mcp:media mcp:live mcp:spend offline_access"
+            "default": "mcp:read mcp:write mcp:publish mcp:uploads mcp:ai mcp:social mcp:account mcp:media mcp:live mcp:spend mcp:delete offline_access"
           }
         },
         "required": [
@@ -23434,10 +23489,11 @@
           "mcp:account",
           "mcp:media",
           "mcp:live",
-          "mcp:spend"
+          "mcp:spend",
+          "mcp:delete"
         ],
         "type": "string",
-        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads\n* `mcp:ai` - mcp:ai\n* `mcp:social` - mcp:social\n* `mcp:account` - mcp:account\n* `mcp:media` - mcp:media\n* `mcp:live` - mcp:live\n* `mcp:spend` - mcp:spend"
+        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads\n* `mcp:ai` - mcp:ai\n* `mcp:social` - mcp:social\n* `mcp:account` - mcp:account\n* `mcp:media` - mcp:media\n* `mcp:live` - mcp:live\n* `mcp:spend` - mcp:spend\n* `mcp:delete` - mcp:delete"
       },
       "SdkGrant": {
         "type": "object",
@@ -27090,7 +27146,8 @@
               "mcp:account": "Read private account details and conversations; manage notifications",
               "mcp:media": "Download, edit and delete your stored files",
               "mcp:live": "Read and manage your livestream host session",
-              "mcp:spend": "Spend 2Z on comments, votes and translations within each explicit limit"
+              "mcp:spend": "Spend 2Z on comments, votes and translations within each explicit limit",
+              "mcp:delete": "Permanently delete your pages, translations, comments, conversations, collections and files"
             }
           }
         }

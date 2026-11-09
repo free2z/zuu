@@ -10,7 +10,7 @@ from django.urls import resolve
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from . import catalog
-from .operations import _native, perform
+from .operations import _native, exact_etag, perform
 from .registry import REGISTRY
 
 
@@ -39,6 +39,7 @@ BODY_FIELDS = {
 for verb in ("update", "partial_update"):
     BODY_FIELDS["myuploads_" + verb] = {"title", "description", "access"}
     BODY_FIELDS["zpage_variants_" + verb] = {
+        "tags",
         "title",
         "content",
         "description",
@@ -226,10 +227,16 @@ def invoke(
         raise ValidationError(
             "This operation does not accept spending or retry-key arguments."
         )
-    if operation.startswith("zpage_variants_") and write:
-        if not (if_match and if_match.strip() != "*") and if_none_match != "*":
+    if (
+        operation.startswith("zpage_variants_") and write
+    ) or operation == "zpage_destroy":
+        create_only = (
+            row["method"] == "PUT" and if_none_match == "*" and if_match is None
+        )
+        matched = exact_etag(if_match) and if_none_match is None
+        if not (create_only or matched):
             raise ValidationError(
-                "Read the variant ETag and supply if_match, or use if_none_match='*' to create a new variant."
+                "Supply one exact current ETag as if_match. Only PUT creation accepts if_none_match='*'."
             )
     if operation == "dyte_host_session_create" and body.get("action") not in {
         "heartbeat",

@@ -8,6 +8,7 @@ idempotency, and ETag checks run unchanged.
 from __future__ import annotations
 
 import json
+import re
 from io import BytesIO
 from urllib.parse import urlencode, urlsplit
 
@@ -165,10 +166,14 @@ def create_draft(raw, account, original, fields, idempotency_key):
     return perform(raw, account, original, "create_draft", (WRITE,), create)
 
 
+def exact_etag(value):
+    return isinstance(value, str) and re.fullmatch(r'"[^"\r\n,]+"', value.strip()) is not None
+
+
 def update_page(raw, account, original, page_id, changes, if_match, *, published=None):
     from dj.apps.g12f.models import zPage
     from dj.apps.g12f.views.zpage import zPageView
-    if not if_match.strip() or if_match.strip() == "*":
+    if not exact_etag(if_match):
         raise ValidationError("Read the page and supply its exact ETag as if_match.")
     scopes = (WRITE, PUBLISH) if published is not None else (WRITE,)
     operation = "set_page_published" if published is not None else "update_page"

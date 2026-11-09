@@ -2806,6 +2806,7 @@
       "mcpAccount": "Lire les données privées du compte et les conversations ; gérer les notifications",
       "mcpMedia": "Télécharger, modifier et supprimer vos fichiers stockés",
       "mcpLive": "Lire et gérer votre session de diffusion en direct",
+      "mcpDelete": "Supprimer définitivement vos pages, traductions, commentaires, conversations, collections et fichiers",
       "mcpSpend": "Dépenser des 2Z pour des commentaires, votes et traductions dans chaque limite explicite"
     },
     "capPeriods": {
