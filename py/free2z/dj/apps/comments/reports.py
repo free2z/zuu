@@ -123,7 +123,8 @@ class ContentReportCreate(generics.CreateAPIView):
         data = serializer.validated_data
         with transaction.atomic():
             # One writer per reporter across workers; cache throttles alone race.
-            Creator.objects.select_for_update().get(pk=request.user.pk)
+            # Serialize this account without blocking consent/FK KEY SHARE.
+            Creator.objects.select_for_update(no_key=True).get(pk=request.user.pk)
             identity = dict(reporter=request.user, **{
                 key: data[key] for key in ('target_kind', 'target_id', 'reason')
             })

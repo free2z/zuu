@@ -211,14 +211,22 @@ def test_public_conversation_alias_redirects_to_paginated_operation(
 
 
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("operation", ["emails_status_retrieve", "reports_create"])
-def test_native_account_lock_upgrade_serializes_with_consent(
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "emails_status_retrieve",
+        "emails_public_create",
+        "emails_notifications_create",
+        "reports_create",
+    ],
+)
+def test_native_account_locks_allow_concurrent_consent(
     signed_in,
     user,
     monkeypatch,
     operation,
 ):
-    """Consent must wait before the app, not hold a key-share lock during upgrade."""
+    """Native account locks must allow consent's KEY SHARE while it waits for the app."""
     import time
     from dj.apps.oidc.consent import record_consent
     from dj.apps.oidc.tests.test_mcp_connections import SCOPES
@@ -227,6 +235,12 @@ def test_native_account_lock_upgrade_serializes_with_consent(
 
     app, _, tokens = issue(signed_in, user)
     raw = tokens["access_token"]
+    from dj.apps.emails.models import Email
+    from django.utils import timezone
+
+    email = Email.objects.create(
+        user=user, email="fixture@example.test", is_public=True, get_notifications=True
+    )
     native_started, consent_started = Event(), Event()
     consent_pid = []
     native = dispatch._native
@@ -260,17 +274,18 @@ def test_native_account_lock_upgrade_serializes_with_consent(
             with connection.cursor() as cursor:
                 cursor.execute("SET statement_timeout = '12s'")
                 cursor.execute("SET lock_timeout = '6s'")
-            kwargs = (
-                {}
-                if operation == "emails_status_retrieve"
-                else {
+            if operation == "emails_status_retrieve":
+                kwargs = {}
+            elif operation.startswith("emails_"):
+                kwargs = {"body": {"value": False}}
+            else:
+                kwargs = {
                     "body": {
                         "target_kind": "creator",
                         "target_id": user.username,
                         "reason": "spam",
                     }
                 }
-            )
             return call(
                 raw,
                 user.username,
@@ -301,9 +316,22 @@ def test_native_account_lock_upgrade_serializes_with_consent(
         assert native_started.wait(10)
         authorization = pool.submit(consent)
         result, grant = action.result(timeout=20), authorization.result(timeout=20)
-    assert result["status"] == (
-        200 if operation == "emails_status_retrieve" else 201
+    assert (
+        result["status"]
+        == {
+            "emails_status_retrieve": 200,
+            "emails_public_create": 204,
+            "emails_notifications_create": 204,
+            "reports_create": 201,
+        }[operation]
     ), result
     assert grant.user_id == user.pk and grant.application_id == app.pk
     if operation == "reports_create":
         assert ContentReport.objects.filter(reporter=user).count() == 1
+
+    if operation in {"emails_public_create", "emails_notifications_create"}:
+        email.refresh_from_db()
+        assert not getattr(
+            email,
+            "is_public" if operation == "emails_public_create" else "get_notifications",
+        )

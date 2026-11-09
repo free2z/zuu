@@ -300,14 +300,11 @@ def _lock_user_for_consent(user) -> bool:
     Account deletion takes Creator FOR UPDATE before it locks owned apps.
     Matching that order prevents a self-owned app consent from holding the
     app while its deferred user FK waits for the Creator row at COMMIT.
-    NO KEY UPDATE also serializes consent before an MCP action takes the app
-    lock: native account operations may subsequently upgrade to FOR UPDATE,
-    which would otherwise conflict with a waiting consent's KEY SHARE.
     """
     with connection.cursor() as cursor:
         cursor.execute(
             f"SELECT is_active FROM {user._meta.db_table} "
-            f"WHERE {user._meta.pk.column} = %s FOR NO KEY UPDATE",
+            f"WHERE {user._meta.pk.column} = %s FOR KEY SHARE",
             [user.pk],
         )
         row = cursor.fetchone()
