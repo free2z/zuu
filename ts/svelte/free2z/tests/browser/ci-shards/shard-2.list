@@ -145,3 +145,4 @@ billing-realtime-credit.spec.ts › vote payment success keeps its paid replay h
 billing-realtime-credit.spec.ts › vote permits a cold no-actor authentication to hydrate before deriving its paid key
 billing-realtime-credit.spec.ts › vote rejects original intent before mint and POST when held authentication changes other-account
 billing-realtime-credit.spec.ts › vote rejects original intent before mint and POST when held authentication changes return-original
+converse-composer-tools.spec.ts

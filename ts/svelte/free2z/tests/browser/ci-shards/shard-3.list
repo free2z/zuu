@@ -24,5 +24,4 @@ billing-subscription-cards.spec.ts
 billing-zcash-first.spec.ts
 billing-zcash-purchase.spec.ts
 content-bidi.spec.ts
-converse-composer-tools.spec.ts
 stream-host-ownership.spec.ts
