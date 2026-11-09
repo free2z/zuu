@@ -297,6 +297,8 @@ jobs:
           cargo fmt --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked
+          # Keep the production deadline/RSS assertions on the shipping profile.
+          cargo test --locked --release --test handoff streamed_handoff_covers_real_history_above_all_former_ceilings -- --exact
           cargo build --locked --release
 
   rs_fmt:
