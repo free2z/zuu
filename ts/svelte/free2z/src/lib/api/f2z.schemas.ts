@@ -370,6 +370,7 @@ export interface Agreement {
  * * `mcp:write` - mcp:write
  * * `mcp:publish` - mcp:publish
  * * `mcp:uploads` - mcp:uploads
+ * * `mcp:ai` - mcp:ai
  */
 export type AllowedScopesEnum = typeof AllowedScopesEnum[keyof typeof AllowedScopesEnum];
 
@@ -386,6 +387,7 @@ export const AllowedScopesEnum = {
   'mcp:write': 'mcp:write',
   'mcp:publish': 'mcp:publish',
   'mcp:uploads': 'mcp:uploads',
+  'mcp:ai': 'mcp:ai',
 } as const;
 
 /**
@@ -1553,6 +1555,7 @@ export interface ConflictDetail {
  * * `mcp:write` - mcp:write
  * * `mcp:publish` - mcp:publish
  * * `mcp:uploads` - mcp:uploads
+ * * `mcp:ai` - mcp:ai
  */
 export type ScopeEnum = typeof ScopeEnum[keyof typeof ScopeEnum];
 
@@ -1569,6 +1572,7 @@ export const ScopeEnum = {
   'mcp:write': 'mcp:write',
   'mcp:publish': 'mcp:publish',
   'mcp:uploads': 'mcp:uploads',
+  'mcp:ai': 'mcp:ai',
 } as const;
 
 /**

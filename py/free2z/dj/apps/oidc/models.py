@@ -796,3 +796,36 @@ class MCPUploadIntent(models.Model):
     expires_at = models.DateTimeField()
     consumed_at = models.DateTimeField(null=True, blank=True)
     media = models.ForeignKey("uploads.GenericFile", null=True, blank=True, on_delete=models.SET_NULL)
+
+
+class MCPAIRequest(models.Model):
+    """One account-bound quote, dispatch and permanent retry tombstone.
+
+    Prompt/reply content expires after 24 hours; financial metadata and the
+    caller's idempotency key survive so expiry cannot trigger another call.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    connection = models.ForeignKey(MCPConnection, on_delete=models.CASCADE)
+    account_grant = models.ForeignKey(MCPAccountGrant, on_delete=models.CASCADE)
+    access_token = models.ForeignKey(AccessToken, null=True, on_delete=models.SET_NULL)
+    grant_generation = models.PositiveIntegerField()
+    idempotency_key = models.UUIDField(null=True)
+    native_key = models.UUIDField(default=uuid.uuid4, unique=True)
+    state = models.CharField(max_length=16, default="quoted")
+    intent = models.JSONField(default=dict)
+    quote = models.JSONField(default=dict)
+    receipt = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    quote_expires_at = models.DateTimeField()
+    started_at = models.DateTimeField(null=True)
+    finished_at = models.DateTimeField(null=True)
+    content_expires_at = models.DateTimeField()
+    content_purged = models.BooleanField(default=False)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=["connection", "account_grant", "idempotency_key"],
+            name="oidc_mcp_ai_retry_key",
+        )]
+        indexes = [models.Index(fields=["content_purged", "content_expires_at"], name="oidc_mcp_ai_retention")]

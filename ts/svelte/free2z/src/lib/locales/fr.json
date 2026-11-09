@@ -2800,7 +2800,8 @@
       "mcpRead": "Lire votre profil public, vos pages et vos médias",
       "mcpWrite": "Créer ou modifier des brouillons et mettre à jour votre profil public",
       "mcpPublish": "Publier ou modifier des pages et des médias publics",
-      "mcpUploads": "Importer des fichiers dans votre compte"
+      "mcpUploads": "Importer des fichiers dans votre compte",
+      "mcpAI": "Envoyer des instructions aux fournisseurs d’IA et dépenser vos crédits 2Z dans la limite du devis de chaque demande"
     },
     "capPeriods": {
       "day": "par jour",

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from fractions import Fraction
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal, InvalidOperation
 
+from django.utils import timezone
 from django.db import models
 from django.contrib.auth import get_user_model
 
@@ -318,6 +319,16 @@ def count_prompt_tokens(messages, model):
     max is a slightly earlier trim on ordinary prose; the alternative is a
     reproducible undercharge.
     """
+    # Haiku 5.5 changes the price of the WHOLE request above 100K input
+    # tokens. Its tokenizer is not an OpenAI encoding: a 15% multiplier on
+    # tiktoken is not a defensible tier boundary. Budget UTF-8 bytes instead,
+    # plus conservative framing allowances. This deliberately rejects some
+    # prompts the provider could accept; settlement still uses provider usage.
+    if model == "claude-haiku-5-5":
+        return 256 + sum(
+            32 + sum(len(value.encode("utf-8")) for value in message.values())
+            for message in messages
+        )
     encodings = _budget_encodings(model)
     if not encodings:
         return num_tokens_from_messages(messages, model)
@@ -464,7 +475,10 @@ class AIModelQuerySet(models.QuerySet):
         content, but only after the user had been handed a conversation that
         503s on every prompt. Found by the codex adversarial review.
         """
-        return self.filter(is_enabled=True).exclude(
+        return self.filter(is_enabled=True).filter(
+            models.Q(price_valid_until__isnull=True)
+            | models.Q(price_valid_until__gt=timezone.now())
+        ).exclude(
             provider__in=list(POLICY_DISABLED_PROVIDERS)
         ).exclude(
             models.Q(provider=OPENAI) & (
@@ -485,7 +499,7 @@ class AIModelQuerySet(models.QuerySet):
         """
         return self.filter(provider__in=sorted(configured_providers()))
 
-    def discovered(self, upstream=True):
+    def discovered(self, upstream=True, *, require_snapshot=False):
         """Rows whose id the PROVIDER ITSELF lists as available -- the
         upstream id the gateway sends (``upstream=True``, the catalogue) or
         the ``model`` Django's own chat sends (``upstream=False``).
@@ -495,6 +509,9 @@ class AIModelQuerySet(models.QuerySet):
         provider's ``GET /v1/models`` answer in:class:`ProviderModel`; a row
         is discovered when that table holds its provider and
         :attr:`AIModel.upstream_model_id` with ``missing_since`` unset.
+
+        ``require_snapshot=True`` refuses models until a successful listing
+        proves this exact provider/id is available. Use it for new integrations.
 
         FAIL-OPEN UNTIL THE FIRST SNAPSHOT, PER PROVIDER. A provider with no
         recorded listing at all (discovery has never succeeded for it: the
@@ -527,6 +544,11 @@ class AIModelQuerySet(models.QuerySet):
             provider_model_id=OuterRef("sent_id"),
             missing_since__isnull=True,
         )
+        if require_snapshot:
+            listed = listed.filter(
+                models.Q(metadata__lifecycle__isnull=True) | models.Q(metadata__lifecycle="active")
+            )
+            return self.annotate(sent_id=sent_id).filter(Exists(listed))
         snapshot = ProviderModel.objects.filter(provider=OuterRef("provider"))
         return self.annotate(sent_id=sent_id).filter(
             ~Exists(snapshot) | Exists(listed)
@@ -700,6 +722,12 @@ class AIModel(models.Model):
         decimal_places=2,
         default=1,
         help_text="The multiplier that we charge above our cost. Default: at cost"
+    )
+
+    price_checked_at = models.DateField(null=True, blank=True, default=None, db_default=None)
+    price_valid_until = models.DateTimeField(
+        null=True, blank=True, default=None, db_default=None,
+        help_text="Exclusive expiry for time-limited provider prices; unavailable after this instant.",
     )
 
     # --- Gateway catalogue fields  -------------------------------
@@ -990,8 +1018,8 @@ class AIModel(models.Model):
     def get_tuzi_price(
         self, input_tokens: int, output_tokens: int, *,
         cached_input_tokens: int = 0, cache_write_tokens: int = 0,
-        cache_write_1h_tokens: int = 0,
-    ) -> int:
+        cache_write_1h_tokens: int = 0, quantum: Decimal | None = None,
+    ) -> int | Decimal:
         """Price provider-reported input classes without counting any token twice.
 
         ``input_tokens`` is the total input count; cache counts are disjoint
@@ -1007,6 +1035,8 @@ class AIModel(models.Model):
         total_cost = (
             input_cost + Decimal(output_tokens) * Decimal(str(self.output_price))
         ) * 100 * Decimal(str(self.markup))
+        if quantum is not None:
+            return total_cost.quantize(quantum, rounding=ROUND_CEILING)
         return int(total_cost.to_integral_value(rounding=ROUND_CEILING))
 
     def get_provider_input_cost(
@@ -1122,7 +1152,7 @@ class AIModel(models.Model):
         # two sentences should not be charged the ceiling to get them.
         return max(1, min(int(requested), ceiling))
 
-    def get_max_tuzi_price(self, input_tokens: int, output_tokens=None) -> int:
+    def get_max_tuzi_price(self, input_tokens: int, output_tokens=None, *, quantum=None):
         """The largest charge one request on this model can produce.
 
         The prompt is already assembled when this is called, so
@@ -1162,7 +1192,7 @@ class AIModel(models.Model):
             input_tokens, output_tokens,
             cached_input_tokens=cache_counts[0],
             cache_write_tokens=cache_counts[1],
-            cache_write_1h_tokens=cache_counts[2],
+            cache_write_1h_tokens=cache_counts[2], quantum=quantum,
         )
 
     def get_reasoning_allowance(self) -> int:
@@ -1178,7 +1208,7 @@ class AIModel(models.Model):
         return max(0, int(reasoning_policy(
             self.provider, self.model).allowance_tokens))
 
-    def get_admission_price(self, input_tokens: int, output_tokens=None) -> int:
+    def get_admission_price(self, input_tokens: int, output_tokens=None, *, quantum=None):
         """The ceiling a request is ADMITTED, held and clamped at.
 
         :meth:`get_max_tuzi_price` for the visible ``output_tokens`` sent as
@@ -1198,7 +1228,7 @@ class AIModel(models.Model):
         if output_tokens is None:
             output_tokens = self.get_request_output_cap(input_tokens)
         return self.get_max_tuzi_price(
-            input_tokens, int(output_tokens) + self.get_reasoning_allowance())
+            input_tokens, int(output_tokens) + self.get_reasoning_allowance(), quantum=quantum)
 
     def get_affordable_output_tokens(self, input_tokens: int, tuzis) -> int:
         """The longest reply ``tuzis`` covers, for a prompt of ``input_tokens``.

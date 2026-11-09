@@ -10549,6 +10549,7 @@ components:
       - mcp:write
       - mcp:publish
       - mcp:uploads
+      - mcp:ai
       type: string
       description: |-
         * `openid` - openid
@@ -10562,6 +10563,7 @@ components:
         * `mcp:write` - mcp:write
         * `mcp:publish` - mcp:publish
         * `mcp:uploads` - mcp:uploads
+        * `mcp:ai` - mcp:ai
     ApiStyleEnum:
       enum:
       - openai_responses
@@ -14505,7 +14507,7 @@ components:
           - code
         scope:
           type: string
-          default: mcp:read mcp:write mcp:publish mcp:uploads offline_access
+          default: mcp:read mcp:write mcp:publish mcp:uploads mcp:ai offline_access
       required:
       - redirect_uris
     MCPConnection:
@@ -16934,6 +16936,7 @@ components:
       - mcp:write
       - mcp:publish
       - mcp:uploads
+      - mcp:ai
       type: string
       description: |-
         * `openid` - openid
@@ -16947,6 +16950,7 @@ components:
         * `mcp:write` - mcp:write
         * `mcp:publish` - mcp:publish
         * `mcp:uploads` - mcp:uploads
+        * `mcp:ai` - mcp:ai
     SdkGrant:
       type: object
       properties:
@@ -20018,3 +20022,5 @@ components:
             mcp:write: Create/edit drafts and update your public profile
             mcp:publish: Publish or edit public pages and media
             mcp:uploads: Upload and manage your media files
+            mcp:ai: Send prompts to AI providers and spend 2Z up to each request’s
+              quoted maximum

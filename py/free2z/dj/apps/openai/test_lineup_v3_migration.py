@@ -1,10 +1,10 @@
-"""The v3 lineup ( audit, 2026-10-05): official prices, caps, the mirror.
+"""The v4 lineup (official review, 2026-11-07): official prices, caps, the mirror.
 
 Three records must agree and this file is where they meet:
 
 * ``seed_ai_models.LINEUP`` (what the seed command and the rate card derive
   from),
-* migration ``0026_seed_lineup_v3`` (its frozen copy, what prod gets), and
+* migration ``0036_seed_lineup_v4`` (its frozen copy, what prod gets), and
 * the providers' OFFICIAL figures, written out HERE by hand from the pages
   named in ``seed_ai_models`` so the code is checked against the provider
   rather than against itself.
@@ -27,27 +27,27 @@ from f2z.ai.providers import ANTHROPIC, KIMI, OPENAI, XAI, model_is_retired
 from .management.commands import seed_ai_models as seed
 from .models import AIModel
 
-MIGRATION = importlib.import_module("dj.apps.openai.migrations.0026_seed_lineup_v3")
+MIGRATION = importlib.import_module("dj.apps.openai.migrations.0036_seed_lineup_v4")
 CAP_MIGRATION = importlib.import_module("dj.apps.openai.migrations.0030_cap_gpt41_window")
 
 def _seed_historical_lineup():
     # Applied migrations use historical models, never the live save policy.
-    state = MigrationLoader(connection).project_state([("openai", "0030_cap_gpt41_window")])
+    state = MigrationLoader(connection).project_state([("openai", "0036_seed_lineup_v4")])
     MIGRATION.seed(state.apps, None)
 
 
 # USD per 1M tokens: (input, cached read, cache write, output). Fetched
-# 2026-10-05 from https://developers.openai.com/api/docs/pricing.md ("Short
-# context" columns) and each model's page. gpt-5.6-sol is listed at its
-# PRE-promo price ($4/$20 promo through at least 2026-11-21, "a 20 % and 33 %
-# reduction"); see LINEUP. Cache writes: 1.25x on GPT-5.6 and later, free
+# 2026-11-07 from https://developers.openai.com/api/docs/pricing.md ("Short
+# context" columns) and each model's page. gpt-5.6-sol uses the
+# $4/$20 promotion with an explicit November 21 expiry. Cache writes: 1.25x on GPT-5.6 and later, free
 # (= input here) before.
 OPENAI_OFFICIAL = {
+    "gpt-6.1-terra": ("1", "0.05", "1.25", "5"),
     "gpt-6-astra": ("10", "1", "12.5", "50"),
     "gpt-6.1-sol": ("2", "0.10", "2.5", "10"),
     "gpt-6-sol": ("2", "0.20", "2.5", "10"),
     "gpt-6-luna": ("0.10", "0.01", "0.125", "0.50"),
-    "gpt-5.6-sol": ("5", "0.50", "6.25", "30"),
+    "gpt-5.6-sol": ("4", "0.40", "5", "20"),
     "gpt-5.6-terra": ("2", "0.20", "2.5", "12"),
     "gpt-5.6-luna": ("0.20", "0.02", "0.25", "1.20"),
     "gpt-5.5": ("5", "0.50", "5", "30"),
@@ -72,12 +72,27 @@ OPENAI_OFFICIAL = {
 # https://platform.claude.com/docs/en/docs/about-claude/pricing, 2026-10-05:
 # (input, cache read, 5m write, 1h write, output).
 ANTHROPIC_OFFICIAL = {
+    "claude-opus-4-7": ("5", "0.50", "6.25", "10", "25"),
+    "claude-opus-4-6": ("5", "0.50", "6.25", "10", "25"),
+    "claude-opus-4-5": ("5", "0.50", "6.25", "10", "25"),
+    "claude-sonnet-4-6": ("3", "0.30", "3.75", "6", "15"),
+    "claude-fable-5-1": ("10", "0.25", "12.5", "20", "50"),
+    "claude-fable-5": ("10", "1", "12.5", "20", "50"),
+    "claude-opus-5-5": ("4", "0.20", "5", "8", "20"),
+    "claude-opus-5": ("5", "0.50", "6.25", "10", "25"),
+    "claude-sonnet-5-5": ("2", "0.10", "2.50", "4", "10"),
+    "claude-haiku-5-5": ("0.10", "0.01", "0.125", "0.20", "0.50"),
     "claude-opus-4-8": ("5", "0.50", "6.25", "10", "25"),
     "claude-sonnet-5": ("2", "0.20", "2.50", "4", "10"),
     "claude-haiku-4-5": ("1", "0.10", "1.25", "2", "5"),
 }
 # https://docs.x.ai/docs/models, 2026-10-05: (input, cached, output).
 XAI_OFFICIAL = {
+    "grok-4.20-0309-reasoning": ("1.25", "0.20", "2.50"),
+    "grok-4.20-0309-non-reasoning": ("1.25", "0.20", "2.50"),
+    "grok-build-0.1": ("1", "0.20", "2"),
+    "grok-4.7": ("2", "0.50", "6"),
+    "grok-4.6": ("2", "0.50", "6"),
     "grok-4.5": ("2", "0.30", "6"),
     "grok-4.3": ("1.25", "0.20", "2.50"),
 }
@@ -89,7 +104,7 @@ KIMI_OFFICIAL = {
 
 # Provider long-context thresholds (input tokens) and which rows they bind.
 OPENAI_THRESHOLD = 272_000
-OPENAI_TIERED = {"gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol",
+OPENAI_TIERED = {"gpt-6.1-terra", "gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-sol",
                  "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4"}
 XAI_THRESHOLD = 200_000
 SAFETY = Decimal("1.15")  # DEFAULT_SAFETY_FACTOR_BPS
@@ -314,7 +329,8 @@ def test_the_public_model_list_fits_on_one_page(settings, api_client):
     _seed_historical_lineup()
     response = api_client.get("/api/ai/models/")
     assert response.status_code == 200
-    openai_rows = [m for p, m, *_ in seed.LINEUP if p == OPENAI and not model_is_retired(p, m)]
+    openai_rows = [m for p, m, *_ in seed.LINEUP
+                   if p == OPENAI and not model_is_retired(p, m) and m != "gpt-5.6-sol"]
     assert response.data["count"] == len(openai_rows)
     assert len(response.data["results"]) == len(openai_rows)
     assert response.data["next"] is None

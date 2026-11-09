@@ -187,13 +187,44 @@ def create_server(raw_token, original_request):
         from .uploads import get_upload_status
         return await _call(get_upload_status, raw_token, account, original_request, upload_id)
 
+    @server.tool(annotations=READ_ONLY)
+    async def free2z_list_ai_models(account: Account) -> CallToolResult:
+        """List available, provider-discovered text models with reviewed prices, markup and privacy links. Requires separate mcp:ai consent."""
+        from .ai import list_models
+        return await _call(list_models, raw_token, account)
+
+    @server.tool(annotations=WRITE)
+    async def free2z_quote_ai(account: Account, model: UUID, prompt: Annotated[str, Field(min_length=1, max_length=100000)], max_output_tokens: Annotated[int, Field(ge=1, le=1000000)], system_message: Annotated[str, Field(max_length=100000)] | None = None) -> CallToolResult:
+        """Prepare a free 15-minute quote for one text prompt. Read its provider, markup and maximum charge before authorizing spending with start_ai. Prompt content is retained for up to 24 hours plus the hourly cleanup interval."""
+        from .ai import quote
+        return await _call(quote, raw_token, account, str(model), prompt, max_output_tokens, system_message)
+
+    @server.tool(annotations=WRITE)
+    async def free2z_start_ai(account: Account, quote_token: str, max_charge_tuzis: Annotated[str, Field(pattern=r"^[0-9]+(?:\.[0-9]{1,3})?$")], idempotency_key: UUID) -> CallToolResult:
+        """Authorize spending and queue the quoted provider call. Supply an explicit maximum in 2Z and a fresh UUIDv4 retry key. Retry a lost response with the same quote and key; poll the returned request ID. Requires mcp:ai consent."""
+        from .ai import start
+        return await _call(start, raw_token, account, quote_token, max_charge_tuzis, str(idempotency_key))
+
+    @server.tool(annotations=ToolAnnotations(read_only_hint=False, destructive_hint=False, idempotent_hint=True, open_world_hint=True))
+    async def free2z_get_ai_request(account: Account, request_id: UUID) -> CallToolResult:
+        """Poll an AI request for its result, token usage and exact 2Z charge receipt. Polling may finalize its already-authorized charge from a retained result; it never starts another provider call. Prompts/results expire; billing and retry tombstones persist."""
+        from .ai import get
+        return await _call(get, raw_token, account, request_id)
+
+    @server.tool(annotations=WRITE)
+    async def free2z_cancel_ai_request(account: Account, request_id: UUID) -> CallToolResult:
+        """Cancel a queued call without a charge. A running provider call cannot be cancelled and settles within its quoted maximum. Poll its receipt rather than starting another request."""
+        from .ai import get
+        return await _call(get, raw_token, account, request_id, True)
+
     @server.resource("free2z://guide")
     def guide() -> str:
         return json.dumps({
             "transport": "Stateless Streamable HTTP; JSON responses",
             "accounts": "Use free2z_list_accounts, then select account for each action. Connect additional accounts with separate browser consent.",
-            "scopes": ["mcp:read", "mcp:write", "mcp:publish", "mcp:uploads"],
+            "scopes": ["mcp:read", "mcp:write", "mcp:publish", "mcp:uploads", "mcp:ai"],
             "limitations": "No money transfers, subscription purchases, credential changes, arbitrary API requests, client filesystem access, or server-side URL fetching. Normal Free2Z balance requirements and upload limits apply. Local stdio is a separate option for the broader API catalog.",
+            "ai": "List models, quote a bounded prompt, authorize its maximum with start_ai and poll the request. Dedicated mcp:ai consent is required; existing content grants cannot spend. Provider policies apply; Free2Z retains prompt/result content up to 24 hours plus hourly cleanup, and keeps billing/retry metadata.",
             "publication": "Create drafts, review them, then explicitly publish. Updates require an ETag; creating drafts requires an idempotency key.",
         })
 

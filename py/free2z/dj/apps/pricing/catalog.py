@@ -549,7 +549,7 @@ def _micros(stamp) -> int:
     return (delta.days * 86_400 + delta.seconds) * VERSION_UNITS_PER_SECOND + delta.microseconds
 
 
-def content_revision(card) -> int:
+def content_revision(card, now_unix=None) -> int:
     """Unix MICROSECONDS of the newest change that can alter the catalogue's
     content: the latest ``AIModel.updated_at`` over ALL rows (a row that has
     just been disabled or taken out of the lineup is exactly the change that
@@ -575,6 +575,16 @@ def content_revision(card) -> int:
         # (``last_seen_at`` moves every run and is deliberately NOT here).
         ProviderModel.objects.aggregate(t=Max("availability_changed_at"))["t"],
     ]
+    if now_unix is not None:
+        # A promotional model leaves this catalog one full validity period
+        # before expiry, preserving offline resilience for every other model.
+        # That transition changes content without an UPDATE, even in a window.
+        now = datetime.datetime.fromtimestamp(now_unix, tz=datetime.timezone.utc)
+        expired = AIModel.objects.filter(
+            price_valid_until__lte=now + datetime.timedelta(seconds=VALIDITY_SECONDS)
+        ).aggregate(t=Max("price_valid_until"))["t"]
+        if expired is not None:
+            stamps.append(expired - datetime.timedelta(seconds=VALIDITY_SECONDS))
     return max((_micros(s) for s in stamps if s is not None), default=0)
 
 
@@ -612,18 +622,49 @@ def _in_outer_transaction() -> bool:
     return len(connection.atomic_blocks) > 1
 
 
+# Django/MCP send text without sampling controls. The independent gateway
+# accepts additional controls, including top_k for every Anthropic model.
+# New Claude rows need that adapter reviewed before being advertised there;
+# Sonnet/Haiku 5.5 explicitly reject temperature/top_p/top_k. Existing rows
+# preserve their compatibility policy. No inference from an absent capability.
+GATEWAY_MODEL_EXCLUSIONS = {
+    ("anthropic", model): "gateway_adapter_capabilities_not_reviewed"
+    for model in (
+        "claude-fable-5-1", "claude-fable-5", "claude-opus-5-5", "claude-opus-5",
+        "claude-sonnet-5-5", "claude-haiku-5-5", "claude-opus-4-7",
+        "claude-opus-4-6", "claude-opus-4-5", "claude-sonnet-4-6",
+    )
+}
+
+
 def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
     from f2z.ai.providers import POLICY_DISABLED_PROVIDERS
 
     card = active_rate_card()
     # BEFORE the content -- see the module docstring. Do not move.
-    revision = content_revision(card)
+    revision = content_revision(card, now_unix)
+    # Accepted clock skew can put issued_at ahead of now. A model's price
+    # must cover the document's actual expiry, not merely now + validity.
+    price_horizon = max(now_unix, revision // VERSION_UNITS_PER_SECOND) + VALIDITY_SECONDS
     rows = {row.model_id: row for row in card.model_rows.all()}
     disabled = sorted(POLICY_DISABLED_PROVIDERS)
     candidates = []
     for ai_model in undiscovered_models():
         log_model_not_discovered(ai_model)
     for ai_model in catalogue_models():
+        exclusion = GATEWAY_MODEL_EXCLUSIONS.get((ai_model.provider, ai_model.model))
+        if exclusion:
+            logger.info(
+                "Gateway model intentionally excluded: %s/%s (%s)",
+                ai_model.provider, ai_model.model, exclusion,
+                extra={"event": "ai_catalog_model_intentionally_excluded", "model": ai_model.model,
+                       "provider": ai_model.provider, "reason": exclusion},
+            )
+            continue
+        if ai_model.price_valid_until is not None:
+            expiry = int(ai_model.price_valid_until.timestamp())
+            if expiry <= price_horizon:
+                continue
         row = rows.get(ai_model.model)
         if row is None:
             log_model_excluded(
