@@ -239,7 +239,11 @@ def test_native_account_locks_allow_concurrent_consent(
     from django.utils import timezone
 
     email = Email.objects.create(
-        user=user, email="fixture@example.test", is_public=True, get_notifications=True
+        user=user,
+        email="fixture@example.test",
+        expires_at=timezone.now(),
+        is_public=True,
+        get_notifications=True,
     )
     native_started, consent_started = Event(), Event()
     consent_pid = []
