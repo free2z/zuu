@@ -234,12 +234,14 @@ def test_re_enabling_a_banned_provider_row_does_not_stick():
 
 
 @pytest.mark.django_db
-def test_every_other_seeded_provider_is_still_enabled(db):
-    """The flag is a scalpel: nothing else moved."""
+def test_seeded_ga_models_only_disable_the_staged_promotion(db):
+    """The promotion needs guarded activation; other GA models stay enabled."""
     others = AIModel.objects.exclude(provider="kimi").filter(is_ga=True)
 
     assert others.exists()
-    assert not others.filter(is_enabled=False).exists()
+    assert set(others.filter(is_enabled=False).values_list("provider", "model")) == {
+        ("openai", "gpt-5.6-sol"),
+    }
 
 
 @pytest.mark.django_db
