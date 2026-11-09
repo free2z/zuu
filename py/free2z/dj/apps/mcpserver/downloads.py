@@ -37,7 +37,10 @@ def _open_stream(storage, name):
                 blob.reload()
             if blob.generation is None:
                 raise FileNotFoundError("Object generation is unavailable.")
-            return blob.open("rb", chunk_size=256 * 1024)
+            # Preserve stored bytes and Range semantics even when the object
+            # carries Content-Encoding:gzip; transparent transcoding can
+            # otherwise return a full decompressed object for a ranged read.
+            return blob.open("rb", chunk_size=256 * 1024, raw_download=True)
         finally:
             handle.close()
     return handle

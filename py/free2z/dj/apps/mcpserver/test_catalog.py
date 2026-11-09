@@ -482,14 +482,18 @@ def test_paid_vote_and_unbounded_get_refusal(
     )
 
 
-def test_cloud_download_uses_generation_bound_chunks_and_closes_reader(monkeypatch):
+@pytest.mark.parametrize("compressed", [False, True])
+def test_cloud_download_uses_generation_bound_chunks_and_closes_reader(compressed):
     from io import BytesIO
     from django.http import FileResponse
     from storages.backends.gcloud import GoogleCloudFile
     from .downloads import _open_stream
 
     calls = []
-    stream = BytesIO(b"bounded bytes")
+    import gzip
+
+    stored = gzip.compress(b"bounded bytes") if compressed else b"bounded bytes"
+    stream = BytesIO(stored)
 
     class Blob:
         generation = None
@@ -501,9 +505,9 @@ def test_cloud_download_uses_generation_bound_chunks_and_closes_reader(monkeypat
         def download_to_file(self, *args, **kwargs):
             pytest.fail("A whole cloud object was spooled")
 
-        def open(self, mode, *, chunk_size):
+        def open(self, mode, *, chunk_size, raw_download):
             assert self.generation == 1234
-            assert mode == "rb" and chunk_size == 256 * 1024
+            assert mode == "rb" and chunk_size == 256 * 1024 and raw_download is True
             calls.append("ranged-reader")
             return stream
 
@@ -524,7 +528,7 @@ def test_cloud_download_uses_generation_bound_chunks_and_closes_reader(monkeypat
     handle._is_dirty = False
     response = FileResponse(_open_stream(Storage(), "owned/original"))
     assert calls == ["metadata", "ranged-reader"]
-    assert b"".join(response.streaming_content) == b"bounded bytes"
+    assert b"".join(response.streaming_content) == stored
     response.close()
     assert stream.closed and handle._file is None
 
