@@ -715,6 +715,13 @@
       "disposition": "no economic mutation established by model enumeration"
     },
     {
+      "model": "oidc.MCPAIRequest",
+      "table": "oidc_mcpairequest",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
       "model": "oidc.MCPAccountGrant",
       "table": "oidc_mcpaccountgrant",
       "source": "py/free2z/dj/apps/oidc/models.py",
@@ -1327,153 +1334,123 @@
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
+      "source": "py/free2z/dj/apps/mcpserver/ai.py",
+      "line": 364,
+      "call": "ledger_api.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/mcpserver/ai.py",
+      "line": 397,
+      "call": "ledger_api.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 478,
+      "line": 479,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1788,
+      "line": 1789,
       "call": "ledger.reserve",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1845,
+      "line": 1846,
       "call": "ledger.settle_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1858,
+      "line": 1859,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1869,
+      "line": 1870,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1874,
+      "line": 1875,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1925,
+      "line": 1926,
       "call": "ledger.settle_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1949,
+      "line": 1950,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 1958,
+      "line": 1959,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2062,
+      "line": 2063,
       "call": "ledger.debit",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2428,
+      "line": 2324,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 2334,
       "call": "ledger_api.lock_creator",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2440,
-      "call": "ledger.release_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2571,
-      "call": "ledger.reserve",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2604,
+      "line": 2343,
       "call": "ledger.settle_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2617,
-      "call": "ledger.release_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2628,
-      "call": "ledger.release_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2633,
-      "call": "ledger.release_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2673,
-      "call": "ledger.settle_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2691,
-      "call": "ledger.release_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 2704,
-      "call": "ledger.release_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3010,
+      "line": 2498,
       "call": "ledger_api.lock_creator",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3013,
-      "call": "ledger.release_reservation",
-      "disposition": "source writer identified; outer transaction order requires per-path review"
-    },
-    {
-      "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3144,
+      "line": 2645,
       "call": "ledger.reserve",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3228,
+      "line": 3070,
+      "call": "ledger_api.lock_creator",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3073,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3279,
-      "call": "ledger.release_reservation",
+      "line": 3204,
+      "call": "ledger.reserve",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
@@ -1484,31 +1461,43 @@
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3304,
+      "line": 3339,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3341,
+      "line": 3348,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3444,
+      "line": 3364,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3401,
+      "call": "ledger.release_reservation",
+      "disposition": "source writer identified; outer transaction order requires per-path review"
+    },
+    {
+      "source": "py/free2z/dj/apps/openai/views.py",
+      "line": 3504,
       "call": "ledger.settle_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3508,
+      "line": 3568,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/openai/views.py",
-      "line": 3588,
+      "line": 3648,
       "call": "ledger.release_reservation",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1730,9 +1719,10 @@
     "py/free2z/dj/apps/jobs/ops.py": "b2a0793830f6df24fb658af475cfb75985d1adb79d772d2d17b29c048b3ae053",
     "py/free2z/dj/apps/kyc/models.py": "285560c38eb803f390b0581ed957b242770c67d311178da84baafcd56a41a045",
     "py/free2z/dj/apps/ledger/models.py": "a2cccfcd82b3dda2562041d464818ec8c6dc9ed124ec57c8e23c0153a6762865",
-    "py/free2z/dj/apps/oidc/models.py": "3e0face38ef930fe3197ec877b0f1fdd63a51f0d8922c729aca9c01dd0fd320e",
-    "py/free2z/dj/apps/openai/models.py": "5880d9e8ee063f9056ae0769aeb979ce12a487bb9a7e778220f32528cee5fe03",
-    "py/free2z/dj/apps/openai/views.py": "dcfc1d7575d09a8d0cc23017dffd65127b65f0150c4075eef006ce01c741813e",
+    "py/free2z/dj/apps/mcpserver/ai.py": "802268518b657e2fbddb4f2d6024dcfc4b71f4b6d1a717b6126494f2c2679613",
+    "py/free2z/dj/apps/oidc/models.py": "672d7756265e30aa2f73a4e214dfa185063b8a09523ea238e13d0204aa9f9b47",
+    "py/free2z/dj/apps/openai/models.py": "1a8da6b297c0aaa77a2e8c8d25dc064b865146076484c2566340f4932b1d15e8",
+    "py/free2z/dj/apps/openai/views.py": "2626cf18ba38e859f5c4633ad965960ca0ed1254a26f482704a162a54c3bb3e5",
     "py/free2z/dj/apps/otp/models.py": "d45fd3d4223cbd5f0b93db9e84013c238d216bdbd45fa13d718a230eca2e7556",
     "py/free2z/dj/apps/pricing/models.py": "00fdb69c4ca7debb9d69441f70f2f0d518aeaf253bc3aa42cf57bd6639f3b007",
     "py/free2z/dj/apps/purchases/models.py": "c771797cd2f04f9b65d17423d9878abc609f80597e4437ff6a4214cc075d4163",

@@ -15549,10 +15549,11 @@
           "mcp:read",
           "mcp:write",
           "mcp:publish",
-          "mcp:uploads"
+          "mcp:uploads",
+          "mcp:ai"
         ],
         "type": "string",
-        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads"
+        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads\n* `mcp:ai` - mcp:ai"
       },
       "ApiStyleEnum": {
         "enum": [
@@ -20345,7 +20346,7 @@
           },
           "scope": {
             "type": "string",
-            "default": "mcp:read mcp:write mcp:publish mcp:uploads offline_access"
+            "default": "mcp:read mcp:write mcp:publish mcp:uploads mcp:ai offline_access"
           }
         },
         "required": [
@@ -23335,10 +23336,11 @@
           "mcp:read",
           "mcp:write",
           "mcp:publish",
-          "mcp:uploads"
+          "mcp:uploads",
+          "mcp:ai"
         ],
         "type": "string",
-        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads"
+        "description": "* `openid` - openid\n* `profile` - profile\n* `email` - email\n* `offline_access` - offline_access\n* `balance:read` - balance:read\n* `purchase:create` - purchase:create\n* `ai:invoke` - ai:invoke\n* `mcp:read` - mcp:read\n* `mcp:write` - mcp:write\n* `mcp:publish` - mcp:publish\n* `mcp:uploads` - mcp:uploads\n* `mcp:ai` - mcp:ai"
       },
       "SdkGrant": {
         "type": "object",
@@ -26979,7 +26981,8 @@
               "mcp:read": "Read your public profile, pages and media",
               "mcp:write": "Create/edit drafts and update your public profile",
               "mcp:publish": "Publish or edit public pages and media",
-              "mcp:uploads": "Upload and manage your media files"
+              "mcp:uploads": "Upload and manage your media files",
+              "mcp:ai": "Send prompts to AI providers and spend 2Z up to each request’s quoted maximum"
             }
           }
         }
