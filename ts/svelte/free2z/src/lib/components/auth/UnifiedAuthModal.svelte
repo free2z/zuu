@@ -75,77 +75,97 @@
   $: termsHref = sdkSheet ? "/docs/plain/legal/" : termsLink.href;
   const isDesktop = new MediaQuery("(min-width: 768px)");
   // Mobile keyboards shrink visualViewport and leave the layout viewport
-  // alone. Same inset as MobileConverseComposer. vaul's repositionInputs
-  // writes height/bottom on that resize and ignores offsetTop, so this
-  // sheet re-applies after it. The 16px gap matches the composer.
+  // alone. Same inset as MobileConverseComposer: bottom lifts by
+  // innerHeight - height - offsetTop, and the sheet height is the visual
+  // viewport minus 16px. Inline bottom/height/maxHeight are applied only
+  // while this sheet is open AND that inset is greater than 0. Writing them
+  // on every visualViewport event restarts vaul's slide.
   let authSheetEl: HTMLElement | null = null;
   let authKeyboardInset = 0;
   let authVisibleHeight: number | null = null;
+  let authSheetStyle: string | undefined = undefined;
+  let appliedSheetKey = "";
+  let lastSheetNode: HTMLElement | null = null;
   let stopAuthViewport: (() => void) | null = null;
 
-  function readAuthViewport() {
+  type AuthKeyboardLift = { inset: number; height: number; cap: number };
+
+  function keyboardLift(): AuthKeyboardLift | null {
+    if (!open || isDesktop.current) return null;
     const viewport = window.visualViewport;
-    if (!viewport || isDesktop.current) {
-      authKeyboardInset = 0;
-      authVisibleHeight = null;
-      return;
-    }
-    const nextHeight = viewport.height;
-    const nextInset = Math.max(
-      0,
-      window.innerHeight - viewport.height - viewport.offsetTop,
+    if (!viewport) return null;
+    const inset = Math.round(
+      Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop),
     );
-    // Ignore subpixel jitter. Rewriting the drawer style on every
-    // visualViewport scroll restarts vaul's slide and hides the button.
-    if (
-      authVisibleHeight !== null &&
-      Math.abs(authVisibleHeight - nextHeight) < 1 &&
-      Math.abs(authKeyboardInset - nextInset) < 1
-    ) {
+    if (inset <= 0) return null;
+    const height = Math.round(viewport.height);
+    return { inset, height, cap: Math.max(0, height - 16) };
+  }
+
+  function sheetKey(lift: AuthKeyboardLift | null) {
+    return lift ? `${lift.inset}:${lift.cap}` : "";
+  }
+
+  function sheetStyle(lift: AuthKeyboardLift | null) {
+    return lift
+      ? `bottom: ${lift.inset}px; height: ${lift.cap}px; max-height: ${lift.cap}px;`
+      : undefined;
+  }
+
+  function sheetStyleMatches(node: HTMLElement, lift: AuthKeyboardLift | null) {
+    if (!lift) {
+      return (
+        node.style.bottom === "" &&
+        node.style.height === "" &&
+        node.style.maxHeight === ""
+      );
+    }
+    return (
+      node.style.bottom === `${lift.inset}px` &&
+      node.style.height === `${lift.cap}px` &&
+      node.style.maxHeight === `${lift.cap}px`
+    );
+  }
+
+  function writeSheetStyle(node: HTMLElement, lift: AuthKeyboardLift | null) {
+    if (sheetStyleMatches(node, lift)) return;
+    if (!lift) {
+      node.style.bottom = "";
+      node.style.height = "";
+      node.style.maxHeight = "";
       return;
     }
-    authVisibleHeight = nextHeight;
-    authKeyboardInset = nextInset;
-  }
-
-  function authSheetCap() {
-    return authVisibleHeight === null
-      ? null
-      : Math.max(0, authVisibleHeight - 16);
-  }
-
-  $: authSheetStyle =
-    authVisibleHeight === null
-      ? undefined
-      : `bottom: ${authKeyboardInset}px; height: ${authSheetCap()}px; max-height: ${authSheetCap()}px;`;
-
-  function applyAuthSheetViewport() {
-    const node = authSheetEl;
-    const cap = authSheetCap();
-    if (!(node instanceof HTMLElement) || cap === null) return;
-    // vaul writes height/bottom onto the node after this prop is rendered.
-    node.style.bottom = `${authKeyboardInset}px`;
-    node.style.height = `${cap}px`;
-    node.style.maxHeight = `${cap}px`;
+    node.style.bottom = `${lift.inset}px`;
+    node.style.height = `${lift.cap}px`;
+    node.style.maxHeight = `${lift.cap}px`;
   }
 
   function syncAuthViewport() {
-    if (!browser) return;
-    readAuthViewport();
-    applyAuthSheetViewport();
+    if (!browser || destroyed) return;
+    const lift = keyboardLift();
+    const key = sheetKey(lift);
+    const node = authSheetEl instanceof HTMLElement ? authSheetEl : null;
+    if (key === appliedSheetKey && node === lastSheetNode) return;
+    const liftChanged = key !== appliedSheetKey;
+    appliedSheetKey = key;
+    lastSheetNode = node;
+    authKeyboardInset = lift?.inset ?? 0;
+    authVisibleHeight = lift ? lift.height : null;
+    authSheetStyle = sheetStyle(lift);
+    if (node) writeSheetStyle(node, lift);
+    // One frame later, only because the lift changed. While the keyboard is
+    // open this puts our inset back if vaul's repositionInputs overwrote it.
+    // When the keyboard closes it clears vaul's height once. Unchanged
+    // scroll/resize events return above and do not schedule this.
+    if (!liftChanged) return;
+    const beatKey = key;
     requestAnimationFrame(() => {
-      if (destroyed) return;
-      applyAuthSheetViewport();
+      if (destroyed || appliedSheetKey !== beatKey) return;
+      const current = keyboardLift();
+      if (sheetKey(current) !== beatKey) return;
+      const el = authSheetEl;
+      if (el instanceof HTMLElement) writeSheetStyle(el, current);
     });
-  }
-
-  $: if (
-    browser &&
-    authSheetEl instanceof HTMLElement &&
-    authVisibleHeight !== null &&
-    authKeyboardInset >= 0
-  ) {
-    applyAuthSheetViewport();
   }
   const passwordStrengthColors = [
     "",
@@ -387,6 +407,14 @@
 
   // Props
   export let open = false;
+  // Re-sync when the sheet opens or closes. Viewport listeners cover the
+  // keyboard; this covers the open flag without writing on every scroll.
+  $: if (browser) {
+    open;
+    isDesktop.current;
+    authSheetEl;
+    syncAuthViewport();
+  }
   export let initialView: InitialModalView = "login";
   /**
    * Already-translated copy shown above the login form explaining why the
@@ -1408,7 +1436,7 @@
         ? undefined
         : String(authVisibleHeight)}
       style={authSheetStyle}
-      class="flex h-[calc(100dvh-16px)] max-h-[100dvh] flex-col gap-0 overflow-hidden pb-[env(safe-area-inset-bottom)] data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[100dvh]"
+      class="flex max-h-[100dvh] flex-col gap-0 overflow-hidden pb-[env(safe-area-inset-bottom)] data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[100dvh]"
     >
       <Drawer.Header class="shrink-0 p-6 pb-2 text-start">
         <Drawer.Title>

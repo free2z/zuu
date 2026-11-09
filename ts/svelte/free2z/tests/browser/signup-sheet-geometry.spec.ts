@@ -78,6 +78,17 @@ test.describe("signup sheet keeps the submit button on screen", () => {
       const submit = sheet.locator('form button[type="submit"]');
 
       await expect(username).toBeVisible();
+      // No keyboard: the drawer must not carry an inline viewport size.
+      // Writing one on visualViewport scroll restarts vaul's slide.
+      await expect
+        .poll(() =>
+          sheet.evaluate((el: HTMLElement) => ({
+            bottom: el.style.bottom,
+            height: el.style.height,
+            maxHeight: el.style.maxHeight,
+          })),
+        )
+        .toEqual({ bottom: "", height: "", maxHeight: "" });
       await expect(scroll).toHaveAttribute("data-vaul-no-drag", "");
       await expect(scroll).toHaveCSS("touch-action", "pan-y");
       await expect(scroll).toHaveCSS("overflow-y", "auto");
@@ -199,5 +210,16 @@ test.describe("signup sheet keeps the submit button on screen", () => {
       .toBe(true);
     await password.fill("Correct-password-123!");
     await expect(password).toHaveValue("Correct-password-123!");
+
+    await showKeyboard(700, 0);
+    await expect
+      .poll(() =>
+        sheet.evaluate((el: HTMLElement) => ({
+          bottom: el.style.bottom,
+          height: el.style.height,
+          maxHeight: el.style.maxHeight,
+        })),
+      )
+      .toEqual({ bottom: "", height: "", maxHeight: "" });
   });
 });
