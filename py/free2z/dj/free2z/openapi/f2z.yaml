@@ -10105,6 +10105,9 @@ paths:
                 type: string
                 format: binary
           description: Original file attachment.
+        '409':
+          description: 'Stored content encoding cannot guarantee unchanged original
+            bytes; encoded objects require stored Cache-Control: no-transform.'
         '403':
           description: Invalid, expired or revoked authority.
         '405':

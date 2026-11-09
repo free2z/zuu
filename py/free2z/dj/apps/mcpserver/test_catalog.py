@@ -482,7 +482,21 @@ def test_paid_vote_and_unbounded_get_refusal(
     )
 
 
-def test_cloud_download_offloads_without_opening_or_spooling_bytes():
+@pytest.mark.parametrize(
+    "encoding, controls, mime, allowed",
+    [
+        (None, None, "application/octet-stream", True),
+        (None, None, "application/gzip", True),
+        ("gzip", None, "image/png", False),
+        ("gzip", "private", "image/jpeg", False),
+        ("gzip", "private, NO-TRANSFORM", "image/png", True),
+        ("br", None, "application/octet-stream", False),
+        ("gzip", "no-transform=1", "application/gzip", False),
+    ],
+)
+def test_cloud_download_offloads_without_opening_or_spooling_bytes(
+    encoding, controls, mime, allowed
+):
     from storages.backends.gcloud import GoogleCloudStorage
     from .downloads import _media_response, _export_response
 
@@ -491,6 +505,9 @@ def test_cloud_download_offloads_without_opening_or_spooling_bytes():
     class Blob:
         generation = 1234
         name = "private/owner/a file%25.pdf"
+        content_encoding = encoding
+        cache_control = controls
+        content_type = mime
 
         def download_to_file(self, *args, **kwargs):
             pytest.fail("Cloud bytes must never spool in Django")
@@ -514,6 +531,12 @@ def test_cloud_download_offloads_without_opening_or_spooling_bytes():
 
     response = _media_response(Storage(), "owned/original", "original.pdf")
     assert calls == ["metadata"]
+    if not allowed:
+        assert response.status_code == 409
+        assert "X-Accel-Redirect" not in response
+        assert b"original_encoding_unsupported" in response.content
+        assert response["Cache-Control"] == "private, no-store"
+        return
     assert not response.streaming and response.content == b""
     assert (
         response["X-Accel-Redirect"]

@@ -57,6 +57,23 @@ def _media_response(storage, name, filename):
         blob = storage.bucket.get_blob(key, timeout=5, retry=None)
         if blob is None or blob.generation is None:
             raise PermissionDenied("Object generation is unavailable.")
+        # GCS can transcode encoded compressed formats even when the proxy
+        # requests gzip. No exhaustive MIME taxonomy exists; require its
+        # explicit raw-byte guarantee for every encoded object.
+        encoding = (blob.content_encoding or "").strip()
+        cache_directives = {
+            part.strip().lower() for part in (blob.cache_control or "").split(",")
+        }
+        if encoding and "no-transform" not in cache_directives:
+            response = JsonResponse(
+                {
+                    "code": "original_encoding_unsupported",
+                    "detail": "This file's storage encoding cannot be delivered unchanged. Encoded objects require stored Cache-Control: no-transform.",
+                },
+                status=409,
+            )
+            response["Cache-Control"] = "private, no-store"
+            return response
         return _offload(
             "/_internal_mcp_media/",
             blob.name,

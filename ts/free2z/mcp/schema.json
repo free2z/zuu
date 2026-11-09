@@ -15023,6 +15023,9 @@
           },
           "405": {
             "description": "Only GET is supported."
+          },
+          "409": {
+            "description": "Stored content encoding cannot guarantee unchanged original bytes; encoded objects require stored Cache-Control: no-transform."
           }
         }
       }

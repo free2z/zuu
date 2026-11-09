@@ -72,6 +72,7 @@ class MCPDownloadBoundary(APIView):
         description="Stream an owned original file using the capability returned by mcp_prepare_download. The URL alone is not authorized.",
         parameters=[OpenApiParameter("upload_id", OpenApiTypes.INT, OpenApiParameter.PATH, required=True)],
         responses={(200, "application/octet-stream"): OpenApiResponse(OpenApiTypes.BINARY, "Original file attachment."),
+                   409: OpenApiResponse(description="Stored content encoding cannot guarantee unchanged original bytes; encoded objects require stored Cache-Control: no-transform."),
                    403: OpenApiResponse(description="Invalid, expired or revoked authority."),
                    405: OpenApiResponse(description="Only GET is supported.")})
     def get(self, request, upload_id):
