@@ -294,12 +294,14 @@ def invoke(
                     "Changing or deleting public media requires mcp:publish."
                 )
         native_body = body
+        native_kwargs = match.kwargs
         if create_only:
             from dj.apps.g12f.models import zPage
+            from dj.apps.g12f.identifiers import resolve_zpage_pk
 
             parent = (
                 zPage.objects.select_for_update()
-                .filter(free2zaddr=path["id"], creator=actor.user)
+                .filter(pk=resolve_zpage_pk(path["id"]), creator=actor.user)
                 .first()
             )
             if parent is None:
@@ -308,6 +310,9 @@ def invoke(
             # absent-language precondition cannot authorize a parent overwrite;
             # preserve its current tags under the same lock as the native save.
             native_body = {**body, "tags": list(parent.tags.names())}
+            # Pin native dispatch to the immutable identity already authorized;
+            # a concurrent vanity rename must not resolve a different parent.
+            native_kwargs = {**match.kwargs, "pk": parent.free2zaddr}
         result = _native(
             actor,
             original,
@@ -315,7 +320,7 @@ def invoke(
             row["method"],
             concrete,
             action=action,
-            kwargs=match.kwargs,
+            kwargs=native_kwargs,
             query=query,
             body=native_body if write else None,
             headers=headers,

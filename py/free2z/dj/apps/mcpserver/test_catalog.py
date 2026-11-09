@@ -601,8 +601,9 @@ def test_selected_email_preferences_do_not_mutate_other_account_or_credentials(
     assert not owner_address.get_notifications and not owner_address.is_public
 
 
+@pytest.mark.parametrize("by_vanity", [False, True])
 def test_old_content_grant_cannot_delete_and_variant_delete_requires_exact_etag(
-    signed_in, user, creator_factory
+    signed_in, user, creator_factory, by_vanity
 ):
     from dj.apps.g12f.test_translation_purchase import make_page
     from dj.apps.g12f.models import zPage, ZPageVariant
@@ -611,10 +612,12 @@ def test_old_content_grant_cannot_delete_and_variant_delete_requires_exact_etag(
     target = creator_factory(username="variantowner")
     linked, _ = link(raw, target, scopes=["mcp:read", "mcp:write", "mcp:publish"])
     page = make_page(target)
+    page.vanity = "owned-translation-page"
+    page.save(update_fields=["vanity"])
     page.tags.add("zcash")
     stale_tags = list(page.tags.names())
     page.tags.add("release")  # A newer parent edit after the agent's read.
-    path = {"id": str(page.free2zaddr), "language": "es"}
+    path = {"id": page.vanity if by_vanity else str(page.free2zaddr), "language": "es"}
     assert (
         call(
             raw,
