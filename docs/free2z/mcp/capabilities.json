@@ -1,0 +1,3054 @@
+{
+  "tool_count": 22,
+  "supported_count": 101,
+  "operations": [
+    {
+      "operation_id": "account_deletion_keep",
+      "method": "POST",
+      "path": "/api/auth/account-deletion/keep/",
+      "summary": "Keep an account whose deletion is pending, and sign in",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "account_deletion_preview",
+      "method": "GET",
+      "path": "/api/auth/account-deletion/",
+      "summary": "What deleting this account would do",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "account_deletion_schedule",
+      "method": "POST",
+      "path": "/api/auth/account-deletion/schedule/",
+      "summary": "Request deletion of the signed-in account",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "ai_catalog_v1",
+      "method": "GET",
+      "path": "/api/ai/catalog/v1",
+      "summary": "The signed AI model catalogue the f2z-ai gateway prices from.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_catalog_v2",
+      "method": "GET",
+      "path": "/api/ai/catalog/v2",
+      "summary": "Opt-in TTL pricing publication; schema-1 clients keep their endpoint.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_conversations_create",
+      "method": "POST",
+      "path": "/api/ai/conversations/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_destroy",
+      "method": "DELETE",
+      "path": "/api/ai/conversations/{id}/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_fork_create",
+      "method": "POST",
+      "path": "/api/ai/conversations/fork/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_list",
+      "method": "GET",
+      "path": "/api/ai/conversations/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_partial_update",
+      "method": "PATCH",
+      "path": "/api/ai/conversations/{id}/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_promptresponses_create",
+      "method": "POST",
+      "path": "/api/ai/conversations/{conversation_id}/promptresponses/",
+      "summary": "",
+      "supported": false,
+      "keywords": "AI conversations history chats transcripts",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_conversations_promptresponses_destroy",
+      "method": "DELETE",
+      "path": "/api/ai/conversations/{conversation_id}/promptresponses/{id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "AI conversations history chats transcripts",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_conversations_promptresponses_list",
+      "method": "GET",
+      "path": "/api/ai/conversations/{conversation_id}/promptresponses/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_promptresponses_partial_update",
+      "method": "PATCH",
+      "path": "/api/ai/conversations/{conversation_id}/promptresponses/{id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "AI conversations history chats transcripts",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_conversations_promptresponses_retrieve",
+      "method": "GET",
+      "path": "/api/ai/conversations/{conversation_id}/promptresponses/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_promptresponses_update",
+      "method": "PUT",
+      "path": "/api/ai/conversations/{conversation_id}/promptresponses/{id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "AI conversations history chats transcripts",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_conversations_public_retrieve",
+      "method": "GET",
+      "path": "/api/ai/conversations/public/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_retrieve",
+      "method": "GET",
+      "path": "/api/ai/conversations/{id}/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_conversations_update",
+      "method": "PUT",
+      "path": "/api/ai/conversations/{id}/",
+      "summary": "This is to get your own conversations and fork others.",
+      "supported": true,
+      "keywords": "AI conversations history chats transcripts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_creator_options_create",
+      "method": "POST",
+      "path": "/api/ai/creator-options/",
+      "summary": "Quote the maximum hold for the exact text prompt and selected model.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_creator_options_retrieve",
+      "method": "GET",
+      "path": "/api/ai/creator-options/",
+      "summary": "Server-authoritative choices and a quote for creator AI operations.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_models_list",
+      "method": "GET",
+      "path": "/api/ai/models/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_models_retrieve",
+      "method": "GET",
+      "path": "/api/ai/models/{id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_personalities_create",
+      "method": "POST",
+      "path": "/api/ai/personalities/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI personas personalities system prompts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_personalities_destroy",
+      "method": "DELETE",
+      "path": "/api/ai/personalities/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI personas personalities system prompts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_personalities_list",
+      "method": "GET",
+      "path": "/api/ai/personalities/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI personas personalities system prompts",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_personalities_partial_update",
+      "method": "PATCH",
+      "path": "/api/ai/personalities/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI personas personalities system prompts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_personalities_retrieve",
+      "method": "GET",
+      "path": "/api/ai/personalities/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI personas personalities system prompts",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_personalities_update",
+      "method": "PUT",
+      "path": "/api/ai/personalities/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "AI personas personalities system prompts",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_prompt_create",
+      "method": "POST",
+      "path": "/api/ai/prompt/",
+      "summary": "Send one prompt to a catalogue model and get the reply back synchronously. The charge is metered on the prompt and reply token counts at the model's published prices and debited from your 2Z balance; the response says exactly what was charged. The most this request can be charged (the prompt plus the longest reply asked for, plus a reasoning allowance on models whose output limit does not cover their reasoning) is held from your balance before the model is called -- refused with 402 if you do not hold it -- and the difference is returned when the reply is priced. No transcript is kept: use the conversation endpoints for one. Send an Idempotency-Key to be able to retry a dropped connection and get the same reply back without paying twice; the reply is kept with that key for replay.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "ai_public_conversations_list",
+      "method": "GET",
+      "path": "/api/ai/public-conversations/",
+      "summary": "This viewset provides read-only access to public conversations.",
+      "supported": true,
+      "keywords": "AI public conversations transcripts",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_public_conversations_promptresponses_list",
+      "method": "GET",
+      "path": "/api/ai/public-conversations/{conversation_id}/promptresponses/",
+      "summary": "This viewset provides read-only access to prompt responses for public conversations",
+      "supported": true,
+      "keywords": "AI public conversations transcripts",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_public_conversations_promptresponses_retrieve",
+      "method": "GET",
+      "path": "/api/ai/public-conversations/{conversation_id}/promptresponses/{id}/",
+      "summary": "This viewset provides read-only access to prompt responses for public conversations",
+      "supported": true,
+      "keywords": "AI public conversations transcripts",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "ai_public_conversations_retrieve",
+      "method": "GET",
+      "path": "/api/ai/public-conversations/{id}/",
+      "summary": "This viewset provides read-only access to public conversations.",
+      "supported": true,
+      "keywords": "AI public conversations transcripts",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "auth_login_create",
+      "method": "POST",
+      "path": "/api/auth/login/",
+      "summary": "Check the credentials and, if they are valid, log the user in by establishing a Django session (the `sessionid` cookie).",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_logout_create",
+      "method": "POST",
+      "path": "/api/auth/logout/",
+      "summary": "Calls Django logout method and delete the Token object",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_password_change_create",
+      "method": "POST",
+      "path": "/api/auth/password/change/",
+      "summary": "Calls Django Auth SetPasswordForm save method.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_recent_retrieve",
+      "method": "GET",
+      "path": "/api/auth/recent/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_social_create",
+      "method": "POST",
+      "path": "/api/auth/social/{provider}/",
+      "summary": "POST /api/auth/social/{provider}/  {code, state, redirect_uri, otp_token?}",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_social_destroy",
+      "method": "DELETE",
+      "path": "/api/auth/social/{provider}/{uid}/",
+      "summary": "DELETE /api/auth/social/{provider}/{uid}/ -> unlink own identity.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_social_mobile_callback_retrieve",
+      "method": "GET",
+      "path": "/api/auth/social/mobile/callback",
+      "summary": "Provider-only callback. Atomically consumes provider state and redirects only to ZUULI's fixed private-use URI. Callers cannot supply a destination.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_social_mobile_providers_retrieve",
+      "method": "GET",
+      "path": "/api/auth/social/mobile/providers/",
+      "summary": "GET /api/auth/social/mobile/providers/ -> which providers are ready for",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_social_providers_retrieve",
+      "method": "GET",
+      "path": "/api/auth/social/providers/",
+      "summary": "GET /api/auth/social/providers/ -> which providers have credentials, so",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_social_retrieve",
+      "method": "GET",
+      "path": "/api/auth/social/",
+      "summary": "GET /api/auth/social/ -> the caller's linked social identities.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_social_start_retrieve",
+      "method": "GET",
+      "path": "/api/auth/social/{provider}/start",
+      "summary": "GET /api/auth/social/{provider}/start?redirect_uri=… -> {authorize_url, state}",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_user_partial_update",
+      "method": "PATCH",
+      "path": "/api/auth/user/",
+      "summary": "This is only for the owner",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_user_retrieve",
+      "method": "GET",
+      "path": "/api/auth/user/",
+      "summary": "This is only for the owner",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "auth_user_update",
+      "method": "PUT",
+      "path": "/api/auth/user/",
+      "summary": "This is only for the owner",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_zcash_challenge_create",
+      "method": "POST",
+      "path": "/api/auth/zcash/challenge/",
+      "summary": "POST {address} -> {challenge}. Public.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "auth_zcash_login_create",
+      "method": "POST",
+      "path": "/api/auth/zcash/login/",
+      "summary": "POST {address, challenge, signature, pubkey?, otp_token?} -> knox token.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "comments_create",
+      "method": "POST",
+      "path": "/api/comments/",
+      "summary": "",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:publish",
+        "mcp:spend"
+      ],
+      "paid": "comment"
+    },
+    {
+      "operation_id": "comments_create_2",
+      "method": "POST",
+      "path": "/api/comments/{type}/{uuid}/",
+      "summary": "Comments under a content object identified by UUID and type",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:publish",
+        "mcp:spend"
+      ],
+      "paid": "comment"
+    },
+    {
+      "operation_id": "comments_destroy",
+      "method": "DELETE",
+      "path": "/api/comments/{uuid}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "comments_list",
+      "method": "GET",
+      "path": "/api/comments/",
+      "summary": "",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "comments_list_2",
+      "method": "GET",
+      "path": "/api/comments/{type}/{uuid}/",
+      "summary": "Comments under a content object identified by UUID and type",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "comments_partial_update",
+      "method": "PATCH",
+      "path": "/api/comments/{uuid}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "comments_replies_create",
+      "method": "POST",
+      "path": "/api/comments/{uuid}/replies/",
+      "summary": "These are the child comments for a parent comment identified by UUID.",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:publish",
+        "mcp:spend"
+      ],
+      "paid": "comment"
+    },
+    {
+      "operation_id": "comments_replies_list",
+      "method": "GET",
+      "path": "/api/comments/{uuid}/replies/",
+      "summary": "These are the child comments for a parent comment identified by UUID.",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "comments_retrieve",
+      "method": "GET",
+      "path": "/api/comments/{uuid}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "comments_update",
+      "method": "PUT",
+      "path": "/api/comments/{uuid}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "comments_vote_create",
+      "method": "POST",
+      "path": "/api/comments/{uuid}/vote/",
+      "summary": "",
+      "supported": true,
+      "keywords": "social comments replies threads interactions catchup",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:publish",
+        "mcp:spend"
+      ],
+      "paid": "vote"
+    },
+    {
+      "operation_id": "creator_block_destroy",
+      "method": "DELETE",
+      "path": "/api/creator/{username__iexact}/block/",
+      "summary": "Unblock a creator",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_block_retrieve",
+      "method": "GET",
+      "path": "/api/creator/{username__iexact}/block/",
+      "summary": "List Creators on Free2z",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_block_update",
+      "method": "PUT",
+      "path": "/api/creator/{username__iexact}/block/",
+      "summary": "Block a creator",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_follow_destroy",
+      "method": "DELETE",
+      "path": "/api/creator/{username__iexact}/follow/",
+      "summary": "Unfollow a creator",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_follow_retrieve",
+      "method": "GET",
+      "path": "/api/creator/{username__iexact}/follow/",
+      "summary": "Am I following this creator?",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_follow_update",
+      "method": "PUT",
+      "path": "/api/creator/{username__iexact}/follow/",
+      "summary": "Follow a creator",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_list",
+      "method": "GET",
+      "path": "/api/creator/",
+      "summary": "List Creators on Free2z",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_mute_destroy",
+      "method": "DELETE",
+      "path": "/api/creator/{username__iexact}/mute/",
+      "summary": "List Creators on Free2z",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_mute_retrieve",
+      "method": "GET",
+      "path": "/api/creator/{username__iexact}/mute/",
+      "summary": "List Creators on Free2z",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_mute_update",
+      "method": "PUT",
+      "path": "/api/creator/{username__iexact}/mute/",
+      "summary": "List Creators on Free2z",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "creator_retrieve",
+      "method": "GET",
+      "path": "/api/creator/{username__iexact}/",
+      "summary": "List Creators on Free2z",
+      "supported": true,
+      "keywords": "people creators profiles followers follow mute block social",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "dyte_create",
+      "method": "POST",
+      "path": "/api/dyte/{username}/{type}",
+      "summary": "Start or join a public meeting. Anonymous callers may join only broadcast meetings; ppv and subscribers-only require authentication and their corresponding entitlement checks.",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_host_session_create",
+      "method": "POST",
+      "path": "/api/dyte/{username}/host-session",
+      "summary": "Renew (`heartbeat`) or give up (`release`) the broadcaster seat this tab holds. Owner only.",
+      "supported": true,
+      "keywords": "live livestream stream broadcast session",
+      "required_scopes": [
+        "mcp:live"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "dyte_host_session_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/{username}/host-session",
+      "summary": "Who holds the caller's broadcaster seat. Owner only. A dashboard tab reads this on load so a second tab or device shows \"already live elsewhere\" before anyone presses Go live.",
+      "supported": true,
+      "keywords": "live livestream stream broadcast session",
+      "required_scopes": [
+        "mcp:live"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "dyte_live_status_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/{username}/live-status",
+      "summary": "",
+      "supported": true,
+      "keywords": "live livestream stream broadcast session",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "dyte_private_create",
+      "method": "POST",
+      "path": "/api/dyte/{username}/private",
+      "summary": "Manage the authenticated creator's own private meeting.",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_private_create_2",
+      "method": "POST",
+      "path": "/api/dyte/{username}/private/{secret}",
+      "summary": "Post will join the private meeting:",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_private_recording_create",
+      "method": "POST",
+      "path": "/api/dyte/{username}/private/{secret}/recording",
+      "summary": "Manage only the owner's existing secret-scoped private room.",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_private_recording_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/{username}/private/{secret}/recording",
+      "summary": "Manage only the owner's existing secret-scoped private room.",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_private_recording_stop_create",
+      "method": "POST",
+      "path": "/api/dyte/{username}/private/{secret}/recording/stop",
+      "summary": "Manage only the owner's existing secret-scoped private room.",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_private_recording_visibility_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/{username}/private/{secret}/recording-visibility",
+      "summary": "Whether a private room is being recorded, for anyone holding its secret.",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_private_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/{username}/private",
+      "summary": "Manage the authenticated creator's own private meeting.",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_public_discovery_list",
+      "method": "GET",
+      "path": "/api/dyte/public/discovery/",
+      "summary": "Return the current public live modes for at most 12 creators, ordered by presence freshness. The selected_creators list is complete for each selected creator. If complete is false, creators not selected are unknown rather than offline. Private rooms are never included.",
+      "supported": true,
+      "keywords": "live livestream stream broadcast session",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "dyte_public_list",
+      "method": "GET",
+      "path": "/api/dyte/public/",
+      "summary": "",
+      "supported": true,
+      "keywords": "live livestream stream broadcast session",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "dyte_public_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/public/{meeting_id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "live livestream stream broadcast session",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "dyte_recording_create",
+      "method": "POST",
+      "path": "/api/dyte/{username}/recording",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_recording_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/{username}/recording",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_recording_stop_create",
+      "method": "POST",
+      "path": "/api/dyte/{username}/recording/stop",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_retrieve",
+      "method": "GET",
+      "path": "/api/dyte/{username}/{type}",
+      "summary": "Returns number of participants in a meeting or 4XX if not live",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_webhook_create",
+      "method": "POST",
+      "path": "/api/dyte/webhook",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_webhook_recording_status_update_create",
+      "method": "POST",
+      "path": "/api/dyte/webhook-recording-status-update/",
+      "summary": "DEPRECATED (superseded by the recording.statusUpdate branch of `webhook`),",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "e2ee_authority_retrieve",
+      "method": "GET",
+      "path": "/api/e2ee/authority/",
+      "summary": "The handle authority's public key",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "e2ee_chat_requests_create",
+      "method": "POST",
+      "path": "/api/e2ee/chat-requests/{username}/",
+      "summary": "Charge the server-set price (GET /api/e2ee/chat-requests/price/) from the caller and credit it to the recipient, atomically, and notify the recipient with an ENCRYPTED_CHAT_REQUEST event whose content_url opens e2e2z's first-contact screen for the caller's handle (the caller gets a read ENCRYPTED_CHAT_REQUEST row of their own, with no link, as the record of the spend). No message is sent. The Idempotency-Key is bound to the recipient; a replay returns the original result with `replayed: true` and never charges twice. Completed results replay for 365 days. Refusals (402, 404, 409 price_changed, 422, 429, 503) charge nothing and release (or never take) the key. Rate limits, per sender: 10 per hour, 30 per 24 hours, and 3 per 24 hours to the same recipient.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "e2ee_chat_requests_price_retrieve",
+      "method": "GET",
+      "path": "/api/e2ee/chat-requests/price/",
+      "summary": "Whole 2Z charged by POST /api/e2ee/chat-requests/{username}/. Set by the server; the client never supplies an amount. `enabled: false` means new requests are switched off and the POST will answer 503 `chat_requests_disabled`.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "e2ee_handle_claim",
+      "method": "POST",
+      "path": "/api/e2ee/handle/claim/",
+      "summary": "Claim an E2EE messaging handle, permanently",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "e2ee_handle_retrieve",
+      "method": "GET",
+      "path": "/api/e2ee/handle/",
+      "summary": "The caller's E2EE messaging handle",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "economy_agreement",
+      "method": "GET",
+      "path": "/api/economy/agreement/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_agreement_accept",
+      "method": "POST",
+      "path": "/api/economy/agreement/accept/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_capabilities",
+      "method": "GET",
+      "path": "/api/economy/capabilities/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_earnings",
+      "method": "GET",
+      "path": "/api/economy/earnings/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_funding_resolutions",
+      "method": "GET",
+      "path": "/api/economy/funding-resolutions/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_payment_request",
+      "method": "POST",
+      "path": "/api/economy/payments/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_payment_status",
+      "method": "GET",
+      "path": "/api/economy/payments/{payment_id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_payments_list",
+      "method": "GET",
+      "path": "/api/economy/payments/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_usage_purchase",
+      "method": "POST",
+      "path": "/api/economy/usage-purchases/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "economy_usage_purchase_quote",
+      "method": "GET",
+      "path": "/api/economy/usage-purchase-quote/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
+      "next_step": "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile."
+    },
+    {
+      "operation_id": "emails_add_create",
+      "method": "POST",
+      "path": "/api/emails/add",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_change_password_create",
+      "method": "POST",
+      "path": "/api/emails/change-password",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_confirm_create",
+      "method": "POST",
+      "path": "/api/emails/confirm",
+      "summary": "Confirm the email address the token belongs to.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_confirm_retrieve",
+      "method": "GET",
+      "path": "/api/emails/confirm",
+      "summary": "Email-confirmation landing page. Changes nothing.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_delete_destroy",
+      "method": "DELETE",
+      "path": "/api/emails/delete",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_do_reset_password_create",
+      "method": "POST",
+      "path": "/api/emails/do-reset-password",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_notifications_create",
+      "method": "POST",
+      "path": "/api/emails/notifications",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_opt_out_create",
+      "method": "POST",
+      "path": "/api/emails/opt-out/{link}",
+      "summary": "Unsubscribe this address and delete it from the account.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_opt_out_retrieve",
+      "method": "GET",
+      "path": "/api/emails/opt-out/{link}",
+      "summary": "Unsubscribe landing page. Changes nothing.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_password_is_set_retrieve",
+      "method": "GET",
+      "path": "/api/emails/password-is-set",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_public_create",
+      "method": "POST",
+      "path": "/api/emails/public",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_recovery_status_retrieve",
+      "method": "GET",
+      "path": "/api/emails/recovery-status",
+      "summary": "Whether the calling account has a working recovery path.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_resend_create",
+      "method": "POST",
+      "path": "/api/emails/resend",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_reset_password_create",
+      "method": "POST",
+      "path": "/api/emails/reset-password",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "emails_status_retrieve",
+      "method": "GET",
+      "path": "/api/emails/status",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "events_has_retrieve",
+      "method": "GET",
+      "path": "/api/events/has/",
+      "summary": "",
+      "supported": true,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "events_list",
+      "method": "GET",
+      "path": "/api/events/",
+      "summary": "",
+      "supported": true,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "events_mention_preference_partial_update",
+      "method": "PATCH",
+      "path": "/api/events/mention-preference/",
+      "summary": "Read or update the authenticated creator's in-app mention opt-out.",
+      "supported": true,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "events_mention_preference_retrieve",
+      "method": "GET",
+      "path": "/api/events/mention-preference/",
+      "summary": "Read or update the authenticated creator's in-app mention opt-out.",
+      "supported": true,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "events_read_all_create",
+      "method": "POST",
+      "path": "/api/events/read/all/",
+      "summary": "",
+      "supported": true,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "events_read_create",
+      "method": "POST",
+      "path": "/api/events/read/{event_id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "events_unread_count_retrieve",
+      "method": "GET",
+      "path": "/api/events/unread_count/",
+      "summary": "",
+      "supported": true,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_blocks_mine_list",
+      "method": "GET",
+      "path": "/api/g12f/blocks/mine/",
+      "summary": "Accounts I blocked",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_follows_mine_list",
+      "method": "GET",
+      "path": "/api/g12f/follows/mine/",
+      "summary": "Creators I follow",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_series_clear_zpage_destroy",
+      "method": "DELETE",
+      "path": "/api/g12f/series/clear-zpage/{free2zaddr}/",
+      "summary": "Remove a zPage from every series it belongs to",
+      "supported": true,
+      "keywords": "series collections books order articles",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_series_clear_zpage_query_destroy",
+      "method": "DELETE",
+      "path": "/api/g12f/series/clear-zpage/",
+      "summary": "Deprecated: remove a zPage from every series (query form)",
+      "supported": false,
+      "keywords": "series collections books order articles",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "g12f_series_mine_create",
+      "method": "POST",
+      "path": "/api/g12f/series/mine/",
+      "summary": "",
+      "supported": true,
+      "keywords": "series collections books order articles",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_series_mine_destroy",
+      "method": "DELETE",
+      "path": "/api/g12f/series/mine/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "series collections books order articles",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_series_mine_list",
+      "method": "GET",
+      "path": "/api/g12f/series/mine/",
+      "summary": "",
+      "supported": true,
+      "keywords": "series collections books order articles",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_series_mine_partial_update",
+      "method": "PATCH",
+      "path": "/api/g12f/series/mine/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "series collections books order articles",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_series_mine_retrieve",
+      "method": "GET",
+      "path": "/api/g12f/series/mine/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "series collections books order articles",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_series_mine_update",
+      "method": "PUT",
+      "path": "/api/g12f/series/mine/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "series collections books order articles",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "g12f_zpage_series_retrieve",
+      "method": "GET",
+      "path": "/api/g12f/zpage/{free2zaddr}/series/",
+      "summary": "Retrieve series by zpage",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "get_type_retrieve",
+      "method": "GET",
+      "path": "/api/get-type/{id}",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kt_handle_assertion_create",
+      "method": "POST",
+      "path": "/api/kt/handle-assertion/",
+      "summary": "Mint a key-transparency handle-ownership assertion",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_change_status",
+      "method": "POST",
+      "path": "/api/kyc/change-status",
+      "summary": "Toggle the applicant-controlled half of the state machine: NEW -> PENDING to submit for review, or APPROVED -> NEW to reopen. A PENDING or REJECTED application answers 400 — only a reviewer moves those.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_identity_documents_delete",
+      "method": "DELETE",
+      "path": "/api/kyc/identity-documents",
+      "summary": "Delete one stored document, named by `doc_type`. Returns the remaining state so the caller can re-render without a follow-up read.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_identity_documents_retrieve",
+      "method": "GET",
+      "path": "/api/kyc/identity-documents",
+      "summary": "ID front/back, an optional supporting document, and the live photo.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_identity_documents_upload",
+      "method": "POST",
+      "path": "/api/kyc/identity-documents",
+      "summary": "Upload one or more identity documents. Send only the fields you want to replace. Every submitted file is validated by content before any of them is stored, so a single rejected file leaves the others untouched too.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_profile_retrieve",
+      "method": "GET",
+      "path": "/api/kyc/user-profile",
+      "summary": "Current applicant profile. Creates an empty NEW profile on first read so a brand-new applicant gets a resumable state rather than a 404.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_profile_update",
+      "method": "POST",
+      "path": "/api/kyc/user-profile",
+      "summary": "Set the applicant type. Editable only while the application is NEW; `application_status` is read-only and cannot be self-advanced.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_signature_retrieve",
+      "method": "GET",
+      "path": "/api/kyc/tax-form-signature",
+      "summary": "The typed-name electronic signature for the tax form.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_signature_update",
+      "method": "POST",
+      "path": "/api/kyc/tax-form-signature",
+      "summary": "The typed-name electronic signature for the tax form.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_tax_form_delete",
+      "method": "DELETE",
+      "path": "/api/kyc/delete-tax-form",
+      "summary": "Remove the uploaded tax form so the applicant can replace it.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_tax_form_retrieve",
+      "method": "GET",
+      "path": "/api/kyc/get-tax-form-file",
+      "summary": "`file` is an authenticated `/uploadz/private/...` path, never a public URL, and is null before anything is uploaded.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "kyc_tax_form_upload",
+      "method": "POST",
+      "path": "/api/kyc/upload-tax-form",
+      "summary": "Store the completed tax form. Which model row it lands in (W9/W8BEN/W8BENE) follows from the profile, not from anything the client sends. The file type is decided by sniffing the bytes; the declared Content-Type is ignored.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "languages_catalog",
+      "method": "GET",
+      "path": "/api/languages/",
+      "summary": "The languages we sell a translation into, named for the viewer.",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "mcp_account_revoke",
+      "method": "DELETE",
+      "path": "/api/oauth/mcp/grants/{grant_id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_connection_revoke",
+      "method": "DELETE",
+      "path": "/api/oauth/mcp/connections/{connection_id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_connections",
+      "method": "GET",
+      "path": "/api/oauth/mcp/connections/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_download_binary",
+      "method": "GET",
+      "path": "/api/mcp/downloads/{upload_id}",
+      "summary": "Stream an owned original file using the capability returned by mcp_prepare_download. The URL alone is not authorized.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_export_binary",
+      "method": "GET",
+      "path": "/api/mcp/exports/{export_id}",
+      "summary": "Stream the exact unexpired publication archive using its account-authorized capability.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_link_decide",
+      "method": "POST",
+      "path": "/api/oauth/mcp/link/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_link_evaluate",
+      "method": "POST",
+      "path": "/api/oauth/mcp/link/evaluate/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_post",
+      "method": "POST",
+      "path": "/api/mcp",
+      "summary": "Stateless JSON Streamable HTTP MCP. The official MCP SDK owns protocol negotiation, JSON-RPC messages and tool schemas; discover tools through MCP rather than treating this endpoint as a REST operation catalog. Cookies do not authenticate this endpoint. Model inputs are explicit tool arguments in the JSON body, including the selected authorized account. The trailing-slash alias has the same behavior. A failed or lost response does not prove rollback: reconcile mutation state before retrying. Send Content-Type application/json and Accept application/json, text/event-stream; the SDK refuses unacceptable representations with 406 and unsupported content types with 415.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_post_alias",
+      "method": "POST",
+      "path": "/api/mcp/",
+      "summary": "Stateless JSON Streamable HTTP MCP. The official MCP SDK owns protocol negotiation, JSON-RPC messages and tool schemas; discover tools through MCP rather than treating this endpoint as a REST operation catalog. Cookies do not authenticate this endpoint. Model inputs are explicit tool arguments in the JSON body, including the selected authorized account. The trailing-slash alias has the same behavior. A failed or lost response does not prove rollback: reconcile mutation state before retrying. Send Content-Type application/json and Accept application/json, text/event-stream; the SDK refuses unacceptable representations with 406 and unsupported content types with 415.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_prepare_download",
+      "method": "POST",
+      "path": "/api/mcp/downloads/prepare",
+      "summary": "Prepare a two-minute private original-file download capability for an owned media ID.",
+      "supported": true,
+      "keywords": "media files cloud storage download private images pictures PDF",
+      "required_scopes": [
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "mcp_register",
+      "method": "POST",
+      "path": "/api/oauth/register",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_upload_authorize",
+      "method": "GET",
+      "path": "/api/mcp/uploads/authorize",
+      "summary": "Internal read-only edge auth_request admission before binary-body buffering. Consumes no bytes and creates no upload. The PUT endpoint independently rechecks authorization, size and digest even without this preflight.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "mcp_upload_put",
+      "method": "PUT",
+      "path": "/api/mcp/uploads/{upload_id}",
+      "summary": "Stream the exact prepared file bytes. Filename, media access, title, description and account were fixed by free2z_prepare_upload tool arguments. Headers authenticate the prepared intent and validate framing; they cannot replace its metadata. Authorization is checked before and after transfer. Replaying identical bytes returns the existing receipt; changed bytes fail.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transport and file-transfer endpoints are not generic account operations.",
+      "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
+    },
+    {
+      "operation_id": "myuploads_create",
+      "method": "POST",
+      "path": "/api/myuploads/",
+      "summary": "Always 400 — creation is disabled on this route, whatever the body. It has no way to receive a file (the serializer has no `file` field), so the only row it could ever create is a fileless orphan: no bytes, no `mime_type`, a `url` of `/uploadz/public/`.",
+      "supported": false,
+      "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
+      "reason": "The native metadata endpoint refuses uploads without binary file content.",
+      "next_step": "Use free2z_prepare_upload and stream the file to its returned capability URL."
+    },
+    {
+      "operation_id": "myuploads_destroy",
+      "method": "DELETE",
+      "path": "/api/myuploads/{id}/",
+      "summary": "Delete one of the caller's uploads.",
+      "supported": true,
+      "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
+      "required_scopes": [
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "myuploads_list",
+      "method": "GET",
+      "path": "/api/myuploads/",
+      "summary": "",
+      "supported": true,
+      "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "myuploads_partial_update",
+      "method": "PATCH",
+      "path": "/api/myuploads/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
+      "required_scopes": [
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "myuploads_retrieve",
+      "method": "GET",
+      "path": "/api/myuploads/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "myuploads_update",
+      "method": "PUT",
+      "path": "/api/myuploads/{id}/",
+      "summary": "",
+      "supported": true,
+      "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
+      "required_scopes": [
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "oidc_authorize_decide",
+      "method": "POST",
+      "path": "/api/oauth/authorize",
+      "summary": "Record the user's decision and mint the authorization code",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_authorize_evaluate",
+      "method": "GET",
+      "path": "/api/oauth/authorize",
+      "summary": "Evaluate an authorization request (the consent step, read-only)",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_developer_app_destroy",
+      "method": "DELETE",
+      "path": "/api/oauth/apps/{app_id}/",
+      "summary": "Delete an app no user has authorized",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_developer_app_reports_list",
+      "method": "GET",
+      "path": "/api/oauth/apps/{app_id}/reports/",
+      "summary": "AI output reports users filed on one of the developer's apps",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_developer_app_retrieve",
+      "method": "GET",
+      "path": "/api/oauth/apps/{app_id}/",
+      "summary": "One of the developer's apps",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_developer_app_rotate_secret",
+      "method": "POST",
+      "path": "/api/oauth/apps/{app_id}/rotate-secret/",
+      "summary": "Rotate a confidential client's secret",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_developer_app_update",
+      "method": "PATCH",
+      "path": "/api/oauth/apps/{app_id}/",
+      "summary": "Edit an app's registration",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_developer_apps_create",
+      "method": "POST",
+      "path": "/api/oauth/apps/",
+      "summary": "Register an app",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_developer_apps_list",
+      "method": "GET",
+      "path": "/api/oauth/apps/",
+      "summary": "Apps the signed-in developer registered",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_discovery",
+      "method": "GET",
+      "path": "/api/oauth/.well-known/openid-configuration",
+      "summary": "OpenID Provider Metadata",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_grant_cap_update",
+      "method": "PUT",
+      "path": "/api/oauth/grants/{application_id}/cap/",
+      "summary": "Set an authorized app's spending limit",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_grant_revoke",
+      "method": "DELETE",
+      "path": "/api/oauth/grants/{application_id}/",
+      "summary": "Revoke an app's authorization",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_grants_list",
+      "method": "GET",
+      "path": "/api/oauth/grants/",
+      "summary": "Apps the account has authorized",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_internal_epoch",
+      "method": "GET",
+      "path": "/api/oauth/internal/epoch/{subject}/",
+      "summary": "Current account epoch and grant generations (internal)",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_introspect",
+      "method": "POST",
+      "path": "/api/oauth/introspect",
+      "summary": "Introspect an access token (confidential clients, client_secret_basic)",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_jwks",
+      "method": "GET",
+      "path": "/api/oauth/jwks",
+      "summary": "JSON Web Key Set",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_revoke",
+      "method": "POST",
+      "path": "/api/oauth/revoke",
+      "summary": "Revoke a refresh token and its family",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_token",
+      "method": "POST",
+      "path": "/api/oauth/token",
+      "summary": "Exchange an authorization code or rotate a refresh token",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_userinfo",
+      "method": "GET",
+      "path": "/api/oauth/userinfo",
+      "summary": "Claims about the signed-in user",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "oidc_userinfo_post",
+      "method": "POST",
+      "path": "/api/oauth/userinfo",
+      "summary": "Claims about the signed-in user",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "openai_image_create",
+      "method": "POST",
+      "path": "/api/openai/image",
+      "summary": "Generate an image, save it to the authenticated user's uploads, and return the stored WebP URL. Costs 6 2Zs.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Conversation/image operations are separate from the hosted metered text service.",
+      "next_step": "Use the AI model/quote/start/status tools for text; add a dedicated bounded adapter for saved conversations or image generation."
+    },
+    {
+      "operation_id": "openai_prompt_create",
+      "method": "POST",
+      "path": "/api/openai/prompt",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Conversation/image operations are separate from the hosted metered text service.",
+      "next_step": "Use the AI model/quote/start/status tools for text; add a dedicated bounded adapter for saved conversations or image generation."
+    },
+    {
+      "operation_id": "otp_disable_destroy",
+      "method": "DELETE",
+      "path": "/api/otp/disable/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "otp_enable_create",
+      "method": "POST",
+      "path": "/api/otp/enable/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "otp_login_create",
+      "method": "POST",
+      "path": "/api/otp/login/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "otp_setup_create",
+      "method": "POST",
+      "path": "/api/otp/setup/",
+      "summary": "Begin MFA enrolment and return a new, unverified TOTP secret.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "otp_status_retrieve",
+      "method": "GET",
+      "path": "/api/otp/status/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "pricing_current",
+      "method": "GET",
+      "path": "/api/pricing/",
+      "summary": "Current live 2Z pricing for ZEC and card payments.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "pricing_quote",
+      "method": "GET",
+      "path": "/api/pricing/quote/",
+      "summary": "Estimated Zcash amount and exact card price for a quantity of 2Z.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "publication_exports_create",
+      "method": "POST",
+      "path": "/api/exports/publications/",
+      "summary": "Request a new publication export archive.",
+      "supported": true,
+      "keywords": "export archive backup download ZIP publication",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "publication_exports_download",
+      "method": "GET",
+      "path": "/api/exports/publications/{id}/download/",
+      "summary": "Download publication export archive ZIP.",
+      "supported": true,
+      "keywords": "export archive backup download ZIP publication",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "publication_exports_list",
+      "method": "GET",
+      "path": "/api/exports/publications/",
+      "summary": "Retrieve the creator's current or latest publication export job.",
+      "supported": true,
+      "keywords": "export archive backup download ZIP publication",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "publication_exports_retrieve",
+      "method": "GET",
+      "path": "/api/exports/publications/{id}/",
+      "summary": "Retrieve publication export job status.",
+      "supported": true,
+      "keywords": "export archive backup download ZIP publication",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:media"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "purchases_intents_create",
+      "method": "POST",
+      "path": "/api/sdk/v1/purchases",
+      "summary": "Create a purchase intent (buy 2Z)",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "purchases_intents_retrieve",
+      "method": "GET",
+      "path": "/api/sdk/v1/purchases/{purchase_id}",
+      "summary": "Read a purchase intent",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "reports_create",
+      "method": "POST",
+      "path": "/api/reports/",
+      "summary": "Report visible content. Creator target_id is the public username;",
+      "supported": true,
+      "keywords": "report abuse moderation",
+      "required_scopes": [
+        "mcp:social"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "schema_retrieve",
+      "method": "GET",
+      "path": "/api/schema/",
+      "summary": "OpenApi3 schema for this API. Format can be selected via content negotiation.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "sdk_balance_retrieve",
+      "method": "GET",
+      "path": "/api/sdk/v1/balance",
+      "summary": "Read the caller's 2Z balance",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "sdk_call_report_create",
+      "method": "POST",
+      "path": "/api/sdk/v1/calls/{call_id}/report",
+      "summary": "Report an AI call's output",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "sdk_grant_retrieve",
+      "method": "GET",
+      "path": "/api/sdk/v1/grant",
+      "summary": "Read the bearer token's current AI grant",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "sitemap_chunk_retrieve",
+      "method": "GET",
+      "path": "/api/sitemap/{kind}/{page}/{revision}/",
+      "summary": "Return one bounded, primary-key-ranged creator or internally canonicalized zPage sitemap page.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "sitemap_index_retrieve",
+      "method": "GET",
+      "path": "/api/sitemap/",
+      "summary": "Return deterministic nonempty pages used to build sitemap.xml.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "start_create",
+      "method": "POST",
+      "path": "/api/start/",
+      "summary": "/api/start - create new user with POST",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "storytime_image_create",
+      "method": "POST",
+      "path": "/api/storytime/{slug}/image",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "storytime_mystories_list",
+      "method": "GET",
+      "path": "/api/storytime/mystories/",
+      "summary": "Use this for own stories",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "storytime_mystories_partial_update",
+      "method": "PATCH",
+      "path": "/api/storytime/mystories/{slug}",
+      "summary": "Use this for own stories",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "storytime_mystories_retrieve",
+      "method": "GET",
+      "path": "/api/storytime/mystories/{slug}",
+      "summary": "Use this for own stories",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "storytime_retrieve",
+      "method": "GET",
+      "path": "/api/storytime/{creator}/{slug}",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "storytime_start_create",
+      "method": "POST",
+      "path": "/api/storytime/start",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "storytime_text_create",
+      "method": "POST",
+      "path": "/api/storytime/{slug}/text",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "stripe_create_checkout_session_create",
+      "method": "POST",
+      "path": "/api/stripe/create-checkout-session/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "stripe_native_return_cancel_retrieve",
+      "method": "GET",
+      "path": "/api/stripe/native-return/cancel/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "stripe_native_return_claim_create",
+      "method": "POST",
+      "path": "/api/stripe/native-return/claim/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "stripe_native_return_status_create",
+      "method": "POST",
+      "path": "/api/stripe/native-return/status/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "stripe_native_return_success_retrieve",
+      "method": "GET",
+      "path": "/api/stripe/native-return/success/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "stripe_transactions_list",
+      "method": "GET",
+      "path": "/api/stripe/transactions/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "stripe_transactions_retrieve",
+      "method": "GET",
+      "path": "/api/stripe/transactions/{id}/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tagging_autocomplete_list",
+      "method": "GET",
+      "path": "/api/tagging/autocomplete",
+      "summary": "Tags in use on the platform, most-used first. The tag vocabulary is open (`django-taggit`): this endpoint enumerates what exists, it does not define what is allowed. Tags with a zero count are omitted. Public zPage counts include only published pages from active creators. For an authenticated owner's vocabulary, pass `type=zpage&mine=true`; that mode includes the caller's drafts.",
+      "supported": true,
+      "keywords": "tags topics suggestions discovery",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "tagging_hub_retrieve",
+      "method": "GET",
+      "path": "/api/tagging/hub/{slug}",
+      "summary": "Resolve a `/tag/<slug>` hub: which tag names share the slug, how much published content they cover, and whether that is enough to be worth indexing. The pages themselves come from `GET /api/zpage/?hub_slug=`, which resolves the complete component server-side.",
+      "supported": true,
+      "keywords": "tags topics suggestions discovery",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "tagging_zpage_suggestions_decide_create",
+      "method": "POST",
+      "path": "/api/tagging/zpage/{free2zaddr}/suggestions/decide",
+      "summary": "Accept or dismiss pending AI tag suggestions on your own zPage.",
+      "supported": true,
+      "keywords": "tags topics suggestions discovery",
+      "required_scopes": [
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "tagging_zpage_suggestions_list",
+      "method": "GET",
+      "path": "/api/tagging/zpage/{free2zaddr}/suggestions",
+      "summary": "Pending AI tag suggestions for one of your own zPages.",
+      "supported": true,
+      "keywords": "tags topics suggestions discovery",
+      "required_scopes": [
+        "mcp:write"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "token_login_create",
+      "method": "POST",
+      "path": "/api/token/login/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "token_logout_create",
+      "method": "POST",
+      "path": "/api/token/logout/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "token_logoutall_create",
+      "method": "POST",
+      "path": "/api/token/logoutall/",
+      "summary": "Log the user out of all sessions",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "tuzis_donate_create",
+      "method": "POST",
+      "path": "/api/tuzis/donate/{username}",
+      "summary": "Donate 2Z to the creator in the url",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_donate_idempotent_create",
+      "method": "POST",
+      "path": "/api/tuzis/donate-idempotent/{username}",
+      "summary": "Atomically transfer 2Z and record a replayable response. The idempotency key is bound to recipient, amount, and anonymity. This explicit route supports backend-first rollout: clients must not fall back to the legacy donation POST after an ambiguous response. `intent: ppv` (the former pay-per-view unlock) is retired: a new request is refused with 400 `ppv_unlock_retired` and moves nothing, because PPV admission is a balance reserve and PPV is billed per minute watched; a key that completed a `ppv` unlock before the retirement still replays its receipt. Completed results replay for 365 days.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_my_subscribers_list",
+      "method": "GET",
+      "path": "/api/tuzis/my-subscribers",
+      "summary": "",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "tuzis_my_subscriptions_list",
+      "method": "GET",
+      "path": "/api/tuzis/my-subscriptions",
+      "summary": "",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "tuzis_my_subscriptions_summary_retrieve",
+      "method": "GET",
+      "path": "/api/tuzis/my-subscriptions-summary",
+      "summary": "Show whether the current balance covers the next renewals.",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "tuzis_subscribe_confirmed_create",
+      "method": "POST",
+      "path": "/api/tuzis/subscribe-confirmed/{username}",
+      "summary": "Purchase 30 days only when the creator's transaction-locked price equals expected_price. A new subscription renews at that ceiling; an existing subscription retains its current renewal ceiling, including zero after cancellation. This explicit route supports backend-first rollout; clients must not fall back to the legacy subscription POST after an ambiguous response. Completed results replay for 365 days. A key that already completed a legacy POST /api/tuzis/subscribe/{username}/ for the same creator is replayed here too (replayed: true, nothing charged) rather than claimed anew, so a client may move an outstanding purchase intent from that route to this one without paying twice. That replay is the ONE 200 on this route that expected_price does not constrain, and it cannot be: the legacy route binds no price and records none, so the amount it debited is not recoverable from its receipt. Read it as 'this key already bought this membership, on a route that charged whatever the price was then' -- nothing is charged now, and `balance` is the fan's real balance either way. The same applies to a receipt reached through X-Superseded-Idempotency-Key. That carry-over replay only happens while the membership it bought is still running: receipts are kept far longer than 30 days, so a receipt whose month has already ENDED is not replayed -- you are not subscribed and it would be false -- and is not charged under that key either. It is 409 `idempotency_mismatch` with `key_resolved: true`, and the month is bought by the next request, under the fresh key that answer tells you to mint. Every replay on this route is guarded that way, including the replay of a receipt recorded under this very key. One other 200 is unbound for the same kind of reason: if your key already completed a purchase HERE, of a membership you are STILL holding from this creator, a retry of it at a different expected_price replays that purchase (replayed: true, nothing charged) rather than refusing. That key bought the month you are holding, so reporting it is the honest answer, and telling you to mint a fresh one would buy a second month for a fan trying to recover one purchase. Retire the key on that 200 like any other, and a deliberate extra month is then a normal purchase at the current price. Once the membership has lapsed the same retry is a 409 `idempotency_mismatch` with `key_resolved: true`, because then the receipt really does describe a request that is over. A NEW debit is always bound to expected_price. expected_price 0 confirms a FREE membership (a free follow): it grants the same 30 days and moves no 2Z, so `charged: true` there means the membership was extended, not that 2Z moved. On every 200, `balance` is the fan's balance as of this reply, including a replay; `charged` and `expires` describe the original request.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_subscribe_create",
+      "method": "POST",
+      "path": "/api/tuzis/subscribe/{username}",
+      "summary": "Subscribe the request.user as a fan to the star in the urls.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_subscribe_destroy",
+      "method": "DELETE",
+      "path": "/api/tuzis/subscribe/{username}",
+      "summary": "Set max_price to 0 so it won't renew.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_subscribe_partial_update",
+      "method": "PATCH",
+      "path": "/api/tuzis/subscribe/{username}",
+      "summary": "Change the authenticated fan's maximum 2Z per renewal and return the authoritative subscription representation.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_subscribe_recovery_create",
+      "method": "POST",
+      "path": "/api/tuzis/subscribe-recovery/{creator_id}",
+      "summary": "Reconcile one subscription retry handle for the authenticated payer and immutable creator. A committed purchase is reported as resolved. An unresolved recorded claim is retained as a terminal abandonment fence, including its legacy route aliases; the old key cannot charge again. A missing or unrelated handle is answered unchanged and reveals no other payer's receipt.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_subscribe_retrieve",
+      "method": "GET",
+      "path": "/api/tuzis/subscribe/{username}",
+      "summary": "Subscribe the request.user as a fan to the star in the urls.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "tuzis_subscription_status_retrieve",
+      "method": "GET",
+      "path": "/api/tuzis/subscription-status/{username}",
+      "summary": "Return this fan's authoritative membership state for one creator.",
+      "supported": true,
+      "keywords": "",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "twitter_delete_destroy",
+      "method": "DELETE",
+      "path": "/api/twitter/delete",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "twitter_public_status_partial_update",
+      "method": "PATCH",
+      "path": "/api/twitter/public-status/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "twitter_public_status_retrieve",
+      "method": "GET",
+      "path": "/api/twitter/public-status/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "twitter_public_status_update",
+      "method": "PUT",
+      "path": "/api/twitter/public-status/",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "twitter_v1_access_token_retrieve",
+      "method": "GET",
+      "path": "/api/twitter/v1/access-token",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "twitter_v1_request_token_create",
+      "method": "POST",
+      "path": "/api/twitter/v1/request-token",
+      "summary": "",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "uploads_limit",
+      "method": "GET",
+      "path": "/api/uploads/limits/",
+      "summary": "The maximum multipart request size the authenticated caller may upload, in bytes, plus every tier of the ladder. The request cap is 250 MiB for every balance of 1 whole 2Z or more; the historic 5000 2Z rung does not raise it. If a tier admitted larger bodies, nginx would stream them and occupy the pod's only sync Django worker for the client transfer.",
+      "supported": true,
+      "keywords": "media files cloud storage limits",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_create",
+      "method": "POST",
+      "path": "/api/zpage/",
+      "summary": "Create a zPage. Send an `Idempotency-Key` to make a retry of this create safe; the header documents the exact replay and refusal semantics.",
+      "supported": false,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "reason": "Broad native page serializers include fields outside the hosted content permission.",
+      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published."
+    },
+    {
+      "operation_id": "zpage_destroy",
+      "method": "DELETE",
+      "path": "/api/zpage/{id}/",
+      "summary": "Delete a zPage. Owner only. Honours the optional `If-Match` precondition: a delete issued from a stale editor — one that never saw somebody else's newer draft — returns **412** and deletes nothing.",
+      "supported": false,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "zpage_fund_create",
+      "method": "POST",
+      "path": "/api/zpage/fund/",
+      "summary": "",
+      "supported": false,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
+      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+    },
+    {
+      "operation_id": "zpage_list",
+      "method": "GET",
+      "path": "/api/zpage/",
+      "summary": "API endpoint that allows zpages to be viewed or edited.",
+      "supported": true,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_partial_update",
+      "method": "PATCH",
+      "path": "/api/zpage/{id}/",
+      "summary": "Partially update a zPage. `source_language` is mutable and owner-only; a target language already held by another variant is refused with **409**. Honours the optional `If-Match` precondition, returning **412** if the article changed since the `ETag` the client is holding.",
+      "supported": false,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "reason": "Broad native page serializers include fields outside the hosted content permission.",
+      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published."
+    },
+    {
+      "operation_id": "zpage_related_list",
+      "method": "GET",
+      "path": "/api/zpage/{id}/related/",
+      "summary": "Up to 6 published, public zPages related to this page, ranked by pgvector cosine similarity over the stored search-index embeddings (no OpenAI call at request time). If the page has no embedding, or no neighbors are within the similarity ceiling, falls back to the author's most recent published pages. Unpaginated array; no auth required. An authenticated owner may set `mine=true` to receive the same owner-only representation used by private reads; it never adds draft pages to the related set. Anonymous `mine=true` is 403.",
+      "supported": true,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_retrieve",
+      "method": "GET",
+      "path": "/api/zpage/{id}/",
+      "summary": "One zPage. The response carries a strong `ETag` for the **canonical** article — send it back as `If-Match` on a later PUT/PATCH/DELETE to make that write conditional. It describes the canonical article even when `?lang=` rendered a translation, because the write on this URL always writes the canonical article; a translation's own validator comes from `GET /api/zpage/{id}/variants/{language}/`.",
+      "supported": true,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_translation_batch_purchase",
+      "method": "POST",
+      "path": "/api/zpage/{free2zaddr}/translations/",
+      "summary": "Buy AI translations of this zPage into several languages at once. **All or nothing**: either every item is bought and enqueued (202, one job per language) or nothing is charged.",
+      "supported": true,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:spend"
+      ],
+      "paid": "batch_translation"
+    },
+    {
+      "operation_id": "zpage_translation_batch_quote",
+      "method": "GET",
+      "path": "/api/zpage/{free2zaddr}/translations/quote/",
+      "summary": "What translating this zPage into each of `languages` would cost, and the total. **Charges nothing and writes nothing.**",
+      "supported": true,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_translation_jobs",
+      "method": "GET",
+      "path": "/api/zpage/{free2zaddr}/translations/",
+      "summary": "Every AI translation job of this zPage that a client needs to show: the newest job per language from the last 30 days, plus the delivered job that produced any still-current draft, newest first, with the state of the translation it produced (or would overwrite). Read from the charge records themselves, so a job started on one device, or before a reload, is visible from any other. Read-only.",
+      "supported": true,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_translation_purchase",
+      "method": "POST",
+      "path": "/api/zpage/{free2zaddr}/variants/{language}/translate/",
+      "summary": "Buy an AI translation of this zPage into `language`. Debits `expected_price` 2Z, enqueues the work and answers **202** with a job id -- a long article takes minutes, so this is never synchronous. Poll `GET .../translate/`.",
+      "supported": true,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write",
+        "mcp:spend"
+      ],
+      "paid": "translation"
+    },
+    {
+      "operation_id": "zpage_translation_quote",
+      "method": "GET",
+      "path": "/api/zpage/{free2zaddr}/variants/{language}/translate/quote/",
+      "summary": "What an AI translation of this zPage into `language` would cost, in 2Z. **Charges nothing and writes nothing.**",
+      "supported": true,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_translation_status",
+      "method": "GET",
+      "path": "/api/zpage/{free2zaddr}/variants/{language}/translate/",
+      "summary": "The most recent AI translation purchase for this zPage and language, and what became of it. 404 when the creator has never bought one.",
+      "supported": true,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:write"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_translations_destroy",
+      "method": "DELETE",
+      "path": "/api/zpage/{id}/translations/{language}/",
+      "summary": "**Deprecated** — use `DELETE /api/zpage/{id}/variants/{language}/`. Delete one translation variant of a zPage. Owner only. The page's own `source_language` is canonical content, not a translation, and is refused. Deleting a translation that does not exist is a 404. Like the PUT on this route, a legacy article whose source language is unsupported/undetermined requires the `X-Free2Z-Source-Language` precondition header so a stale editor cannot destroy a variant it may have mislabelled.",
+      "supported": false,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "reason": "Deprecated translation mutation alias.",
+      "next_step": "Use the corresponding zpage_variants operation."
+    },
+    {
+      "operation_id": "zpage_translations_update",
+      "method": "PUT",
+      "path": "/api/zpage/{id}/translations/{language}/",
+      "summary": "**Deprecated** — use `PUT /api/zpage/{id}/variants/{language}/`, which runs the same code and additionally accepts PATCH. Kept for one release because the deployed editor calls this path. It has the same 96-published- and 96-draft-translation ceilings.",
+      "supported": false,
+      "keywords": "translations translate language Mandarin Chinese jobs quote purchase pages zpages articles posts search semantic latest release update",
+      "reason": "Deprecated translation mutation alias.",
+      "next_step": "Use the corresponding zpage_variants operation."
+    },
+    {
+      "operation_id": "zpage_update",
+      "method": "PUT",
+      "path": "/api/zpage/{id}/",
+      "summary": "Update a zPage. `source_language` is the article's language *label* and is mutable: changing it renames the source variant and the denormalized column in one transaction. If another variant already holds the target language the change is refused with **409** and an actionable message — never a silent overwrite of the creator's translation.",
+      "supported": false,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "reason": "Broad native page serializers include fields outside the hosted content permission.",
+      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published."
+    },
+    {
+      "operation_id": "zpage_variants_destroy",
+      "method": "DELETE",
+      "path": "/api/zpage/{id}/variants/{language}/",
+      "summary": "Delete one translation variant. Owner only; a non-owner gets 404. The variant with `origin: \"source\"` is the article itself and is refused with 400 — delete or relabel the article instead. Deleting a variant that does not exist is 404.",
+      "supported": true,
+      "keywords": "translations languages variants publish Mandarin Chinese pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_variants_list",
+      "method": "GET",
+      "path": "/api/zpage/{id}/variants/",
+      "summary": "Every language variant of this zPage with its real status. The source variant is first and carries `origin: \"source\"`; translations follow, sorted by tag. The owner sees their unpublished drafts, everyone else sees only published variants. Unpaginated array, no body content — fetch one variant to get its text.",
+      "supported": true,
+      "keywords": "translations languages variants publish Mandarin Chinese pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_variants_partial_update",
+      "method": "PATCH",
+      "path": "/api/zpage/{id}/variants/{language}/",
+      "summary": "Update part of one language variant — publish a draft, fix a title — without resending the body. Owner only. A PATCH cannot *create* a variant: title and content are required for that, so use PUT. Publishing a 97th translation returns 409; existing published translations, drafts and unpublishes remain valid.",
+      "supported": true,
+      "keywords": "translations languages variants publish Mandarin Chinese pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_variants_retrieve",
+      "method": "GET",
+      "path": "/api/zpage/{id}/variants/{language}/",
+      "summary": "One language variant of a zPage. Unlike `GET /api/zpage/{id}/?lang=`, this does **not** fall back to the source variant: a language with no variant is a 404, so a client can use it to tell 'not translated yet' from 'translated'. A draft variant is visible to its owner only. The response carries this variant's strong `ETag`; send it back as `If-Match` to make a write to this variant conditional.",
+      "supported": true,
+      "keywords": "translations languages variants publish Mandarin Chinese pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:read"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_variants_update",
+      "method": "PUT",
+      "path": "/api/zpage/{id}/variants/{language}/",
+      "summary": "Create or replace one language variant. Owner only; a non-owner gets 404. Writing the page's own `source_language` updates the canonical article, so the source really is a variant like any other. Creating a variant requires `title` and `content`; send `If-None-Match: *` to create it only if nobody else has meanwhile (412 otherwise). Publishing a 97th translation returns 409; creating a 97th draft translation returns 409; edit an existing published translation, save a draft, or unpublish one instead.",
+      "supported": true,
+      "keywords": "translations languages variants publish Mandarin Chinese pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:write",
+        "mcp:publish"
+      ],
+      "paid": null
+    },
+    {
+      "operation_id": "zpage_vote_create",
+      "method": "POST",
+      "path": "/api/zpage/{free2zaddr}/vote/",
+      "summary": "",
+      "supported": true,
+      "keywords": "pages zpages articles posts search semantic latest release update",
+      "required_scopes": [
+        "mcp:social",
+        "mcp:spend"
+      ],
+      "paid": "vote"
+    },
+    {
+      "operation_id": "zuuli_capabilities",
+      "method": "GET",
+      "path": "/api/zuuli/capabilities/",
+      "summary": "Public release compatibility and backend capability discovery.",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    }
+  ]
+}

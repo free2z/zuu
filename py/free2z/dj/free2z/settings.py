@@ -627,6 +627,11 @@ OAUTH2_PROVIDER = {
         'mcp:publish': 'Publish or edit public pages and media',
         'mcp:uploads': 'Upload and manage your media files',
         'mcp:ai': 'Send prompts to AI providers and spend 2Z up to each request’s quoted maximum',
+        'mcp:social': 'Read and manage follows, blocks, mutes and comments',
+        'mcp:account': 'Read private account details and conversations; manage notifications',
+        'mcp:media': 'Download, edit and delete your stored files',
+        'mcp:live': 'Read and manage your livestream host session',
+        'mcp:spend': 'Spend 2Z on comments, votes and translations within each explicit limit',
     },
     'DEFAULT_SCOPES': [],
     # Spec §6/§7/§8/§9.2, in seconds.
@@ -1592,6 +1597,7 @@ SPECTACULAR_SETTINGS = {
         # never mounted or added to REST_FRAMEWORK authentication classes.
         "dj.apps.mcpserver.schema.MCPBearerAuthentication",
         "dj.apps.mcpserver.schema.MCPUploadAuthentication",
+        "dj.apps.mcpserver.schema.MCPDownloadAuthentication",
         "rest_framework.authentication.SessionAuthentication",
         "dj.apps.ktauth.authentication.AccountEpochTokenAuthentication",
         # Published as the `oauth2Jwt` scheme, and attached ONLY to operations

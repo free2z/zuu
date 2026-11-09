@@ -2801,7 +2801,12 @@
       "mcpWrite": "Create/edit drafts and update your public profile",
       "mcpPublish": "Publish or edit public pages and media",
       "mcpUploads": "Upload files to your account",
-      "mcpAI": "Send prompts to AI providers and spend your 2Z credits up to each request’s quoted maximum"
+      "mcpAI": "Send prompts to AI providers and spend your 2Z credits up to each request’s quoted maximum",
+      "mcpSocial": "Read and manage follows, blocks, mutes and comments",
+      "mcpAccount": "Read private account details and conversations; manage notifications",
+      "mcpMedia": "Download, edit and delete your stored files",
+      "mcpLive": "Read and manage your livestream host session",
+      "mcpSpend": "Spend 2Z on comments, votes and translations within each explicit limit"
     },
     "capPeriods": {
       "day": "per day",

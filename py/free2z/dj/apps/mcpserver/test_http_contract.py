@@ -57,3 +57,21 @@ def test_schema_subsets_do_not_invent_mcp_endpoints_or_replace_runtime_callbacks
     assert set(schema['paths']) == {'/api/mcp'}
     assert schema['paths']['/api/mcp']['post']['security'] == [{'mcpBearer': []}]
     assert subset.patterns[0].callback is mcp_endpoint
+
+
+def test_download_boundaries_have_private_header_security_and_binary_types():
+    contract = yaml.safe_load((Path(__file__).resolve().parents[2] / 'free2z/openapi/f2z.yaml').read_text())
+    for path, media in [('/api/mcp/downloads/{upload_id}', 'application/octet-stream'), ('/api/mcp/exports/{export_id}', 'application/zip')]:
+        operation = contract['paths'][path]['get']
+        assert operation['security'] == [{'mcpDownloadCapability': []}]
+        assert operation['responses']['200']['content'][media]['schema']['format'] == 'binary'
+    assert contract['components']['securitySchemes']['mcpDownloadCapability']['name'] == 'X-Free2Z-Download-Capability'
+
+
+def test_manifest_matches_reviewed_registry():
+    import json
+    from .catalog import operations, summary
+    root = Path(__file__).resolve().parents[5]
+    manifest = json.loads((root / 'docs/free2z/mcp/capabilities.json').read_text())
+    assert manifest['operations'] == [summary(op) for op in sorted(operations())]
+    assert manifest['supported_count'] == sum(row['supported'] for row in manifest['operations'])

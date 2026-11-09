@@ -52,7 +52,7 @@ def _request(actor, original, method, path, body=None, query=None, headers=None)
     # Only server-selected keys can reach this parameter. Public tools expose
     # if_match/idempotency_key arguments, never a free-form header dictionary.
     for key, value in (headers or {}).items():
-        if key not in {"If-Match", "Idempotency-Key"} or "\r" in value or "\n" in value:
+        if key not in {"If-Match", "If-None-Match", "X-Free2Z-Source-Language", "Idempotency-Key"} or "\r" in value or "\n" in value:
             raise ValidationError("Unsupported request header.")
         env["HTTP_" + key.upper().replace("-", "_")] = value
     request = WSGIRequest(env)

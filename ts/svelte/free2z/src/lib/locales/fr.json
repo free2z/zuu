@@ -2801,7 +2801,12 @@
       "mcpWrite": "Créer ou modifier des brouillons et mettre à jour votre profil public",
       "mcpPublish": "Publier ou modifier des pages et des médias publics",
       "mcpUploads": "Importer des fichiers dans votre compte",
-      "mcpAI": "Envoyer des instructions aux fournisseurs d’IA et dépenser vos crédits 2Z dans la limite du devis de chaque demande"
+      "mcpAI": "Envoyer des instructions aux fournisseurs d’IA et dépenser vos crédits 2Z dans la limite du devis de chaque demande",
+      "mcpSocial": "Lire et gérer les abonnements gratuits, blocages, sourdines et commentaires",
+      "mcpAccount": "Lire les données privées du compte et les conversations ; gérer les notifications",
+      "mcpMedia": "Télécharger, modifier et supprimer vos fichiers stockés",
+      "mcpLive": "Lire et gérer votre session de diffusion en direct",
+      "mcpSpend": "Dépenser des 2Z pour des commentaires, votes et traductions dans chaque limite explicite"
     },
     "capPeriods": {
       "day": "par jour",

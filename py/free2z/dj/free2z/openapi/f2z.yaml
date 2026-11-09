@@ -10017,6 +10017,61 @@ paths:
           description: Connection-owner request limit exceeded; Retry-After returned.
         '500':
           description: Bounded response unavailable; reconcile state before retrying.
+  /api/mcp/exports/{export_id}:
+    get:
+      operationId: mcp_export_binary
+      description: Stream the exact unexpired publication archive using its account-authorized
+        capability.
+      parameters:
+      - in: path
+        name: export_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - mcp
+      security:
+      - mcpDownloadCapability: []
+      responses:
+        '200':
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+          description: Publication ZIP attachment.
+        '403':
+          description: Invalid, expired or revoked authority.
+        '405':
+          description: Only GET is supported.
+  /api/mcp/downloads/{upload_id}:
+    get:
+      operationId: mcp_download_binary
+      description: Stream an owned original file using the capability returned by
+        mcp_prepare_download. The URL alone is not authorized.
+      parameters:
+      - in: path
+        name: upload_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - mcp
+      security:
+      - mcpDownloadCapability: []
+      responses:
+        '200':
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          description: Original file attachment.
+        '403':
+          description: Invalid, expired or revoked authority.
+        '405':
+          description: Only GET is supported.
   /api/mcp/uploads/authorize:
     get:
       operationId: mcp_upload_authorize
@@ -10550,6 +10605,11 @@ components:
       - mcp:publish
       - mcp:uploads
       - mcp:ai
+      - mcp:social
+      - mcp:account
+      - mcp:media
+      - mcp:live
+      - mcp:spend
       type: string
       description: |-
         * `openid` - openid
@@ -10564,6 +10624,11 @@ components:
         * `mcp:publish` - mcp:publish
         * `mcp:uploads` - mcp:uploads
         * `mcp:ai` - mcp:ai
+        * `mcp:social` - mcp:social
+        * `mcp:account` - mcp:account
+        * `mcp:media` - mcp:media
+        * `mcp:live` - mcp:live
+        * `mcp:spend` - mcp:spend
     ApiStyleEnum:
       enum:
       - openai_responses
@@ -14507,7 +14572,8 @@ components:
           - code
         scope:
           type: string
-          default: mcp:read mcp:write mcp:publish mcp:uploads mcp:ai offline_access
+          default: mcp:read mcp:write mcp:publish mcp:uploads mcp:ai mcp:social mcp:account
+            mcp:media mcp:live mcp:spend offline_access
       required:
       - redirect_uris
     MCPConnection:
@@ -16937,6 +17003,11 @@ components:
       - mcp:publish
       - mcp:uploads
       - mcp:ai
+      - mcp:social
+      - mcp:account
+      - mcp:media
+      - mcp:live
+      - mcp:spend
       type: string
       description: |-
         * `openid` - openid
@@ -16951,6 +17022,11 @@ components:
         * `mcp:publish` - mcp:publish
         * `mcp:uploads` - mcp:uploads
         * `mcp:ai` - mcp:ai
+        * `mcp:social` - mcp:social
+        * `mcp:account` - mcp:account
+        * `mcp:media` - mcp:media
+        * `mcp:live` - mcp:live
+        * `mcp:spend` - mcp:spend
     SdkGrant:
       type: object
       properties:
@@ -19993,6 +20069,12 @@ components:
       description: OAuth access token bound to this MCP resource. Missing, expired,
         wrong-audience or revoked tokens return 401 with a WWW-Authenticate resource_metadata
         challenge. Browser cookies do not authenticate MCP.
+    mcpDownloadCapability:
+      type: apiKey
+      in: header
+      name: X-Free2Z-Download-Capability
+      description: Two-minute exact-file capability with live issuing-token, connection
+        and account-grant checks.
     mcpUploadCapability:
       type: apiKey
       in: header
@@ -20024,3 +20106,9 @@ components:
             mcp:uploads: Upload and manage your media files
             mcp:ai: Send prompts to AI providers and spend 2Z up to each request’s
               quoted maximum
+            mcp:social: Read and manage follows, blocks, mutes and comments
+            mcp:account: Read private account details and conversations; manage notifications
+            mcp:media: Download, edit and delete your stored files
+            mcp:live: Read and manage your livestream host session
+            mcp:spend: Spend 2Z on comments, votes and translations within each explicit
+              limit

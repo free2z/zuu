@@ -166,6 +166,142 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return createMutation(getMcpPostAliasMutationOptions(options));
     }
     /**
+ * Stream the exact unexpired publication archive using its account-authorized capability.
+ */
+export const mcpExportBinary = (
+    exportId: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<Blob>(
+      {url: `/api/mcp/exports/${exportId}`, method: 'GET',
+        responseType: 'blob', signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpExportBinaryQueryKey = (exportId: string,) => {
+    return [
+    `/api/mcp/exports/${exportId}`
+    ] as const;
+    }
+
+
+export const getMcpExportBinaryQueryOptions = <TData = Awaited<ReturnType<typeof mcpExportBinary>>, TError = void>(exportId: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpExportBinary>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMcpExportBinaryQueryKey(exportId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mcpExportBinary>>> = ({ signal }) => mcpExportBinary(exportId, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: exportId !== null && exportId !== undefined, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof mcpExportBinary>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type McpExportBinaryQueryResult = NonNullable<Awaited<ReturnType<typeof mcpExportBinary>>>
+export type McpExportBinaryQueryError = void
+
+
+
+export function createMcpExportBinary<TData = Awaited<ReturnType<typeof mcpExportBinary>>, TError = void>(
+ exportId: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpExportBinary>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMcpExportBinaryQueryOptions(exportId,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
+ * Stream an owned original file using the capability returned by mcp_prepare_download. The URL alone is not authorized.
+ */
+export const mcpDownloadBinary = (
+    uploadId: number,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<Blob>(
+      {url: `/api/mcp/downloads/${uploadId}`, method: 'GET',
+        responseType: 'blob', signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpDownloadBinaryQueryKey = (uploadId: number,) => {
+    return [
+    `/api/mcp/downloads/${uploadId}`
+    ] as const;
+    }
+
+
+export const getMcpDownloadBinaryQueryOptions = <TData = Awaited<ReturnType<typeof mcpDownloadBinary>>, TError = void>(uploadId: number, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpDownloadBinary>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getMcpDownloadBinaryQueryKey(uploadId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof mcpDownloadBinary>>> = ({ signal }) => mcpDownloadBinary(uploadId, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: uploadId !== null && uploadId !== undefined, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof mcpDownloadBinary>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type McpDownloadBinaryQueryResult = NonNullable<Awaited<ReturnType<typeof mcpDownloadBinary>>>
+export type McpDownloadBinaryQueryError = void
+
+
+
+export function createMcpDownloadBinary<TData = Awaited<ReturnType<typeof mcpDownloadBinary>>, TError = void>(
+ uploadId: number, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpDownloadBinary>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getMcpDownloadBinaryQueryOptions(uploadId,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
  * Internal read-only edge auth_request admission before binary-body buffering. Consumes no bytes and creates no upload. The PUT endpoint independently rechecks authorization, size and digest even without this preflight.
  */
 export const mcpUploadAuthorize = (

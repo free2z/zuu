@@ -2801,7 +2801,12 @@
       "mcpWrite": "Criar ou editar rascunhos e atualizar seu perfil público",
       "mcpPublish": "Publicar ou editar páginas e mídias públicas",
       "mcpUploads": "Enviar arquivos para sua conta",
-      "mcpAI": "Enviar instruções a provedores de IA e gastar créditos 2Z até o máximo cotado de cada solicitação"
+      "mcpAI": "Enviar instruções a provedores de IA e gastar créditos 2Z até o máximo cotado de cada solicitação",
+      "mcpSocial": "Ler e gerenciar seguidores, bloqueios, silenciamentos e comentários",
+      "mcpAccount": "Ler dados privados da conta e conversas; gerenciar notificações",
+      "mcpMedia": "Baixar, editar e excluir seus arquivos armazenados",
+      "mcpLive": "Ler e gerenciar sua sessão de transmissão ao vivo",
+      "mcpSpend": "Gastar 2Z em comentários, votos e traduções dentro de cada limite explícito"
     },
     "capPeriods": {
       "day": "por dia",

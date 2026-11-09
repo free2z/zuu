@@ -45,6 +45,31 @@ export function scopeLabel(
         "oauth.scopes.aiInvoke",
         "Use AI features that spend your 2Z credits; an app budget is optional",
       );
+    case "mcp:social":
+      return t(
+        "oauth.scopes.mcpSocial",
+        "Read and manage follows, blocks, mutes and comments",
+      );
+    case "mcp:account":
+      return t(
+        "oauth.scopes.mcpAccount",
+        "Read private account details and conversations; manage notifications",
+      );
+    case "mcp:media":
+      return t(
+        "oauth.scopes.mcpMedia",
+        "Download, edit and delete your stored files",
+      );
+    case "mcp:live":
+      return t(
+        "oauth.scopes.mcpLive",
+        "Read and manage your livestream host session",
+      );
+    case "mcp:spend":
+      return t(
+        "oauth.scopes.mcpSpend",
+        "Spend 2Z on comments, votes and translations within each explicit limit",
+      );
     case "mcp:ai":
       return t(
         "oauth.scopes.mcpAI",

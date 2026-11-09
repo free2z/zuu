@@ -371,6 +371,11 @@ export interface Agreement {
  * * `mcp:publish` - mcp:publish
  * * `mcp:uploads` - mcp:uploads
  * * `mcp:ai` - mcp:ai
+ * * `mcp:social` - mcp:social
+ * * `mcp:account` - mcp:account
+ * * `mcp:media` - mcp:media
+ * * `mcp:live` - mcp:live
+ * * `mcp:spend` - mcp:spend
  */
 export type AllowedScopesEnum = typeof AllowedScopesEnum[keyof typeof AllowedScopesEnum];
 
@@ -388,6 +393,11 @@ export const AllowedScopesEnum = {
   'mcp:publish': 'mcp:publish',
   'mcp:uploads': 'mcp:uploads',
   'mcp:ai': 'mcp:ai',
+  'mcp:social': 'mcp:social',
+  'mcp:account': 'mcp:account',
+  'mcp:media': 'mcp:media',
+  'mcp:live': 'mcp:live',
+  'mcp:spend': 'mcp:spend',
 } as const;
 
 /**
@@ -1556,6 +1566,11 @@ export interface ConflictDetail {
  * * `mcp:publish` - mcp:publish
  * * `mcp:uploads` - mcp:uploads
  * * `mcp:ai` - mcp:ai
+ * * `mcp:social` - mcp:social
+ * * `mcp:account` - mcp:account
+ * * `mcp:media` - mcp:media
+ * * `mcp:live` - mcp:live
+ * * `mcp:spend` - mcp:spend
  */
 export type ScopeEnum = typeof ScopeEnum[keyof typeof ScopeEnum];
 
@@ -1573,6 +1588,11 @@ export const ScopeEnum = {
   'mcp:publish': 'mcp:publish',
   'mcp:uploads': 'mcp:uploads',
   'mcp:ai': 'mcp:ai',
+  'mcp:social': 'mcp:social',
+  'mcp:account': 'mcp:account',
+  'mcp:media': 'mcp:media',
+  'mcp:live': 'mcp:live',
+  'mcp:spend': 'mcp:spend',
 } as const;
 
 /**
