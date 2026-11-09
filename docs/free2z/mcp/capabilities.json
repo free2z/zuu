@@ -1,6 +1,6 @@
 {
   "tool_count": 22,
-  "supported_count": 104,
+  "supported_count": 103,
   "operations": [
     {
       "operation_id": "account_deletion_keep",
@@ -190,12 +190,13 @@
       "method": "GET",
       "path": "/api/ai/conversations/public/",
       "summary": "This is to get your own conversations and fork others.",
-      "supported": true,
+      "supported": false,
       "keywords": "AI conversations history chats transcripts",
-      "required_scopes": [
-        "mcp:account"
-      ],
-      "paid": null
+      "reason": "This native alias serializes the entire public conversation catalog without pagination.",
+      "next_step": "Use ai_public_conversations_list with its page parameter for bounded public conversation discovery.",
+      "available_via_operations": [
+        "ai_public_conversations_list"
+      ]
     },
     {
       "operation_id": "ai_conversations_retrieve",

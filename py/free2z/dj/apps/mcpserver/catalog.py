@@ -126,6 +126,11 @@ def operations():
 
 
 def gap(operation):
+    if operation == "ai_conversations_public_retrieve":
+        return (
+            "This native alias serializes the entire public conversation catalog without pagination.",
+            "Use ai_public_conversations_list with its page parameter for bounded public conversation discovery.",
+        )
     if operation in {"auth_user_update", "auth_user_partial_update"}:
         return (
             "The full native profile serializer includes settings outside the hosted public-profile field allowlist.",
@@ -240,6 +245,8 @@ def summary(operation):
             "zpage_partial_update": ["free2z_update_page", "free2z_set_page_published"],
             "myuploads_create": ["free2z_prepare_upload", "free2z_get_upload_status"],
         }
+        if operation == "ai_conversations_public_retrieve":
+            result["available_via_operations"] = ["ai_public_conversations_list"]
         if operation in alternatives:
             result["available_via_tools"] = alternatives[operation]
     return result
