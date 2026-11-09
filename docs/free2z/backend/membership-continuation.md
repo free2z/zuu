@@ -34,7 +34,9 @@ An eligible payment buys only that next term.
 ## Historical terminal refusals
 
 The recurring task does not recover expired subscriptions or overwrite a newer
-purchase. A separate bounded recovery workflow is required for historical
+purchase. The [read-only recovery preview](membership-recovery-preview.md)
+prepares current-state manifests and reports evidence requirements without
+granting access. A separate bounded recovery workflow is required for historical
 terminal refusals, as specified in [issue #1485](https://github.com/free2z/zuu/issues/1485).
 It must provide a dry run and transactionally revalidate the original refusal,
 actors, subscription, cancellation, intervening purchases, and current
