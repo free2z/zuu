@@ -227,6 +227,7 @@ def invoke(
         raise ValidationError(
             "This operation does not accept spending or retry-key arguments."
         )
+    create_only = False
     if (
         operation.startswith("zpage_variants_") and write
     ) or operation == "zpage_destroy":
@@ -238,6 +239,10 @@ def invoke(
             raise ValidationError(
                 "Supply one exact current ETag as if_match. Only PUT creation accepts if_none_match='*'."
             )
+    if create_only and "tags" in body:
+        raise ValidationError(
+            "Create-only translations preserve current page tags. Omit tags; edit parent tags separately with its ETag."
+        )
     if operation == "dyte_host_session_create" and body.get("action") not in {
         "heartbeat",
         "release",
@@ -288,6 +293,21 @@ def invoke(
                 raise PermissionDenied(
                     "Changing or deleting public media requires mcp:publish."
                 )
+        native_body = body
+        if create_only:
+            from dj.apps.g12f.models import zPage
+
+            parent = (
+                zPage.objects.select_for_update()
+                .filter(free2zaddr=path["id"], creator=actor.user)
+                .first()
+            )
+            if parent is None:
+                raise PermissionDenied("Page is not owned by the selected account.")
+            # Native PUT requires tags and writes them onto the parent. An
+            # absent-language precondition cannot authorize a parent overwrite;
+            # preserve its current tags under the same lock as the native save.
+            native_body = {**body, "tags": list(parent.tags.names())}
         result = _native(
             actor,
             original,
@@ -297,7 +317,7 @@ def invoke(
             action=action,
             kwargs=match.kwargs,
             query=query,
-            body=body if write else None,
+            body=native_body if write else None,
             headers=headers,
         )
         return result

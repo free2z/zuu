@@ -611,7 +611,27 @@ def test_old_content_grant_cannot_delete_and_variant_delete_requires_exact_etag(
     target = creator_factory(username="variantowner")
     linked, _ = link(raw, target, scopes=["mcp:read", "mcp:write", "mcp:publish"])
     page = make_page(target)
+    page.tags.add("zcash")
+    stale_tags = list(page.tags.names())
+    page.tags.add("release")  # A newer parent edit after the agent's read.
     path = {"id": str(page.free2zaddr), "language": "es"}
+    assert (
+        call(
+            raw,
+            target.username,
+            "zpage_variants_update",
+            path=path,
+            body={
+                "title": "Título",
+                "content": "Contenido traducido.",
+                "tags": stale_tags,
+            },
+            if_none_match="*",
+        )["status"]
+        == 400
+    )
+    assert set(page.tags.names()) == {"zcash", "release"}
+
     created = call(
         raw,
         target.username,
@@ -619,13 +639,13 @@ def test_old_content_grant_cannot_delete_and_variant_delete_requires_exact_etag(
         path=path,
         body={
             "title": "Título",
-            "tags": [],
             "content": "Contenido traducido.",
             "is_published": False,
         },
         if_none_match="*",
     )
     assert created["status"] == 200, created
+    assert set(page.tags.names()) == {"zcash", "release"}
     etag = created["headers"]["etag"]
     assert (
         call(raw, target.username, "zpage_variants_destroy", path=path, if_match=etag)[

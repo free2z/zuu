@@ -66,7 +66,10 @@ export function scopeLabel(
         "Read and manage your livestream host session",
       );
     case "mcp:delete":
-      return t("oauth.scopes.mcpDelete", "Permanently delete your pages, translations, comments, conversations, collections and files");
+      return t(
+        "oauth.scopes.mcpDelete",
+        "Permanently delete your pages, translations, comments, conversations, collections and files",
+      );
     case "mcp:spend":
       return t(
         "oauth.scopes.mcpSpend",
