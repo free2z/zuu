@@ -15,6 +15,8 @@ from .registry import REGISTRY
 
 
 BODY_FIELDS = {
+    "emails_notifications_create": {"value"},
+    "emails_public_create": {"value"},
     "ai_conversations_fork_create": {"conversation", "prompt_response"},
     "reports_create": {"target_kind", "target_id", "reason", "details"},
     "tagging_zpage_suggestions_decide_create": {"accept", "dismiss"},
@@ -210,6 +212,13 @@ def invoke(
         raise ValidationError("Query values must be scalars or lists of scalars.")
     if set(body) - BODY_FIELDS.get(operation, set()):
         raise ValidationError({"body": "Unsupported fields for this hosted operation."})
+    if (
+        operation in {"emails_notifications_create", "emails_public_create"}
+        and type(body.get("value")) is not bool
+    ):
+        raise ValidationError(
+            "Supply an explicit boolean body.value for this preference."
+        )
     authority = catalog.policy(operation)
     if authority["paid"]:
         _spending(authority["paid"], body, idempotency_key, max_charge_tuzis)

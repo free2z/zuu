@@ -710,3 +710,29 @@ REGISTRY["publication_exports_download"] = {
     "action": None,
     "url_name": None,
 }
+
+REGISTRY.update(
+    {
+        "emails_status_retrieve": {
+            "method": "GET",
+            "path": "/api/emails/status",
+            "view": "dj.apps.emails.views.EmailStatusView",
+            "action": None,
+            "url_name": "email-status",
+        },
+        "emails_notifications_create": {
+            "method": "POST",
+            "path": "/api/emails/notifications",
+            "view": "dj.apps.emails.views.ToggleEmailNotificationsView",
+            "action": None,
+            "url_name": "notifications-email",
+        },
+        "emails_public_create": {
+            "method": "POST",
+            "path": "/api/emails/public",
+            "view": "dj.apps.emails.views.ToggleEmailPublicView",
+            "action": None,
+            "url_name": "public-email",
+        },
+    }
+)

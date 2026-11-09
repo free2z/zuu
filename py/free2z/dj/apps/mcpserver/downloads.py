@@ -22,6 +22,27 @@ def _file_digest(media):
     return hashlib.sha256(media.file.name.encode()).hexdigest()
 
 
+def _open_stream(storage, name):
+    """Use bounded ranged GCS reads, not django-storages' whole-file spool."""
+    from storages.backends.gcloud import GoogleCloudFile
+
+    handle = storage.open(name, "rb")
+    if isinstance(handle, GoogleCloudFile):
+        try:
+            # GoogleCloudStorage._open uses get_blob (metadata only). Resolve
+            # generation explicitly if a backend wrapper omitted it, so all
+            # ranged reads/retries target one immutable object version.
+            blob = handle.blob
+            if blob.generation is None:
+                blob.reload()
+            if blob.generation is None:
+                raise FileNotFoundError("Object generation is unavailable.")
+            return blob.open("rb", chunk_size=256 * 1024)
+        finally:
+            handle.close()
+    return handle
+
+
 def prepare(raw, account, original, upload_id):
     with authorized_actor(raw, account, ["mcp:media"]) as actor:
         media = GenericFile.objects.filter(pk=upload_id, owner=actor.user).first()
@@ -89,7 +110,7 @@ def download_binary(request, upload_id):
             field = media.file
             record_action(actor, "download_file", 200)
         # Opening cloud storage and streaming must not hold account locks.
-        handle = field.open("rb")
+        handle = _open_stream(field.storage, field.name)
         response = FileResponse(
             handle,
             as_attachment=True,
@@ -195,7 +216,7 @@ def download_export(request, export_id):
             storage_path, filename = job.file_path, job.file_name
             record_action(actor, "download_export", 200)
         response = FileResponse(
-            get_export_storage().open(storage_path, "rb"),
+            _open_stream(get_export_storage(), storage_path),
             as_attachment=True,
             filename=filename or "publication-export.zip",
             content_type="application/zip",

@@ -172,7 +172,7 @@ The [capability manifest](capabilities.json) lists every schema operation, wheth
 
 | Task | Supported operations |
 | --- | --- |
-| Catch up | Notifications/unread counts, comments/replies, follows, mutes and blocks |
+| Catch up | Notifications/unread counts, email notification/visibility preferences, comments/replies, follows, mutes and blocks |
 | Find content | Page and creator search, related pages, topic tags and language catalog |
 | Translate and publish | Owner quote, purchase, status/jobs, batch purchase, variant read/edit/publish |
 | Manage files | Owner media search/details, metadata/audience changes, deletion and private original-file downloads |

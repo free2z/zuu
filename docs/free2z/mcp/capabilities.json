@@ -1,6 +1,6 @@
 {
   "tool_count": 22,
-  "supported_count": 101,
+  "supported_count": 104,
   "operations": [
     {
       "operation_id": "account_deletion_keep",
@@ -517,8 +517,11 @@
       "summary": "This is only for the owner",
       "supported": false,
       "keywords": "",
-      "reason": "Identity, credential or account security operation requires its native authentication context.",
-      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+      "reason": "The full native profile serializer includes settings outside the hosted public-profile field allowlist.",
+      "next_step": "Use free2z_update_profile for public display fields. Add a separately described account-settings adapter for membership prices, addresses and their side effects; credential fields require their own proof.",
+      "available_via_tools": [
+        "free2z_update_profile"
+      ]
     },
     {
       "operation_id": "auth_user_retrieve",
@@ -539,8 +542,11 @@
       "summary": "This is only for the owner",
       "supported": false,
       "keywords": "",
-      "reason": "Identity, credential or account security operation requires its native authentication context.",
-      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+      "reason": "The full native profile serializer includes settings outside the hosted public-profile field allowlist.",
+      "next_step": "Use free2z_update_profile for public display fields. Add a separately described account-settings adapter for membership prices, addresses and their side effects; credential fields require their own proof.",
+      "available_via_tools": [
+        "free2z_update_profile"
+      ]
     },
     {
       "operation_id": "auth_zcash_challenge_create",
@@ -1205,7 +1211,7 @@
       "path": "/api/emails/add",
       "summary": "",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1215,7 +1221,7 @@
       "path": "/api/emails/change-password",
       "summary": "",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1225,7 +1231,7 @@
       "path": "/api/emails/confirm",
       "summary": "Confirm the email address the token belongs to.",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1235,7 +1241,7 @@
       "path": "/api/emails/confirm",
       "summary": "Email-confirmation landing page. Changes nothing.",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1245,7 +1251,7 @@
       "path": "/api/emails/delete",
       "summary": "",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1255,7 +1261,7 @@
       "path": "/api/emails/do-reset-password",
       "summary": "",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1264,10 +1270,12 @@
       "method": "POST",
       "path": "/api/emails/notifications",
       "summary": "",
-      "supported": false,
-      "keywords": "",
-      "reason": "Identity, credential or account security operation requires its native authentication context.",
-      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+      "supported": true,
+      "keywords": "email status notification preferences public visibility settings",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
     },
     {
       "operation_id": "emails_opt_out_create",
@@ -1275,7 +1283,7 @@
       "path": "/api/emails/opt-out/{link}",
       "summary": "Unsubscribe this address and delete it from the account.",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1285,7 +1293,7 @@
       "path": "/api/emails/opt-out/{link}",
       "summary": "Unsubscribe landing page. Changes nothing.",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1295,7 +1303,7 @@
       "path": "/api/emails/password-is-set",
       "summary": "",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1304,10 +1312,13 @@
       "method": "POST",
       "path": "/api/emails/public",
       "summary": "",
-      "supported": false,
-      "keywords": "",
-      "reason": "Identity, credential or account security operation requires its native authentication context.",
-      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+      "supported": true,
+      "keywords": "email status notification preferences public visibility settings",
+      "required_scopes": [
+        "mcp:account",
+        "mcp:publish"
+      ],
+      "paid": null
     },
     {
       "operation_id": "emails_recovery_status_retrieve",
@@ -1315,7 +1326,7 @@
       "path": "/api/emails/recovery-status",
       "summary": "Whether the calling account has a working recovery path.",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1325,7 +1336,7 @@
       "path": "/api/emails/resend",
       "summary": "",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1335,7 +1346,7 @@
       "path": "/api/emails/reset-password",
       "summary": "",
       "supported": false,
-      "keywords": "",
+      "keywords": "email status notification preferences public visibility settings",
       "reason": "Identity, credential or account security operation requires its native authentication context.",
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
@@ -1344,10 +1355,12 @@
       "method": "GET",
       "path": "/api/emails/status",
       "summary": "",
-      "supported": false,
-      "keywords": "",
-      "reason": "Identity, credential or account security operation requires its native authentication context.",
-      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+      "supported": true,
+      "keywords": "email status notification preferences public visibility settings",
+      "required_scopes": [
+        "mcp:account"
+      ],
+      "paid": null
     },
     {
       "operation_id": "events_has_retrieve",
@@ -1853,7 +1866,11 @@
       "supported": false,
       "keywords": "media files cloud storage uploads images pictures photos videos PDF search",
       "reason": "The native metadata endpoint refuses uploads without binary file content.",
-      "next_step": "Use free2z_prepare_upload and stream the file to its returned capability URL."
+      "next_step": "Use free2z_prepare_upload and stream the file to its returned capability URL.",
+      "available_via_tools": [
+        "free2z_prepare_upload",
+        "free2z_get_upload_status"
+      ]
     },
     {
       "operation_id": "myuploads_destroy",
@@ -2786,7 +2803,10 @@
       "supported": false,
       "keywords": "pages zpages articles posts search semantic latest release update",
       "reason": "Broad native page serializers include fields outside the hosted content permission.",
-      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published."
+      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published.",
+      "available_via_tools": [
+        "free2z_create_draft"
+      ]
     },
     {
       "operation_id": "zpage_destroy",
@@ -2795,8 +2815,8 @@
       "summary": "Delete a zPage. Owner only. Honours the optional `If-Match` precondition: a delete issued from a stale editor — one that never saw somebody else's newer draft — returns **412** and deletes nothing.",
       "supported": false,
       "keywords": "pages zpages articles posts search semantic latest release update",
-      "reason": "This native operation has no reviewed hosted delegation adapter.",
-      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+      "reason": "Permanent page deletion is outside the draft-edit permission contract.",
+      "next_step": "Add explicit permanent-content deletion consent and a narrow adapter preserving native ownership, publication and deletion checks."
     },
     {
       "operation_id": "zpage_fund_create",
@@ -2828,7 +2848,11 @@
       "supported": false,
       "keywords": "pages zpages articles posts search semantic latest release update",
       "reason": "Broad native page serializers include fields outside the hosted content permission.",
-      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published."
+      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published.",
+      "available_via_tools": [
+        "free2z_update_page",
+        "free2z_set_page_published"
+      ]
     },
     {
       "operation_id": "zpage_related_list",
@@ -2962,7 +2986,11 @@
       "supported": false,
       "keywords": "pages zpages articles posts search semantic latest release update",
       "reason": "Broad native page serializers include fields outside the hosted content permission.",
-      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published."
+      "next_step": "Use free2z_create_draft, free2z_update_page and free2z_set_page_published.",
+      "available_via_tools": [
+        "free2z_update_page",
+        "free2z_set_page_published"
+      ]
     },
     {
       "operation_id": "zpage_variants_destroy",

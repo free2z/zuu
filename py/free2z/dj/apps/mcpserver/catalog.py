@@ -24,7 +24,11 @@ def policy(operation):
     write = REGISTRY[operation]["method"] != "GET"
     scopes = ["mcp:read"]
     paid = None
-    if operation.startswith("ai_personalities_") or operation.startswith(
+    if operation.startswith("emails_"):
+        scopes = [ACCOUNT] + (
+            ["mcp:publish"] if operation == "emails_public_create" else []
+        )
+    elif operation.startswith("ai_personalities_") or operation.startswith(
         "ai_conversations_"
     ):
         scopes = [ACCOUNT] + (["mcp:write", "mcp:publish"] if write else [])
@@ -116,6 +120,25 @@ def operations():
 
 
 def gap(operation):
+    if operation in {"auth_user_update", "auth_user_partial_update"}:
+        return (
+            "The full native profile serializer includes settings outside the hosted public-profile field allowlist.",
+            "Use free2z_update_profile for public display fields. Add a separately described account-settings adapter for membership prices, addresses and their side effects; credential fields require their own proof.",
+        )
+    if operation in {
+        "emails_notifications_create",
+        "emails_public_create",
+        "emails_status_retrieve",
+    }:
+        return (
+            "Ordinary email preferences/status need a field-bounded private-account adapter; these routes are distinct from credential changes.",
+            "Add an account-settings adapter preserving native ownership; making an email public also requires explicit publication consent.",
+        )
+    if operation == "zpage_destroy":
+        return (
+            "Permanent page deletion is outside the draft-edit permission contract.",
+            "Add explicit permanent-content deletion consent and a narrow adapter preserving native ownership, publication and deletion checks.",
+        )
     if operation.startswith("economy_"):
         return (
             "Native financial self-service rejects bearer delegation, including agreements, payouts and signatures.",
@@ -171,6 +194,7 @@ def gap(operation):
 
 def keywords(operation):
     groups = {
+        "emails_": "email status notification preferences public visibility settings",
         "events_": "notifications inbox unread catchup mentions interactions",
         "comments_": "social comments replies threads interactions catchup",
         "creator_": "people creators profiles followers follow mute block social",
@@ -211,6 +235,16 @@ def summary(operation):
         result.update(policy(operation))
     else:
         result["reason"], result["next_step"] = gap(operation)
+        alternatives = {
+            "auth_user_update": ["free2z_update_profile"],
+            "auth_user_partial_update": ["free2z_update_profile"],
+            "zpage_create": ["free2z_create_draft"],
+            "zpage_update": ["free2z_update_page", "free2z_set_page_published"],
+            "zpage_partial_update": ["free2z_update_page", "free2z_set_page_published"],
+            "myuploads_create": ["free2z_prepare_upload", "free2z_get_upload_status"],
+        }
+        if operation in alternatives:
+            result["available_via_tools"] = alternatives[operation]
     return result
 
 

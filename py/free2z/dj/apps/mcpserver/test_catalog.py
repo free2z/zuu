@@ -480,3 +480,126 @@ def test_paid_vote_and_unbounded_get_refusal(
         )["status"]
         == 403
     )
+
+
+def test_cloud_download_uses_generation_bound_chunks_and_closes_reader(monkeypatch):
+    from io import BytesIO
+    from django.http import FileResponse
+    from storages.backends.gcloud import GoogleCloudFile
+    from .downloads import _open_stream
+
+    calls = []
+    stream = BytesIO(b"bounded bytes")
+
+    class Blob:
+        generation = None
+
+        def reload(self):
+            calls.append("metadata")
+            self.generation = 1234
+
+        def download_to_file(self, *args, **kwargs):
+            pytest.fail("A whole cloud object was spooled")
+
+        def open(self, mode, *, chunk_size):
+            assert self.generation == 1234
+            assert mode == "rb" and chunk_size == 256 * 1024
+            calls.append("ranged-reader")
+            return stream
+
+    blob = Blob()
+    handle = object.__new__(GoogleCloudFile)
+    handle.blob = blob
+    handle._file = None
+
+    class Storage:
+        def open(self, name, mode):
+            assert name == "owned/original" and mode == "rb"
+            return handle
+
+    # Accessing GoogleCloudFile.file would exercise its real whole-blob
+    # download path. The bounded adapter must bypass that property entirely.
+    handle._storage = type("StorageSettings", (), {"max_memory_size": 0})()
+    handle._mode = "rb"
+    handle._is_dirty = False
+    response = FileResponse(_open_stream(Storage(), "owned/original"))
+    assert calls == ["metadata", "ranged-reader"]
+    assert b"".join(response.streaming_content) == b"bounded bytes"
+    response.close()
+    assert stream.closed and handle._file is None
+
+
+def test_selected_email_preferences_do_not_mutate_other_account_or_credentials(
+    signed_in, user, creator_factory
+):
+    from dj.apps.emails.models import Email
+    from django.utils import timezone
+
+    raw = issue(signed_in, user)[2]["access_token"]
+    target = creator_factory(username="emailsettings")
+    linked, _ = link(raw, target, scopes=["mcp:account"])
+    address = Email.objects.create(
+        user=target,
+        email="owner@example.test",
+        confirmed_at=timezone.now(),
+        expires_at=timezone.now(),
+    )
+    owner_address = Email.objects.create(
+        user=user,
+        email="different@example.test",
+        confirmed_at=timezone.now(),
+        expires_at=timezone.now(),
+    )
+    read = call(raw, target.username, "emails_status_retrieve", read=True)
+    assert read["status"] == 200 and read["data"]["email"] == address.email, read
+    assert set(read["data"]) == {
+        "email",
+        "confirmed",
+        "pending",
+        "is_public",
+        "get_notifications",
+    }
+    assert (
+        call(raw, target.username, "emails_notifications_create", body={"value": True})[
+            "status"
+        ]
+        == 204
+    )
+    assert (
+        call(raw, target.username, "emails_public_create", body={"value": True})[
+            "status"
+        ]
+        == 403
+    )
+    MCPAccountGrant.objects.filter(pk=linked["id"]).update(
+        scope="mcp:account mcp:publish"
+    )
+    assert (
+        call(raw, target.username, "emails_public_create", body={"value": True})[
+            "status"
+        ]
+        == 204
+    )
+    assert (
+        call(
+            raw, target.username, "emails_notifications_create", body={"value": "false"}
+        )["status"]
+        == 400
+    )
+    assert (
+        call(
+            raw,
+            target.username,
+            "emails_notifications_create",
+            body={"value": False, "email": "other@example.test"},
+        )["status"]
+        == 400
+    )
+    address.refresh_from_db()
+    owner_address.refresh_from_db()
+    assert (
+        address.get_notifications
+        and address.is_public
+        and address.email == "owner@example.test"
+    )
+    assert not owner_address.get_notifications and not owner_address.is_public
