@@ -492,6 +492,7 @@ def test_paid_vote_and_unbounded_get_refusal(
         ("gzip", "private, NO-TRANSFORM", "image/png", True),
         ("br", None, "application/octet-stream", False),
         ("gzip", "no-transform=1", "application/gzip", False),
+        ("gzip", 'private="foo,no-transform,bar"', "image/png", False),
     ],
 )
 def test_cloud_download_offloads_without_opening_or_spooling_bytes(

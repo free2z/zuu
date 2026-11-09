@@ -61,14 +61,17 @@ def _media_response(storage, name, filename):
         # requests gzip. No exhaustive MIME taxonomy exists; require its
         # explicit raw-byte guarantee for every encoded object.
         encoding = (blob.content_encoding or "").strip()
-        cache_directives = {
-            part.strip().lower() for part in (blob.cache_control or "").split(",")
-        }
-        if encoding and "no-transform" not in cache_directives:
+        cache_control = blob.cache_control or ""
+        cache_directives = {part.strip().lower() for part in cache_control.split(",")}
+        # Quoted field lists can contain commas that imitate directives. Fail
+        # closed rather than interpret a quoted value as a raw-byte guarantee.
+        if encoding and (
+            '"' in cache_control or "no-transform" not in cache_directives
+        ):
             response = JsonResponse(
                 {
                     "code": "original_encoding_unsupported",
-                    "detail": "This file's storage encoding cannot be delivered unchanged. Encoded objects require stored Cache-Control: no-transform.",
+                    "detail": "This file's storage encoding cannot be delivered unchanged. Encoded objects require unquoted stored Cache-Control directives including no-transform.",
                 },
                 status=409,
             )
