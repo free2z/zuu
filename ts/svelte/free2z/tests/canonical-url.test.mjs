@@ -481,6 +481,7 @@ test("canonical metadata escapes reserved owner route pairs", () => {
     ["docs", "ordinary-vanity"],
     ["ws", "ordinary-vanity"],
     ["_app", "ordinary-vanity"],
+    ["_internal_mcp_media", "ordinary-vanity"],
     ["gcsproxy", "ordinary-vanity"],
     ["try-new-ui", "ordinary-vanity"],
     ["classic-ui", "ordinary-vanity"],

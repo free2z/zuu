@@ -24,6 +24,7 @@ const ROUTE_COLLISIONS = new Set([
 // or is swallowed by an nginx asset/API namespace.
 const TWO_SEGMENT_PREFIX_COLLISIONS = new Set([
   "_app",
+  "_internal_mcp_media",
   "adminzzz",
   "ai",
   "api",
