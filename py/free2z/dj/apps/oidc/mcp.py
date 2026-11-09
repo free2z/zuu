@@ -77,13 +77,16 @@ def authenticate_mcp(raw_token: str) -> MCPPrincipal:
 def _locked_connection(raw_token: str, *, target_user_id=None):
     """Lifecycle lock order: users, app, OAuth grant, connection, token.
 
+    Creator NO KEY UPDATE locks serialize identity changes and ledger writes
+    while allowing foreign-key KEY SHARE checks from other accounts. A stronger
+    lock can deadlock an insert against another user waiting for the shared app.
     Hold the locks through the caller's mutation. Recheck after acquiring them:
     a revoke that won a lock must deny the request, not become a stale snapshot.
     """
     principal = authenticate_mcp(raw_token)
     with transaction.atomic():
         user_ids = sorted({principal.user_id, *([target_user_id] if target_user_id else [])})
-        users = {u.pk: u for u in get_user_model().objects.select_for_update().filter(pk__in=user_ids).order_by("pk")}
+        users = {u.pk: u for u in get_user_model().objects.select_for_update(no_key=True).filter(pk__in=user_ids).order_by("pk")}
         if len(users) != len(user_ids) or any(not u.is_active for u in users.values()):
             raise _invalid()
         connection = MCPConnection.objects.get(pk=principal.connection_id)
@@ -240,13 +243,13 @@ def approve_link(opaque, session_user, *, allow, scopes=None):
     session_epoch = session_user.kt_account_epoch
     with transaction.atomic():
         user_ids = sorted({initial.connection.primary_user_id, session_user.pk})
-        users = {u.pk: u for u in get_user_model().objects.select_for_update().filter(pk__in=user_ids).order_by("pk")}
+        users = {u.pk: u for u in get_user_model().objects.select_for_update(no_key=True).filter(pk__in=user_ids).order_by("pk")}
         target = users.get(session_user.pk)
         if target is None or not target.is_active or target.kt_account_epoch != session_epoch or target.username != initial.expected_username:
             raise _invalid()
         F2ZApplication.objects.select_for_update().get(pk=initial.connection.application_id)
         AppAuthorization.objects.select_for_update().filter(user_id=initial.connection.primary_user_id, application_id=initial.connection.application_id).first()
-        connection = MCPConnection.objects.select_for_update().select_related("primary_user", "application").get(pk=initial.connection_id)
+        connection = MCPConnection.objects.select_for_update(of=("self",)).select_related("primary_user", "application").get(pk=initial.connection_id)
         validate_connection_record(connection)
         intent = MCPLinkIntent.objects.select_for_update().get(pk=initial.pk)
         if intent.used_at is not None or intent.expires_at <= timezone.now():
@@ -336,7 +339,7 @@ def serialize_mcp_token_request(data):
         yield
         return
     with transaction.atomic():
-        get_user_model().objects.select_for_update().filter(pk=candidate.primary_user_id).first()
+        get_user_model().objects.select_for_update(no_key=True).filter(pk=candidate.primary_user_id).first()
         F2ZApplication.objects.select_for_update().filter(pk=candidate.application_id).first()
         AppAuthorization.objects.select_for_update().filter(user_id=candidate.primary_user_id, application_id=candidate.application_id).first()
         MCPConnection.objects.select_for_update().filter(pk=candidate.pk).first()

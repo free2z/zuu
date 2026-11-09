@@ -50,13 +50,6 @@ REGISTRY = {
         "url_name": "promptresponses-detail",
         "view": "dj.apps.openai.views.PromptResponseViewSet",
     },
-    "ai_conversations_public_retrieve": {
-        "action": "public",
-        "method": "GET",
-        "path": "/api/ai/conversations/public/",
-        "url_name": "conversations-public",
-        "view": "dj.apps.openai.views.ConversationViewSet",
-    },
     "ai_conversations_retrieve": {
         "action": "retrieve",
         "method": "GET",
