@@ -9,7 +9,7 @@ documentation. The source preview supports compiling and integrating the SDK
 and exercising documented mock flows; it does not establish that live identity,
 account, AI, billing, or payment services are deployed for a registered client.
 Read [source-preview status](./SOURCE-PREVIEW.md) and
-[live prerequisites](./INTEGRATION.md#live-prerequisites) before treating a
+[live prerequisites](./SOURCE-PREVIEW.md#live-prerequisites) before treating a
 documented flow or rail as available. The API and receipt details remain
 compatibility contracts; their presence here is not evidence of live service
 behavior.
@@ -93,7 +93,7 @@ current billing behavior. This repository documents source and policy, not a
 live deployment: compiling the public source preview or finding an active
 policy resource does not verify that a service, payment rail, or client
 registration is deployed or available. See [source-preview status](./SOURCE-PREVIEW.md)
-and [live prerequisites](./INTEGRATION.md#live-prerequisites).
+and [live prerequisites](./SOURCE-PREVIEW.md#live-prerequisites).
 
 ### Units on the wire
 
