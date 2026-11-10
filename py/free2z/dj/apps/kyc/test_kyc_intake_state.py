@@ -203,16 +203,27 @@ def test_signature_can_be_cleared(api_client, applicant):
     user, profile = applicant
     api_client.force_authenticate(user=user)
 
+    from django.core.files.uploadedfile import SimpleUploadedFile
+    upload = api_client.post(
+        "/api/kyc/upload-tax-form",
+        {"file": SimpleUploadedFile("tax.pdf", b"%PDF-1.4\n%%EOF", content_type="application/pdf"),
+         "tax_form_version": profile.tax_form_version,
+         "tax_form_classification": "W-9"}, format="multipart")
+    assert upload.status_code == 201, upload.content
+    profile.refresh_from_db()
+    precondition = {"tax_form_version": profile.tax_form_version,
+                    "tax_form_classification": "W-9"}
+
     signed = api_client.post(
         "/api/kyc/tax-form-signature",
-        {"tax_form_signature": "Ada Lovelace"},
+        {"tax_form_signature": "Ada Lovelace", **precondition},
         format="json",
     )
     assert signed.status_code == 200, signed.content
 
     cleared = api_client.post(
         "/api/kyc/tax-form-signature",
-        {"tax_form_signature": ""},
+        {"tax_form_signature": "", **precondition},
         format="json",
     )
     assert cleared.status_code == 200, cleared.content

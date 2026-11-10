@@ -25,7 +25,7 @@ class BasicInfoSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = [
             'id', 'is_us', 'is_individual', 'application_status',
-            'rejection_reason',
+            'rejection_reason', 'tax_form_classification', 'tax_form_version',
         ]
         # application_status must never be client-writable: it's the
         # identity-verification gate and is only advanced server-side via
@@ -35,13 +35,15 @@ class BasicInfoSerializer(serializers.ModelSerializer):
         # rejection_reason is written by a human reviewer in the admin. It is
         # surfaced here so the applicant can be told *why* they were rejected
         # instead of just that they were.
-        read_only_fields = ['application_status', 'rejection_reason']
+        read_only_fields = ['application_status', 'rejection_reason', 'tax_form_classification', 'tax_form_version']
 
 
 class UserProfileSignatureSerializer(serializers.ModelSerializer):
+    tax_form_version = serializers.IntegerField(write_only=True)
+    tax_form_classification = serializers.CharField(write_only=True)
     class Meta:
         model = UserProfile
-        fields = ['tax_form_signature']
+        fields = ['tax_form_signature', 'tax_form_version', 'tax_form_classification']
 
     def update(self, instance, validated_data):
         instance.tax_form_signature = validated_data.get('tax_form_signature', instance.tax_form_signature)
@@ -92,6 +94,8 @@ class TaxFormUploadRequestSerializer(serializers.Serializer):
     file says "send a file here", nothing more.
     """
 
+    tax_form_version = serializers.IntegerField(min_value=0)
+    tax_form_classification = serializers.ChoiceField(choices=['W-9', 'W-8BEN', 'W-8BEN-E'])
     file = serializers.FileField(
         help_text='Completed tax form. PDF only; validated by content, not by '
                   'the Content-Type the client declares.',
@@ -104,12 +108,14 @@ class TaxFormUploadResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text='Authenticated `/uploadz/private/...` path. Never public.',
     )
+    tax_form_version = serializers.IntegerField(min_value=0)
 
 
 class TaxFormFileSerializer(serializers.Serializer):
     """`GET /api/kyc/get-tax-form-file` — null when nothing is uploaded yet."""
 
     file = serializers.CharField(allow_null=True)
+    tax_form_version = serializers.IntegerField(min_value=0)
 
 
 class IdentityDocumentsSerializer(serializers.Serializer):
@@ -149,3 +155,11 @@ class ApplicationStatusChangeSerializer(serializers.Serializer):
     """`{"status":...}` from `POST /api/kyc/change-status`."""
 
     status = serializers.CharField()
+
+
+class TaxFormPreconditionSerializer(serializers.Serializer):
+    """Required while submitting NEW; omitted only for APPROVED -> NEW."""
+    tax_form_version = serializers.IntegerField(min_value=0, required=False)
+    tax_form_classification = serializers.ChoiceField(
+        choices=['W-9', 'W-8BEN', 'W-8BEN-E'], required=False,
+    )
