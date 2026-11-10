@@ -9,6 +9,7 @@
   import { goto } from "$app/navigation";
   import {
     AlreadyLiveElsewhereError,
+    HostStreamStartError,
     StreamService,
     type PublicStreamType,
   } from "$lib/services/stream";
@@ -756,6 +757,7 @@
       operationNotice.isCurrent() &&
       startController === controller;
     let recoveryPending = false;
+    let hostStartStage: "admission" | "meeting_setup" = "admission";
 
     try {
       if (startType === "private") {
@@ -829,6 +831,7 @@
       beginSeat(startType, takeover, owner, session);
 
       // 2. Initialize RealtimeKit Meeting
+      hostStartStage = "meeting_setup";
       const { cleanup: cleanupFn, meeting: meetingInstance } =
         await initRtkMeeting({
           authToken: auth_token,
@@ -945,14 +948,37 @@
       startController = null;
     } catch (err: any) {
       if (!isCurrentStart() || controller.signal.aborted) return;
-      console.error("Failed to start stream:", err);
+      if (startType === "private") {
+        console.error("Failed to start private stream:", err);
+      } else {
+        const failure = err instanceof HostStreamStartError ? err : null;
+        console.warn("Host stream startup failed", {
+          stage: failure?.stage ?? hostStartStage,
+          code:
+            failure?.failureCode ??
+            (hostStartStage === "meeting_setup"
+              ? "sdk_init_failed"
+              : "admission_rejected"),
+          status: failure?.status ?? null,
+          request_id: failure?.requestId ?? null,
+        });
+      }
       // The seat may have been taken before the room join failed; this tab is
       // not broadcasting, so give it back rather than lock out a retry.
       endSeat();
       error =
         startType === "private" && err instanceof LocalizedError
           ? err.message
-          : $t("dashboard.stream.startFailed", "Failed to start the stream.");
+          : startType !== "private" && err instanceof LocalizedError
+            ? err.message
+            : $t(
+                startType === "private"
+                  ? "dashboard.stream.startFailed"
+                  : "dashboard.stream.hostUnavailable",
+                startType === "private"
+                  ? "Failed to start the stream."
+                  : "Stream startup is temporarily unavailable. Please try again shortly.",
+              );
       privateResumeAvailable =
         startType === "private" &&
         err instanceof LocalizedError &&
