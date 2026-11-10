@@ -13,3 +13,4 @@ auth-mfa.spec.ts
 auth-resolving-flash.spec.ts
 billing-mobile-layout.spec.ts
 signup-session.spec.ts
+signup-sheet-geometry.spec.ts

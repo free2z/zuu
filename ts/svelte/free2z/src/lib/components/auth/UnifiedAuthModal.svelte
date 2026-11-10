@@ -6,7 +6,7 @@
 
 <script lang="ts">
   import ExistingMethodReauth from "./ExistingMethodReauth.svelte";
-  import { createEventDispatcher, onDestroy } from "svelte";
+  import { createEventDispatcher, onDestroy, onMount } from "svelte";
   import { z } from "zod";
   import {
     ACCOUNT_EXISTS_CODE,
@@ -74,6 +74,99 @@
   // app's sheet links to the plain rendering of the same documents instead.
   $: termsHref = sdkSheet ? "/docs/plain/legal/" : termsLink.href;
   const isDesktop = new MediaQuery("(min-width: 768px)");
+  // Mobile keyboards shrink visualViewport and leave the layout viewport
+  // alone. Same inset as MobileConverseComposer: bottom lifts by
+  // innerHeight - height - offsetTop, and the sheet height is the visual
+  // viewport minus 16px. Inline bottom/height/maxHeight are applied only
+  // while this sheet is open AND that inset is greater than 0. Writing them
+  // on every visualViewport event restarts vaul's slide.
+  let authSheetEl: HTMLElement | null = null;
+  let authKeyboardInset = 0;
+  let authVisibleHeight: number | null = null;
+  let authSheetStyle: string | undefined = undefined;
+  let appliedSheetKey = "";
+  let lastSheetNode: HTMLElement | null = null;
+  let stopAuthViewport: (() => void) | null = null;
+
+  type AuthKeyboardLift = { inset: number; height: number; cap: number };
+
+  function keyboardLift(): AuthKeyboardLift | null {
+    if (!open || isDesktop.current) return null;
+    const viewport = window.visualViewport;
+    if (!viewport) return null;
+    const inset = Math.round(
+      Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop),
+    );
+    if (inset <= 0) return null;
+    const height = Math.round(viewport.height);
+    return { inset, height, cap: Math.max(0, height - 16) };
+  }
+
+  function sheetKey(lift: AuthKeyboardLift | null) {
+    return lift ? `${lift.inset}:${lift.cap}` : "";
+  }
+
+  function sheetStyle(lift: AuthKeyboardLift | null) {
+    return lift
+      ? `bottom: ${lift.inset}px; height: ${lift.cap}px; max-height: ${lift.cap}px;`
+      : undefined;
+  }
+
+  function sheetStyleMatches(node: HTMLElement, lift: AuthKeyboardLift | null) {
+    if (!lift) {
+      return (
+        node.style.bottom === "" &&
+        node.style.height === "" &&
+        node.style.maxHeight === ""
+      );
+    }
+    return (
+      node.style.bottom === `${lift.inset}px` &&
+      node.style.height === `${lift.cap}px` &&
+      node.style.maxHeight === `${lift.cap}px`
+    );
+  }
+
+  function writeSheetStyle(node: HTMLElement, lift: AuthKeyboardLift | null) {
+    if (sheetStyleMatches(node, lift)) return;
+    if (!lift) {
+      node.style.bottom = "";
+      node.style.height = "";
+      node.style.maxHeight = "";
+      return;
+    }
+    node.style.bottom = `${lift.inset}px`;
+    node.style.height = `${lift.cap}px`;
+    node.style.maxHeight = `${lift.cap}px`;
+  }
+
+  function syncAuthViewport() {
+    if (!browser || destroyed) return;
+    const lift = keyboardLift();
+    const key = sheetKey(lift);
+    const node = authSheetEl instanceof HTMLElement ? authSheetEl : null;
+    if (key === appliedSheetKey && node === lastSheetNode) return;
+    const liftChanged = key !== appliedSheetKey;
+    appliedSheetKey = key;
+    lastSheetNode = node;
+    authKeyboardInset = lift?.inset ?? 0;
+    authVisibleHeight = lift ? lift.height : null;
+    authSheetStyle = sheetStyle(lift);
+    if (node) writeSheetStyle(node, lift);
+    // One frame later, only because the lift changed. While the keyboard is
+    // open this puts our inset back if vaul's repositionInputs overwrote it.
+    // When the keyboard closes it clears vaul's height once. Unchanged
+    // scroll/resize events return above and do not schedule this.
+    if (!liftChanged) return;
+    const beatKey = key;
+    requestAnimationFrame(() => {
+      if (destroyed || appliedSheetKey !== beatKey) return;
+      const current = keyboardLift();
+      if (sheetKey(current) !== beatKey) return;
+      const el = authSheetEl;
+      if (el instanceof HTMLElement) writeSheetStyle(el, current);
+    });
+  }
   const passwordStrengthColors = [
     "",
     "bg-red-500",
@@ -277,8 +370,26 @@
   }
 
   let destroyed = false;
+  onMount(() => {
+    if (!browser) return;
+    const viewport = window.visualViewport;
+    const media = window.matchMedia("(min-width: 768px)");
+    syncAuthViewport();
+    media.addEventListener("change", syncAuthViewport);
+    window.addEventListener("resize", syncAuthViewport);
+    viewport?.addEventListener("resize", syncAuthViewport);
+    viewport?.addEventListener("scroll", syncAuthViewport);
+    stopAuthViewport = () => {
+      media.removeEventListener("change", syncAuthViewport);
+      window.removeEventListener("resize", syncAuthViewport);
+      viewport?.removeEventListener("resize", syncAuthViewport);
+      viewport?.removeEventListener("scroll", syncAuthViewport);
+    };
+  });
   onDestroy(() => {
     destroyed = true;
+    stopAuthViewport?.();
+    stopAuthViewport = null;
     if (!browser) return;
     if (isRecaptchaPending) rejectRecaptcha("reCAPTCHA cancelled");
     else clearRecaptchaAttempt();
@@ -296,6 +407,14 @@
 
   // Props
   export let open = false;
+  // Re-sync when the sheet opens or closes. Viewport listeners cover the
+  // keyboard; this covers the open flag without writing on every scroll.
+  $: if (browser) {
+    open;
+    isDesktop.current;
+    authSheetEl;
+    syncAuthViewport();
+  }
   export let initialView: InitialModalView = "login";
   /**
    * Already-translated copy shown above the login form explaining why the
@@ -900,18 +1019,22 @@
         {/if}
 
         <!-- Submit Button -->
-        <Button
-          type="submit"
-          class="w-full"
-          disabled={isLoading || !username || !password}
+        <div
+          class="sticky bottom-0 z-10 -mx-4 bg-background px-4 py-2 md:mx-0 md:px-0"
         >
-          {#if isLoading}
-            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {$t("auth.signingIn")}
-          {:else}
-            {$t("auth.logIn")}
-          {/if}
-        </Button>
+          <Button
+            type="submit"
+            class="w-full"
+            disabled={isLoading || !username || !password}
+          >
+            {#if isLoading}
+              <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+              {$t("auth.signingIn")}
+            {:else}
+              {$t("auth.logIn")}
+            {/if}
+          </Button>
+        </div>
 
         <!-- Sign up link -->
         <p class="mt-0 text-center text-sm text-(--f2z-text-secondary)">
@@ -1098,18 +1221,22 @@
         {/if}
 
         <!-- Submit Button -->
-        <Button
-          type="submit"
-          class="w-full"
-          disabled={isLoading || !username || !password || !confirmPassword}
+        <div
+          class="sticky bottom-0 z-10 -mx-4 bg-background px-4 py-2 md:mx-0 md:px-0"
         >
-          {#if isLoading}
-            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {$t("auth.creatingAccount")}
-          {:else}
-            {$t("auth.signUp")}
-          {/if}
-        </Button>
+          <Button
+            type="submit"
+            class="w-full"
+            disabled={isLoading || !username || !password || !confirmPassword}
+          >
+            {#if isLoading}
+              <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+              {$t("auth.creatingAccount")}
+            {:else}
+              {$t("auth.signUp")}
+            {/if}
+          </Button>
+        </div>
 
         <!-- Login link -->
         <p class="mt-0 text-center text-sm text-(--f2z-text-secondary)">
@@ -1159,18 +1286,22 @@
         {/if}
 
         <!-- Submit Button -->
-        <Button
-          type="submit"
-          class="w-full"
-          disabled={isLoading || !resetEmail}
+        <div
+          class="sticky bottom-0 z-10 -mx-4 bg-background px-4 py-2 md:mx-0 md:px-0"
         >
-          {#if isLoading}
-            <Loader2 class="mr-2 h-4 w-4 animate-spin" />
-            {$t("auth.sending")}
-          {:else}
-            {$t("auth.sendResetLink")}
-          {/if}
-        </Button>
+          <Button
+            type="submit"
+            class="w-full"
+            disabled={isLoading || !resetEmail}
+          >
+            {#if isLoading}
+              <Loader2 class="mr-2 h-4 w-4 animate-spin" />
+              {$t("auth.sending")}
+            {:else}
+              {$t("auth.sendResetLink")}
+            {/if}
+          </Button>
+        </div>
 
         <!-- Back to login -->
         <p class="mt-0 text-center text-sm text-(--f2z-text-secondary)">
@@ -1210,19 +1341,23 @@
           </div>
         {/if}
 
-        <Button
-          type="button"
-          class="w-full gap-2"
-          onclick={handleSubmit}
-          disabled={isLoading}
+        <div
+          class="sticky bottom-0 z-10 -mx-4 bg-background px-4 py-2 md:mx-0 md:px-0"
         >
-          {#if isLoading}
-            <Loader2 class="h-4 w-4 animate-spin" />
-            {$t("auth.confirming")}
-          {:else}
-            {$t("auth.confirmEmail")}
-          {/if}
-        </Button>
+          <Button
+            type="button"
+            class="w-full gap-2"
+            onclick={handleSubmit}
+            disabled={isLoading}
+          >
+            {#if isLoading}
+              <Loader2 class="h-4 w-4 animate-spin" />
+              {$t("auth.confirming")}
+            {:else}
+              {$t("auth.confirmEmail")}
+            {/if}
+          </Button>
+        </div>
       </div>
     {/if}
 
@@ -1266,7 +1401,8 @@
     }}
   >
     <Dialog.Content
-      class="flex max-h-[90vh] flex-col gap-0 overflow-y-auto sm:max-w-[425px]"
+      data-testid="auth-sheet"
+      class="flex max-h-[90vh] min-h-0 scroll-pb-16 flex-col gap-0 overflow-y-auto sm:max-w-[425px]"
       interactOutsideBehavior={isRecaptchaPending ? "ignore" : "close"}
       escapeKeydownBehavior={isRecaptchaPending ? "ignore" : "close"}
       showCloseButton={!isRecaptchaPending}
@@ -1290,8 +1426,19 @@
       if (!v) dispatch("close");
     }}
   >
-    <Drawer.Content class="flex max-h-[90vh] flex-col gap-0 overflow-y-auto">
-      <Drawer.Header class="p-6 pb-2 text-start">
+    <Drawer.Content
+      bind:ref={authSheetEl}
+      data-testid="auth-sheet"
+      data-auth-keyboard-inset={authVisibleHeight === null
+        ? undefined
+        : String(authKeyboardInset)}
+      data-auth-visible-height={authVisibleHeight === null
+        ? undefined
+        : String(authVisibleHeight)}
+      style={authSheetStyle}
+      class="flex max-h-[100dvh] flex-col gap-0 overflow-hidden pb-[env(safe-area-inset-bottom)] data-[vaul-drawer-direction=bottom]:mt-0 data-[vaul-drawer-direction=bottom]:max-h-[100dvh]"
+    >
+      <Drawer.Header class="shrink-0 p-6 pb-2 text-start">
         <Drawer.Title>
           {@render AuthTitleText()}
         </Drawer.Title>
@@ -1299,8 +1446,19 @@
           {$t("auth.authentication", "Authentication")}
         </Drawer.Description>
       </Drawer.Header>
-      {@render AuthBody()}
-      <Drawer.Footer class="pt-2">
+      <div
+        class="min-h-0 flex-1 touch-pan-y scroll-pb-16 overflow-x-hidden overflow-y-auto overscroll-contain"
+        data-vaul-no-drag=""
+        data-testid="auth-sheet-scroll"
+        on:focusin={(event) => {
+          const target = event.target;
+          if (!(target instanceof HTMLElement)) return;
+          target.scrollIntoView({ block: "nearest", inline: "nearest" });
+        }}
+      >
+        {@render AuthBody()}
+      </div>
+      <Drawer.Footer class="shrink-0 pt-2">
         <Drawer.Close disabled={isRecaptchaPending}
           >{$t("common.cancel", "Cancel")}</Drawer.Close
         >
@@ -1312,5 +1470,12 @@
 <style>
   :global(.grecaptcha-badge) {
     visibility: hidden;
+  }
+
+  /* vaul sets touch-action: none on the drawer. Descendants cannot turn
+     panning back on, so this sheet opts the root back into vertical pan
+     and the scrollport handles the gesture (data-vaul-no-drag). */
+  :global([data-testid="auth-sheet"][data-vaul-drawer]) {
+    touch-action: pan-y;
   }
 </style>

@@ -128,6 +128,15 @@ async function assertSharpImagePaint(page: Page) {
   ).toBeGreaterThan(100);
 }
 
+function isZeroTranslation(value: string) {
+  if (value === "none" || value === "") return true;
+  const parts = value.trim().split(/\s+/);
+  return (
+    parts.length > 0 &&
+    parts.every((part) => /^0(?:\.0+)?(?:px|%)?$/.test(part))
+  );
+}
+
 async function assertDialogGeometry(page: Page, imagePath: string) {
   const dialog = page.getByTestId("markdown-image-lightbox");
   await expect(dialog).toBeVisible();
@@ -160,6 +169,7 @@ async function assertDialogGeometry(page: Page, imagePath: string) {
         bottom: dialogRect.bottom,
       },
       viewport: { width: innerWidth, height: innerHeight },
+      translate: getComputedStyle(dialog).translate,
       objectFit: style.objectFit,
       documentWidth: document.documentElement.scrollWidth,
       bodyWidth: document.body.scrollWidth,
@@ -186,6 +196,10 @@ async function assertDialogGeometry(page: Page, imagePath: string) {
   expect(geometry.dialog.top).toBe(0);
   expect(geometry.dialog.right).toBe(geometry.viewport.width);
   expect(geometry.dialog.bottom).toBe(geometry.viewport.height);
+  expect(
+    isZeroTranslation(geometry.translate),
+    `lightbox translate should be none or zero, got ${JSON.stringify(geometry.translate)}`,
+  ).toBe(true);
   expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewport.width);
   expect(geometry.bodyWidth).toBeLessThanOrEqual(geometry.viewport.width);
   expect(geometry.bodyOverflow).toBe("hidden");
