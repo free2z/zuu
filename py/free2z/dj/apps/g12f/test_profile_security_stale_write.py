@@ -886,10 +886,21 @@ def test_two_reset_tokens_for_one_creator_cannot_both_win(
     ]
     passwords = ["first-long-enough-password", "second-long-enough-password"]
     ready_for_account_lock = threading.Barrier(2)
+    lock_attempt = threading.local()
     original_get = QuerySet.get
 
     def synchronize_account_lock(queryset, *args, **kwargs):
-        if queryset.model is Creator and queryset.query.select_for_update:
+        if (
+            queryset.model is Creator
+            and queryset.query.select_for_update
+            and kwargs.get("pk") == user.pk
+            and not getattr(lock_attempt, "entered", False)
+        ):
+            # Race the FIRST attempt on each connection. TOTP probes can
+            # reacquire this row inside the winning transaction; waiting at
+            # the barrier again would strand it behind the other worker,
+            # which is already waiting for the winner's database lock.
+            lock_attempt.entered = True
             ready_for_account_lock.wait(timeout=10)
         return original_get(queryset, *args, **kwargs)
 

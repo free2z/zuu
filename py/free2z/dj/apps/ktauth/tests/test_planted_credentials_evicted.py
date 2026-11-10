@@ -32,7 +32,6 @@ a passwordless creator's only login method must still sign them in ('s
 """
 
 import threading
-from unittest import mock
 
 import pytest
 from django.conf import settings
@@ -1340,74 +1339,89 @@ def test_foreign_x_identity_never_refreshes_the_signed_in_victims_auth(
 # --------------------------------------------------------------------------- #
 
 
-@pytest.mark.django_db(transaction=True)
-def test_a_token_minted_during_the_revocation_window_cannot_authenticate(
-    google_configured, mocker,
-):
-    """The interleaving itself, on two real connections. Not an approximation.
+def _issue_after_committed_ownership_event(owner, event, login, mocker):
+    """Keep the real validating snapshot, but insert only after revocation.
 
-    A sequential "issue then revoke" proves nothing about this race: 's
-    revocation is an enumerate-then-delete, and what defeats it is a row
-    committed *after* the enumeration. So the login is paused between its
-    identity read and ``AuthToken.objects.create()`` -- exactly where
-    ``py/dj/apps/social/views.py`` sits when the sweep runs -- the ownership
-    event is committed on the main connection, and only then is the login let
-    go. The token it returns is a row the sweep could not have seen.
+    Issuers retain the account lock through insertion now. Park BEFORE that
+    lock, not at AuthToken.create: an event cannot commit while another
+    transaction holds its account row. This still exercises the late-insert
+    window that a point-in-time sweep cannot cover.
     """
-    _mock_exchange(mocker)
-    first = _social_login(APIClient(), mocker)
-    assert first.status_code == 200, first.content
-    creator = SocialIdentity.objects.get(provider_uid=GOOGLE_UID).creator
-    # Give the account a usable password: a passwordless account is exempt
-    # from the identity check (see the control above), and this test is about
-    # the token race, not the identity.
-    Creator.objects.filter(pk=creator.pk).update(
-        password=make_password("password"), password_set=True,
-    )
-    AuthToken.objects.filter(user=creator).delete()
+    from dj.apps.otp import utils as otp_utils
 
-    at_the_insert = threading.Event()
-    let_it_commit = threading.Event()
-    real_create = AuthToken.objects.create
-
-    def paused_create(user, *args, **kwargs):
-        at_the_insert.set()
-        assert let_it_commit.wait(30), "the ownership event never committed"
-        return real_create(user, *args, **kwargs)
-
-    mocker.patch.object(AuthToken.objects, "create", paused_create)
-
+    at_snapshot = threading.Event()
+    event_committed = threading.Event()
     result = {}
+    real_lock_factor = otp_utils.lock_factor
+    real_create = AuthToken.objects.create
+    stale_epoch = Creator.objects.get(pk=owner.pk).kt_account_epoch
+
+    def paused_lock_factor(user):
+        assert user.pk == owner.pk
+        assert user.kt_account_epoch == stale_epoch
+        at_snapshot.set()
+        assert event_committed.wait(30), "the ownership event never committed"
+        return real_lock_factor(user)
+
+    def late_create(user, *args, **kwargs):
+        assert event_committed.is_set(), "token insert preceded revocation"
+        instance, raw = real_create(user, *args, **kwargs)
+        result["digest"] = instance.pk
+        return instance, raw
+
+    mocker.patch.object(otp_utils, "lock_factor", paused_lock_factor)
+    mocker.patch.object(AuthToken.objects, "create", late_create)
 
     def racing_login():
         try:
-            result["response"] = _social_login(APIClient(), mocker)
+            result["response"] = login()
+        except Exception as exc:  # reported on the test thread, never hidden
+            result["error"] = exc
         finally:
             connection.close()
 
     login_thread = threading.Thread(target=racing_login)
     login_thread.start()
     try:
-        assert at_the_insert.wait(30), "the login never reached token issuance"
-        # The sweep runs and COMMITS while the login is parked one statement
-        # short of its INSERT.
-        epoch.bump_account_epoch(
-            creator.pk, event=epoch.EVENT_SOCIAL_IDENTITY_UNLINKED,
-        )
+        assert at_snapshot.wait(30), "the login never validated its credential"
+        epoch.bump_account_epoch(owner.pk, event=event)
+        event_committed.set()
     finally:
-        let_it_commit.set()
+        # Unblock and join even if event execution failed; the originating
+        # assertion/exception still fails the test, rather than leaking a worker.
+        event_committed.set()
         login_thread.join(timeout=60)
     assert not login_thread.is_alive()
+    assert "error" not in result, result.get("error")
 
     response = result["response"]
-    # status-negation-ok: a fix that refuses to issue at all is also a pass --
-    # nothing was handed out, so nothing survived the event.
-    if response.status_code != 200:
-        return
-    raced_token = response.data["token"]
+    assert response.status_code == 200, response.content
+    # The event really committed, the sweep missed the late row, and the
+    # issuer did not launder the authenticating snapshot into the NEW epoch.
+    assert Creator.objects.get(pk=owner.pk).kt_account_epoch == stale_epoch + 1
+    assert AuthToken.objects.filter(pk=result["digest"]).exists()
+    assert IssuedTokenEpoch.objects.get(token_id=result["digest"]).account_epoch == stale_epoch
+    return response.data["token"]
 
-    # OUTCOME: the token the evicted principal walked away with authenticates
-    # nothing. Any authenticated route will do; this one is the cheapest.
+
+@pytest.mark.django_db(transaction=True)
+def test_a_token_minted_during_the_revocation_window_cannot_authenticate(
+    google_configured, mocker,
+):
+    """A real social-login insert after a committed sweep is still refused."""
+    _mock_exchange(mocker)
+    first = _social_login(APIClient(), mocker)
+    assert first.status_code == 200, first.content
+    creator = SocialIdentity.objects.get(provider_uid=GOOGLE_UID).creator
+    Creator.objects.filter(pk=creator.pk).update(
+        password=make_password("password"), password_set=True,
+    )
+    AuthToken.objects.filter(user=creator).delete()
+
+    raced_token = _issue_after_committed_ownership_event(
+        creator, epoch.EVENT_SOCIAL_IDENTITY_UNLINKED,
+        lambda: _social_login(APIClient(), mocker), mocker,
+    )
     probe = _token_client(raced_token).get("/api/auth/user/")
     assert probe.status_code in (401, 403), probe.content
 
@@ -1525,59 +1539,14 @@ def test_every_knox_token_is_stamped_including_the_ones_knox_mints_itself(
 
 
 @pytest.mark.django_db(transaction=True)
-def test_the_knox_login_view_race_also_yields_a_dead_token(creator_factory):
-    """The same interleaving on ``/api/token/login/`` -- knox's own issuer.
-
-    Raised by the codex adversarial review of this change, and it is a
-    different code path with a different failure: the two login views in this
-    repo stamp from their own validating snapshot, but knox's view is
-    third-party and gets its stamp from the ``post_save`` receiver, which
-    necessarily reads the counter AFTER the insert. One statement too late --
-    the attacker starts the POST at epoch N, the event commits to N+1, and the
-    receiver would stamp the brand-new token N+1.
-
-    Two real connections, as above; the issuer is parked between authenticating
-    the caller and inserting the token.
-    """
+def test_the_knox_login_view_race_also_yields_a_dead_token(creator_factory, mocker):
+    """The authenticated snapshot must also survive Knox's late-insert race."""
     owner = creator_factory(username="knoxrace")
     _instance, caller_token = AuthToken.objects.create(owner)
 
-    at_the_insert = threading.Event()
-    let_it_commit = threading.Event()
-    real_create = AuthToken.objects.create
-
-    def paused_create(user, *args, **kwargs):
-        at_the_insert.set()
-        assert let_it_commit.wait(30), "the ownership event never committed"
-        return real_create(user, *args, **kwargs)
-
-    result = {}
-
-    def racing_login():
-        try:
-            client = APIClient()
-            client.credentials(HTTP_AUTHORIZATION=f"Token {caller_token}")
-            result["response"] = client.post("/api/token/login/")
-        finally:
-            connection.close()
-
-    with mock.patch.object(AuthToken.objects, "create", paused_create):
-        login_thread = threading.Thread(target=racing_login)
-        login_thread.start()
-        try:
-            assert at_the_insert.wait(30), "never reached token issuance"
-            epoch.bump_account_epoch(
-                owner.pk, event=epoch.EVENT_PASSWORD_CHANGE,
-            )
-        finally:
-            let_it_commit.set()
-            login_thread.join(timeout=60)
-    assert not login_thread.is_alive()
-
-    response = result["response"]
-    # status-negation-ok: a refusal to issue is a pass; only an issued token
-    # has to be probed below.
-    if response.status_code != 200:
-        return
-    probe = _token_client(response.data["token"]).get("/api/auth/user/")
+    raced_token = _issue_after_committed_ownership_event(
+        owner, epoch.EVENT_PASSWORD_CHANGE,
+        lambda: _token_client(caller_token).post("/api/token/login/"), mocker,
+    )
+    probe = _token_client(raced_token).get("/api/auth/user/")
     assert probe.status_code in (401, 403), probe.content
