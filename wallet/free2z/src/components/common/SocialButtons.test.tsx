@@ -12,10 +12,13 @@ import { SocialButtons } from "./SocialButtons";
 const useSocialProvidersMock = vi.mocked(useSocialProviders);
 const reload = vi.fn();
 
-function render(associate = false): string {
+function render(
+  associate = false,
+  alreadyLinked: Array<"x" | "google" | "github"> = [],
+): string {
   return renderToStaticMarkup(
     <MemoryRouter>
-      <SocialButtons associate={associate} />
+      <SocialButtons associate={associate} alreadyLinked={alreadyLinked} />
     </MemoryRouter>,
   );
 }
@@ -47,6 +50,16 @@ describe("SocialButtons provider availability", () => {
       reload,
     });
     expect(render(true)).toContain("Link X");
+  });
+
+  it("suppresses the Link action for an authoritative already-linked provider", () => {
+    useSocialProvidersMock.mockReturnValue({
+      providers: ["x"],
+      loading: false,
+      error: null,
+      reload,
+    });
+    expect(render(true, ["x"])).not.toContain("Link X");
   });
 
   it("uses the empty product state only for valid all-unconfigured", () => {

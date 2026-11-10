@@ -889,12 +889,15 @@ export const auth = {
       can_stream: u.can_stream ?? false,
       is_verified: u.is_verified ?? false,
       tuzis: u.tuzis ? Math.floor(Number(u.tuzis)) : 0,
-      zcash_identity_linked: u.zcash_identity_linked === true,
+      zcash_identity_linked:
+        typeof u.zcash_identity_linked === "boolean"
+          ? u.zcash_identity_linked
+          : undefined,
       social_identities: Array.isArray(u.social_identities)
         ? u.social_identities.filter((provider): provider is SocialProvider =>
             SOCIAL_PROVIDERS.includes(provider as SocialProvider),
           )
-        : [],
+        : undefined,
     };
   },
 
