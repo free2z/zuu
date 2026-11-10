@@ -585,6 +585,11 @@ def content_revision(card, now_unix=None) -> int:
         ).aggregate(t=Max("price_valid_until"))["t"]
         if expired is not None:
             stamps.append(expired - datetime.timedelta(seconds=VALIDITY_SECONDS))
+        from f2z.ai.retirements import RETIREMENTS
+        for entry in RETIREMENTS:
+            withdrawal = entry.cutoff - datetime.timedelta(seconds=VALIDITY_SECONDS)
+            if withdrawal <= now:
+                stamps.append(withdrawal)
     return max((_micros(s) for s in stamps if s is not None), default=0)
 
 
@@ -660,6 +665,10 @@ def _build_catalog_in_snapshot(now_unix: int, *, schema: int = 1) -> dict:
                 extra={"event": "ai_catalog_model_intentionally_excluded", "model": ai_model.model,
                        "provider": ai_model.provider, "reason": exclusion},
             )
+            continue
+        from f2z.ai.retirements import retirement_for
+        retirement = retirement_for(ai_model.provider, ai_model.model, ai_model.provider_model_id)
+        if retirement is not None and int(retirement.cutoff.timestamp()) <= price_horizon:
             continue
         if ai_model.price_valid_until is not None:
             expiry = int(ai_model.price_valid_until.timestamp())
