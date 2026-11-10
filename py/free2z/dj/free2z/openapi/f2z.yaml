@@ -16482,7 +16482,8 @@ components:
           type: string
           maxLength: 255
         admission_minimum_tuzis:
-          type: string
+          type: integer
+          nullable: true
           readOnly: true
       required:
       - admission_minimum_tuzis

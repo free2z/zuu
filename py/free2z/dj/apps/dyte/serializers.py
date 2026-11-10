@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from dj.apps.economy.serializers import ActorIDField
 from .models import CreatorMeeting, PUBLIC_MEETING_TYPES
 
@@ -53,6 +54,7 @@ class PublicMeetingListSerializer(serializers.ModelSerializer):
     )
     admission_minimum_tuzis = serializers.SerializerMethodField()
 
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
     def get_admission_minimum_tuzis(self, obj):
         if obj.meeting_type != 'ppv':
             return None
