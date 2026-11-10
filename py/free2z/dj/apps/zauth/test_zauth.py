@@ -60,11 +60,9 @@ def _get_challenge(api_client, address=TADDR):
 
 
 @pytest.mark.django_db
-def test_generated_username_avoids_case_insensitive_collision():
-    base = username_for_address(TADDR)
-    Creator.objects.create(username=base.upper())
-
-    assert username_for_address(TADDR) == base + "1"
+def test_generated_username_is_readable():
+    import re
+    assert re.fullmatch(r"[a-z]+-[a-z]+-[0-9]{6}", username_for_address(TADDR))
 
 
 @pytest.mark.django_db
@@ -328,3 +326,155 @@ def test_associate_conflict_when_address_owned_by_other(
 def test_challenge_requires_address(api_client):
     resp = api_client.post("/api/auth/zcash/challenge/", {}, format="json")
     assert resp.status_code == 400, resp.content
+
+
+def _username_login(client, address=TADDR, **choice):
+    challenge = _get_challenge(client, address)
+    return client.post("/api/auth/zcash/login/", {
+        "address": address, "challenge": challenge, "signature": "fixture",
+        **choice,
+    }, format="json")
+
+
+@pytest.mark.django_db
+def test_username_choice_requires_proof_and_preserves_returning_identity(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    response = _username_login(api_client, choose_username=True)
+    assert response.status_code == 409
+    assert response.data["code"] == "username_required"
+    assert not ZcashIdentity.objects.filter(zcash_address=TADDR).exists()
+    response = _username_login(api_client, choose_username=True, desired_username="  Ａlice  ")
+    assert response.status_code == 200
+    assert response.data["username"] == "Alice"
+    response = _username_login(api_client, choose_username=True, desired_username="different")
+    assert response.status_code == 200
+    assert response.data["username"] == "Alice"
+    assert response.data["created"] is False
+
+
+@pytest.mark.django_db
+def test_username_availability_and_creation_use_same_policy(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    Creator.objects.create(username="AlreadyTaken")
+    for value, expected in [("alreadytaken", "taken"), ("API", "invalid"), ("bad/name", "invalid"), ("Fresh", "available")]:
+        response = api_client.get("/api/auth/zcash/username-available/", {"username": value})
+        assert response.status_code == 200
+        assert response.data["status"] == expected
+        if expected != "available":
+            response = _username_login(api_client, choose_username=True, desired_username=value)
+            assert response.status_code == 409
+            assert response.data["code"] == "username_" + expected
+            assert not ZcashIdentity.objects.filter(zcash_address=TADDR).exists()
+    response = _username_login(api_client, choose_username=True, desired_username="")
+    assert response.status_code == 200
+    assert response.data["created"] is True
+
+
+@pytest.mark.django_db
+def test_failed_signature_cannot_probe_identity_or_create(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=False)
+    response = _username_login(api_client, choose_username=True)
+    assert response.status_code == 401
+    assert not ZcashIdentity.objects.filter(zcash_address=TADDR).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_claims_for_same_name_leave_one_identity(mocker):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from django.db import close_old_connections
+    from rest_framework.test import APIClient
+    from dj.apps.zauth import views
+
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    barrier = Barrier(2)
+    original = views.username_status
+
+    def simultaneous_status(value):
+        result = original(value)
+        if result[1] == "available":
+            barrier.wait(timeout=10)
+        return result
+
+    mocker.patch("dj.apps.zauth.views.username_status", side_effect=simultaneous_status)
+
+    def claim(address):
+        close_old_connections()
+        try:
+            response = _username_login(APIClient(), address, choose_username=True, desired_username="RacingName")
+            return response.status_code, response.data.get("code")
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(claim, (TADDR, VECTOR_ADDRESS)))
+    assert sorted(code for code, _ in outcomes) == [200, 409]
+    assert (409, "username_taken") in outcomes
+    assert Creator.objects.filter(username__iexact="racingname").count() == 1
+    assert ZcashIdentity.objects.filter(zcash_address__in=[TADDR, VECTOR_ADDRESS]).count() == 1
+    assert Creator.objects.count() == 1
+    assert AuthToken.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_returning_identity_ignores_invalid_desired_username(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    created = _username_login(api_client, desired_username="Owner")
+    assert created.status_code == 200
+    identity = ZcashIdentity.objects.get(zcash_address=TADDR)
+    response = _username_login(api_client, choose_username=True, desired_username="bad/name")
+    assert response.status_code == 200
+    assert response.data["username"] == "Owner"
+    identity.refresh_from_db()
+    assert identity.creator.username == "Owner"
+    malformed = _username_login(api_client, choose_username=True, desired_username=["bad"])
+    assert malformed.status_code == 400
+    identity.refresh_from_db()
+    assert identity.creator.username == "Owner"
+
+
+@pytest.mark.django_db
+def test_taken_choice_consumes_proof_and_fresh_proof_can_create(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    Creator.objects.create(username="Taken")
+    challenge = _get_challenge(api_client)
+    body = {"address": TADDR, "challenge": challenge, "signature": "fixture", "choose_username": True, "desired_username": "taken"}
+    assert api_client.post("/api/auth/zcash/login/", body, format="json").data["code"] == "username_taken"
+    body["desired_username"] = "Fresh"
+    assert api_client.post("/api/auth/zcash/login/", body, format="json").status_code != 200
+    assert _username_login(api_client, choose_username=True, desired_username="Fresh").status_code == 200
+
+
+@pytest.mark.django_db
+def test_generated_collision_retries_and_creates_one_identity(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    Creator.objects.create(username="amber-otter-123456")
+    generator = mocker.patch("dj.apps.zauth.views.username_for_address", side_effect=["amber-otter-123456", "quiet-river-123456"])
+    response = _username_login(api_client, choose_username=True, desired_username="")
+    assert response.status_code == 200
+    assert response.data["username"] == "quiet-river-123456"
+    assert generator.call_count == 2
+    assert ZcashIdentity.objects.filter(zcash_address=TADDR).count() == 1
+
+
+@pytest.mark.django_db
+def test_choice_prompt_consumes_proof(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    challenge = _get_challenge(api_client)
+    body = {"address": TADDR, "challenge": challenge, "signature": "fixture", "choose_username": True}
+    assert api_client.post("/api/auth/zcash/login/", body, format="json").data["code"] == "username_required"
+    body["desired_username"] = "Fresh"
+    assert api_client.post("/api/auth/zcash/login/", body, format="json").status_code != 200
+    assert _username_login(api_client, choose_username=True, desired_username="Fresh").status_code == 200
+
+
+@pytest.mark.django_db
+def test_generated_collision_retries_are_bounded(api_client, mocker):
+    mocker.patch("dj.apps.zauth.views.verify_zcash_signature", return_value=True)
+    Creator.objects.create(username="amber-otter-123456")
+    generator = mocker.patch("dj.apps.zauth.views.username_for_address", return_value="amber-otter-123456")
+    response = _username_login(api_client, choose_username=True, desired_username="")
+    assert response.status_code == 503
+    assert generator.call_count == 3
+    assert not ZcashIdentity.objects.filter(zcash_address=TADDR).exists()
+    assert AuthToken.objects.count() == 0

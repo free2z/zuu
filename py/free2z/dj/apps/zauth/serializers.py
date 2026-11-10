@@ -56,6 +56,8 @@ class ZcashLoginRequestSerializer(serializers.Serializer):
         trim_whitespace=False,
         required=False,
     )
+    choose_username = serializers.BooleanField(required=False, default=False, help_text="Request a choice after proving a new identity. The proof is consumed on a choice or refusal; obtain a fresh challenge for each retry.")
+    desired_username = StrictCharField(required=False, allow_blank=True, max_length=150, help_text="Optional create-only username; empty selects a generated name. Existing identities retain their username.")
     otp_token = StrictCharField(
         max_length=10,
         trim_whitespace=False,
@@ -79,3 +81,13 @@ class ZcashLoginResponseSerializer(serializers.Serializer):
 
 class ZcashAuthErrorSerializer(serializers.Serializer):
     detail = serializers.CharField()
+
+
+class UsernameAvailabilityResponseSerializer(serializers.Serializer):
+    username = serializers.CharField(allow_null=True)
+    status = serializers.ChoiceField(choices=["available", "taken", "invalid"])
+
+
+class ZcashConflictSerializer(serializers.Serializer):
+    detail = serializers.CharField(required=False)
+    code = serializers.ChoiceField(choices=["username_required", "username_taken", "username_invalid"], required=False)

@@ -28,7 +28,7 @@ from dj.apps.g12f.captcha import (
     verify_captcha_response,
 )
 from dj.apps.g12f.models import Creator, zPage, Subscription
-from dj.apps.g12f.usernames import is_forbidden_username
+from dj.apps.g12f.usernames import is_forbidden_username, username_status
 from dj.apps.emails.models import PasswordResetToken
 from dj.apps.ktauth.epoch import EVENT_PASSWORD_CHANGE, bump_account_epoch
 from dj.apps.uploads.models import GenericFile
@@ -311,13 +311,12 @@ class RegistrationSerializer(serializers.ModelSerializer):
         fields = ['username', 'password']
 
     def validate_username(self, value):
-        if Creator.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError(
-                "A user with that username already exists!")
-        if is_forbidden_username(value):
-            raise serializers.ValidationError(
-                "System reserved name, please choose another!")
-        return value
+        username, result = username_status(value)
+        if result == "taken":
+            raise serializers.ValidationError("A user with that username already exists!")
+        if result != "available":
+            raise serializers.ValidationError("System reserved or invalid name, please choose another!")
+        return username
 
     def validate_password(self, value):
         password_validation.validate_password(value, Creator)
