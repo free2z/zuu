@@ -330,7 +330,8 @@ def zpage_language_provenance(sender, instance, **kwargs):
     if instance.pk:
         previous = (
             zPage.objects.filter(pk=instance.pk)
-            .values("source_language", "language_source", "title", "content")
+            .values("source_language", "language_source",
+                    "language_detection_path", "title", "content")
             .first()
         )
 
@@ -342,6 +343,15 @@ def zpage_language_provenance(sender, instance, **kwargs):
         )
         if relabelled:
             instance.language_source = LANGUAGE_SOURCE_CREATOR
+            instance.language_detection_path = None
+            instance._language_detection_path_cleared = True
+        elif (
+            not getattr(instance, "_language_write_is_detection", False)
+            and instance.language_source != previous["language_source"]
+            and previous["language_detection_path"] is not None
+        ):
+            instance.language_detection_path = None
+            instance._language_detection_path_cleared = True
             instance._language_relabelled_by_writer = True
 
     if instance.language_source == LANGUAGE_SOURCE_CREATOR:
@@ -378,18 +388,24 @@ def zpage_language_detection(sender, instance, created, **kwargs):
     if kwargs.get("raw"):
         return
 
-    if getattr(instance, "_language_relabelled_by_writer", False):
+    if (getattr(instance, "_language_relabelled_by_writer", False)
+            or getattr(instance, "_language_detection_path_cleared", False)):
         instance._language_relabelled_by_writer = False
+        instance._language_detection_path_cleared = False
         update_fields = kwargs.get("update_fields")
         if update_fields is not None and (
             "language_source" not in update_fields
+            or "language_detection_path" not in update_fields
         ):
             # `update_fields` is a frozenset by the time a signal sees it, so
             # the value set in pre_save would silently not be written. A
             # targeted UPDATE is the only way to make the provenance stick --
             # and it fires no signals, so it cannot recurse.
             zPage.objects.filter(pk=instance.pk).update(
-                language_source=LANGUAGE_SOURCE_CREATOR
+                **({"language_source": LANGUAGE_SOURCE_CREATOR}
+                   if getattr(instance, "language_source", None)
+                   == LANGUAGE_SOURCE_CREATOR else {}),
+                language_detection_path=None
             )
 
     if getattr(instance, "_detect_language_after_commit", False):

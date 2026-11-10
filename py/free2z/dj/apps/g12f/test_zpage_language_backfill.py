@@ -304,8 +304,10 @@ def test_execute_labels_the_corpus_in_one_call(creator_factory, cheap_model,
         page.refresh_from_db()
         assert page.source_language == "en"
         assert page.language_source == LANGUAGE_SOURCE_DETECTED
+        assert page.language_detection_path == "batch"
     spanish.refresh_from_db()
     assert spanish.source_language == "es"
+    assert spanish.language_detection_path == "batch"
     assert "unlabelled zPages remaining: 0" in output
 
 

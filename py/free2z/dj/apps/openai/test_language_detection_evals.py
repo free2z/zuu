@@ -111,11 +111,14 @@ ACCURACY_FLOORS = {}
 #(sr vs sr-Cyrl). Both differ from gold by a script subtag alone, and in
 #both the BCP-47 convention and the more explicit tag are defensible
 #answers that no instruction currently chooses between.
+# The mixed Serbian case has the same script-only ambiguity while its body is
+# mostly Cyrillic and its opening segment is Latin.
 SAMPLES_WITH_ACCEPTED_ALTERNATIVES = frozenset({
     "hi-romanized-1",
     "ur-romanized-1",
     "sr-cyrl-clean-1",
     "sr-cyrl-short-1",
+    "sr-mixed-latn-opening-cyrl-body-1",
 })
 
 
@@ -318,6 +321,43 @@ def test_batch_window_reaches_the_majority_language_after_an_opening_quote():
             f"{sample.id}: batch evidence lacks markers for its majority "
             f"language {sample.gold}"
         )
+
+
+def test_serbian_mixed_opening_and_script_sampling_are_pinned():
+    sample = corp.by_id("sr-mixed-latn-opening-cyrl-body-1")
+    assert sample.segments[0][0] == "sr-Latn"
+    assert sample.gold == "sr"
+    assert lang.first_sentences(sample.title, sample.content).startswith(
+        "Kratka beleška"
+    )
+    assert "Хлеб" in ev.live_evidence(sample)
+    retention = ev.marker_retention(sample)
+    assert retention.in_live >= 2
+    assert retention.in_batch >= 2
+    short = corp.by_id("sr-latn-brief-1")
+    assert len(short.text) < lang.SPARSE_SAMPLE_CHARS
+    assert ev.batch_evidence(short) == "Vreme. Posle podne"
+    short_retention = ev.marker_retention(short)
+    assert short_retention.in_live >= 2
+    assert short_retention.in_batch >= 2
+
+
+@pytest.mark.parametrize(("label", "sample", "expected"), [
+    ("sr-Cyrl", "Хлеб и млеко. " + "текст " * 30, False),
+    ("sr-Cyrl", "Latin prose " * 30, True),
+    ("sr-Latn", "Latin prose " * 30, False),
+    ("sr-Latn", "Текст " * 30, True),
+    ("sr", "short", None),
+    ("zh-Hant", "Latin prose " * 30, None),
+])
+def test_script_mismatch_heuristic_case_and_unknown_controls(
+    label, sample, expected,
+):
+    from dj.apps.g12f.management.commands.analyze_zpage_language_labels import (
+        script_mismatch,
+    )
+
+    assert script_mismatch(label, sample) is expected
 
 
 ORDINARY_SAMPLES = tuple(
