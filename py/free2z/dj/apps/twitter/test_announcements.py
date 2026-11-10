@@ -291,6 +291,70 @@ def test_kill_switch_off_records_nothing(settings, creator_factory):
 
 
 @pytest.mark.django_db
+def test_kind_flag_suppresses_existing_row_without_affecting_other_kind(
+        live, fake_x, providers, creator_factory):
+    page = _page(creator_factory(), is_published=True)
+    comment = _comment_on(page, creator_factory())
+    page_row = _rows(zpage=page).get()
+    comment_row = _rows(comment=comment).get()
+    live.F2ZP2P_COMMENT_CREATED_ENABLED = False
+    assert announcements.run_announcement(comment_row.pk) == \
+        Announcement.SUPPRESSED
+    assert Announcement.objects.get(pk=comment_row.pk).reason == "kind_disabled"
+    assert announcements.run_announcement(page_row.pk) == Announcement.POSTED
+
+
+@pytest.mark.django_db
+def test_kind_rate_limit_is_independent_and_global_limit_still_applies(
+        live, fake_x, providers, creator_factory):
+    live.F2ZP2P_COMMENT_CREATED_HOURLY_CAP = 1
+    page1 = _page(creator_factory(), is_published=True)
+    comment1 = _comment_on(page1, creator_factory())
+    assert announcements.run_announcement(
+        _rows(comment=comment1).get().pk) == Announcement.POSTED
+    page2 = _page(creator_factory(), is_published=True)
+    comment2 = _comment_on(page2, creator_factory())
+    assert announcements.run_announcement(
+        _rows(comment=comment2).get().pk) == Announcement.SUPPRESSED
+    assert Announcement.objects.get(comment=comment2).reason == "kind_rate_capped"
+    zpage_row = _rows(zpage=page1).get()
+    assert announcements.run_announcement(zpage_row.pk) == Announcement.POSTED
+
+
+@pytest.mark.django_db
+def test_kind_settings_fail_closed_for_unknown_kind(live):
+    with pytest.raises(ValueError, match="unknown announcement kind"):
+        announcements._kind_setting("future_kind", "ENABLED")
+
+
+@pytest.mark.django_db
+def test_both_producer_flags_off_record_no_rows(
+        live, creator_factory):
+    live.F2ZP2P_ZPAGE_FIRST_PUBLISHED_ENABLED = False
+    live.F2ZP2P_COMMENT_CREATED_ENABLED = False
+    page = _page(creator_factory(), is_published=True)
+    _comment_on(page, creator_factory())
+    assert not _rows().exists()
+
+
+@pytest.mark.django_db
+def test_kind_disabled_during_generation_never_creates_post(
+        live, fake_x, providers, creator_factory, monkeypatch):
+    page = _page(creator_factory(), is_published=True)
+    row = _rows(zpage=page).get()
+    generate = content.generate_copy
+
+    def disable_after_generation(*args, **kwargs):
+        result = generate(*args, **kwargs)
+        live.F2ZP2P_ZPAGE_FIRST_PUBLISHED_ENABLED = False
+        return result
+
+    monkeypatch.setattr(content, "generate_copy", disable_after_generation)
+    assert announcements.run_announcement(row.pk) == Announcement.SUPPRESSED
+    assert fake_x.posts == []
+
+
+@pytest.mark.django_db
 def test_rolled_back_publication_leaves_no_announcement(
         live, creator_factory):
     page = _page(creator_factory())

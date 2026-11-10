@@ -3038,6 +3038,37 @@ F2ZP2P_LIVE_NAMESPACE = os.environ.get("F2ZP2P_LIVE_NAMESPACE", "prod")
 F2ZP2P_HOURLY_CAP = _int_env("F2ZP2P_HOURLY_CAP", 6, minimum=0)
 F2ZP2P_DAILY_CAP = _int_env("F2ZP2P_DAILY_CAP", 30, minimum=0)
 F2ZP2P_AUTHOR_HOURLY_CAP = _int_env("F2ZP2P_AUTHOR_HOURLY_CAP", 2, minimum=0)
+# Per-kind controls. Defaults preserve the existing global-only behavior;
+# each kind is additionally bounded by these independent ceilings.
+F2ZP2P_ZPAGE_FIRST_PUBLISHED_ENABLED = _boolean_env(
+    "F2ZP2P_ZPAGE_FIRST_PUBLISHED_ENABLED", True,
+)
+F2ZP2P_ZPAGE_FIRST_PUBLISHED_HOURLY_CAP = _int_env(
+    "F2ZP2P_ZPAGE_FIRST_PUBLISHED_HOURLY_CAP", F2ZP2P_HOURLY_CAP,
+    minimum=0,
+)
+F2ZP2P_ZPAGE_FIRST_PUBLISHED_DAILY_CAP = _int_env(
+    "F2ZP2P_ZPAGE_FIRST_PUBLISHED_DAILY_CAP", F2ZP2P_DAILY_CAP,
+    minimum=0,
+)
+F2ZP2P_ZPAGE_FIRST_PUBLISHED_AUTHOR_HOURLY_CAP = _int_env(
+    "F2ZP2P_ZPAGE_FIRST_PUBLISHED_AUTHOR_HOURLY_CAP",
+    F2ZP2P_AUTHOR_HOURLY_CAP, minimum=0,
+)
+F2ZP2P_COMMENT_CREATED_ENABLED = _boolean_env(
+    "F2ZP2P_COMMENT_CREATED_ENABLED", True,
+)
+F2ZP2P_COMMENT_CREATED_HOURLY_CAP = _int_env(
+    "F2ZP2P_COMMENT_CREATED_HOURLY_CAP", F2ZP2P_HOURLY_CAP,
+    minimum=0,
+)
+F2ZP2P_COMMENT_CREATED_DAILY_CAP = _int_env(
+    "F2ZP2P_COMMENT_CREATED_DAILY_CAP", F2ZP2P_DAILY_CAP, minimum=0,
+)
+F2ZP2P_COMMENT_CREATED_AUTHOR_HOURLY_CAP = _int_env(
+    "F2ZP2P_COMMENT_CREATED_AUTHOR_HOURLY_CAP",
+    F2ZP2P_AUTHOR_HOURLY_CAP, minimum=0,
+)
 # Whether COMMENT announcements carry the free2z.cash link. zPage
 # announcements always do (the link is the point). Without it a comment post
 # costs $0.015 instead of $0.20 -- an owner cost/traffic decision.
