@@ -47,6 +47,16 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - name: Explain safe workflow retry
+        if: github.run_attempt > 1
+        run: |
+          message="Workflow attempt ${{ github.run_attempt }} has attempt-bound image and task-registry artifacts. For mixed job results, open the original Actions run and choose Re-run jobs -> Re-run all jobs (not Re-run failed jobs). Do not select or rename artifacts across attempts."
+          echo "::warning::$message"
+          {
+            echo '## Safe workflow retry'
+            echo
+            echo "$message"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Select verified CI trust before clients
         shell: bash
         working-directory: ${{ runner.temp }}
@@ -157,6 +167,16 @@ jobs:
       id-token: write
       attestations: write
     steps:
+      - name: Explain safe workflow retry
+        if: github.run_attempt > 1
+        run: |
+          message="Workflow attempt ${{ github.run_attempt }} has attempt-bound image and task-registry artifacts. For mixed job results, open the original Actions run and choose Re-run jobs -> Re-run all jobs (not Re-run failed jobs). Do not select or rename artifacts across attempts."
+          echo "::warning::$message"
+          {
+            echo '## Safe workflow retry'
+            echo
+            echo "$message"
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Select verified CI trust before clients
         shell: bash
         working-directory: ${{ runner.temp }}
