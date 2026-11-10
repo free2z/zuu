@@ -66,6 +66,12 @@ RETIRED_NAME_ALLOWLIST = {
 }
 
 
+# Only literal IDs in the third argument of top-level Retirement records.
+# The rest of this production module, including executable initializer code,
+# remains subject to both the retired-literal and legacy-call checks.
+RETIREMENT_DATA_ALLOWLIST = {("f2z/ai/retirements.py", "RETIREMENTS")}
+
+
 class _Reply:
     def __init__(self, content):
         message = type("Message", (), {"content": content})()
@@ -401,13 +407,34 @@ def _exempt_nodes(tree, exempt_symbols):
     return exempt
 
 
-def _legacy_uses(source, exempt_symbols=()):
+def _retirement_id_nodes(tree, symbols):
+    exempt = set()
+    for node in tree.body:
+        if not (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and node.targets[0].id in symbols
+                and isinstance(node.value, ast.Tuple)):
+            continue
+        for entry in node.value.elts:
+            if not (isinstance(entry, ast.Call) and isinstance(entry.func, ast.Name)
+                    and entry.func.id == "Retirement" and len(entry.args) == 4
+                    and not entry.keywords and isinstance(entry.args[2], ast.Tuple)):
+                continue
+            # Calls, unpacking, comprehensions and other computed IDs are
+            # executable, so none of their descendants get an exemption.
+            exempt.update(id(value) for value in entry.args[2].elts
+                          if isinstance(value, ast.Constant) and isinstance(value.value, str))
+    return exempt
+
+
+def _legacy_uses(source, exempt_symbols=(), retirement_symbols=()):
     """``(lineno, what)`` for every legacy-Completions use in ``source``.
 
     Flags any ``<x>.completions.create(...)`` whose ``<x>`` is not ``chat``
     (``client.chat.completions.create`` is the supported API), and any string
     literal that IS a retired model name (:data:`RETIRED_MODEL_RE`) -- except
-    where:func:`_exempt_nodes` allows it for a symbol in ``exempt_symbols``.
+    where:func:`_exempt_nodes` allows it for a symbol in ``exempt_symbols``
+    or:func:`_retirement_id_nodes` recognizes literal denial data.
     """
     found = []
     with warnings.catch_warnings():
@@ -415,7 +442,7 @@ def _legacy_uses(source, exempt_symbols=()):
         # test's business.
         warnings.simplefilter("ignore", SyntaxWarning)
         tree = ast.parse(source)
-    exempt = _exempt_nodes(tree, exempt_symbols)
+    exempt = _exempt_nodes(tree, exempt_symbols) | _retirement_id_nodes(tree, retirement_symbols)
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
@@ -465,7 +492,8 @@ def test_no_module_uses_the_legacy_completions_api():
         f"{rel}:{lineno}: {what}"
         for rel, path in _non_test_modules()
         for lineno, what in _legacy_uses(
-            path.read_text(encoding="utf-8"), _exempt_symbols_for(rel))
+            path.read_text(encoding="utf-8"), _exempt_symbols_for(rel),
+            {symbol for module, symbol in RETIREMENT_DATA_ALLOWLIST if module == rel.as_posix()})
     ]
     assert not offenders, (
         "legacy Completions API / retired model (#2294, #2314) -- use "
@@ -538,3 +566,35 @@ def seed():
         (6, "gpt-3.5-turbo"),
         (8, "gpt-3.5-turbo"),
     ]
+
+
+def test_retirement_data_allowlist_is_not_stale():
+    for module, symbol in RETIREMENT_DATA_ALLOWLIST:
+        source = (PY_DIR / module).read_text(encoding="utf-8")
+        assert _legacy_uses(source) != _legacy_uses(source, retirement_symbols={symbol})
+
+
+def test_retirement_inventory_exempts_only_literal_ids_not_dispatch():
+    source = '''
+RETIREMENTS = (
+    Retirement("openai", "2026-09-28", ("gpt-3.5-turbo-instruct",), SOURCE),
+    Retirement("openai", "gpt-3.5-turbo", ("safe",), SOURCE),
+    Retirement("openai", "2026-09-28", (
+        client.chat.completions.create(model="gpt-3.5-turbo"),
+        client.completions.create(model="gpt-3.5-turbo"),
+    ), SOURCE),
+)
+MODEL = "gpt-3.5-turbo"
+def f():
+    RETIREMENTS = (Retirement("openai", "2026-09-28", ("gpt-3.5-turbo",), SOURCE),)
+client.chat.completions.create(model="gpt-3.5-turbo")
+'''
+    assert _legacy_uses(source, retirement_symbols={"RETIREMENTS"}) == [
+        (4, "gpt-3.5-turbo"), (6, "gpt-3.5-turbo"),
+        (7, "gpt-3.5-turbo"), (7, "legacy completions.create"),
+        (10, "gpt-3.5-turbo"), (12, "gpt-3.5-turbo"), (13, "gpt-3.5-turbo"),
+    ]
+    # Merely naming another assignment as a retirement table cannot hide calls.
+    assert _legacy_uses('RETIREMENTS = client.completions.create(model="gpt-3.5-turbo")',
+                        retirement_symbols={"RETIREMENTS"}) == [
+                            (1, "gpt-3.5-turbo"), (1, "legacy completions.create")]
