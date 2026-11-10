@@ -18,6 +18,12 @@
     "retrying": "Nouvelle tentative",
     "tryAgain": "Réessayez."
   },
+  "kyc": {
+    "loadErrorTitle": "Impossible de charger votre demande",
+    "loadErrorBody": "Le service KYC est inaccessible. Actualisez la page pour réessayer.",
+    "classificationRefreshError": "Vos réponses ont été enregistrées, mais l’état du formulaire fiscal n’a pas pu être actualisé. Rechargez cette page avant de continuer.",
+    "reviewTaxRemediation": "Le formulaire fiscal ou la signature correspondant à vos réponses manque. Revenez à l’étape du formulaire, téléversez le formulaire requis et signez-le à nouveau avant l’envoi."
+  },
   "creator": {
     "chat": {
       "trigger": "Démarrer un chat chiffré",

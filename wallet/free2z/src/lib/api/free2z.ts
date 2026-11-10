@@ -97,6 +97,7 @@ import type {
   KycProfile,
   KycProfileInput,
   KycTaxFormFile,
+  KycTaxFormPrecondition,
   KycTaxFormSignature,
   KycTaxFormUploadResult,
   Livestream,
@@ -2670,15 +2671,25 @@ export const kyc = {
   },
 
   /** POST /api/kyc/upload-tax-form (multipart, field `file`) → `{ file_url }`. */
-  async uploadTaxForm(file: File): Promise<KycTaxFormUploadResult> {
+  async uploadTaxForm(
+    file: File,
+    expected: KycTaxFormPrecondition,
+  ): Promise<KycTaxFormUploadResult> {
     if (useMock()) {
       await delay(500);
       const url = URL.createObjectURL(file);
       mockKycTaxForm.file_url = url;
-      return { file_url: url };
+      mockKycProfile.tax_form_version += 1;
+      mockKycProfile.tax_form_classification = expected.tax_form_classification;
+      return {
+        file_url: url,
+        tax_form_version: mockKycProfile.tax_form_version,
+      };
     }
     const form = new FormData();
     form.append("file", file);
+    form.append("tax_form_version", String(expected.tax_form_version));
+    form.append("tax_form_classification", expected.tax_form_classification);
     return request<KycTaxFormUploadResult>("/api/kyc/upload-tax-form", {
       method: "POST",
       body: form,
@@ -2705,15 +2716,20 @@ export const kyc = {
   },
 
   /** POST /api/kyc/tax-form-signature — body `{ tax_form_signature }` (the typed full legal name). */
-  async signTaxForm(signature: string): Promise<void> {
+  async signTaxForm(
+    signature: string,
+    expected: KycTaxFormPrecondition,
+  ): Promise<void> {
     if (useMock()) {
       await delay(300);
+      if (expected.tax_form_version !== mockKycProfile.tax_form_version)
+        throw new Error("Tax form changed; refresh and sign again.");
       mockKycTaxForm.tax_form_signature = signature;
       return;
     }
     await request("/api/kyc/tax-form-signature", {
       method: "POST",
-      body: { tax_form_signature: signature },
+      body: { tax_form_signature: signature, ...expected },
     });
   },
 
@@ -2722,11 +2738,27 @@ export const kyc = {
    * itself (NEW → PENDING on submit; APPROVED → NEW if a creator reopens their
    * application to revise + resubmit — mirrors RevenueShareLink.tsx).
    */
-  async submit(): Promise<void> {
+  async submit(expected: KycTaxFormPrecondition): Promise<void> {
     if (useMock()) {
       await delay(400);
+      if (
+        mockKycProfile.application_status === "NEW" &&
+        (expected.tax_form_version !== mockKycProfile.tax_form_version ||
+          expected.tax_form_classification !==
+            mockKycProfile.tax_form_classification)
+      )
+        throw new Error("Tax form changed; refresh before submitting.");
       mockKycProfile.application_status =
         mockKycProfile.application_status === "APPROVED" ? "NEW" : "PENDING";
+      return;
+    }
+    await request("/api/kyc/change-status", { method: "POST", body: expected });
+  },
+
+  async reopenApproved(): Promise<void> {
+    if (useMock()) {
+      await delay(300);
+      mockKycProfile.application_status = "NEW";
       return;
     }
     await request("/api/kyc/change-status", { method: "POST" });
