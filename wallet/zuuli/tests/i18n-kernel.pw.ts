@@ -64,7 +64,7 @@ test("browser locale loads only the normalized Spanish shell catalog", async ({
   expect(catalogRequests).toEqual(["es"]);
   await context.close();
 });
-test("saved French locale overrides the browser without exposing a control", async ({
+test("saved French locale overrides the browser and exposes a control", async ({
   browser,
 }) => {
   const context = await browser.newContext({ locale: "es-ES" });
@@ -79,8 +79,50 @@ test("saved French locale overrides the browser without exposing a control", asy
     page.getByRole("navigation", { name: "Navigation de l'application" }),
   ).toBeVisible();
   await expect(page.getByRole("link", { name: "Accueil" })).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /langue|language/i }),
-  ).toHaveCount(0);
+  await expect(page.getByRole("combobox", { name: "Langue" })).toHaveValue("fr");
   await context.close();
+});
+
+test("signed-out selection persists and updates document attributes", async ({ browser }) => {
+  const context = await browser.newContext({ locale: "de-DE" });
+  const page = await context.newPage();
+  await context.addInitScript(() => localStorage.removeItem("zuuli.knox.token"));
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Log in" })).toBeVisible();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+  await page.getByRole("combobox", { name: "Language" }).selectOption("es");
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+  await expect(page.getByRole("combobox", { name: "Idioma" })).toHaveValue("es");
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang", "es");
+  await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+  await expect(page.getByRole("combobox", { name: "Idioma" })).toHaveValue("es");
+  await context.close();
+});
+
+test("signed-in mobile language control changes the shell", async ({ browser }) => {
+  const context = await browser.newContext({ locale: "en-US", viewport: { width: 320, height: 568 } });
+  await context.addInitScript(() => localStorage.setItem("zuuli.knox.token", "mock-knox-token"));
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Account menu" })).toBeVisible();
+  const selector = page.getByRole("combobox", { name: "Language" });
+  await expect(selector).toBeVisible();
+  const box = await selector.boundingBox();
+  expect(box && box.x >= 0 && box.x + box.width <= 320).toBeTruthy();
+  await selector.selectOption("fr");
+  await expect(page.locator("html")).toHaveAttribute("lang", "fr");
+  await expect(page.getByRole("combobox", { name: "Langue" })).toHaveValue("fr");
+  await context.close();
+});
+
+test("a failed catalog change shows feedback and retains the active language", async ({ page }) => {
+  await page.goto("/");
+  await page.route(/\/src\/i18n\/locales\/fr\.json(?:\?.*)?$/, route => route.abort());
+  await page.getByRole("combobox", { name: "Language" }).selectOption("fr");
+  await expect(page.getByRole("alert")).toContainText("Language could not be changed");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await expect(page.getByRole("combobox", { name: "Language" })).toHaveValue("en");
 });

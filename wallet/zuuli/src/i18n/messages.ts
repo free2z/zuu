@@ -26,6 +26,8 @@ export const MESSAGE_KEYS = {
   navGroupMoney: "navigation.groups.money",
   navGroupOverview: "navigation.groups.overview",
   navHome: "navigation.home",
+  navLanguageError: "navigation.languageError",
+  navLanguage: "navigation.language",
   navLogin: "navigation.login",
   navMore: "navigation.more",
   navMoreAccessible: "navigation.moreAccessible",

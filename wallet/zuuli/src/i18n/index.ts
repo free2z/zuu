@@ -5,10 +5,10 @@ import { configureFormattingLocale } from "@/lib/format";
 import { validateCatalog } from "./catalog-policy";
 import {
   DEFAULT_LOCALE,
-  LOCALE_STORAGE_KEY,
   resolveLocaleSelection,
   type SupportedLocale,
 } from "./locale";
+import { readPreferenceLocale, savePreferenceLocale } from "./preferences";
 import { DECLARED_MESSAGE_KEYS, MESSAGE_KEYS } from "./messages";
 
 type Catalog = Readonly<Record<string, unknown>>;
@@ -54,16 +54,6 @@ export async function createAppI18n(locale: SupportedLocale): Promise<i18n> {
   return instance;
 }
 
-function readSavedLocale(): unknown {
-  try {
-    return window.localStorage.getItem(LOCALE_STORAGE_KEY);
-  } catch {
-    // Storage may be unavailable in hardened/private webviews. Browser locale
-    // remains a safe, deterministic fallback and no setting is mutated here.
-    return null;
-  }
-}
-
 interface InitializeAppI18nOptions {
   savedLocale?: unknown;
   browserLocale?: unknown;
@@ -78,13 +68,13 @@ export async function initializeAppI18n(
     "savedLocale",
   )
     ? options.savedLocale
-    : readSavedLocale();
+    : readPreferenceLocale();
   const browserLocale = Object.prototype.hasOwnProperty.call(
     options,
     "browserLocale",
   )
     ? options.browserLocale
-    : window.navigator.language;
+    : window.navigator.languages?.[0] ?? window.navigator.language;
   const { catalogLocale, formattingLocale } = resolveLocaleSelection({
     savedLocale,
     browserLocale,
@@ -98,3 +88,59 @@ export async function initializeAppI18n(
   documentElement.lang = instance.resolvedLanguage ?? DEFAULT_LOCALE;
   return instance;
 }
+
+type LocaleChangeDependencies = {
+  load: typeof loadCatalog;
+  apply: (locale: SupportedLocale, pending: string) => void;
+  save: typeof savePreferenceLocale;
+};
+
+/** Each instance serializes transitions; superseded loads never change it. */
+export function createLocaleChanger(deps: LocaleChangeDependencies) {
+  const states = new WeakMap<i18n, { sequence: number; tail: Promise<void> }>();
+  return (instance: i18n, locale: SupportedLocale): Promise<void> => {
+    let state = states.get(instance);
+    if (!state) {
+      state = { sequence: 0, tail: Promise.resolve() };
+      states.set(instance, state);
+    }
+    const current = state;
+    const sequence = ++current.sequence;
+    const operation = current.tail.then(async () => {
+      if (sequence !== current.sequence) return;
+      let catalog: Catalog;
+      try {
+        catalog = await deps.load(locale);
+      } catch (error) {
+        if (sequence !== current.sequence) return;
+        throw error;
+      }
+      if (sequence !== current.sequence) return;
+      instance.addResourceBundle(locale, "translation", catalog, true, true);
+      const previous = instance.resolvedLanguage as SupportedLocale;
+      try {
+        await instance.changeLanguage(locale);
+      } catch (error) {
+        if (previous && instance.resolvedLanguage !== previous) {
+          await instance.changeLanguage(previous);
+        }
+        throw error;
+      }
+      // Commit all side effects together even if a later request arrived while
+      // changeLanguage was pending. The queued request will then supersede it.
+      deps.apply(locale, instance.t(MESSAGE_KEYS.commonPending));
+      deps.save(locale);
+    });
+    current.tail = operation.catch(() => {});
+    return operation;
+  };
+}
+
+export const changeAppLocale = createLocaleChanger({
+  load: loadCatalog,
+  apply(locale, pending) {
+    configureFormattingLocale(locale, pending);
+    document.documentElement.lang = locale;
+  },
+  save: savePreferenceLocale,
+});
