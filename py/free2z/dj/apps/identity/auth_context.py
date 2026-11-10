@@ -197,6 +197,7 @@ def record_login(request, user, *, methods, second_factor=None, token=None,
         return AuthContext.objects.record(
             user, kind=kind, key=key, auth_time=source.auth_time,
             amr=source.amr, acr=source.acr, account_epoch=epoch,
+            otp_binding=source.otp_binding,
             credential_expires_at=expires,
         )
 
@@ -204,6 +205,7 @@ def record_login(request, user, *, methods, second_factor=None, token=None,
         user, kind=kind, key=key,
         auth_time=auth_time or timezone.now(),
         amr=amr,
+        otp_binding=getattr(user, "_verified_totp_binding", "") if second_factor == AMR_OTP else "",
         acr=ACR_MFA if second_factor else ACR_1FA,
         account_epoch=epoch,
         credential_expires_at=expires,
