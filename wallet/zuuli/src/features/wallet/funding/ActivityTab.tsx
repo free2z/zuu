@@ -1,4 +1,4 @@
-import { LogIn, Receipt, TrendingUp, TrendingDown } from "lucide-react";
+import { LogIn, Receipt, TrendingUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +46,7 @@ export function ActivityTab() {
     return (
       <EmptyState
         icon={Receipt}
-        title="Sign in to view activity"
+        title="Sign in to view purchases"
         description="Card purchase history belongs to your account."
         action={
           <Button
@@ -101,9 +101,6 @@ export function ActivityTab() {
   const bought = txns
     .filter((t) => t.tuzis_credited > 0)
     .reduce((s, t) => s + t.tuzis_credited, 0);
-  const spent = txns
-    .filter((t) => t.tuzis_credited < 0)
-    .reduce((s, t) => s + Math.abs(t.tuzis_credited), 0);
 
   return (
     <div className="space-y-4">
@@ -116,24 +113,8 @@ export function ActivityTab() {
           stale
         />
       ) : null}
-      {/* Summary chips — "Total spent" only appears once there is real spend
-          (the purchases-only Stripe ledger has none, so it isn't shown as a
-          permanent 0). */}
-      <div className={cn("grid gap-3", spent > 0 && "sm:grid-cols-2")}>
-        <SummaryChip
-          icon={TrendingUp}
-          label="Total bought"
-          tuzis={bought}
-          tone="credit"
-        />
-        {spent > 0 ? (
-          <SummaryChip
-            icon={TrendingDown}
-            label="Total spent"
-            tuzis={spent}
-            tone="debit"
-          />
-        ) : null}
+      <div>
+        <SummaryChip icon={TrendingUp} label="Purchases shown" tuzis={bought} />
       </div>
 
       {/* Rows */}
@@ -192,12 +173,10 @@ function SummaryChip({
   icon: Icon,
   label,
   tuzis,
-  tone,
 }: {
   icon: typeof TrendingUp;
   label: string;
   tuzis: number;
-  tone: "credit" | "debit";
 }) {
   return (
     <Card>
@@ -205,9 +184,7 @@ function SummaryChip({
         <div
           className={cn(
             "grid h-10 w-10 place-items-center rounded-full",
-            tone === "credit"
-              ? "bg-success/10 text-success"
-              : "bg-secondary text-muted-foreground",
+            "bg-success/10 text-success",
           )}
         >
           <Icon className="h-5 w-5" />
