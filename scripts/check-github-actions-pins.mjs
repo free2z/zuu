@@ -52,10 +52,16 @@ const FRONTEND_CHECKOUT_REFERENCE = GATE_CHECKOUT_REFERENCE;
 const RUST_REQUIRED_JOB_IDS = new Set([
   "rust_fmt", "rust_deny", "rust_clippy", "rust_native_clippy", "rust_native_tests",
   "rust_plugin", "rust_msg_plugin", "rust_android_32", "rust_app", "rust_crypto_targets",
+  "sdk_native", "sdk_mobile",
 ]);
 // This package job intentionally runs on every PR, independently of the wallet
 // selectors. Its success must never be mistaken for an illegitimate selected skip.
 const ALWAYS_REQUIRED_JOB_IDS = new Set(["free2z_sdk_typescript", "svelte_advisory"]);
+// Every dependency of the wallet gate must have an explicit selection authority.
+const GATE_REQUIRED_JOB_IDS = new Set([
+  "changes", "frontend", "surfaces", "zuuallet_schema",
+  ...RUST_REQUIRED_JOB_IDS, ...ALWAYS_REQUIRED_JOB_IDS,
+]);
 const POLICED_RUST_ROOTS = ["wallet", "rs"];
 const RUST_ROOT_CONTRACTS = [
   {
@@ -3164,6 +3170,22 @@ function gatePolicyFailures(repoRoot, relativeFile, lines) {
     relativeFile.split(path.sep).join("/") === REQUIRED_WORKFLOW_PATH;
   const enforceWasmBoundary = enforceNativeClippy;
   if (enforceNativeClippy) {
+    for (const job of GATE_REQUIRED_JOB_IDS) {
+      if (!parsedNeeds.values.includes(job)) {
+        failures.push(`${relativeFile}: classified gate dependency ${job} is missing from gate needs`);
+      }
+    }
+    for (const job of parsedNeeds.values) {
+      if (!GATE_REQUIRED_JOB_IDS.has(job)) {
+        failures.push(`${relativeFile}: unclassified gate dependency ${job}`);
+      }
+    }
+    for (const job of ["sdk_native", "sdk_mobile"]) {
+      if (jobs.get(job)?.properties.get("if")?.value !== "needs.changes.outputs.rust == 'true'" ||
+          jobs.get(job)?.properties.get("needs")?.value !== "changes") {
+        failures.push(`${relativeFile}: ${job} must depend on changes and use its exact Rust selector`);
+      }
+    }
     failures.push(...librustzcashScopeFailures());
     failures.push(
       ...requiredProtectedPullRequestTriggerFailures(relativeFile, lines),
@@ -3493,9 +3515,10 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
   // exactly what this expects, so the gate resolves green. Nothing new was
   // added to branch protection, so no pull request can wait on a context no job
   // publishes.
+  const surfacesSelected = selectorResult(changes.outputs.surfaces, "surfaces");
   const surfaceExpected =
     zuuliExpected === "success" ||
-    selectorResult(changes.outputs.surfaces, "surfaces") === "success"
+    surfacesSelected === "success"
       ? "success"
       : "skipped";
   const SURFACE_JOBS = new Set(["frontend", "surfaces"]);
@@ -3511,8 +3534,16 @@ function verifyGateResults(policyOutcome, serializedNeeds) {
       throw new Error(`always-required job ${job} is missing from required jobs context`);
     }
   }
+  for (const job of GATE_REQUIRED_JOB_IDS) {
+    if (!Object.hasOwn(needs, job)) {
+      throw new Error(`required job ${job} is missing from required jobs context`);
+    }
+  }
   const verdicts = [];
   for (const [job, state] of entries) {
+    if (!GATE_REQUIRED_JOB_IDS.has(job)) {
+      throw new Error(`unclassified required job ${job}`);
+    }
     if (
       !state ||
       typeof state !== "object" ||
@@ -4834,6 +4865,20 @@ function runCurrentWorkflowMutationTests(repoRoot) {
   const verdictName =
     "      - name: Verify required jobs succeeded or legitimately skipped";
   const mutations = [
+    ...["sdk_native", "sdk_mobile"].flatMap((job) => [
+      { name: `${job} cannot leave gate needs`, needle: `classified gate dependency ${job} is missing`,
+        source: source.replace(`, ${job},`, ",") },
+      { name: `${job} cannot follow the frontend selector`, needle: `${job} must depend on changes and use its exact Rust selector`,
+        source: source.replace(new RegExp(`(  ${job}:\\n[\\s\\S]*?    if: )needs.changes.outputs.rust == 'true'`),
+          "$1needs.changes.outputs.zuuli == 'true'") },
+    ]),
+    ...["sdk_native", "sdk_mobile"].map((job) => ({
+      name: `${job} must consume changes directly`, needle: `${job} must depend on changes and use its exact Rust selector`,
+      source: source.replace(new RegExp(`(  ${job}:\\n[\\s\\S]*?    needs: )changes`), "$1frontend"),
+    })),
+    { name: "unknown gate dependency fails classification", needle: "unclassified gate dependency unknown_job",
+      source: source.replace("needs: [changes, frontend,", "needs: [unknown_job, changes, frontend,") },
+
     {
       name: "protected Zuuallet audit rejects deleting the pull-request trigger",
       needle:
@@ -7247,7 +7292,37 @@ jobs:
     fs.rmSync(temporaryRoot, { recursive: true, force: true });
   }
 
+  // Exact toJSON(needs) shape shared by PR1527 run42890855497/job130097470717
+  // and PR1520 run42859765235/job129989082936 (only output key order differs).
+  // Keep this inventory independent of the production classification sets.
+  const frontendNeeds = {
+    changes: { result: "success", outputs: { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" } },
+    frontend: { result: "success", outputs: {} },
+    surfaces: { result: "success", outputs: {} },
+    rust_fmt: { result: "skipped", outputs: {} },
+    rust_deny: { result: "skipped", outputs: {} },
+    rust_clippy: { result: "skipped", outputs: {} },
+    rust_native_clippy: { result: "skipped", outputs: {} },
+    rust_native_tests: { result: "skipped", outputs: {} },
+    rust_plugin: { result: "skipped", outputs: {} },
+    rust_msg_plugin: { result: "skipped", outputs: {} },
+    rust_android_32: { result: "skipped", outputs: {} },
+    rust_app: { result: "skipped", outputs: {} },
+    zuuallet_schema: { result: "skipped", outputs: {} },
+    rust_crypto_targets: { result: "skipped", outputs: {} },
+    sdk_native: { result: "skipped", outputs: {} },
+    sdk_mobile: { result: "skipped", outputs: {} },
+    free2z_sdk_typescript: { result: "success", outputs: {} },
+    svelte_advisory: { result: "success", outputs: {} },
+  };
+  const workflowLines = fs.readFileSync(path.join(repoRoot, REQUIRED_WORKFLOW_PATH), "utf8").split(/\r?\n/);
+  const workflowGate = policyWorkflowJobs(REQUIRED_WORKFLOW_PATH, workflowLines, []).get("gate");
+  const declaredIds = parseGateNeeds(workflowLines, workflowGate.properties.get("needs").index, 4).values;
+  if (JSON.stringify([...declaredIds].sort()) !== JSON.stringify(Object.keys(frontendNeeds).sort())) {
+    throw new Error("gate verdict fixture must cover every declared gate dependency exactly");
+  }
   const gateResultCases = [
+    { name: "actual PR1527 and PR1520 frontend verdict", policyOutcome: "success", needs: structuredClone(frontendNeeds), complete: true },
     {
       name: "unconditional Free2Z SDK succeeds when wallet selectors are false",
       policyOutcome: "success",
@@ -7337,7 +7412,7 @@ jobs:
           result: "success",
           outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
         },
-        build: { result: "success", outputs: {} },
+        frontend: { result: "success", outputs: {} },
         rust_android_32: { result: "success", outputs: {} },
         zuuallet_schema: { result: "skipped", outputs: {} },
       },
@@ -7350,7 +7425,7 @@ jobs:
           result: "success",
           outputs: { zuuli: "false", rust: "false", zuuallet_schema: "true", surfaces: "false" },
         },
-        build: { result: "skipped", outputs: {} },
+        frontend: { result: "skipped", outputs: {} },
         rust_native_clippy: { result: "success", outputs: {} },
         zuuallet_schema: { result: "success", outputs: {} },
       },
@@ -7415,13 +7490,13 @@ jobs:
     {
       name: "failed ordinary dependency is rejected",
       policyOutcome: "success",
-      needle: "required job build must be success, got failure",
+      needle: "required job frontend must be success, got failure",
       needs: {
         changes: {
           result: "success",
           outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" },
         },
-        build: { result: "failure", outputs: {} },
+        frontend: { result: "failure", outputs: {} },
       },
     },
     {
@@ -7549,19 +7624,68 @@ jobs:
     },
   ];
 
+  for (const rust of ["false", "true"]) {
+    const needs = structuredClone(frontendNeeds);
+    needs.changes.outputs.rust = rust;
+    if (rust === "true") {
+      for (const job of Object.keys(needs)) {
+        if (job !== "changes" && job !== "zuuallet_schema") needs[job].result = "success";
+      }
+    }
+    gateResultCases.push({ name: `full inventory with Rust=${rust}`, policyOutcome: "success", needs: structuredClone(needs), complete: true });
+    for (const job of Object.keys(needs)) {
+      for (const result of ["failure", "cancelled", "", null, undefined,
+        needs[job].result === "success" ? "skipped" : "success"]) {
+        const mutant = structuredClone(needs);
+        mutant[job].result = result;
+        gateResultCases.push({ name: `${job} rejects ${JSON.stringify(result)} with Rust=${rust}`,
+          policyOutcome: "success", needs: mutant, complete: true,
+          needle: job === "changes" ? "change detection did not pass" : typeof result !== "string"
+            ? `required job ${job} has no result` : `required job ${job} must be` });
+      }
+      const mutant = structuredClone(needs);
+      delete mutant[job];
+      gateResultCases.push({ name: `${job} cannot disappear with Rust=${rust}`, policyOutcome: "success",
+        needs: mutant, complete: true, needle: job === "changes" ? "must include changes" : "is missing from required jobs context" });
+    }
+    for (const output of ["zuuli", "rust", "zuuallet_schema", "surfaces"]) {
+      for (const value of [undefined, "", "TRUE", true, false, null]) {
+        const mutant = structuredClone(needs);
+        mutant.changes.outputs[output] = value;
+        gateResultCases.push({ name: `${output} rejects ${JSON.stringify(value)} with Rust=${rust}`,
+          policyOutcome: "success", needs: mutant, complete: true, needle: "change-detector output" });
+      }
+    }
+    for (const result of ["success", "skipped", "failure", "cancelled"]) {
+      gateResultCases.push({ name: `unknown job rejects ${result} with Rust=${rust}`, policyOutcome: "success",
+        needs: { ...structuredClone(needs), unknown_job: { result, outputs: {} } }, complete: true,
+        needle: "unclassified required job unknown_job" });
+    }
+  }
+
+  for (const serializedNeeds of ["{", "null", "[]", "{}", '"success"']) {
+    gateResultCases.push({ name: `malformed needs ${serializedNeeds}`, policyOutcome: "success",
+      needs: {}, serializedNeeds, complete: true, needle: "required jobs context" });
+  }
+
   for (const testCase of gateResultCases) {
     const outputs = testCase.needs.changes?.outputs ?? {};
-    for (const job of RUST_REQUIRED_JOB_IDS) {
-      const native = job === "rust_native_clippy" || job === "rust_native_tests";
-      testCase.needs[job] ??= { result: outputs.rust === "true" || (native && outputs.zuuallet_schema === "true") ? "success" : "skipped" };
-    }
-    for (const job of ALWAYS_REQUIRED_JOB_IDS) {
-      testCase.needs[job] ??= { result: "success" };
+    if (!testCase.complete) {
+      for (const [job, state] of Object.entries(frontendNeeds)) {
+        if (job === "changes") continue;
+        const native = job === "rust_native_clippy" || job === "rust_native_tests";
+        const selected = job === "frontend" || job === "surfaces"
+          ? outputs.zuuli === "true" || outputs.surfaces === "true"
+          : job === "zuuallet_schema" ? outputs.zuuallet_schema === "true"
+          : job === "free2z_sdk_typescript" || job === "svelte_advisory" ? true
+          : outputs.rust === "true" || (native && outputs.zuuallet_schema === "true");
+        testCase.needs[job] ??= { ...state, result: selected ? "success" : "skipped" };
+      }
     }
     if (testCase.omitJob) delete testCase.needs[testCase.omitJob];
     let error = null;
     try {
-      verifyGateResults(testCase.policyOutcome, JSON.stringify(testCase.needs));
+      verifyGateResults(testCase.policyOutcome, testCase.serializedNeeds ?? JSON.stringify(testCase.needs));
     } catch (caught) {
       error = caught;
     }
