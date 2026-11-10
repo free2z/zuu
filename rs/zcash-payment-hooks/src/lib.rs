@@ -7,6 +7,7 @@ pub mod journal;
 pub mod proof;
 pub mod receiver;
 pub mod scanner;
+pub mod wallet_recovery;
 
 use serde::{Deserialize, Serialize};
 
