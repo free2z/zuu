@@ -1,58 +1,29 @@
 import { useRealtimeKitMeeting } from "@cloudflare/realtimekit-react";
 import { useEffect } from "react";
 
-
 export default function DyteLeave() {
-    const { meeting } = useRealtimeKitMeeting()
-
-    useEffect(() => {
-        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-            // console.log("HANDLEBREFOREUNLOAD", event)
-            event.preventDefault();
-            event.returnValue = '';
-            if (event.returnValue !== "") {
-                // if confirmed
-                meeting.leaveRoom('left')
-            }
-        };
-        window.addEventListener('beforeunload', handleBeforeUnload)
-        // window.addEventListener('popstate', handleBeforeUnload)
-        return () => {
-            window.removeEventListener('beforeunload', handleBeforeUnload)
-            // window.removeEventListener('popstate', handleBeforeUnload)
-        };
-    }, []);
-
-    // TODO: preventing the back button is actually a lot harder
-    // than you think :D
-    useEffect(() => {
-        // const href = window.location.href
-        const handlePopState = (event: PopStateEvent) => {
-            // Well, it's not easy to intercept it turns out;
-            // but, at least we can leave?
-            meeting.leaveRoom('left')
-            // console.log("handlepopstate", event)
-            // event.preventDefault()
-            // event.stopPropagation()
-            // // event.returnValue = ""
-            // // event.
-            // const result = window.confirm('Are you sure you want to leave?')
-            // console.log("RESULT", result)
-            // if (result) {
-            //     console.log("HANDLEPOPSTATE LEAVE")
-            //     meeting.leaveRoom('left')
-            // } else {
-            //     console.log("STAYING", href)
-            //     window.history.pushState(null, '', href);
-            // }
-        };
-        window.addEventListener('popstate', handlePopState);
-
-        // TODO hrmmmmm
-        // return () => {
-        //     window.removeEventListener('popstate', handlePopState);
-        // };
-    }, []);
-
-    return null
+  const { meeting } = useRealtimeKitMeeting();
+  useEffect(() => {
+    let leaving = false;
+    const leave = () => {
+      if (!meeting || leaving) return;
+      leaving = true;
+      void meeting.leave().catch(() => {});
+    };
+    // A UI leave button also calls Core.leave(). Its terminal event means
+    // navigation/unmount must not issue another leave for that meeting.
+    const onRoomLeft = ({ state }: { state: string }) => {
+      if (["left", "ended", "kicked", "failed"].includes(state)) leaving = true;
+    };
+    meeting?.self.on("roomLeft", onRoomLeft);
+    window.addEventListener("pagehide", leave);
+    window.addEventListener("popstate", leave);
+    return () => {
+      meeting?.self.removeListener("roomLeft", onRoomLeft);
+      window.removeEventListener("pagehide", leave);
+      window.removeEventListener("popstate", leave);
+      leave();
+    };
+  }, [meeting]);
+  return null;
 }
