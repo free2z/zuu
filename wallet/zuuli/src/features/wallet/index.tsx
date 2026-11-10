@@ -1,11 +1,9 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Zcash Wallet — flagship wallet UI. Mounted at /wallet/*.
 import { useEffect } from "react";
-import {
-  NavLink,
-  Route,
-  Routes,
-  useLocation,
-} from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import {
   ArrowDownToLine,
   ArrowUpRight,
@@ -30,18 +28,51 @@ import { Onboarding } from "./Onboarding";
 import FundingFeature from "./funding";
 
 const NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
-  { to: "/wallet", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/wallet/send", label: "Send", icon: ArrowUpRight },
-  { to: "/wallet/receive", label: "Receive", icon: ArrowDownToLine },
-  { to: "/wallet/history", label: "History", icon: ListOrdered },
-  { to: "/wallet/fund", label: "Fund", icon: Coins },
+  {
+    to: "/wallet",
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletIndexOverview);
+    },
+    icon: LayoutDashboard,
+    end: true,
+  },
+  {
+    to: "/wallet/send",
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletIndexSend);
+    },
+    icon: ArrowUpRight,
+  },
+  {
+    to: "/wallet/receive",
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletIndexReceive);
+    },
+    icon: ArrowDownToLine,
+  },
+  {
+    to: "/wallet/history",
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletIndexHistory);
+    },
+    icon: ListOrdered,
+  },
+  {
+    to: "/wallet/fund",
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletIndexFund);
+    },
+    icon: Coins,
+  },
 ];
 
 function WalletNav() {
+  const { t: uiT } = useUiTranslation();
+
   return (
     <nav
       className="mb-6 grid w-full grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1 sm:inline-flex sm:w-auto sm:items-center"
-      aria-label="Wallet sections"
+      aria-label={uiT(MESSAGE_KEYS.featuresWalletIndexWalletSections)}
     >
       {NAV.map(({ to, label, icon: Icon, end }) => (
         <NavLink
@@ -66,6 +97,8 @@ function WalletNav() {
 }
 
 function CleanupNotice() {
+  const { t: uiT } = useUiTranslation();
+
   const cleanup = useWallet((state) => state.status?.cleanup);
   const retrying = useWallet((state) => state.cleanupRetrying);
   const retryError = useWallet((state) => state.cleanupError);
@@ -84,35 +117,50 @@ function CleanupNotice() {
     <Callout
       className="mb-6"
       icon={TriangleAlert}
-      aria-label="Wallet cleanup status"
+      aria-label={uiT(MESSAGE_KEYS.featuresWalletIndexWalletCleanupStatus)}
     >
       <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <p className="font-semibold text-warning">
             {cleanup.blockedOperations > 0
-              ? "Wallet maintenance needs attention"
+              ? uiT(
+                  MESSAGE_KEYS.featuresWalletIndexWalletMaintenanceNeedsAttention,
+                )
               : cleanup.pendingOperations > 0
-                ? "Wallet maintenance needs another pass"
-                : "Wallet maintenance completed with a recovery note"}
+                ? uiT(
+                    MESSAGE_KEYS.featuresWalletIndexWalletMaintenanceNeedsAnotherPass,
+                  )
+                : uiT(
+                    MESSAGE_KEYS.featuresWalletIndexWalletMaintenanceCompletedWithARecoveryNote,
+                  )}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
             {cleanup.blockedOperations > 0
-              ? cleanup.diagnostics[0]
+              ? uiT(MESSAGE_KEYS.maintenanceNote)
               : cleanup.pendingOperations > 0
-              ? `${cleanup.pendingOperations} operation${cleanup.pendingOperations === 1 ? "" : "s"} and ${cleanup.pendingStages} stage${cleanup.pendingStages === 1 ? "" : "s"} remain safely journaled.`
-              : cleanup.diagnostics[0]}
+                ? uiT(MESSAGE_KEYS.maintenanceRemaining, {
+                    operations: cleanup.pendingOperations,
+                    stages: cleanup.pendingStages,
+                  })
+                : uiT(MESSAGE_KEYS.maintenanceNote)}
           </p>
           {cleanup.diagnostics.length > 0 && cleanup.pendingOperations > 0 && (
             <details className="mt-2 text-xs text-muted-foreground">
-              <summary className="min-tap inline-flex cursor-pointer items-center">Technical details</summary>
+              <summary className="min-tap inline-flex cursor-pointer items-center">
+                {uiT(MESSAGE_KEYS.featuresWalletIndexTechnicalDetails)}
+              </summary>
               <ul className="mt-1 list-disc space-y-1 ps-5">
-                {cleanup.diagnostics.map((diagnostic) => (
-                  <li key={diagnostic}>{diagnostic}</li>
+                {cleanup.diagnostics.map((_, index) => (
+                  <li key={index}>{uiT(MESSAGE_KEYS.maintenanceNote)}</li>
                 ))}
               </ul>
             </details>
           )}
-          {retryError && <p className="mt-2 text-sm text-destructive">{retryError}</p>}
+          {retryError && (
+            <p className="mt-2 text-sm text-destructive">
+              {uiT(MESSAGE_KEYS.errorRequest)}
+            </p>
+          )}
         </div>
         {(cleanup.pendingOperations > 0 || cleanup.blockedOperations > 0) && (
           <Button
@@ -122,8 +170,13 @@ function CleanupNotice() {
             disabled={retrying}
             onClick={() => void retryCleanup()}
           >
-            <RefreshCw className={cn("h-4 w-4", retrying && "animate-spin")} aria-hidden />
-            {retrying ? "Retrying" : "Retry now"}
+            <RefreshCw
+              className={cn("h-4 w-4", retrying && "animate-spin")}
+              aria-hidden
+            />
+            {retrying
+              ? uiT(MESSAGE_KEYS.featuresWalletIndexRetrying)
+              : uiT(MESSAGE_KEYS.featuresWalletIndexRetryNow)}
           </Button>
         )}
       </div>
@@ -136,6 +189,8 @@ export function isWalletFundingPath(pathname: string): boolean {
 }
 
 export default function WalletFeature() {
+  const { t: uiT } = useUiTranslation();
+
   const status = useWallet((s) => s.status);
   const loading = useWallet((s) => s.loading);
   const bootstrap = useWallet((s) => s.bootstrap);
@@ -151,7 +206,12 @@ export default function WalletFeature() {
   if (!isFunding && loading && !status) {
     return (
       <div>
-        <PageHeader title="Wallet" description="Your Zcash, shielded by default." />
+        <PageHeader
+          title={uiT(MESSAGE_KEYS.featuresWalletIndexWallet)}
+          description={uiT(
+            MESSAGE_KEYS.featuresWalletIndexYourZcashShieldedByDefault,
+          )}
+        />
         <Skeleton className="mb-6 h-10 w-72 rounded-lg" />
         <div className="grid gap-6 lg:grid-cols-3">
           <Skeleton className="h-64 rounded-xl lg:col-span-2" />
@@ -162,23 +222,19 @@ export default function WalletFeature() {
   }
 
   // No wallet yet → create/restore flow (no sub-nav).
-  if (
-    !isFunding &&
-    (!status || !status.initialized || status.backupRequired)
-  ) {
+  if (!isFunding && (!status || !status.initialized || status.backupRequired)) {
     return <Onboarding />;
   }
 
-  const title = SECTION_TITLES[location.pathname] ?? "Wallet";
+  const title =
+    SECTION_TITLES[location.pathname] ??
+    uiT(MESSAGE_KEYS.featuresWalletIndexWallet);
 
   return (
     <div>
       {!isFunding ? (
         <>
-          <PageHeader
-            title={title.heading}
-            description={title.description}
-          />
+          <PageHeader title={title.heading} description={title.description} />
           <CleanupNotice />
         </>
       ) : null}
@@ -196,29 +252,66 @@ export default function WalletFeature() {
   );
 }
 
-const SECTION_TITLES: Record<
-  string,
-  { heading: string; description: string }
-> = {
-  "/wallet": { heading: "Wallet", description: "Your Zcash, shielded by default." },
-  "/wallet/send": {
-    heading: "Send",
-    description: "Send shielded ZEC with an optional encrypted memo.",
-  },
-  "/wallet/send/creator-tip": {
-    heading: "Tip with ZEC",
-    description: "Review a creator payment through Wallet Send.",
-  },
-  "/wallet/receive": {
-    heading: "Receive",
-    description: "Share your unified address to get paid privately.",
-  },
-  "/wallet/history": {
-    heading: "History",
-    description: "Every payment in and out of this wallet.",
-  },
-  "/wallet/fund": {
-    heading: "Fund",
-    description: "Add 2Zs for tips, AI, and memberships.",
-  },
-};
+const SECTION_TITLES: Record<string, { heading: string; description: string }> =
+  {
+    "/wallet": {
+      get heading() {
+        return translate(MESSAGE_KEYS.featuresWalletIndexWallet);
+      },
+      get description() {
+        return translate(
+          MESSAGE_KEYS.featuresWalletIndexYourZcashShieldedByDefault,
+        );
+      },
+    },
+    "/wallet/send": {
+      get heading() {
+        return translate(MESSAGE_KEYS.featuresWalletIndexSend);
+      },
+      get description() {
+        return translate(
+          MESSAGE_KEYS.featuresWalletIndexSendShieldedZECWithAnOptionalEncrypted,
+        );
+      },
+    },
+    "/wallet/send/creator-tip": {
+      get heading() {
+        return translate(MESSAGE_KEYS.featuresWalletIndexTipWithZEC);
+      },
+      get description() {
+        return translate(
+          MESSAGE_KEYS.featuresWalletIndexReviewACreatorPaymentThroughWalletSend,
+        );
+      },
+    },
+    "/wallet/receive": {
+      get heading() {
+        return translate(MESSAGE_KEYS.featuresWalletIndexReceive);
+      },
+      get description() {
+        return translate(
+          MESSAGE_KEYS.featuresWalletIndexShareYourUnifiedAddressToGetPaid,
+        );
+      },
+    },
+    "/wallet/history": {
+      get heading() {
+        return translate(MESSAGE_KEYS.featuresWalletIndexHistory);
+      },
+      get description() {
+        return translate(
+          MESSAGE_KEYS.featuresWalletIndexEveryPaymentInAndOutOfThis,
+        );
+      },
+    },
+    "/wallet/fund": {
+      get heading() {
+        return translate(MESSAGE_KEYS.featuresWalletIndexFund);
+      },
+      get description() {
+        return translate(
+          MESSAGE_KEYS.featuresWalletIndexAdd2ZsForTipsAIAndMemberships,
+        );
+      },
+    },
+  };

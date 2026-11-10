@@ -1,3 +1,6 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { Link } from "react-router-dom";
 import {
   ArrowUpRight,
@@ -24,36 +27,62 @@ const ACTIONS: readonly VaultAction[] = [
   {
     to: "/wallet/send",
     icon: Send,
-    title: "Send",
-    description: "Shielded ZEC with an optional encrypted memo.",
+    get title() {
+      return translate(MESSAGE_KEYS.featuresHomeVaultActionsSend);
+    },
+    get description() {
+      return translate(
+        MESSAGE_KEYS.featuresHomeVaultActionsShieldedZECWithAnOptionalEncryptedMemo,
+      );
+    },
   },
   {
     to: "/wallet/receive",
     icon: QrCode,
-    title: "Receive",
-    description: "Share your unified address to get paid privately.",
+    get title() {
+      return translate(MESSAGE_KEYS.featuresHomeVaultActionsReceive);
+    },
+    get description() {
+      return translate(
+        MESSAGE_KEYS.featuresHomeVaultActionsShareYourUnifiedAddressToGetPaid,
+      );
+    },
   },
   {
     to: "/wallet/history",
     icon: History,
-    title: "History",
-    description: "Every payment in and out of this wallet.",
+    get title() {
+      return translate(MESSAGE_KEYS.featuresHomeVaultActionsHistory);
+    },
+    get description() {
+      return translate(
+        MESSAGE_KEYS.featuresHomeVaultActionsEveryPaymentInAndOutOfThis,
+      );
+    },
   },
   {
     to: "/wallet/fund",
     icon: Coins,
-    title: "Fund",
-    description: "Add 2Zs with a card, or top up from ZEC.",
+    get title() {
+      return translate(MESSAGE_KEYS.featuresHomeVaultActionsFund);
+    },
+    get description() {
+      return translate(
+        MESSAGE_KEYS.featuresHomeVaultActionsAdd2ZsWithACardOrTop,
+      );
+    },
   },
 ];
 
 export function VaultActions() {
+  const { t: uiT } = useUiTranslation();
+
   return (
     <div>
       <SectionHeader
         icon={Send}
-        title="Your wallet"
-        subtitle="Keys, spending and history stay in this app and nowhere else."
+        title={uiT(MESSAGE_KEYS.featuresHomeVaultActionsYourWallet)}
+        subtitle={uiT(MESSAGE_KEYS.homeWalletScope)}
       />
       <div className="grid gap-3 sm:grid-cols-2">
         {ACTIONS.map((action) => (

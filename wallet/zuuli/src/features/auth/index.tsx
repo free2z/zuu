@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // ZUULI — Login.
 //
 // A viewport-bound auth page mounted inside the persistent app shell. ZUULI is
@@ -121,6 +123,8 @@ export function AuthChooser({
   loginDestination?: LoginDestination;
   onSelect: (method: Exclude<AuthMethod, "chooser">) => void;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   return (
     <Card
       className="border-border/80 bg-card/70 backdrop-blur"
@@ -128,7 +132,7 @@ export function AuthChooser({
     >
       <CardHeader className="px-5 pb-3 pt-4">
         <CardTitle className="text-2xl">
-          <h1>Log in</h1>
+          <h1>{uiT(MESSAGE_KEYS.featuresAuthIndexLogIn)}</h1>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4 px-5 pb-4 pt-0">
@@ -149,7 +153,7 @@ export function AuthChooser({
           onClick={() => onSelect("password")}
         >
           <KeyRound aria-hidden />
-          Password
+          {uiT(MESSAGE_KEYS.featuresAuthIndexPassword)}
         </Button>
 
         {/* Configured providers are additional methods. The empty state adds
@@ -165,7 +169,7 @@ export function AuthChooser({
               className="min-tap text-muted-foreground"
             >
               <HelpCircle aria-hidden />
-              How it works
+              {uiT(MESSAGE_KEYS.featuresAuthIndexHowItWorks)}
             </Button>
           </ZShieldInfo>
 
@@ -175,8 +179,11 @@ export function AuthChooser({
             size="sm"
             className="min-tap text-muted-foreground"
           >
-            <Link to="/" aria-label="Continue as guest">
-              Guest
+            <Link
+              to="/"
+              aria-label={uiT(MESSAGE_KEYS.featuresAuthIndexContinueAsGuest)}
+            >
+              {uiT(MESSAGE_KEYS.featuresAuthIndexGuest)}
               <ArrowUpRight className="rtl:-scale-x-100" aria-hidden />
             </Link>
           </Button>
@@ -195,8 +202,11 @@ export function SelectedAuthMethod({
   method: Exclude<AuthMethod, "chooser">;
   onBack: () => void;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   const [busy, setBusy] = useState(false);
-  const title = method === "zcash" ? "Zcash" : "Password";
+  const title =
+    method === "zcash" ? "Zcash" : uiT(MESSAGE_KEYS.featuresAuthIndexPassword);
   return (
     <Card
       className="border-border/80 bg-card/70 backdrop-blur"
@@ -212,12 +222,16 @@ export function SelectedAuthMethod({
               className="min-tap h-11 w-11 shrink-0"
               onClick={onBack}
               disabled={busy}
-              aria-label="Choose another login method"
+              aria-label={uiT(
+                MESSAGE_KEYS.featuresAuthIndexChooseAnotherLoginMethod,
+              )}
             >
               <ArrowLeft className="rtl:-scale-x-100" aria-hidden />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Choose another method</TooltipContent>
+          <TooltipContent side="bottom">
+            {uiT(MESSAGE_KEYS.featuresAuthIndexChooseAnotherMethod)}
+          </TooltipContent>
         </Tooltip>
         <CardTitle className="text-xl">
           <h1>{title}</h1>

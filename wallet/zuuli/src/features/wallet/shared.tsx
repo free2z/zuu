@@ -1,23 +1,40 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Shared building blocks for the Zcash wallet feature.
 import { useCallback, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /** Copy-to-clipboard helper that surfaces a toast. */
 export function useClipboard() {
-  return useCallback(async (text: string, label = "Copied to clipboard") => {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast.success(label);
-      return true;
-    } catch {
-      toast.error("Couldn't copy — clipboard unavailable");
-      return false;
-    }
-  }, []);
+  return useCallback(
+    async (
+      text: string,
+      label = translate(MESSAGE_KEYS.featuresWalletSharedCopiedToClipboard),
+    ) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        toast.success(label);
+        return true;
+      } catch {
+        toast.error(
+          translate(
+            MESSAGE_KEYS.featuresWalletSharedCouldnTCopyClipboardUnavailable,
+          ),
+        );
+        return false;
+      }
+    },
+    [],
+  );
 }
 
 interface CopyButtonProps {
@@ -31,11 +48,15 @@ interface CopyButtonProps {
 /** Icon (or small) button that copies a value and flashes a check. */
 export function CopyButton({
   value,
-  label = "Copied to clipboard",
-  ariaLabel = "Copy",
+  label,
+  ariaLabel,
   className,
   size = "icon",
 }: CopyButtonProps) {
+  const { t: uiT } = useUiTranslation();
+  label ??= uiT(MESSAGE_KEYS.featuresWalletSharedCopiedToClipboard);
+  ariaLabel ??= uiT(MESSAGE_KEYS.featuresWalletSharedCopy);
+
   const copy = useClipboard();
   const [copied, setCopied] = useState(false);
 
@@ -55,11 +76,14 @@ export function CopyButton({
         type="button"
         variant="outline"
         size="sm"
+        aria-label={ariaLabel}
         onClick={onCopy}
         className={className}
       >
         <Icon className={cn("h-4 w-4", copied && "text-success")} />
-        {copied ? "Copied" : "Copy"}
+        {copied
+          ? uiT(MESSAGE_KEYS.featuresWalletSharedCopied)
+          : uiT(MESSAGE_KEYS.featuresWalletSharedCopy)}
       </Button>
     );
   }
@@ -78,7 +102,9 @@ export function CopyButton({
           <Icon className={cn("h-4 w-4", copied && "text-success")} />
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{copied ? "Copied" : ariaLabel}</TooltipContent>
+      <TooltipContent>
+        {copied ? uiT(MESSAGE_KEYS.featuresWalletSharedCopied) : ariaLabel}
+      </TooltipContent>
     </Tooltip>
   );
 }

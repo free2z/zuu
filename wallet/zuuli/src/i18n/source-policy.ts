@@ -493,10 +493,9 @@ function identifierIsWritten(identifier: ts.Identifier): boolean {
     }
     if (
       ((ts.isPrefixUnaryExpression(parent) &&
-        [
-          ts.SyntaxKind.PlusPlusToken,
-          ts.SyntaxKind.MinusMinusToken,
-        ].includes(parent.operator)) ||
+        [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(
+          parent.operator,
+        )) ||
         ts.isPostfixUnaryExpression(parent)) &&
       containsNode(parent.operand, identifier)
     ) {
@@ -532,10 +531,7 @@ function identifierIsDeclarationName(
   });
 }
 
-function symbolHasWrite(
-  symbol: ts.Symbol,
-  checker: ts.TypeChecker,
-): boolean {
+function symbolHasWrite(symbol: ts.Symbol, checker: ts.TypeChecker): boolean {
   const sourceFile = symbol.declarations?.[0]?.getSourceFile();
   if (!sourceFile) return true;
   let written = false;
@@ -769,9 +765,7 @@ function isHookTranslator(
 }
 
 type FunctionWithBody =
-  | ts.FunctionDeclaration
-  | ts.FunctionExpression
-  | ts.ArrowFunction;
+  ts.FunctionDeclaration | ts.FunctionExpression | ts.ArrowFunction;
 
 function isFunctionWithBody(node: ts.Node): node is FunctionWithBody {
   return (
@@ -1176,11 +1170,120 @@ function translationReachesReviewedJsx(
   return sawJsx;
 }
 
+// Symbol proofs are scoped to each parsed program. Repeated keys in a large
+// component must not rescan every translator reference for each lookup.
+const UI_HOOK_TRANSLATORS = new WeakMap<
+  ts.TypeChecker,
+  Map<ts.Symbol, boolean>
+>();
+function isUiHookTranslator(
+  expression: ts.Identifier,
+  checker: ts.TypeChecker,
+): boolean {
+  if (expression.text !== "uiT") return false;
+  const symbol = checker.getSymbolAtLocation(expression);
+  if (!symbol) return false;
+  let cache = UI_HOOK_TRANSLATORS.get(checker);
+  if (!cache) {
+    cache = new Map();
+    UI_HOOK_TRANSLATORS.set(checker, cache);
+  }
+  const existing = cache.get(symbol);
+  if (existing !== undefined) return existing;
+  const sourceFile = expression.getSourceFile();
+  const usesUiHook = sourceFile.statements.some(
+    (statement) =>
+      ts.isImportDeclaration(statement) &&
+      ts.isStringLiteral(statement.moduleSpecifier) &&
+      statement.moduleSpecifier.text === "react-i18next" &&
+      statement.importClause?.namedBindings &&
+      ts.isNamedImports(statement.importClause.namedBindings) &&
+      statement.importClause.namedBindings.elements.some(
+        (item) =>
+          item.propertyName?.text === "useTranslation" &&
+          item.name.text === "useUiTranslation",
+      ),
+  );
+  const hooked = usesUiHook && isHookTranslator(expression, checker, new Set());
+  cache.set(symbol, hooked);
+  return hooked;
+}
+
 function isRenderedTranslationCall(
   access: ts.Node,
   fileName: string,
   checker: ts.TypeChecker,
 ): boolean {
+  // Event handlers, presenter getters, and markup-aware Trans messages are
+  // evaluated after locale bootstrap. Keep import identity checks: an arbitrary
+  // local function named translate cannot satisfy catalog consumption.
+  for (let parent = access.parent; parent; parent = parent.parent) {
+    if (ts.isNewExpression(parent) && ts.isIdentifier(parent.expression)) {
+      const imported = importedIdentifierIdentity(parent.expression, checker);
+      if (
+        imported?.moduleName === "@/i18n/errors" &&
+        imported.importedName === "UiError"
+      )
+        return true;
+    }
+    if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression)) {
+      const imported = importedIdentifierIdentity(parent.expression, checker);
+      const hooked = isUiHookTranslator(parent.expression, checker);
+      const safeKey =
+        imported?.moduleName === "@/i18n/errors" &&
+        imported.importedName === "errorKey";
+      const setterSymbol = checker.getSymbolAtLocation(parent.expression);
+      const messageSetter = (setterSymbol?.declarations ?? []).some(
+        (declaration) => {
+          if (
+            !ts.isBindingElement(declaration) ||
+            !ts.isArrayBindingPattern(declaration.parent)
+          )
+            return false;
+          const variable = declaration.parent.parent;
+          if (
+            !ts.isVariableDeclaration(variable) ||
+            !variable.initializer ||
+            !ts.isCallExpression(variable.initializer) ||
+            !ts.isIdentifier(variable.initializer.expression)
+          )
+            return false;
+          const hook = importedIdentifierIdentity(
+            variable.initializer.expression,
+            checker,
+          );
+          return (
+            hook?.moduleName === "@/i18n/errors" &&
+            hook.importedName === "useMessageError"
+          );
+        },
+      );
+      if (hooked || safeKey || messageSetter) {
+        if (ts.isVoidExpression(parent.parent)) return false;
+        const statement = ts.findAncestor(parent, ts.isStatement);
+        return !statement || !isStaticallyDead(parent, statement);
+      }
+      if (
+        ["@/i18n/translate", "./translate"].includes(
+          imported?.moduleName ?? "",
+        ) &&
+        imported?.importedName === "translate"
+      ) {
+        const statement = ts.findAncestor(parent, ts.isStatement);
+        return !statement || !isStaticallyDead(parent, statement);
+      }
+    }
+    if (ts.isJsxAttribute(parent) && parent.name.getText() === "i18nKey") {
+      const tag = jsxTagForAttributes(parent.parent);
+      const imported = tag && importedTagIdentity(tag, checker);
+      if (
+        imported?.moduleName === "react-i18next" &&
+        imported.importedName === "Trans"
+      )
+        return true;
+    }
+  }
+
   for (let current = access.parent; current; current = current.parent) {
     if (ts.isVoidExpression(current)) {
       return false;

@@ -178,7 +178,8 @@ for (const viewport of PHONE_VIEWPORTS) {
     await page.getByRole("button", { name: "Verify and log in" }).click();
     await expect(passwordBack).toBeDisabled();
     const error = page.getByRole("alert");
-    await expect(error).toContainText("code didn't match");
+    await expect(error).toContainText("Verification failed.");
+    await expect(error).not.toContainText("code didn't match");
     await expect(passwordBack).toBeEnabled();
     await expectReachable(scroller, error);
     await expectReachable(
@@ -376,7 +377,9 @@ test("an asynchronous invalid restore releases the method fence only after failu
   await page.getByRole("button", { name: "Use existing identity" }).click();
   await page
     .getByLabel("Recovery phrase")
-    .fill(Array.from({ length: 12 }, (_, index) => `invalid${index}`).join(" "));
+    .fill(
+      Array.from({ length: 12 }, (_, index) => `invalid${index}`).join(" "),
+    );
   await page.getByRole("button", { name: "Restore and continue" }).click();
 
   const switchMethod = page.getByRole("button", {
@@ -428,7 +431,7 @@ test("a switched active wallet cannot replace the exact restored wallet", async 
   await page.getByRole("button", { name: "Restore and continue" }).click();
 
   await expect(page.getByRole("alert")).toContainText(
-    "The selected Zcash identity is no longer active. Try again.",
+    "The active wallet identity could not be verified. Reload the wallet before continuing.",
   );
   expect(
     await page.evaluate(() => localStorage.getItem("zuuli.knox.token")),

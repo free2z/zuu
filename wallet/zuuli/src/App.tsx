@@ -1,3 +1,6 @@
+import { translate } from "@/i18n/translate";
+import { localizedError } from "@/i18n/errors";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { lazy, Suspense, useEffect, useRef } from "react";
 import {
   createBrowserRouter,
@@ -79,9 +82,17 @@ function MobileOAuthRecovery() {
         } else {
           setUser(result.user);
         }
-        toast.success(capture.associate ? "Account linked" : "Welcome to ZUULI", {
-          description: `Finished ${capture.provider} sign-in after returning to the app.`,
-        });
+        toast.success(
+          capture.associate
+            ? translate(MESSAGE_KEYS.appAccountLinked)
+            : translate(MESSAGE_KEYS.appWelcomeToZUULI),
+          {
+            description: translate(
+              MESSAGE_KEYS.appFinishedSignInAfterReturningToThe,
+              { value1: capture.provider },
+            ),
+          },
+        );
         if (!capture.associate) {
           navigate(consumePendingSocialLoginDestination(), { replace: true });
         } else {
@@ -91,8 +102,11 @@ function MobileOAuthRecovery() {
       .catch((error) => {
         if (!isCurrent()) return;
         clearPendingSocialLoginDestination();
-        toast.error("Couldn't finish sign-in", {
-          description: error instanceof Error ? error.message : "Please try again.",
+        toast.error(translate(MESSAGE_KEYS.appCouldnTFinishSignIn), {
+          description: localizedError(
+            error,
+            translate(MESSAGE_KEYS.appPleaseTryAgain),
+          ),
         });
       });
   }, [attempt, navigate, sessionLoading, setUser]);
@@ -121,28 +135,33 @@ function MobileCheckoutRecovery() {
           navigateToBuy: () => navigate("/wallet/fund", { replace: true }),
         });
         if (result.status === "cancelled") {
-          toast.info("Checkout cancelled", {
-            description: "No payment success was recorded.",
+          toast.info(translate(MESSAGE_KEYS.appCheckoutCancelled), {
+            description: translate(MESSAGE_KEYS.appNoPaymentSuccessWasRecorded),
           });
         } else if (result.status === "credited") {
-          toast.success("2Z added", {
-            description: `${result.tuzisCredited.toLocaleString()} 2Z confirmed by Free2Z.`,
+          toast.success(translate(MESSAGE_KEYS.appMessage), {
+            description: translate(MESSAGE_KEYS.appMessage2, {
+              value1: result.tuzisCredited.toLocaleString(),
+            }),
           });
         } else {
-          toast.info("Payment processing", {
+          toast.info(translate(MESSAGE_KEYS.appPaymentProcessing), {
             // Never promise the balance updates on its own: recovery polls a
             // bounded window and stops, so a slow webhook lands after the app
             // has given up watching for it.
-            description:
-              "Free2Z credits your 2Z when Stripe's confirmation arrives — it hasn't yet. Reopen ZUULI to see the updated balance.",
+            description: translate(
+              MESSAGE_KEYS.appFree2ZCreditsYour2ZWhenStripeS,
+            ),
           });
         }
       } catch (error) {
         navigate("/wallet/fund", { replace: true });
         await refreshSession().catch(() => undefined);
-        toast.error("Couldn't verify checkout return", {
-          description:
-            error instanceof Error ? error.message : "Refresh and try again.",
+        toast.error(translate(MESSAGE_KEYS.appCouldnTVerifyCheckoutReturn), {
+          description: localizedError(
+            error,
+            translate(MESSAGE_KEYS.appRefreshAndTryAgain),
+          ),
         });
         // The bounded authenticated claim is safe to retry. Signal failed
         // delivery so a repeated cold/warm OS link is not deduplicated.
@@ -159,11 +178,11 @@ function MobileCheckoutRecovery() {
         // native return mode and then have nothing listening when the OS
         // delivers it, recoverable only by killing the app.
         started.current = false;
-        toast.error("Checkout return unavailable", {
-          description:
-            error instanceof Error
-              ? error.message
-              : "Restart ZUULI and try again.",
+        toast.error(translate(MESSAGE_KEYS.appCheckoutReturnUnavailable), {
+          description: localizedError(
+            error,
+            translate(MESSAGE_KEYS.appRestartZUULIAndTryAgain),
+          ),
         });
       });
     return () => {
@@ -184,38 +203,35 @@ function AppRoutes() {
         {/* Every route lives inside the viewport-bound shell. A single Suspense boundary
             per route keeps the AppShell mounted while the lazy chunk loads. */}
         <Route element={<AppShell />}>
-            <Route path={APP_ROUTES.login} element={<AuthFeature />} />
-            <Route
-              index
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <HomeFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.about}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <AboutFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.wallet}
-              element={
-                <Suspense fallback={<RouteFallback />}>
-                  <WalletFeature />
-                </Suspense>
-              }
-            />
-            <Route
-              path={APP_ROUTES.buy}
-              element={<LegacyBuyRedirect />}
-            />
+          <Route path={APP_ROUTES.login} element={<AuthFeature />} />
+          <Route
+            index
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <HomeFeature />
+              </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.about}
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <AboutFeature />
+              </Suspense>
+            }
+          />
+          <Route
+            path={APP_ROUTES.wallet}
+            element={
+              <Suspense fallback={<RouteFallback />}>
+                <WalletFeature />
+              </Suspense>
+            }
+          />
+          <Route path={APP_ROUTES.buy} element={<LegacyBuyRedirect />} />
 
-            {/* Catch-all: unknown paths render a NotFound inside the shell */}
-            <Route path="*" element={<NotFound />} />
+          {/* Catch-all: unknown paths render a NotFound inside the shell */}
+          <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
     </>

@@ -12,14 +12,19 @@ test("preserved wallet preview requires a click and renders only redacted invent
   await expect(notice).toContainText("Earlier wallet preserved");
   await expect(notice).not.toContainText("preserved wallets inspected");
 
-  await notice.getByRole("button", { name: "Inspect preserved wallet" }).click();
+  await notice
+    .getByRole("button", { name: "Inspect preserved wallet" })
+    .click();
 
   await expect(notice).toContainText("2 preserved wallets inspected");
   await expect(notice).toContainText("Multi-wallet layout");
   await expect(notice).toContainText("3 accounts");
   await expect(notice).toContainText("encrypted custody present for 1");
   await expect(notice).toContainText("SQLite sidecars present for 1");
-  await expect(notice).toContainText("Browser fixture preview is read-only.");
+  await expect(notice).not.toContainText(
+    "Browser fixture preview is read-only.",
+  );
+  await expect(notice).toContainText("No wallet data was imported or changed.");
   await expect(notice).not.toContainText("browser-fixture-secret-wallet");
   await expect(notice).not.toContainText("browser-fixture-secret-name");
   await expect(notice).not.toContainText("browser-fixture-secret-a.sqlite");

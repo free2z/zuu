@@ -87,7 +87,9 @@ async function clickPreview() {
   });
 }
 
-function fixture(overrides: Partial<LegacyImportPreview> = {}): LegacyImportPreview {
+function fixture(
+  overrides: Partial<LegacyImportPreview> = {},
+): LegacyImportPreview {
   return {
     state: "ready",
     layout: "multi",
@@ -164,7 +166,9 @@ describe("legacy wallet preview notice", () => {
     expect(button?.disabled).toBe(true);
     expect(container.textContent).toContain("Inspecting…");
     expect(controls.preview).toHaveBeenCalledTimes(1);
-    await act(async () => resolvePreview(fixture({ state: "absent", layout: null, wallets: [] })));
+    await act(async () =>
+      resolvePreview(fixture({ state: "absent", layout: null, wallets: [] })),
+    );
     expect(button?.disabled).toBe(false);
   });
 
@@ -193,44 +197,88 @@ describe("legacy wallet preview notice", () => {
   it.each([
     ["single", "Single-wallet", "1 preserved wallet"],
     ["multi", "Multi-wallet", "2 preserved wallets"],
-  ] as const)("renders a hard-literal %s ready summary without identifiers", async (layout, label, count) => {
-    const wallets = layout === "single" ? fixture().wallets : [fixture().wallets[0], { ...fixture().wallets[0], accountCount: 1, walPresent: false, encryptedCustodyPresent: false }];
-    controls.preview.mockResolvedValue(fixture({ layout, wallets }));
-    await renderNotice();
-    await clickPreview();
-    expect(container.textContent).toContain(label);
-    expect(container.textContent).toContain(count);
-    expect(container.textContent).toContain(layout === "single" ? "2 accounts" : "3 accounts");
-    expect(container.textContent).toContain("encrypted custody present for 1");
-    expect(container.textContent).toContain("SQLite sidecars present for 1");
-    expect(container.textContent).not.toContain("must-not-render-wallet-id");
-    expect(container.textContent).not.toContain("must-not-render-wallet-name");
-    expect(container.textContent).not.toContain("must-not-render.sqlite");
-    expect(container.textContent).not.toContain("must-not-render-fingerprint");
-  });
+  ] as const)(
+    "renders a hard-literal %s ready summary without identifiers",
+    async (layout, label, count) => {
+      const wallets =
+        layout === "single"
+          ? fixture().wallets
+          : [
+              fixture().wallets[0],
+              {
+                ...fixture().wallets[0],
+                accountCount: 1,
+                walPresent: false,
+                encryptedCustodyPresent: false,
+              },
+            ];
+      controls.preview.mockResolvedValue(fixture({ layout, wallets }));
+      await renderNotice();
+      await clickPreview();
+      expect(container.textContent).toContain(label);
+      expect(container.textContent).toContain(count);
+      expect(container.textContent).toContain(
+        layout === "single" ? "2 accounts" : "3 accounts",
+      );
+      expect(container.textContent).toContain(
+        "encrypted custody present for 1",
+      );
+      expect(container.textContent).toContain("SQLite sidecars present for 1");
+      expect(container.textContent).not.toContain("must-not-render-wallet-id");
+      expect(container.textContent).not.toContain(
+        "must-not-render-wallet-name",
+      );
+      expect(container.textContent).not.toContain("must-not-render.sqlite");
+      expect(container.textContent).not.toContain(
+        "must-not-render-fingerprint",
+      );
+    },
+  );
 
   it.each([
     ["absent", "No earlier wallet data found"],
     ["unsupported", "Preview unavailable on this platform"],
   ] as const)("renders the exact %s state", async (state, label) => {
     controls.preview.mockResolvedValue(
-      fixture({ state, layout: null, wallets: [], diagnostics: [`${state} diagnostic`] }),
+      fixture({
+        state,
+        layout: null,
+        wallets: [],
+        diagnostics: [`${state} diagnostic`],
+      }),
     );
     await renderNotice();
     await clickPreview();
-    expect(container.querySelector(`[data-preview-state='${state}']`)).not.toBeNull();
+    expect(
+      container.querySelector(`[data-preview-state='${state}']`),
+    ).not.toBeNull();
     expect(container.textContent).toContain(label);
-    expect(container.textContent).toContain(`${state} diagnostic`);
+    expect(container.textContent).not.toContain(`${state} diagnostic`);
+    expect(container.textContent).toContain(
+      "No wallet data was imported or changed.",
+    );
   });
 
   it("renders blocked diagnostics and retries with one new exact call", async () => {
     controls.preview
-      .mockResolvedValueOnce(fixture({ state: "blocked", layout: null, wallets: [], diagnostics: ["Snapshot changed safely."] }))
-      .mockResolvedValueOnce(fixture({ state: "absent", layout: null, wallets: [] }));
+      .mockResolvedValueOnce(
+        fixture({
+          state: "blocked",
+          layout: null,
+          wallets: [],
+          diagnostics: ["Snapshot changed safely."],
+        }),
+      )
+      .mockResolvedValueOnce(
+        fixture({ state: "absent", layout: null, wallets: [] }),
+      );
     await renderNotice();
     await clickPreview();
     expect(container.textContent).toContain("Preview blocked");
-    expect(container.textContent).toContain("Snapshot changed safely.");
+    expect(container.textContent).not.toContain("Snapshot changed safely.");
+    expect(container.textContent).toContain(
+      "No wallet data was imported or changed.",
+    );
     expect(container.textContent).toContain("Retry preview");
     await clickPreview();
     expect(controls.preview).toHaveBeenCalledTimes(2);
@@ -240,14 +288,20 @@ describe("legacy wallet preview notice", () => {
   it("redacts a rejected native error and permits retry", async () => {
     controls.preview
       .mockRejectedValueOnce(new Error("/private/source/wallet.sqlite"))
-      .mockResolvedValueOnce(fixture({ state: "unsupported", layout: null, wallets: [] }));
+      .mockResolvedValueOnce(
+        fixture({ state: "unsupported", layout: null, wallets: [] }),
+      );
     await renderNotice();
     await clickPreview();
     expect(container.textContent).toContain("Preview could not be completed");
     expect(container.textContent).toContain("Nothing was changed");
-    expect(container.textContent).not.toContain("/private/source/wallet.sqlite");
+    expect(container.textContent).not.toContain(
+      "/private/source/wallet.sqlite",
+    );
     await clickPreview();
     expect(controls.preview).toHaveBeenCalledTimes(2);
-    expect(container.textContent).toContain("Preview unavailable on this platform");
+    expect(container.textContent).toContain(
+      "Preview unavailable on this platform",
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
 import { useState } from "react";
 import { Check, Clipboard, Info } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -17,10 +18,7 @@ import {
   shortSourceCommit,
   type BuildInfo,
 } from "@/lib/build-info";
-import {
-  resolveAboutMessages,
-  type AboutMessages,
-} from "./copy";
+import { resolveAboutMessages, type AboutMessages } from "./copy";
 import { FeedbackComposer } from "./FeedbackComposer";
 
 type AboutBuildCardProps = {
@@ -43,7 +41,11 @@ function BuildRow({
         {label}
       </dt>
       <dd
-        className={opaque ? "mono-id min-w-0 break-all text-sm" : "min-w-0 break-words text-sm"}
+        className={
+          opaque
+            ? "mono-id min-w-0 break-all text-sm"
+            : "min-w-0 break-words text-sm"
+        }
         dir={opaque ? "ltr" : undefined}
       >
         {value}
@@ -56,6 +58,8 @@ export function AboutBuildCard({
   buildInfo = BUILD_INFO,
   messages = resolveAboutMessages(),
 }: AboutBuildCardProps) {
+  useUiTranslation();
+
   const [copyState, setCopyState] = useState<"idle" | "success" | "failure">(
     "idle",
   );
@@ -63,7 +67,8 @@ export function AboutBuildCard({
 
   async function copyBuildInfo() {
     try {
-      if (!navigator.clipboard?.writeText) throw new Error("clipboard unavailable");
+      if (!navigator.clipboard?.writeText)
+        throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(
         formatBuildInfoMinimal(buildInfo, messages),
       );
@@ -88,9 +93,15 @@ export function AboutBuildCard({
       </CardHeader>
       <CardContent className="min-w-0 space-y-5 p-4 pt-0 sm:p-6 sm:pt-0">
         <dl className="min-w-0 space-y-3" aria-label={messages.buildHeading}>
-          <BuildRow label={messages.productLabel} value={buildInfo.productName} />
+          <BuildRow
+            label={messages.productLabel}
+            value={buildInfo.productName}
+          />
           <BuildRow label={messages.versionLabel} value={buildInfo.version} />
-          <BuildRow label={messages.buildLabel} value={String(buildInfo.build)} />
+          <BuildRow
+            label={messages.buildLabel}
+            value={String(buildInfo.build)}
+          />
           <BuildRow
             label={messages.channelLabel}
             value={buildChannelLabel(buildInfo.channel, messages)}
@@ -113,7 +124,11 @@ export function AboutBuildCard({
             className="h-auto min-h-11 max-w-full whitespace-normal break-words text-center [overflow-wrap:anywhere]"
             onClick={() => void copyBuildInfo()}
           >
-            {copyState === "success" ? <Check aria-hidden /> : <Clipboard aria-hidden />}
+            {copyState === "success" ? (
+              <Check aria-hidden />
+            ) : (
+              <Clipboard aria-hidden />
+            )}
             {messages.copyAction}
           </Button>
           <p
@@ -156,6 +171,8 @@ export function AboutBuildCard({
 }
 
 export default function AboutFeature() {
+  useUiTranslation();
+
   const messages = resolveAboutMessages();
   return (
     <div className="mx-auto min-w-0 max-w-3xl pb-6" data-about-page>
