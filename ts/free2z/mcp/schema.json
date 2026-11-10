@@ -2556,7 +2556,7 @@
     "/api/auth/zcash/login/": {
       "post": {
         "operationId": "auth_zcash_login_create",
-        "description": "POST {address, challenge, signature, pubkey?, otp_token?} -> knox token.\n\nIf the request carries a valid knox token (authenticated Creator),\nthe verified address is linked to THAT account (associate flow)\ninstead of creating a new one. An existing Creator's active TOTP is\nrequired for both login and association before a token is minted.",
+        "description": "A verified address logs in or creates an account, or links to the authenticated account. Existing accounts require their active TOTP. A username choice or refusal consumes the signed challenge; obtain and sign a fresh challenge before retrying. Returning identities keep their username.",
         "tags": [
           "auth"
         ],
@@ -2624,7 +2624,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ZcashAuthError"
+                  "$ref": "#/components/schemas/ZcashConflict"
                 }
               }
             },
@@ -2661,6 +2661,56 @@
             "description": ""
           },
           "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZcashAuthError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/auth/zcash/username-available/": {
+      "get": {
+        "operationId": "auth_zcash_username_available_retrieve",
+        "description": "Anonymous, throttled, no-store advisory check. Availability is not a reservation; creation validates again.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "username",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "auth"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          },
+          {}
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsernameAvailabilityResponse"
+                }
+              }
+            },
+            "description": ""
+          },
+          "429": {
             "content": {
               "application/json": {
                 "schema": {
@@ -25729,6 +25779,31 @@
           }
         }
       },
+      "UsernameAvailabilityResponse": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "$ref": "#/components/schemas/UsernameAvailabilityResponseStatusEnum"
+          }
+        },
+        "required": [
+          "status",
+          "username"
+        ]
+      },
+      "UsernameAvailabilityResponseStatusEnum": {
+        "enum": [
+          "available",
+          "taken",
+          "invalid"
+        ],
+        "type": "string",
+        "description": "* `available` - available\n* `taken` - taken\n* `invalid` - invalid"
+      },
       "ZPageCreateIdempotencyError": {
         "type": "object",
         "description": "409 from POST /api/zpage/ when its Idempotency-Key cannot be honoured.\n\n``code`` is the stable, machine-readable part; ``error`` is the\nsentence to show. Nothing was created in either case.",
@@ -25995,6 +26070,26 @@
           "challenge"
         ]
       },
+      "ZcashConflict": {
+        "type": "object",
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "code": {
+            "$ref": "#/components/schemas/ZcashConflictCodeEnum"
+          }
+        }
+      },
+      "ZcashConflictCodeEnum": {
+        "enum": [
+          "username_required",
+          "username_taken",
+          "username_invalid"
+        ],
+        "type": "string",
+        "description": "* `username_required` - username_required\n* `username_taken` - username_taken\n* `username_invalid` - username_invalid"
+      },
       "ZcashFunding": {
         "type": "object",
         "properties": {
@@ -26091,6 +26186,16 @@
           "pubkey": {
             "type": "string",
             "maxLength": 130
+          },
+          "choose_username": {
+            "type": "boolean",
+            "default": false,
+            "description": "Request a choice after proving a new identity. The proof is consumed on a choice or refusal; obtain a fresh challenge for each retry."
+          },
+          "desired_username": {
+            "type": "string",
+            "description": "Optional create-only username; empty selects a generated name. Existing identities retain their username.",
+            "maxLength": 150
           },
           "otp_token": {
             "type": "string",
