@@ -58,8 +58,9 @@ def test_an_expired_bearer_token_is_swept_even_though_the_post_is_refused(
 # --- (3) Dyte go-live retry --------------------------------------------------
 
 class _FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, *, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     def json(self):
         return self._payload
@@ -85,7 +86,9 @@ def test_a_failed_go_live_retry_keeps_the_fresh_meeting_id(
     client_stub.create_meeting.return_value = _FakeResponse(
         {"data": {"id": "fresh-meeting"}})
     client_stub.add_participant.return_value = _FakeResponse(
-        {"success": False, "error": {"code": 404, "message": "No meeting"}})
+        {"success": False, "error": {"code": 404, "message": "No meeting"}},
+        status_code=404,
+    )
     mocker.patch("dj.apps.dyte.views.DyteClient", return_value=client_stub)
 
     api = APIClient(raise_request_exception=False)
@@ -93,7 +96,9 @@ def test_a_failed_go_live_retry_keeps_the_fresh_meeting_id(
     response = api.post(
         f"/api/dyte/{streamer.username}/{BROADCAST}", {}, format="json")
 
-    assert response.status_code == 502, response.content
+    assert response.status_code == 503, response.content
+    assert response.data['code'] == 'provider_unavailable'
+    assert response.data['failure']['stage'] == 'add_participant_after_rotation'
     assert client_stub.create_meeting.call_count == 1
     stored = CreatorMeeting.objects.get(
         creator=streamer, meeting_type=BROADCAST)
@@ -101,6 +106,9 @@ def test_a_failed_go_live_retry_keeps_the_fresh_meeting_id(
         "the recreated provider meeting id was rolled back"
     )
     assert stored.live_now is False
+    assert stored.host_session_id is None
+    assert stored.host_start_claim is None
+    assert any(entry['meeting_id'] == 'fresh-meeting' for entry in stored.host_evictions)
 
 
 def test_a_successful_go_live_is_unchanged(creator_factory, mocker):
