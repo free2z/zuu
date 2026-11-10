@@ -18,7 +18,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 const tauriConfig = JSON.parse(
-  readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"),
+  readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8")
 ) as { app?: { security?: { csp?: unknown } } };
 const productionCsp = tauriConfig.app?.security?.csp;
 
@@ -37,9 +37,9 @@ const REQUIRED_SOURCES: Record<string, string> = {
     "@cloudflare/realtimekit-ui fetchEmojis() loads /assets/emojis-data.json for the " +
     "reactions picker inside <RtkMeeting>. It is not wrapped in try/catch, so a block " +
     "surfaces as an unhandled rejection rather than a degraded control.",
-  "wss://socket-edge.realtime.cloudflare.com":
-    "The meeting transport. SocketService.getSocketEdgeDomain() composes " +
-    "`socket-edge.${baseURI}`; without it no media session is ever established.",
+  "wss://api.realtime.cloudflare.com":
+    "The 2.0.3 meeting transport. Its socket URL helper composes " +
+    "`wss://api.${baseURI}/ws`; without it no signaling session is established.",
 };
 
 /**
@@ -63,7 +63,7 @@ const REFUSED_SOURCES: Record<string, string> = {
     "Referenced nowhere in the installed dependency tree — `grep -rl cloudflarestorage " +
     "node_modules` returns zero files. ZUULI carries it speculatively.",
   "https://*.dyte.io":
-    "Dead. RealtimeKit 1.5.1 throws 'Dyte Base URIs are no longer supported. Use " +
+    "Dead. RealtimeKit 2.0.3 throws 'Dyte Base URIs are no longer supported. Use " +
     "RealtimeKit Base URIs.' when the base URI contains dyte.io, so the bundled SDK " +
     "can never reach this origin.",
   "wss://*.dyte.io": "Dead, for the same reason as https://*.dyte.io.",
@@ -103,6 +103,13 @@ function withoutSources(csp: string, drop: readonly string[]): string {
 
 async function initializeWithCsp(page: Page, csp: string) {
   let requestCount = 0;
+  await page.route(/https:\/\/[^/]*realtime\.cloudflare\.com\//, (route) =>
+    route.abort()
+  );
+  await page.routeWebSocket(
+    /wss:\/\/[^/]*realtime\.cloudflare\.com\//,
+    (socket) => socket.close()
+  );
   await page.route(participantDetailsUrl, async (route) => {
     requestCount += 1;
     await route.fulfill({ status: 401, body: "" });
@@ -179,7 +186,7 @@ async function initializeWithCsp(page: Page, csp: string) {
 test("the packaged connect-src is exactly the reviewed source list", () => {
   expect(typeof productionCsp).toBe("string");
   expect(directiveSources(productionCsp as string, "connect-src")).toEqual(
-    expectedConnectSources,
+    expectedConnectSources
   );
 });
 
@@ -187,7 +194,7 @@ test("no refused RealtimeKit origin has crept back into the packaged CSP", () =>
   const sources = directiveSources(productionCsp as string, "connect-src");
   for (const refused of Object.keys(REFUSED_SOURCES)) {
     expect(sources, `${refused}: ${REFUSED_SOURCES[refused]}`).not.toContain(
-      refused,
+      refused
     );
   }
 });
@@ -202,11 +209,9 @@ test("Live needs no frames, no eval and no wasm", () => {
   // from RealtimeKit: `grep -rl WebAssembly` over the three @cloudflare
   // packages returns nothing.
   expect(directiveSources(csp, "script-src")).toEqual(["'self'"]);
-  // The only `new Worker(...)` in the SDK is a `data:` URL inside
-  // `EncryptionManager`, a separate entry point this app never imports
-  // (`index.es.js` contains no Worker construction), so worker-src is left to
-  // fall back to `default-src 'self'`.
-  expect(directiveSources(csp, "worker-src")).toEqual([]);
+  // Core 2.0.3 imports worker-timers@7.0.60. Its bundled timer worker
+  // uses a generated blob URL even during initialization (not only E2EE).
+  expect(directiveSources(csp, "worker-src")).toEqual(["'self'", "blob:"]);
 });
 
 test("production CSP admits the bundled RealtimeKit initialization request", async ({
@@ -237,7 +242,7 @@ test("removing the RealtimeKit API origin reproduces the ERR0001 CSP boundary", 
   });
   expect(result.error?.code).toBe("0001");
   expect(result.error?.message).toBe(
-    "[ERR0001]: {Client} Failed to initialize.\nUnable to connect to the server. Check the internet connection.",
+    "[ERR0001]: {Client} Failed to initialize.\nUnable to connect to the server. Check the internet connection."
   );
 });
 
@@ -246,3 +251,17 @@ declare global {
     init(options: { authToken: string }): Promise<unknown>;
   };
 }
+
+test("removing blob workers exposes the bundled timer-worker requirement", async ({
+  page,
+}) => {
+  const csp = (productionCsp as string).replace(
+    "worker-src 'self' blob:",
+    "worker-src 'self'"
+  );
+  const result = await initializeWithCsp(page, csp);
+  expect(result.violations).toContainEqual({
+    blockedURI: "blob",
+    violatedDirective: "worker-src",
+  });
+});
