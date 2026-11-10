@@ -135,6 +135,17 @@
     "title": "Añadir 2Zs"
   },
   "live": {
+    "balanceRefreshed": "Saldo actualizado desde tu cuenta. La liquidación PPV puede tardar en aparecer.",
+    "balanceRefreshPending": "Saliste de la transmisión. No se pudo actualizar el saldo; la liquidación PPV podría seguir procesándose.",
+    "joinTicketIssued": "Unión aceptada. El uso PPV medido se liquida cuando el proveedor confirma tu salida.",
+    "ppv": {
+      "rate": "Tarifa",
+      "rateUnit": "2Z / minuto",
+      "join": "Unirse (saldo mínimo {reserve})",
+      "confirm": "Para unirte se comprueba un saldo mínimo de {minimum}; no se descuenta ese importe. El uso medido real se liquida cuando el proveedor confirma tu salida, lo que puede tardar.",
+      "minimumBalance": "Saldo mínimo para unirse",
+      "confirmButton": "Unirse a la transmisión"
+    },
     "failure": {
       "endedRoom": "Esta transmisión ha terminado o ya no acepta espectadores.",
       "expiredTicket": "El acceso caducó antes de iniciar la conexión. Inténtalo de nuevo.",

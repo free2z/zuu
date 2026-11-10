@@ -18,6 +18,7 @@ function stream(participants: number | null): Livestream {
     live: true,
     participants,
     price_tuzis: 0,
+    admission_minimum_tuzis: null,
   };
 }
 

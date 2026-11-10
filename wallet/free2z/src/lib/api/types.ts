@@ -176,7 +176,8 @@ export interface AIModel {
   output_price: string; // USD per token
   markup: string; // multiplier above cost
   /** Convenience: provider family inferred from the model name. */
-  provider?: "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
+  provider?:
+    "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
 }
 
 export interface PromptResponse {
@@ -368,12 +369,17 @@ export interface Livestream {
   username: string;
   creator: SimpleCreator;
   title: string;
+  /** Authoritative host-supplied room title; empty only for legacy rooms. */
   kind: StreamKind;
   live: boolean;
   /** Authoritative hydrated count, or null while the count is unavailable. */
   participants: number | null;
-  /** 2Z price to join (0 for free broadcast). */
+  /** Compatibility alias for the authoritative admission minimum; never a charge. */
   price_tuzis: number;
+  /** Creator's actual PPV rate, in 2Z per minute. */
+  price_per_minute?: string;
+  /** Backend reported minimum balance for PPV admission; not a debit. */
+  admission_minimum_tuzis: number | null;
   thumbnail?: string | null;
   started_at?: string;
   category?: string;
@@ -518,10 +524,7 @@ export type KycTaxFormKind = "W-9" | "W-8BEN" | "W-8BEN-E";
 
 /** The four identity-document upload slots /api/kyc/identity-documents accepts. */
 export type KycIdentityDocType =
-  | "id_front"
-  | "id_back"
-  | "additional_document"
-  | "live_photo";
+  "id_front" | "id_back" | "additional_document" | "live_photo";
 
 /** GET /api/kyc/identity-documents → `{ <doctype>_url }` per uploaded slot. */
 export type KycIdentityDocuments = Partial<

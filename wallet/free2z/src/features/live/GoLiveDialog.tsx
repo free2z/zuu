@@ -61,14 +61,21 @@ export function GoLiveDialog() {
       startInFlight.current ||
       preflight.status !== "ready" ||
       (kind === "ppv" && priceNum === null)
-    ) return;
+    )
+      return;
     startInFlight.current = true;
     setStarting(true);
     try {
       const { ticket, inviteSecret } = await startAfterMediaConfirmation({
         confirmed: preflight.status === "ready",
         release: preflight.release,
-        provision: () => live.start(kind),
+        provision: () =>
+          live.start(kind, {
+            title: title.trim(),
+            ...(kind === "ppv" && priceNum !== null
+              ? { pricePerMinute: priceNum.toFixed(2) }
+              : {}),
+          }),
       });
       const username = user?.username || "you";
       toast.success("You're live", {
@@ -217,14 +224,22 @@ export function GoLiveDialog() {
                 aria-describedby="go-live-price-error go-live-price-summary"
                 aria-invalid={!validPrice}
               />
-              <p id="go-live-price-summary" className="text-xs text-muted-foreground">
+              <p
+                id="go-live-price-summary"
+                className="text-xs text-muted-foreground"
+              >
                 Viewers spend{" "}
                 <span className="font-medium text-warning bidi-number tabular-nums">
-                  {priceNum !== null && priceNum > 0 ? formatTuzis(priceNum) : "—"}
+                  {priceNum !== null && priceNum > 0
+                    ? formatTuzis(priceNum)
+                    : "—"}
                 </span>{" "}
                 to join.
               </p>
-              <p id="go-live-price-error" className="min-h-[1rem] text-xs text-destructive">
+              <p
+                id="go-live-price-error"
+                className="min-h-[1rem] text-xs text-destructive"
+              >
                 {priceResult.error === "tooLarge"
                   ? `Max ${MAX_PPV_PRICE_TUZIS.toLocaleString()} 2Z for PPV.`
                   : !validPrice

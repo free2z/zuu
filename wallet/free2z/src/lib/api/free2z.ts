@@ -220,12 +220,14 @@ interface RawZPage {
   get_url?: string;
 }
 interface RawDyteMeeting {
+  title?: string;
   id: number;
   creator: RawCreator;
   meeting_id: string;
   meeting_type: unknown;
   live_now: boolean;
   price_per_minute?: unknown;
+  admission_minimum_tuzis?: unknown;
 }
 
 // ─── Mappers ────────────────────────────────────────────────────────────────
@@ -706,43 +708,48 @@ function typeFromStreamKind(value: StreamKind): DyteMeetingType {
   return TYPE_FROM_KIND[value];
 }
 
-/** PPV entry cost the backend enforces: ceil(price_per_minute*30) + 15 fee. */
-function ppvPrice(pricePerMinute: unknown): number {
-  // CreatorMeeting.price_per_minute is Decimal(6, 2). Parse its wire form into
-  // hundredths so values such as 8.30 do not become 8.300000000000001 in JS
-  // and incorrectly round the 30-minute charge up by one.
-  if (typeof pricePerMinute !== "string") {
-    throw new LivestreamPriceContractError();
-  }
-  const match = /^(\d{1,4})(?:\.(\d{1,2}))?$/.exec(pricePerMinute);
-  if (!match) throw new LivestreamPriceContractError();
-
-  const hundredths =
-    BigInt(match[1]) * 100n + BigInt((match[2] ?? "").padEnd(2, "0") || "0");
-  if (hundredths <= 0n) throw new LivestreamPriceContractError();
-
-  return Number((hundredths * 30n + 99n) / 100n + 15n);
-}
-
 function mapLivestream(m: RawDyteMeeting): Livestream {
   const kind = streamKindFromType(m.meeting_type);
   const creator = mapCreator(m.creator);
+  const rate = kind === "ppv" ? parsePpvRate(m.price_per_minute) : undefined;
+  const admissionMinimum =
+    kind === "ppv" ? parseAdmissionMinimum(m.admission_minimum_tuzis) : null;
   return {
     id: String(m.id),
     meetingId: m.meeting_id,
     username: m.creator.username,
     creator,
-    title: `${creator.display_name} is live`,
+    title: m.title?.trim() || `${creator.display_name} is live`,
     kind,
     live: !!m.live_now,
     // The public meeting listing does not carry an authoritative count. #265
     // will hydrate one; until then the only truthful client value is unknown.
     participants: null,
-    price_tuzis: kind === "ppv" ? ppvPrice(m.price_per_minute) : 0,
+    price_tuzis: admissionMinimum ?? 0,
+    ...(rate !== undefined ? { price_per_minute: rate } : {}),
+    admission_minimum_tuzis: admissionMinimum,
     thumbnail: creator.image ?? null,
     started_at: undefined,
     category: undefined,
   };
+}
+
+function parsePpvRate(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !/^\d{1,4}\.\d{2}$/.test(value) ||
+    Number(value) <= 0
+  ) {
+    throw new LivestreamPriceContractError();
+  }
+  return value;
+}
+
+function parseAdmissionMinimum(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new LivestreamPriceContractError();
+  }
+  return value;
 }
 
 function inferProvider(model: string): AIModel["provider"] {
@@ -1893,7 +1900,12 @@ export const live = {
   },
 
   /** Creator starts/ensures their stream and receives its host ticket. */
-  async start(kind: StreamKind): Promise<LiveStartResult> {
+  async start(
+    kind: StreamKind,
+    metadata: { title: string; pricePerMinute?: string } = {
+      title: "Live stream",
+    },
+  ): Promise<LiveStartResult> {
     const meetingType = typeFromStreamKind(kind);
     if (useMock()) {
       await delay(500);
@@ -1925,7 +1937,15 @@ export const live = {
     }
     const r = await request<unknown>(
       `/api/dyte/${me.username}/${meetingType}`,
-      { method: "POST" },
+      {
+        method: "POST",
+        body: {
+          title: metadata.title,
+          ...(kind === "ppv"
+            ? { price_per_minute: metadata.pricePerMinute }
+            : {}),
+        },
+      },
     );
     // A new public meeting changed discovery; private rooms never touch it.
     listingCache = null;
@@ -1956,6 +1976,8 @@ export const live = {
       expectedMeetingId?: string;
       expectedEnvironmentId?: string;
       previousAuthToken?: string;
+      expectedActorId?: number;
+      admissionIdempotencyKey?: string;
     } = {},
   ): Promise<DyteJoinTicket> {
     const meetingType = typeFromStreamKind(kind);
@@ -1984,6 +2006,21 @@ export const live = {
     try {
       const r = await request<unknown>(path, {
         method: "POST",
+        ...(kind === "ppv" && as === "participant"
+          ? {
+              body: {
+                ...(constraints.expectedActorId !== undefined
+                  ? { expected_actor_id: constraints.expectedActorId }
+                  : {}),
+                ...(constraints.admissionIdempotencyKey
+                  ? {
+                      admission_idempotency_key:
+                        constraints.admissionIdempotencyKey,
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       });
       return parseJoinTicketResponse(r, {
         as,

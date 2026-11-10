@@ -135,6 +135,17 @@
     "title": "Ajouter des 2Zs"
   },
   "live": {
+    "balanceRefreshed": "Solde actualisé depuis votre compte. Le règlement PPV peut prendre du temps.",
+    "balanceRefreshPending": "Vous avez quitté la diffusion. Le solde n'a pas pu être actualisé ; le règlement PPV est peut-être encore en cours.",
+    "joinTicketIssued": "Connexion acceptée. L'utilisation PPV mesurée est réglée après confirmation de votre départ par le fournisseur.",
+    "ppv": {
+      "rate": "Tarif",
+      "rateUnit": "2Z / minute",
+      "join": "Rejoindre (solde minimum {reserve})",
+      "confirm": "La connexion vérifie un solde minimum de {minimum} ; ce montant n'est pas débité. L'utilisation mesurée est réglée après confirmation de votre départ par le fournisseur, ce qui peut prendre du temps.",
+      "minimumBalance": "Solde minimum requis",
+      "confirmButton": "Rejoindre la diffusion"
+    },
     "failure": {
       "endedRoom": "Cette diffusion est terminée ou n'accepte plus de spectateurs.",
       "expiredTicket": "L'accès a expiré avant le début de la connexion. Réessayez.",
