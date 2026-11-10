@@ -2297,6 +2297,12 @@
     }
   },
   "live": {
+    "screenShares": {
+      "title": "Shared screens",
+      "choose": "Choose a shared screen",
+      "you": "You",
+      "subscribeError": "A shared screen is available, but this device could not subscribe to its video."
+    },
     "backToProfile": "Back to Profile",
     "isLive": "{name} is live",
     "metaDescription": "Watch {name}'s live stream on Free2Z.",
