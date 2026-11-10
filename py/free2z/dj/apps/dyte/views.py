@@ -1557,7 +1557,7 @@ def live_meeting_status(request, username):
     resp = {}
     for meeting in live_meetings:
         try:
-            count = dc.get_cached_participants_count(
+            dc.get_cached_participants_count(
                 meeting['meeting_id'], meeting.get('provider_session_id'),
             )
         except Exception as exc:
@@ -1567,7 +1567,6 @@ def live_meeting_status(request, username):
                 "live_meeting_status: probe failed for %s (%s): %s",
                 meeting['meeting_id'], username, exc,
             )
-            count = None
         snapshot = dc.get_cached_participant_snapshot(
             meeting['meeting_id'], meeting.get('provider_session_id'),
         )
@@ -1578,6 +1577,10 @@ def live_meeting_status(request, username):
             meeting['session_id'] = str(session_id)
         # bring back count when dyte fixes regression
         # https://discord.com/channels/872824138048352277/1253228307227349004
+        # A confirmed provider zero remains the established offline response;
+        # unknown count on an otherwise live room is still returned honestly.
+        if snapshot is not None and snapshot['count'] == 0:
+            continue
         if snapshot is not None:
             from .recording_control import public_recording
 
