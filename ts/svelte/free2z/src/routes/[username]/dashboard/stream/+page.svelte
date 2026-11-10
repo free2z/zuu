@@ -722,7 +722,7 @@
   ) {
     const failure = err instanceof HostStreamStartError ? err : null;
     console.warn("Host stream startup failed", {
-      stage: failure?.stage ?? stage,
+      stage,
       code:
         failure?.failureCode ??
         (stage === "meeting_setup" ? "sdk_init_failed" : "admission_rejected"),
@@ -972,18 +972,16 @@
       // not broadcasting, so give it back rather than lock out a retry.
       endSeat();
       error =
-        startType === "private" && err instanceof LocalizedError
+        err instanceof LocalizedError
           ? err.message
-          : startType !== "private" && err instanceof LocalizedError
-            ? err.message
-            : $t(
-                startType === "private"
-                  ? "dashboard.stream.startFailed"
-                  : "dashboard.stream.hostUnavailable",
-                startType === "private"
-                  ? "Failed to start the stream."
-                  : "Stream startup is temporarily unavailable. Please try again shortly.",
-              );
+          : $t(
+              startType === "private"
+                ? "dashboard.stream.startFailed"
+                : "dashboard.stream.hostUnavailable",
+              startType === "private"
+                ? "Failed to start the stream."
+                : "Stream startup is temporarily unavailable. Please try again shortly.",
+            );
       privateResumeAvailable =
         startType === "private" &&
         err instanceof LocalizedError &&

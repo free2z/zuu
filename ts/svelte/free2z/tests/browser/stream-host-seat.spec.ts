@@ -170,6 +170,47 @@ test("known host maintenance failures are actionable and safe to retry", async (
   await expect(page.locator("rtk-meeting")).toHaveCount(0);
 });
 
+test("an unknown backend 500 does not assume a provider failure", async ({
+  page,
+}) => {
+  await seatStatus(page, { active: false });
+  const warnings: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning") warnings.push(message.text());
+  });
+  await page.route(`**/api/dyte/${USER}/subscribers-only`, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "text/html",
+      body: "<h1>raw-unknown-backend-exception</h1>",
+    }),
+  );
+  await openDashboard(page);
+  await page.locator('label[for="stream-audience-subscribers-only"]').click();
+  await page.getByTestId("stream-start").click();
+  await expect(
+    page
+      .getByText(
+        "Stream startup is temporarily unavailable. Please try again shortly.",
+        { exact: true },
+      )
+      .first(),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      warnings.some(
+        (message) =>
+          message.includes("code: admission_unavailable") &&
+          message.includes("status: 500"),
+      ),
+    )
+    .toBe(true);
+  expect(warnings.join("\n")).not.toContain("provider_unavailable");
+  expect(warnings.join("\n")).not.toContain("raw-unknown-backend-exception");
+  await expect(page.getByText("raw-unknown-backend-exception")).toHaveCount(0);
+  await expect(page.locator("rtk-meeting")).toHaveCount(0);
+});
+
 test("an unrelated 400 is treated as invalid settings, not lost eligibility", async ({
   page,
 }) => {
