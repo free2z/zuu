@@ -21,13 +21,19 @@
   const MAX_SHARES = 4;
   function alreadySubscribed(id: string) {
     return Boolean(
-      meeting.participants.joined.get(id)?.manualProducerConfig
+      meeting.participants.joined?.get?.(id)?.manualProducerConfig
         ?.screenshareVideo,
     );
   }
 
   function participants() {
-    return [...meeting.participants.joined.values(), meeting.self];
+    const joined = meeting.participants?.joined;
+    // Some lightweight integrations intentionally expose no participant map.
+    // In that case there are no discoverable remote shares to render.
+    return [
+      ...(typeof joined?.values === "function" ? joined.values() : []),
+      ...(meeting.self ? [meeting.self] : []),
+    ];
   }
 
   function refresh() {
@@ -96,10 +102,18 @@
   // remote peers; self publishes its own event on meeting.self.
   onMount(() => {
     const joined = meeting.participants.joined;
+    if (
+      !joined ||
+      typeof joined.on !== "function" ||
+      typeof joined.off !== "function"
+    ) {
+      refresh();
+      return;
+    }
     joined.on("participantsUpdate", refresh);
     joined.on("participantLeft", refresh);
     joined.on("participantsCleared", refresh);
-    meeting.self.on("screenShareUpdate", refresh);
+    meeting.self?.on?.("screenShareUpdate", refresh);
     // Individual remote peers emit screenShareUpdate; joined is an aggregate
     // map that does not rebroadcast this event. Keep every peer listener exact.
     const peerListeners = new Map<
@@ -110,12 +124,15 @@
       }
     >();
     const syncPeerListeners = () => {
+      if (typeof joined.values !== "function") return;
+      const peers = joined.values();
+      if (!peers || typeof peers[Symbol.iterator] !== "function") return;
       for (const [id, entry] of peerListeners)
         if (!joined.has(id)) {
           entry.peer.off("screenShareUpdate", entry.fn as never);
           peerListeners.delete(id);
         }
-      for (const peer of joined.values())
+      for (const peer of peers)
         if (!peerListeners.has(peer.id)) {
           const fn = () => refresh();
           peer.on("screenShareUpdate", fn as never);
@@ -136,7 +153,7 @@
       joined.off("participantsCleared", refresh);
       joined.off("participantsUpdate", update);
       joined.off("participantLeft", update);
-      meeting.self.off("screenShareUpdate", refresh);
+      meeting.self?.off?.("screenShareUpdate", refresh);
       for (const { peer, fn } of peerListeners.values())
         peer.off("screenShareUpdate", fn as never);
       peerListeners.clear();

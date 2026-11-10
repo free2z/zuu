@@ -4,21 +4,6 @@ test("renders concurrent remote/self shares and cleans up late owned subscriptio
   page,
 }) => {
   const browserErrors: string[] = [];
-  page.on("requestfailed", (request) =>
-    browserErrors.push(
-      `REQUEST FAILED ${request.url()}: ${request.failure()?.errorText}`,
-    ),
-  );
-  page.on("response", (response) => {
-    if (response.status() >= 400)
-      browserErrors.push(`HTTP ${response.status()} ${response.url()}`);
-  });
-  page.on("pageerror", (error) =>
-    browserErrors.push(error.stack ?? error.message),
-  );
-  page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(message.text());
-  });
   await page.goto("/");
   await page.evaluate(async () => {
     const target = document.createElement("div");
@@ -39,6 +24,23 @@ test("renders concurrent remote/self shares and cleans up late owned subscriptio
     "data-ready",
     "true",
   );
+  // The signed-out landing page intentionally receives /api/auth/user/ 401.
+  // Begin strict browser-error capture only after the fixture has mounted.
+  page.on("requestfailed", (request) =>
+    browserErrors.push(
+      `REQUEST FAILED ${request.url()}: ${request.failure()?.errorText}`,
+    ),
+  );
+  page.on("response", (response) => {
+    if (response.status() >= 400)
+      browserErrors.push(`HTTP ${response.status()} ${response.url()}`);
+  });
+  page.on("pageerror", (error) =>
+    browserErrors.push(error.stack ?? error.message),
+  );
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
   await expect(page.getByTestId("concurrent-screen-shares")).toBeVisible();
   await expect(
     page.getByTestId("screen-share-grid").getByText("Ada", { exact: true }),
