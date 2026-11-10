@@ -57,7 +57,13 @@ class CreatorMeeting(models.Model):
     creator = models.ForeignKey(
         'g12f.Creator', on_delete=models.CASCADE, related_name="meetings"
     )
-    meeting_id = models.CharField(max_length=64, unique=True)
+    # Until the provider returns its generated room ID, this row has no
+    # provider identity. NULL keeps concurrent pending rooms distinct under
+    # the unique constraint; an empty string is a real, globally unique value
+    # and can block unrelated creators after a failed create.
+    meeting_id = models.CharField(
+        max_length=64, unique=True, null=True, blank=True, default=None,
+    )
     meeting_type = models.CharField(
         max_length=20, choices=MEETING_TYPE_CHOICES, default=SUBSCRIBERS_ONLY)
     is_public = models.BooleanField(default=True)
