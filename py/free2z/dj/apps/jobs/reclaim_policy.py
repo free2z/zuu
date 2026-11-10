@@ -449,6 +449,15 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'notify either. Contract test: '
         'dj/apps/g12f/test_page_update_outbox.py.',
     ),
+    'g12f.reindex_creator_pages': TaskPolicy(
+        NEVER,
+        'At most 100 page visibility reads and transactional index-job defers, '
+        'but each downstream search job can make paid OpenAI calls. Replaying '
+        'a batch may duplicate those charges, and the database/queue work has '
+        'no enforced whole-task deadline. Automatic reclaim is therefore '
+        'disabled until durable per-batch progress and a paid-work replay '
+        'budget are implemented. The task has no automatic retry strategy.',
+    ),
     'purchases.expire_zec_intent': TaskPolicy(
         NEVER,
         'Database-only unused funding cleanup with 12 bounded retries. '
