@@ -1882,7 +1882,7 @@
                the public page from the broadcaster's own browser is one more
                way to put a second copy of them into the room. -->
             {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
-              <div class="flex shrink-0 items-center gap-2">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <Button
                   variant="secondary"
                   size="sm"
