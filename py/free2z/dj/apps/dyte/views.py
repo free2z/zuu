@@ -79,7 +79,7 @@ from dj.apps.tuzis.serializers import (
     InsufficientFundsErrorSerializer,
     StreamEntitlementErrorSerializer,
 )
-from .client import DyteClient
+from .client import DyteClient, ProviderError, ProviderNotFoundError, ProviderResponse
 
 import logging
 
@@ -210,14 +210,7 @@ def get_or_load_dyte_public_key(force_refresh: bool = False):
     _DYTE_PUBLIC_KEY_ATTEMPTED_AT = now
 
     try:
-        response = requests.get(
-            f"{settings.RTK_API_BASE_URL}/.well-known/webhooks.json",
-            timeout=settings.DYTE_KEY_FETCH_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        public_key_pem = response.json().get("data", {}).get("publicKey")
-        if not public_key_pem:
-            raise ValueError("Public key not found in the provider's response")
+        public_key_pem = DyteClient().webhook_public_key()
         key = serialization.load_pem_public_key(
             public_key_pem.encode('utf-8')
         )
@@ -228,7 +221,7 @@ def get_or_load_dyte_public_key(force_refresh: bool = False):
         logger.exception(
             "Could not load the webhook signing key from %s; %s for the next "
             "%ss",
-            settings.RTK_API_BASE_URL,
+            settings.RTK_WEBHOOK_KEY_URL,
             "continuing with the cached key" if DYTE_PUBLIC_KEY is not None
             else "rejecting webhook deliveries",
             settings.DYTE_KEY_FETCH_RETRY_SECONDS,
@@ -1531,7 +1524,7 @@ class PublicMeetingViewSet(viewsets.ReadOnlyModelViewSet):
 @permission_classes([AllowAny])
 @throttle_classes(POLLING_THROTTLES)
 def live_meeting_status(request, username):
-    dc = DyteClient(settings.DYTE_ORG)
+    dc = DyteClient()
     live_meetings = CreatorMeeting.objects.filter(
         creator__username=username,
         creator__is_active=True,
@@ -1573,11 +1566,10 @@ def live_meeting_status(request, username):
 
 def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting:
     if not dc:
-        dc = DyteClient(settings.DYTE_ORG)
+        dc = DyteClient()
     resp = dc.create_meeting(cm.creator.username)
     d = resp.json()
     if d.get('error'):
-        logger.error(d)
         raise Exception("Dyte Error")
     cm.meeting_id = d['data']['id']
     # NOTE: `created_at` is deliberately NOT moved here, although the
@@ -1964,7 +1956,10 @@ class PrivateMeetingManage(APIView):
                     or target.meeting_type != PRIVATE or target.is_public
                 ):
                     return Response({'error': 'Private room ownership could not be confirmed.'}, status=503)
-            cm = _create_meeting(cm)
+            try:
+                cm = _create_meeting(cm)
+            except ProviderError:
+                return _provider_retry_response()
             cm.e2ee = request.data.get('e2ee', False)
             cm.recycle_secret()
         return Response(data={
@@ -1986,7 +1981,7 @@ class PrivateMeeting(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        dc = DyteClient(settings.DYTE_ORG)
+        dc = DyteClient()
         stream_owner = kwargs.get('username')
         secret = kwargs.get('secret')
 
@@ -2134,7 +2129,7 @@ class DyteMeeting(APIView):
                 status=status.HTTP_404_NOT_FOUND,
                 data="Unknown meeting type",
             )
-        dc: DyteClient = DyteClient(settings.DYTE_ORG)
+        dc: DyteClient = DyteClient()
 
         star: Creator = get_object_or_404(
             Creator, username=username, is_active=True
@@ -2216,7 +2211,7 @@ class DyteMeeting(APIView):
         get_object_or_404(
             Creator, username=stream_owner, is_active=True
         )
-        dc: DyteClient = DyteClient(settings.DYTE_ORG)
+        dc: DyteClient = DyteClient()
 
         body = MeetingJoinRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -2246,11 +2241,14 @@ class DyteMeeting(APIView):
         logger.info(f"POST to start/join: {request.data}")
 
         if is_host_start:
-            return self._start_or_resume_host(
-                request, meeting_type, dc,
-                host_session=body.validated_data.get('host_session'),
-                takeover=body.validated_data.get('takeover', False),
-            )
+            try:
+                return self._start_or_resume_host(
+                    request, meeting_type, dc,
+                    host_session=body.validated_data.get('host_session'),
+                    takeover=body.validated_data.get('takeover', False),
+                )
+            except ProviderError:
+                return _provider_retry_response()
 
         # Viewer -- including the creator on their own public stream page.
         # Meeting must exist and be live
@@ -2565,6 +2563,9 @@ class DyteMeeting(APIView):
         try:
             resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
                                       custom_participant_id=participant_id)
+        except ProviderNotFoundError:
+            # Only a typed 404 permits the established replacement-room path.
+            resp = ProviderResponse({'error': {'code': 404}}, 404)
         except Exception:
             _abandon_host_start(creator, row_id, host_session, start_claim,
                                 keep_cleanup=True)

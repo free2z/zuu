@@ -344,8 +344,8 @@ def test_missing_room_replacement_resets_provider_session_and_keeps_host_seat(
         provider_session_id=uuid.uuid4(),
         provider_session_started_at=timezone.now() - timedelta(hours=1),
     )
-    gone = _FakeResponse({'success': False, 'error': {'code': 404}})
-    gone.status_code = 404
+    from dj.apps.dyte.client import ProviderNotFoundError
+    gone = ProviderNotFoundError()
     provider.add_participant.side_effect = [
         gone, _FakeResponse({'data': {'token': 'auth-token', 'id': 'p-new'}}),
     ]
@@ -568,8 +568,8 @@ def test_a_transient_provider_error_on_takeover_does_not_rotate(
 def test_a_missing_room_is_still_replaced(api_client, provider, host):
     CreatorMeeting.objects.create(
         creator=host, meeting_id='gone', meeting_type=BROADCAST, live_now=True)
-    gone = _FakeResponse({'success': False, 'error': {'code': 404}})
-    gone.status_code = 404
+    from dj.apps.dyte.client import ProviderNotFoundError
+    gone = ProviderNotFoundError()
     ok = _FakeResponse({'data': {'token': 'auth-token', 'id': 'p-new'}})
     provider.add_participant.side_effect = [gone, ok]
 
@@ -668,13 +668,16 @@ def test_kick_participants_is_best_effort(mocker, settings, status_code,
                                           confirmed):
     from dj.apps.dyte.client import DyteClient
 
-    settings.RTK_API_BASE_URL = 'https://rtk.test'
+    get = mocker.patch('dj.apps.dyte.client._SESSION.get')
+    get.return_value.status_code = 200
+    get.return_value.json.return_value = {'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}
     post = mocker.patch('dj.apps.dyte.client._SESSION.post')
     post.return_value.status_code = status_code
+    post.return_value.json.return_value = {"success": True, "data": {}}
 
-    assert DyteClient('org').kick_participants('room', ['p1']) is confirmed
+    assert DyteClient().kick_participants('room', ['p1']) is confirmed
     assert post.call_args.args[0] == (
-        'https://rtk.test/v2/meetings/room/active-session/kick')
+        f'https://api.cloudflare.com/client/v4/accounts/{settings.RTK_ACCOUNT_ID}/realtime/kit/{settings.RTK_APP_ID}/meetings/room/active-session/kick')
     assert post.call_args.kwargs['json'] == {'participant_ids': ['p1']}
 
 
@@ -684,29 +687,30 @@ def test_kick_participants_swallows_a_network_error(mocker):
 
     mocker.patch('dj.apps.dyte.client._SESSION.post',
                  side_effect=requests_lib.ConnectionError('down'))
-    assert DyteClient('org').kick_participants('room', ['p1']) is False
+    assert DyteClient().kick_participants('room', ['p1']) is False
 
 
 def test_retire_participant_kicks_then_deletes(mocker, settings):
     from dj.apps.dyte.client import DyteClient
 
-    settings.RTK_API_BASE_URL = 'https://rtk.test'
     calls = []
     delete = mocker.patch('dj.apps.dyte.client._SESSION.delete')
     delete.return_value.status_code = 200
+    delete.return_value.json.return_value = {"success": True, "data": {}}
     delete.side_effect = lambda *a, **k: calls.append('delete') or delete.return_value
     post = mocker.patch('dj.apps.dyte.client._SESSION.post')
     post.return_value.status_code = 200
+    post.return_value.json.return_value = {"success": True, "data": {}}
     post.side_effect = lambda *a, **k: calls.append('kick') or post.return_value
 
-    assert DyteClient('org').retire_participant('room', 'p1') is True
+    assert DyteClient().retire_participant('room', 'p1') is True
     # Cloudflare's documented order: disconnect first, then revoke.
     assert calls == ['kick', 'delete']
     assert delete.call_args.args[0] == (
-        'https://rtk.test/v2/meetings/room/participants/p1')
+        f'https://api.cloudflare.com/client/v4/accounts/{settings.RTK_ACCOUNT_ID}/realtime/kit/{settings.RTK_APP_ID}/meetings/room/participants/p1')
 
     delete.return_value.status_code = 500
-    assert DyteClient('org').retire_participant('room', 'p1') is False
+    assert DyteClient().retire_participant('room', 'p1') is False
 
 
 def test_a_same_tab_retry_retires_the_participant_it_replaces(

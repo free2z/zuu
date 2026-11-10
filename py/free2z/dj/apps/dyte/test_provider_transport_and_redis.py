@@ -43,13 +43,15 @@ def test_provider_failure_is_single_attempt_despite_retry_after(
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    settings.RTK_API_BASE_URL = f'http://127.0.0.1:{server.server_port}'
-    settings.DYTE_KEY = 'test-only'
+    class LoopbackTransport:
+        def request(self, method, url, **kwargs):
+            # Only the test adapter substitutes loopback. Production fixes HTTPS.
+            path = url.split('/realtime/kit/', 1)[1].split('/', 1)[1]
+            return session.request(method, f'http://127.0.0.1:{server.server_port}/{path}', **kwargs)
     try:
-        with pytest.raises(requests.HTTPError) as error:
-            provider.DyteClient('test-org').get_participants_count('test-room')
-        assert error.value.response.status_code == status
-        assert calls == ['/v2/meetings/test-room/active-session']
+        with pytest.raises(provider.ProviderError):
+            provider.DyteClient(transport=LoopbackTransport()).get_participants_count('test-room')
+        assert calls == ['/meetings/test-room/active-session']
     finally:
         session.close()
         server.shutdown()
@@ -95,7 +97,7 @@ def test_real_redis_count_ttls_fallback_and_generation_fence(real_count_cache, m
     # Evict only the short snapshot: failed refresh must retain the real
     # Redis-backed fallback, never invent a confirmed empty room.
     backend.delete(recent)
-    client = provider.DyteClient('test-org')
+    client = provider.DyteClient()
 
     def unavailable(_meeting):
         raise requests.Timeout('provider unavailable')

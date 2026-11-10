@@ -2002,27 +2002,16 @@ if WELCOME_GRANT_2Z > WELCOME_GRANT_MAX_2Z:
 # NAMESPACE == 'stage'. Fail closed on every other environment.
 SMOKE_TEST_ACCOUNT_USERNAME = os.environ.get("SMOKE_TEST_ACCOUNT_USERNAME", "")
 
-DYTE_KEY = os.environ.get("DYTE_KEY", "")
-DYTE_ORG = os.environ.get("DYTE_ORG", "")
-
-# Register the consumer on every worker before a later deployment enables
-# producers. Obligations stay in CreatorMeeting.host_evictions while disabled.
+# Cloudflare RealtimeKit v4 control plane. Empty defaults fail closed.
+RTK_ACCOUNT_ID = os.environ.get("RTK_ACCOUNT_ID", "")
+RTK_APP_ID = os.environ.get("RTK_APP_ID", "")
+RTK_API_TOKEN = os.environ.get("RTK_API_TOKEN", "")
+# Existing host-retirement rollout remains independent of the API migration.
 DYTE_HOST_EVICTION_JOBS_ENABLED = _strict_boolean_env(
     "DYTE_HOST_EVICTION_JOBS_ENABLED", False)
-# Cloudflare RealtimeKit REST API (Dyte migration). Same endpoints, schemas,
-# and basic auth (org id + API key) as api.dyte.io — only the base URL changed.
-# Override with RTK_API_BASE_URL=https://api.dyte.io to roll back during the
-# transition window.
-RTK_API_BASE_URL = os.environ.get(
-    "RTK_API_BASE_URL", "https://api.realtime.cloudflare.com")
+# Signing-key distribution is public and separate from the v4 control plane.
+RTK_WEBHOOK_KEY_URL = "https://api.realtime.cloudflare.com/.well-known/webhooks.json"
 
-# Webhook public-key fetch (dyte.views.get_or_load_dyte_public_key).
-#
-# The key is fetched lazily from the provider's /.well-known/webhooks.json on
-# the first webhook delivery and then cached in-process. Two guards, because
-# the endpoint that triggers this fetch is UNAUTHENTICATED by nature (it is
-# the signature check itself, so it cannot be behind the signature check):
-#
 # DYTE_KEY_FETCH_TIMEOUT_SECONDS -- an unresponsive provider must not pin a
 #   sync gunicorn worker forever. `requests` has NO default timeout.
 # DYTE_KEY_FETCH_RETRY_SECONDS -- how long a FAILED fetch is remembered. While

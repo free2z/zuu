@@ -9,7 +9,6 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from requests.auth import HTTPBasicAuth
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -17,6 +16,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from dj.free2z.throttling import POLLING_THROTTLES
+from .client import (
+    DyteClient, ProviderError, ProviderNotFoundError, ProviderRejectedError,
+    ProviderUnavailableError,
+)
 from .models import CreatorMeeting, PUBLIC_MEETING_TYPES, PRIVATE
 
 ACTIVE = {"INVOKED", "RECORDING", "PAUSED"}
@@ -67,41 +70,23 @@ def provider(method, path, *, payload=None, allow_empty=False):
     if cache.get(PROVIDER_CIRCUIT):
         raise ProviderUnavailable()
     try:
-        response = requests.request(
-            method,
-            f"{settings.RTK_API_BASE_URL}/v2/{path}",
-            auth=HTTPBasicAuth(settings.DYTE_ORG, settings.DYTE_KEY),
-            json=payload,
-            timeout=PROVIDER_TIMEOUT,
-        )
-    except requests.RequestException:
-        cache.set(PROVIDER_CIRCUIT, True, 10)
-        raise
-    if response.status_code >= 500:
-        cache.set(PROVIDER_CIRCUIT, True, 10)
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise ProviderUnavailable() from exc
-    if allow_empty and response.status_code == 404:
-        error = body.get("error", {}) if isinstance(body, dict) else {}
-        if (
-            isinstance(error, dict)
-            and error.get("code") == 404
-            and str(error.get("message", "")).startswith(
-                "No active recording for meeting "
-            )
-        ):
+        response = DyteClient().request(method, path, payload=payload, timeout=PROVIDER_TIMEOUT, allow_ack=method == 'PUT')
+        return response.json()['data']
+    except ProviderNotFoundError:
+        if allow_empty and path.startswith('recordings/active-recording/'):
+            try:
+                client = DyteClient()
+                client._meeting(client.request('GET', f"meetings/{path.rsplit('/', 1)[-1]}"))
+            except ProviderError:
+                raise ProviderUnavailable() from None
             return None
-    if (
-        response.status_code in {400, 401, 403, 404, 422}
-        and isinstance(body, dict)
-        and body.get("success") is False
-    ):
-        raise ProviderRejected()
-    if not response.ok or not isinstance(body, dict) or body.get("success") is not True:
-        raise ProviderUnavailable()
-    return body.get("data")
+        raise ProviderRejected() from None
+    except ProviderRejectedError:
+        raise ProviderRejected() from None
+    except ProviderError as exc:
+        if isinstance(exc, ProviderUnavailableError):
+            cache.set(PROVIDER_CIRCUIT, True, 10)
+        raise ProviderUnavailable() from None
 
 
 def checked_recording(data, meeting_id):
