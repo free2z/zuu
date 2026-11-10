@@ -1045,6 +1045,56 @@ def test_unusable_token_keeps_the_known_canonical_participant_for_retirement(
     assert cm.host_evictions[0]['state'] == 'start_pending'
 
 
+def test_malformed_replacement_room_keeps_reconciliation_and_releases_claim(
+    api_client, provider, host,
+):
+    CreatorMeeting.objects.create(creator=host, meeting_id='missing-room', meeting_type=BROADCAST)
+    provider.add_participant.return_value = _FakeResponse(
+        {'error': {'code': 404}}, status_code=404,
+    )
+    provider.create_meeting.side_effect = None
+    provider.create_meeting.return_value = _FakeResponse({'data': {}})
+
+    failed = _start(api_client, host)
+
+    assert failed.status_code == 503
+    assert failed.data['failure']['stage'] == 'rotate_room'
+    cm = CreatorMeeting.objects.get(creator=host)
+    assert cm.meeting_id == 'missing-room'
+    assert cm.host_session_id is None
+    assert cm.host_start_claim is None
+    assert cm.host_evictions == []
+    reconciliation = ProviderRoomCleanup.objects.get(creator_meeting=cm)
+    assert reconciliation.provider_meeting_id is None
+    assert reconciliation.status == 'manual_review'
+    assert provider.add_participant.call_count == 1
+
+
+def test_unusable_replacement_participant_keeps_its_canonical_cleanup_identity(
+    api_client, provider, host,
+):
+    CreatorMeeting.objects.create(creator=host, meeting_id='missing-room', meeting_type=BROADCAST)
+    provider.add_participant.side_effect = [
+        _FakeResponse({'error': {'code': 404}}, status_code=404),
+        _FakeResponse({'data': {'id': 'replacement-host', 'token': ''}}),
+    ]
+
+    failed = _start(api_client, host)
+
+    assert failed.status_code == 503
+    assert failed.data['failure']['stage'] == 'add_participant_after_rotation'
+    cm = CreatorMeeting.objects.get(creator=host)
+    assert cm.meeting_id != 'missing-room'
+    assert cm.host_session_id is None
+    assert cm.host_start_claim is None
+    assert len(cm.host_evictions) == 1
+    assert cm.host_evictions[0]['meeting_id'] == cm.meeting_id
+    assert cm.host_evictions[0]['participant_id'] == 'replacement-host'
+    assert cm.host_evictions[0]['state'] == 'start_pending'
+    assert provider.create_meeting.call_count == 1
+    assert provider.add_participant.call_count == 2
+
+
 def test_worker_reclaims_abandoned_start_claim_and_retries_minted_host(
     provider, host,
 ):
