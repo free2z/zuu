@@ -649,6 +649,10 @@ export function mockArticleFeed(
     (a) => !params.blockedNames?.includes(a.author.username.toLowerCase()),
   );
 
+  // GET /api/zpage/ applies the homepage eligibility rule whenever homeSort
+  // is present: only pages with a featured image can appear in that feed.
+  if (sort) list = list.filter((article) => Boolean(article.image));
+
   if (params.category) {
     list = list.filter((a) => a.category === params.category);
   }
@@ -662,10 +666,7 @@ export function mockArticleFeed(
   if (params.search) {
     const q = params.search.toLowerCase();
     list = list.filter((a) =>
-      [a.title, a.subtitle ?? "", a.content, (a.tags ?? []).join(" ")]
-        .join(" ")
-        .toLowerCase()
-        .includes(q),
+      [a.title, a.content].join(" ").toLowerCase().includes(q),
     );
   }
 

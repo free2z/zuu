@@ -6657,6 +6657,18 @@ page_size?: number;
 
 export type TaggingAutocompleteListParams = {
 /**
+ * Use public article-feed visibility and hybrid search semantics for intersecting tag facets.
+ */
+article_facets?: boolean;
+/**
+ * Restrict zPage facets to this feed category.
+ */
+category?: string;
+/**
+ * Apply the public homepage eligibility rule: ranked zPages must have a featured image.
+ */
+homeSort?: TaggingAutocompleteListHomeSort;
+/**
  * For `type=zpage`, restrict counts to the authenticated caller's own zPages, including drafts. Anonymous callers are refused. When `username` is supplied too, it must match the caller's username (case-insensitive); a mismatch returns no rows.
  */
 mine?: boolean;
@@ -6685,6 +6697,16 @@ type?: TaggingAutocompleteListType;
  */
 username?: string;
 };
+
+export type TaggingAutocompleteListHomeSort = typeof TaggingAutocompleteListHomeSort[keyof typeof TaggingAutocompleteListHomeSort];
+
+
+export const TaggingAutocompleteListHomeSort = {
+  popular: 'popular',
+  random: 'random',
+  score: 'score',
+  updated: 'updated',
+} as const;
 
 export type TaggingAutocompleteListType = typeof TaggingAutocompleteListType[keyof typeof TaggingAutocompleteListType];
 

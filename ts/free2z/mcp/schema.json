@@ -11290,6 +11290,36 @@
         "parameters": [
           {
             "in": "query",
+            "name": "article_facets",
+            "schema": {
+              "type": "boolean"
+            },
+            "description": "Use public article-feed visibility and hybrid search semantics for intersecting tag facets."
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Restrict zPage facets to this feed category."
+          },
+          {
+            "in": "query",
+            "name": "homeSort",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "popular",
+                "random",
+                "score",
+                "updated"
+              ]
+            },
+            "description": "Apply the public homepage eligibility rule: ranked zPages must have a featured image."
+          },
+          {
+            "in": "query",
             "name": "mine",
             "schema": {
               "type": "boolean"

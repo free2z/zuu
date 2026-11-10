@@ -9,16 +9,21 @@ import uuid
 import pytest
 
 from dj.apps.g12f.models import zPage
+from dj.apps.uploads.models import GenericFile
 
 
-def _page(creator, tags, *, published=True):
+def _page(creator, tags, *, published=True, title="Tag autocomplete fixture",
+          category="general", featured_image=None, subscriber_only=False):
     page = zPage.objects.create(
         creator=creator,
         free2zaddr=str(uuid.uuid4()),
         vanity=f"tag-autocomplete-{uuid.uuid4()}",
-        title="Tag autocomplete fixture",
+        title=title,
         content="Fixture content",
         is_published=published,
+        category=category,
+        featured_image=featured_image,
+        is_subscriber_only=subscriber_only,
     )
     page.tags.add(*tags)
     return page
@@ -41,6 +46,165 @@ def test_num_results_huge_value_is_bounded(api_client):
     # A caller must not be able to request an unbounded public scan.
     response = api_client.get("/api/tagging/autocomplete?num_results=100000000")
     assert response.status_code == 200, response.content
+    assert len(response.json()) <= 100
+
+
+@pytest.mark.django_db
+def test_zpage_facets_intersect_selected_tags_across_full_corpus(
+    api_client, creator_factory
+):
+    creator = creator_factory()
+    for index in range(27):
+        _page(creator, ["facet-selected", f"facet-common-{index % 2}"])
+    _page(creator, ["facet-unrelated"])
+
+    response = api_client.get(
+        "/api/tagging/autocomplete",
+        {"type": "zpage", "article_facets": "true",
+         "selected_tags": "facet-selected",
+         "num_results": "100"},
+    )
+
+    assert response.status_code == 200, response.content
+    rows = {row["name"]: row["count"] for row in response.json()}
+    assert rows == {"facet-common-0": 14, "facet-common-1": 13}
+
+
+@pytest.mark.django_db
+def test_zpage_facets_apply_search_and_feed_scope(api_client, creator_factory):
+    creator = creator_factory()
+    matching = _page(creator, ["facet-search-match", "facet-selected"],
+                     title="needle unique result", category="general")
+    _page(creator, ["facet-search-other", "facet-selected"],
+          title="other result", category="general")
+    _page(creator, ["facet-category-hidden", "facet-selected"],
+          title="needle other result", category="arts")
+
+    listing = api_client.get(
+        "/api/zpage/", {"search": "needle unique", "category": "general"},
+    )
+    response = api_client.get(
+        "/api/tagging/autocomplete",
+        {"type": "zpage", "article_facets": "true",
+         "selected_tags": "facet-selected",
+         "search": "needle unique", "category": "general"},
+    )
+
+    assert response.status_code == 200, response.content
+    assert listing.status_code == 200, listing.content
+    assert listing.data["count"] == 1
+    listed_ids = {row["free2zaddr"] for row in listing.data["results"]}
+    assert listed_ids == {matching.free2zaddr}
+    assert response.json()[0]["name"] == "facet-search-match"
+    assert response.json()[0]["count"] == 1
+
+
+@pytest.mark.django_db
+def test_article_facets_match_home_sort_listing_ids(api_client, creator_factory):
+    creator = creator_factory()
+    featured = GenericFile.objects.create(
+        owner=creator, title="Facet image", file="facet-image.png",
+        mime_type="image/png",
+    )
+    visible = _page(creator, ["facet-selected", "facet-visible"],
+                    title="visible article")
+    visible.featured_image = featured
+    visible.save(update_fields=["featured_image"])
+    _page(creator, ["facet-selected", "facet-without-image"],
+          title="unfeatured article")
+
+    params = {"homeSort": "popular", "tags": "facet-selected"}
+    listing = api_client.get("/api/zpage/", params)
+    facets = api_client.get(
+        "/api/tagging/autocomplete",
+        {"type": "zpage", "article_facets": "true",
+         "homeSort": "popular", "selected_tags": "facet-selected",
+         "num_results": 100},
+    )
+
+    assert listing.status_code == facets.status_code == 200
+    listed_ids = {row["free2zaddr"] for row in listing.data["results"]}
+    assert listed_ids == {visible.free2zaddr}
+    rows = {row["name"]: row["count"] for row in facets.json()}
+    assert rows["facet-visible"] == 1
+    assert "facet-without-image" not in rows
+
+
+@pytest.mark.django_db
+def test_article_facets_match_semantic_search_listing(api_client, creator_factory,
+                                                     mocker, monkeypatch):
+    from django.contrib.contenttypes.models import ContentType
+    from dj.apps.search.models import SearchIndex
+
+    creator = creator_factory()
+    matching = _page(creator, ["semantic-selected", "semantic-match"],
+                     title="Matching indexed page")
+    nonmatching = _page(creator, ["semantic-selected", "semantic-other"],
+                        title="Distant indexed page")
+    content_type = ContentType.objects.get_for_model(zPage)
+    SearchIndex.objects.create(
+        content_type=content_type, object_id=matching.pk,
+        vector=[1.0] + [0.0] * 1535,
+    )
+    SearchIndex.objects.create(
+        content_type=content_type, object_id=nonmatching.pk,
+        vector=[-1.0] + [0.0] * 1535,
+    )
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+    mocker.patch(
+        "dj.apps.search.drf_filters.cached_query_embedding",
+        return_value=[1.0] + [0.0] * 1535,
+    )
+
+    listing = api_client.get(
+        "/api/zpage/", {"search": "same semantic query",
+                        "tags": "semantic-selected"},
+    )
+    facets = api_client.get(
+        "/api/tagging/autocomplete",
+        {"type": "zpage", "article_facets": "true",
+         "search": "same semantic query",
+         "selected_tags": "semantic-selected", "num_results": 100},
+    )
+
+    assert listing.status_code == facets.status_code == 200
+    assert {row["free2zaddr"] for row in listing.data["results"]} == {
+        matching.free2zaddr,
+    }
+    assert {row["name"]: row["count"] for row in facets.json()} == {
+        "semantic-match": 1,
+    }
+
+
+@pytest.mark.django_db
+def test_public_facets_exclude_member_only_pages(api_client, creator_factory):
+    creator = creator_factory()
+    passworded = _page(creator, ["facet-public-tag"])
+    passworded.password = "pbkdf2_sha256$test$not-a-reader-gate"
+    passworded.save(update_fields=["password"])
+    _page(creator, ["facet-private-member-tag"], subscriber_only=True)
+
+    response = api_client.get(
+        "/api/tagging/autocomplete?type=zpage&article_facets=true&num_results=100"
+    )
+
+    assert response.status_code == 200, response.content
+    names = {row["name"] for row in response.json()}
+    assert "facet-public-tag" in names
+    assert "facet-private-member-tag" not in names
+    listed = api_client.get("/api/zpage/?tags=facet-public-tag")
+    assert listed.status_code == 200
+    assert [row["free2zaddr"] for row in listed.data["results"]] == [
+        passworded.free2zaddr,
+    ]
+
+    # Existing editor autocomplete keeps its documented vocabulary.
+    legacy = api_client.get(
+        "/api/tagging/autocomplete?type=zpage&query=facet-private-member-tag"
+    )
+    assert [row["name"] for row in legacy.json()] == [
+        "facet-private-member-tag"
+    ]
 
 
 @pytest.mark.django_db
