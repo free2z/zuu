@@ -14,12 +14,33 @@ test("private host creates, displays, refreshes, and ends the opaque invite room
 }) => {
   await signIn(page);
   await installMockCapture(page);
+  const usageRequests: string[] = [];
+  await page.route(
+    "**/api/dyte/demo-creator/broadcast-usage",
+    async (route) => {
+      usageRequests.push(route.request().url());
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          amount_2z: 12,
+          complete: false,
+          as_of: "2026-11-10T12:00:00Z",
+          status: "available",
+        }),
+      });
+    },
+  );
   await page.goto("/live");
   await page.getByRole("button", { name: "Go Live" }).click();
   await page.getByRole("radio", { name: /Private/ }).click();
   await page.getByLabel("Title").fill("Invite-only call");
-  await page.getByRole("button", { name: "Set up camera and microphone" }).click();
-  await expect(page.getByRole("heading", { name: "Preview ready" })).toBeVisible();
+  await page
+    .getByRole("button", { name: "Set up camera and microphone" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Preview ready" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Confirm and start" }).click();
 
   await expect(page).toHaveURL(
@@ -44,6 +65,13 @@ test("private host creates, displays, refreshes, and ends the opaque invite room
   await expect(
     page.getByText("You're hosting as @demo-creator."),
   ).toBeVisible();
+  await expect(page.getByLabel("Current broadcast 2Z usage")).toContainText(
+    "12 2Z",
+  );
+  await expect(page.getByLabel("Current broadcast 2Z usage")).toContainText(
+    "Recorded hosting fees so far. Settlements may be delayed; this is not a final total.",
+  );
+  expect(usageRequests.length).toBeGreaterThan(0);
 
   await page.reload();
   await expect(
@@ -62,9 +90,16 @@ test("private host creates, displays, refreshes, and ends the opaque invite room
 test("cold guest invite joins without discovery and wrong secrets disclose nothing", async ({
   page,
 }) => {
+  let usageRequests = 0;
+  await page.route("**/api/dyte/**/broadcast-usage", async (route) => {
+    usageRequests += 1;
+    await route.fulfill({ status: 403, body: "forbidden" });
+  });
   await page.goto(`/live/demo-creator#private=${secret}`);
   await expect(page.getByText("Role")).toBeVisible();
   await expect(page.getByText("participant", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("Current broadcast 2Z usage")).toHaveCount(0);
+  expect(usageRequests).toBe(0);
   await expect(
     page.getByRole("heading", { name: "Private call" }),
   ).toBeVisible();
