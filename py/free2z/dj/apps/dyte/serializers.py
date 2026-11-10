@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from dj.apps.economy.serializers import ActorIDField
 from .models import CreatorMeeting, PUBLIC_MEETING_TYPES
 
@@ -24,6 +25,30 @@ from dj.apps.g12f.serializers.creator import CreatorDetailSerializer
 # anonymous callers.
 class CreatorMeetingSerializer(serializers.ModelSerializer):
     creator = CreatorDetailSerializer(read_only=True)
+    participant_count = serializers.SerializerMethodField()
+    participant_count_as_of = serializers.SerializerMethodField()
+
+    def _snapshot(self, obj):
+        snapshots = self.context.setdefault('participant_snapshots', {})
+        if obj.meeting_id not in snapshots:
+            from django.conf import settings
+            from .client import DyteClient
+            snapshots[obj.meeting_id] = DyteClient(
+                settings.DYTE_ORG,
+            ).get_cached_participant_snapshot(
+                obj.meeting_id, obj.provider_session_id,
+            )
+        return snapshots[obj.meeting_id]
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_participant_count(self, obj):
+        snapshot = self._snapshot(obj)
+        return snapshot['count'] if snapshot else None
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_participant_count_as_of(self, obj):
+        snapshot = self._snapshot(obj)
+        return snapshot['observed_at'] if snapshot else None
 
     class Meta:
         model = CreatorMeeting
@@ -38,6 +63,8 @@ class CreatorMeetingSerializer(serializers.ModelSerializer):
             'created_at',
             'price_per_minute',
             'e2ee',
+            'participant_count',
+            'participant_count_as_of',
         ]
 
 
@@ -50,6 +77,30 @@ class PublicMeetingListSerializer(serializers.ModelSerializer):
     meeting_type = serializers.ChoiceField(
         choices=PUBLIC_MEETING_TYPES, read_only=True,
     )
+    participant_count = serializers.SerializerMethodField()
+    participant_count_as_of = serializers.SerializerMethodField()
+
+    def _snapshot(self, obj):
+        snapshots = self.context.setdefault('participant_snapshots', {})
+        if obj.meeting_id not in snapshots:
+            from django.conf import settings
+            from .client import DyteClient
+            snapshots[obj.meeting_id] = DyteClient(
+                settings.DYTE_ORG,
+            ).get_cached_participant_snapshot(
+                obj.meeting_id, obj.provider_session_id,
+            )
+        return snapshots[obj.meeting_id]
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_participant_count(self, obj):
+        snapshot = self._snapshot(obj)
+        return snapshot['count'] if snapshot else None
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_participant_count_as_of(self, obj):
+        snapshot = self._snapshot(obj)
+        return snapshot['observed_at'] if snapshot else None
 
     class Meta:
         model = CreatorMeeting
@@ -58,6 +109,8 @@ class PublicMeetingListSerializer(serializers.ModelSerializer):
             'avatar',
             'meeting_type',
             'price_per_minute',
+            'participant_count',
+            'participant_count_as_of',
         ]
 
     def get_avatar(self, obj) -> str:

@@ -70,6 +70,7 @@ def real_count_cache(monkeypatch):
     })
     monkeypatch.setattr(provider, 'cache', backend)
     keys = [*provider._count_cache_keys('test-room'),
+            provider._count_snapshot_key('test-room'),
             provider._count_generation_key('test-room'),
             provider._count_sequence_key()]
     try:
@@ -85,12 +86,17 @@ def test_real_redis_count_ttls_fallback_and_generation_fence(real_count_cache, m
     recent, stale = provider._count_cache_keys('test-room')
     old = provider._count_generation('test-room')
     current = provider._count_generation('test-room')
-    provider._write_count_if_current('test-room', current, 7)
+    observed = provider.timezone.now().isoformat()
+    snapshot = {"version": 1, "count": 7, "observed_at": observed,
+                "room_id": "test-room", "provider_session_id": "session-a"}
+    provider._write_count_if_current('test-room', current, 7, snapshot)
     assert backend.get(recent) == backend.get(stale) == 7
+    assert backend.get(provider._count_snapshot_key('test-room')) == snapshot
     assert 0 < raw.ttl(backend.make_key(recent)) <= 12
     assert 290 <= raw.ttl(backend.make_key(stale)) <= 300
     provider._write_count_if_current('test-room', old, 0)
     assert backend.get(recent) == backend.get(stale) == 7
+    assert backend.get(provider._count_snapshot_key('test-room')) == snapshot
 
     # Evict only the short snapshot: failed refresh must retain the real
     # Redis-backed fallback, never invent a confirmed empty room.

@@ -1,5 +1,4 @@
 """
-import os
 from dj.apps.dyte.client import DyteClient
 
 c = Creator.objects.get(username="skylar")
@@ -7,6 +6,7 @@ dc = DyteClient(os.environ['DYTE_ORG'])
 dc.get_participants_count(c.livestream.meeting_id)
 
 """
+import json
 import re
 import uuid
 import threading
@@ -15,6 +15,7 @@ from requests.adapters import HTTPAdapter
 from requests.auth import HTTPBasicAuth
 from django.core.cache import cache
 from django.core.cache import caches
+from django.utils import timezone
 
 from django.conf import settings
 
@@ -61,6 +62,7 @@ class _ThreadLocalSessionProxy:
 # Sessions (requests.Session itself is not documented as thread-safe).
 _SESSION = _ThreadLocalSessionProxy()
 PARTICIPANT_COUNT_TTL = 12
+PARTICIPANT_COUNT_SNAPSHOT_TTL = 90
 PARTICIPANT_COUNT_STALE_TTL = 300
 _COUNT_LOCKS_GUARD = threading.Lock()
 _COUNT_LOCKS = {}
@@ -78,6 +80,10 @@ def _count_cache_keys(meeting_id):
     )
 
 
+def _count_snapshot_key(meeting_id):
+    return f"dyte:participants:v2:snapshot:{meeting_id}"
+
+
 def _count_generation_key(meeting_id):
     return f"dyte:participants:v2:generation:{meeting_id}:current"
 
@@ -89,12 +95,18 @@ def _count_sequence_key():
 _COUNT_BEGIN_LUA = """
 local generation = redis.call('INCR', KEYS[1])
 redis.call('SET', KEYS[2], tostring(generation) .. ':' .. ARGV[1], 'EX', ARGV[2])
+redis.call('DEL', KEYS[3])
 return generation
 """
 _COUNT_WRITE_LUA = """
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
 redis.call('SET', KEYS[3], ARGV[2], 'EX', ARGV[4])
+if ARGV[5] ~= '' then
+  redis.call('SET', KEYS[4], ARGV[5], 'EX', ARGV[6])
+else
+  redis.call('DEL', KEYS[4])
+end
 return 1
 """
 
@@ -112,6 +124,16 @@ def _cache_key(key):
     return cache.make_key(key) if hasattr(cache, 'make_key') else key
 
 
+def _encode_snapshot(snapshot):
+    if not snapshot:
+        return ""
+    client = getattr(cache, "client", None)
+    encode = getattr(client, "encode", None)
+    if encode is not None:
+        return encode(snapshot, allow_int=False)
+    return json.dumps(snapshot, separators=(",", ":"))
+
+
 def _count_generation(meeting_id):
     """Allocate a never-reused Redis generation and its unique probe token."""
     token = uuid.uuid4().hex
@@ -119,8 +141,9 @@ def _count_generation(meeting_id):
     redis = _raw_redis()
     if redis is not None:
         generation = redis.eval(
-            _COUNT_BEGIN_LUA, 2, _cache_key(_count_sequence_key()),
-            _cache_key(current_key), token, PARTICIPANT_COUNT_STALE_TTL,
+            _COUNT_BEGIN_LUA, 3, _cache_key(_count_sequence_key()),
+            _cache_key(current_key), _cache_key(_count_snapshot_key(meeting_id)),
+            token, PARTICIPANT_COUNT_STALE_TTL,
         )
         return f"{generation}:{token}"
     # The declared non-production backend is LocMemCache: one process and
@@ -137,24 +160,27 @@ def _count_generation(meeting_id):
             current_key, f"{value}:{token}",
             PARTICIPANT_COUNT_STALE_TTL,
         )
+        cache.delete(_count_snapshot_key(meeting_id))
     except Exception:
         logger.warning("participant count generation unavailable", exc_info=True)
         return None
     return f"{value}:{token}"
 
 
-def _write_count_if_current(meeting_id, generation, count):
-    """Atomically fence and write both count snapshots."""
+def _write_count_if_current(meeting_id, generation, count, snapshot=None):
+    """Atomically fence counts and their authoritative timestamped snapshot."""
     if generation is None:
         return
     recent_key, stale_key = _count_cache_keys(meeting_id)
     redis = _raw_redis()
     if redis is not None:
         redis.eval(
-            _COUNT_WRITE_LUA, 3,
+            _COUNT_WRITE_LUA, 4,
             _cache_key(_count_generation_key(meeting_id)),
-            _cache_key(recent_key), _cache_key(stale_key), generation,
+            _cache_key(recent_key), _cache_key(stale_key),
+            _cache_key(_count_snapshot_key(meeting_id)), generation,
             count, PARTICIPANT_COUNT_TTL, PARTICIPANT_COUNT_STALE_TTL,
+            _encode_snapshot(snapshot), PARTICIPANT_COUNT_SNAPSHOT_TTL,
         )
         return
     # LocMemCache is explicitly process-local. The caller still owns its
@@ -166,6 +192,10 @@ def _write_count_if_current(meeting_id, generation, count):
             return
         cache.set(recent_key, count, PARTICIPANT_COUNT_TTL)
         cache.set(stale_key, count, PARTICIPANT_COUNT_STALE_TTL)
+        if snapshot:
+            cache.set(_count_snapshot_key(meeting_id), snapshot, PARTICIPANT_COUNT_SNAPSHOT_TTL)
+        else:
+            cache.delete(_count_snapshot_key(meeting_id))
 
 
 def _safe_json(response) -> dict:
@@ -383,16 +413,25 @@ class DyteClient(object):
         logger.debug("get_participants_count response = %s", body)
         return count
 
-    def get_cached_participants_count(self, meeting_id) -> int:
+    def get_cached_participants_count(self, meeting_id, provider_session_id=None) -> int:
         """Return a short-cached count, retaining the last result on failure."""
         recent_key, stale_key = _count_cache_keys(meeting_id)
+        expected_session = str(provider_session_id) if provider_session_id else None
         try:
             cached = cache.get(recent_key)
         except Exception:
             logger.warning("participant count cache read failed", exc_info=True)
             cached = None
-        if cached is not None:
+        snapshot = self.get_cached_participant_snapshot(meeting_id, provider_session_id)
+        if cached is not None and snapshot is not None and snapshot['count'] == cached:
             return cached
+        if cached is not None:
+            # Legacy integers and a prior provider session are not authoritative
+            # for this read; force a fresh observation.
+            try:
+                cache.delete(recent_key)
+            except Exception:
+                pass
         # Coalesce misses in this process. Separate workers may still probe
         # concurrently; the shared generation fences their cache writes below.
         with _count_lock(meeting_id):
@@ -400,7 +439,8 @@ class DyteClient(object):
                 cached = cache.get(recent_key)
             except Exception:
                 cached = None
-            if cached is not None:
+            snapshot = self.get_cached_participant_snapshot(meeting_id, provider_session_id)
+            if cached is not None and snapshot is not None and snapshot['count'] == cached:
                 return cached
             try:
                 generation = _count_generation(meeting_id)
@@ -419,10 +459,45 @@ class DyteClient(object):
                     return stale
                 raise
             try:
-                _write_count_if_current(meeting_id, generation, count)
+                snapshot = {
+                    "version": 1,
+                    "count": count,
+                    "observed_at": timezone.now().isoformat(),
+                    "room_id": meeting_id,
+                    "provider_session_id": expected_session,
+                }
+                _write_count_if_current(meeting_id, generation, count, snapshot)
             except Exception:
                 logger.warning("participant count cache write failed", exc_info=True)
             return count
+
+    def get_cached_participant_snapshot(self, meeting_id, provider_session_id=None):
+        """Return a fresh authoritative snapshot without making a provider call."""
+        try:
+            snapshot = cache.get(_count_snapshot_key(meeting_id))
+        except Exception:
+            logger.warning("participant snapshot cache read failed", exc_info=True)
+            return None
+        if not isinstance(snapshot, dict) or snapshot.get("version") != 1:
+            return None
+        if snapshot.get("room_id") != meeting_id:
+            return None
+        expected = str(provider_session_id) if provider_session_id else None
+        if snapshot.get("provider_session_id") != expected:
+            return None
+        try:
+            observed_at = timezone.datetime.fromisoformat(snapshot.get("observed_at", ""))
+            if timezone.is_naive(observed_at):
+                return None
+            age = (timezone.now() - observed_at).total_seconds()
+            if age < 0 or age > PARTICIPANT_COUNT_SNAPSHOT_TTL:
+                return None
+        except (TypeError, ValueError):
+            return None
+        count = snapshot.get("count")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            return None
+        return snapshot
 
     # Dyte carnage on backwards compatibility
     # Actually a regression

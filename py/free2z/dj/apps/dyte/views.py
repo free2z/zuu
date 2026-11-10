@@ -1506,7 +1506,16 @@ class PublicMeetingViewSet(viewsets.ReadOnlyModelViewSet):
                 getattr(row, '_discovery_has_more', False) for row in rows
             ),
         }
-        response = Response(PublicMeetingDiscoverySerializer(payload).data)
+        dc = DyteClient(settings.DYTE_ORG)
+        snapshots = {
+            row.meeting_id: dc.get_cached_participant_snapshot(
+                row.meeting_id, row.provider_session_id,
+            )
+            for row in rows
+        }
+        response = Response(PublicMeetingDiscoverySerializer(
+            payload, context={'participant_snapshots': snapshots},
+        ).data)
         # This is a changing live snapshot. Do not let a browser, CDN, or
         # intermediary replay a dead rail after the DB state has changed.
         response['Cache-Control'] = 'no-store'
@@ -1543,12 +1552,14 @@ def live_meeting_status(request, username):
         # whole payload and hide that creator's real streams.
         meeting_type__in=PUBLIC_MEETING_TYPES,
     ).values('meeting_type', 'meeting_id', 'price_per_minute', 'provider_session_id')
-    # this fundamentally ties the whole experience to polling dyte for
-    # the participant count. I guess it could be fine though.
+    # Count lookups use the short shared cache. In particular this endpoint
+    # must not fan out a provider request for every card on a creator page.
     resp = {}
     for meeting in live_meetings:
         try:
-            count = dc.get_cached_participants_count(meeting['meeting_id'])
+            count = dc.get_cached_participants_count(
+                meeting['meeting_id'], meeting.get('provider_session_id'),
+            )
         except Exception as exc:
             # A provider hiccup must never 500 a public, bot-crawled page.
             # A prior count is served by the short last-known cache.
@@ -1556,14 +1567,18 @@ def live_meeting_status(request, username):
                 "live_meeting_status: probe failed for %s (%s): %s",
                 meeting['meeting_id'], username, exc,
             )
-            continue
-        meeting['participants'] = count
+            count = None
+        snapshot = dc.get_cached_participant_snapshot(
+            meeting['meeting_id'], meeting.get('provider_session_id'),
+        )
+        meeting['participants'] = snapshot['count'] if snapshot else None
+        meeting['participant_count_as_of'] = snapshot['observed_at'] if snapshot else None
         session_id = meeting.pop('provider_session_id')
         if session_id is not None:
             meeting['session_id'] = str(session_id)
         # bring back count when dyte fixes regression
         # https://discord.com/channels/872824138048352277/1253228307227349004
-        if count:
+        if snapshot is not None:
             from .recording_control import public_recording
 
             meeting['recording'] = public_recording(meeting['meeting_id'])
@@ -2156,15 +2171,23 @@ class DyteMeeting(APIView):
             live_now=True,
         )
         try:
-            participants = dc.get_cached_participants_count(cm.meeting_id)
+            participants = dc.get_cached_participants_count(
+                cm.meeting_id, cm.provider_session_id,
+            )
         except Exception as exc:
             # Don't 500 on a provider error — report "Not Live" instead.
             logger.warning(
                 "stream status: probe failed for %s (%s): %s",
                 cm.meeting_id, username, exc,
             )
-            participants = 0
+            participants = None
 
+        snapshot = dc.get_cached_participant_snapshot(
+            cm.meeting_id, cm.provider_session_id,
+        )
+        if snapshot is None:
+            return Response(data={"participants": None, "participant_count_as_of": None})
+        participants = snapshot['count']
         if not participants:
             return Response(
                 status=status.HTTP_404_NOT_FOUND,

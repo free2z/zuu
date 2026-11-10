@@ -16,8 +16,7 @@ export function createLiveDiscoveryOptions(baseURL) {
 
 /**
  * Convert discovery rows into the subset of the live-status contract that
- * discovery can honestly provide. It deliberately has no participant count:
- * the public list does not query the provider for viewers.
+ * discovery can provide from its short-lived authoritative provider snapshot.
  *
  * @param {any[]} streams
  * @returns {{is_live: true, streams: any[]}}
@@ -27,11 +26,32 @@ export function liveStatusFromStreams(streams) {
     is_live: true,
     streams: streams.map((stream) => ({
       type: stream.meeting_type,
+      participant_count: freshParticipantCount(stream),
+      participant_count_as_of: stream.participant_count_as_of ?? null,
       ...(stream.price_per_minute == null
         ? {}
         : { price_per_minute: Number(stream.price_per_minute) }),
     })),
   };
+}
+
+/** Counts older than the server cache window or with an invalid timestamp are unknown. */
+export function freshParticipantCount(
+  /** @type {any} */ stream,
+  now = Date.now(),
+) {
+  const count = stream?.participant_count;
+  const asOf = stream?.participant_count_as_of;
+  if (!Number.isSafeInteger(count) || count < 0 || typeof asOf !== "string")
+    return undefined;
+  const timestamp = Date.parse(asOf);
+  if (
+    !Number.isFinite(timestamp) ||
+    timestamp > now ||
+    now - timestamp > 90_000
+  )
+    return undefined;
+  return count;
 }
 
 /**
