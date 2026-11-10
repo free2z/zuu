@@ -406,7 +406,8 @@ def test_oversize_memo_refuses_before_reserving(creator_factory):
     assert not FundingReservation.objects.exists()
 
 
-def test_unknown_memo_then_exact_hydration_preserves_original_raw_clock(creator_factory):
+@pytest.mark.parametrize("decision", [None, "refunded", "ignore"])
+def test_unknown_memo_then_exact_hydration_preserves_original_raw_clock(creator_factory, decision):
     from decimal import Decimal
     buyer=creator_factory(tuzis=0)
     with transaction.atomic(): activate_for_test()
@@ -419,9 +420,19 @@ def test_unknown_memo_then_exact_hydration_preserves_original_raw_clock(creator_
     raw=CapturedZecNote.objects.get(txid=tx['txid'])
     first_seen=raw.first_seen_at
     assert raw.memo_hex is None and purchase_target(raw) is None
+    if decision:
+        from dj.apps.tuzis.zec import record_zec_memo_observation, record_zec_memo_disposition
+        from dj.apps.tuzis.models import ZecMemoDisposition
+        identity = dict(txid=tx['txid'], pool=tx['pool'], output_index=0,
+                        amount_zec=Decimal(tx['amountZat']) / 100_000_000)
+        record_zec_memo_observation(**identity, classification=ZecMemoDisposition.TRANSACTION_UNAVAILABLE)
+        record_zec_memo_disposition(**identity, decision=decision, operator='fixture', reason='synthetic investigation')
+        assert notes.capture_wallet_note(tx).status == 'resolved_observation'
     hydrated=dict(tx,memo=intent.rail_data['memo'].encode().hex(),memo_available=True,confirmations=3)
     issued=notes.capture_wallet_note(hydrated)
     assert issued.credited
+    assert notes.capture_wallet_note(tx).credited  # Reordered unknown cannot undo hydration/issuance.
+    assert notes.capture_wallet_note(hydrated).credited
     raw.refresh_from_db()
     assert raw.first_seen_at==first_seen and raw.memo_hex is None
     assert raw.dispositions.get(event_key=f'memo-hydration:{raw.pk}').evidence['memo_hex']==intent.rail_data['memo'].encode().ljust(512,b'\0').hex()
@@ -924,3 +935,16 @@ def historical_note_observation(*, creator_id, txid, pool, output_index, amount_
         key=f'{txid}:{pool}:{output_index}',request_hash=money._digest(identity),response_status=200,
         response_body={'note':identity,'first_seen_at':timezone.now().isoformat(),
             'status':'pending_resolution','reason':'purchaser_authorization_unproven'})
+
+
+def test_verified_full_no_memo_is_nonpurchase_not_unknown():
+    with transaction.atomic():
+        activate_for_test()
+    result = notes.capture_wallet_note({
+        'txid': 'de' * 32, 'pool': 'sapling', 'output_index': 0,
+        'output_index_reliable': True, 'amount': 0.01, 'amountZat': 1_000_000,
+        'memo': (b'\xf6' + bytes(511)).hex(), 'memo_available': True,
+        'confirmations': 3})
+    assert result.status == 'observed_nonpurchase'
+    assert not result.credited
+    assert CapturedZecNote.objects.get(txid='de' * 32).memo_hex is not None

@@ -578,3 +578,41 @@ def test_disposition_admin_is_read_only():
     assert model_admin.has_add_permission(None) is False
     assert model_admin.has_change_permission(None) is False
     assert model_admin.has_delete_permission(None) is False
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('decision', ['refunded', 'ignore'])
+def test_unknown_disposition_then_hydration_uses_normal_credit(
+        creator_factory, wallet, capsys, decision):
+    buyer = creator_factory(username='recovered-buyer', tuzis=Decimal('5'))
+    unknown = _note('bc' * 32, memo='')
+    unknown.update(memo='', memo_available=False)
+    valid = _note('bd' * 32, memo=_memo_hex({'act': 'buy_2z', 'id': buyer.username}))
+    wallet([unknown, valid, unknown])
+    call_command('credit_creators', no_color=True)
+    assert 'CREDITING BLOCKED' in capsys.readouterr().out
+    assert ZecMemoDisposition.objects.get(txid=unknown['txid']).classification == 'transaction_unavailable'
+    assert ZecCreditReceipt.objects.filter(txid=valid['txid']).count() == 1
+    assert not ZecCreditReceipt.objects.filter(txid=unknown['txid']).exists()
+    _record(unknown['txid'], decision=decision)
+    wallet([unknown])
+    call_command('credit_creators', no_color=True)
+    assert 'CREDITING BLOCKED' not in capsys.readouterr().out
+    hydrated = dict(unknown, memo_available=True,
+                    memo=_memo_hex({'act': 'buy_2z', 'id': buyer.username}))
+    wallet([hydrated, valid, hydrated])
+    call_command('credit_creators', no_color=True)
+    wallet([valid, hydrated])
+    call_command('credit_creators', no_color=True)
+    assert ZecCreditReceipt.objects.filter(txid=unknown['txid']).count() == 1
+    assert ZecCreditReceipt.objects.count() == 2
+
+
+@pytest.mark.django_db
+def test_zero_unknown_note_has_no_positive_observation(wallet, capsys):
+    note = _note('cd' * 32, amount='0')
+    note.update(memo='', memo_available=False)
+    wallet([note])
+    call_command('credit_creators', no_color=True)
+    assert not ZecMemoDisposition.objects.exists()
+    assert 'CREDITING BLOCKED' not in capsys.readouterr().out

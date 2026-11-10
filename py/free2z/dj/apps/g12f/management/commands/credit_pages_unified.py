@@ -14,7 +14,7 @@ refunded, and nobody told.
 import json
 import codecs
 from decimal import Decimal
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction as db_transaction
 
 from zcashrpc.client import Client
@@ -162,6 +162,12 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         z = Client()
+        try:
+            gate = getattr(z, 'verify_hydration', None)
+            if gate is not None:
+                gate()
+        except Exception:
+            raise CommandError('wallet recovery/hydration unavailable; no processing heartbeat') from None
 
         # TODO: make dynamic instead of hardcoded
         # addr = "zs16d60pj9ws682ewchraejujscf4crsuatyc83gzwnlgzzyphc3ydhynqv9p40gygnts83cfy5q23"
