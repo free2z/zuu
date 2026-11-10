@@ -561,10 +561,16 @@ class CreatorProfileUpdateSerializer(UserDetailsSerializer):
 
     @extend_schema_field(serializers.BooleanField())
     def get_zcash_identity_linked(self, obj):
+        annotated = getattr(obj, 'zcash_identity_linked', None)
+        if annotated is not None:
+            return annotated
         return hasattr(obj, 'zcash_identity')
 
     @extend_schema_field(serializers.ListField(child=serializers.CharField()))
     def get_social_identities(self, obj):
+        annotated = getattr(obj, 'linked_social_provider_keys', None)
+        if annotated is not None:
+            return annotated
         from dj.apps.social.models import SocialIdentity
         return list(SocialIdentity.objects.filter(
             creator_id=obj.pk,
