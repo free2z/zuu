@@ -107,33 +107,30 @@ const STREAM_MESSAGES = {
   ),
 };
 
-export type HostStartStage = "admission" | "meeting_setup";
 export type HostStartFailureCode =
   | "eligibility_changed"
   | "invalid_request"
   | "host_retirement_temporarily_unavailable"
   | "livestream_compensation_integration_unavailable"
+  | "admission_unavailable"
   | "provider_unavailable"
   | "admission_rejected"
   | "sdk_init_failed";
 
 /** Safe support context for a host start. Never contains the original error. */
 export class HostStreamStartError extends LocalizedError {
-  readonly stage: HostStartStage;
   readonly failureCode: HostStartFailureCode;
   readonly status: number | null;
   readonly requestId: string | null;
 
   constructor(
     descriptor: MessageDescriptor,
-    stage: HostStartStage,
     failureCode: HostStartFailureCode,
     status: number | null = null,
     requestId: string | null = null,
   ) {
     super(descriptor);
     this.name = "HostStreamStartError";
-    this.stage = stage;
     this.failureCode = failureCode;
     this.status =
       Number.isInteger(status) && status! >= 400 && status! <= 599
@@ -153,7 +150,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   ) {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostEligibilityChanged,
-      "admission",
       "eligibility_changed",
       error.status,
     );
@@ -161,7 +157,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   if (error.status === 400) {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostInvalidRequest,
-      "admission",
       "invalid_request",
       error.status,
     );
@@ -169,7 +164,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   if (error.status === 403) {
     return new HostStreamStartError(
       STREAM_MESSAGES.creatorNotAuthorized,
-      "admission",
       "admission_rejected",
       error.status,
     );
@@ -177,7 +171,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   if (error.status === 404) {
     return new HostStreamStartError(
       STREAM_MESSAGES.creatorNotFound,
-      "admission",
       "admission_rejected",
       error.status,
     );
@@ -185,7 +178,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   if (code === "host_retirement_temporarily_unavailable") {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostUnavailable,
-      "admission",
       "host_retirement_temporarily_unavailable",
       error.status,
     );
@@ -196,7 +188,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   ) {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostUnavailable,
-      "admission",
       "livestream_compensation_integration_unavailable",
       error.status,
     );
@@ -205,7 +196,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
     const requestId = error.data?.failure?.request_id;
     return new HostStreamStartError(
       STREAM_MESSAGES.hostUnavailable,
-      "admission",
       "provider_unavailable",
       error.status,
       typeof requestId === "string" && /^[0-9a-f]{32}$/i.test(requestId)
@@ -216,14 +206,12 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   if ([408, 429, 500, 502, 503, 504].includes(error.status)) {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostUnavailable,
-      "admission",
-      "provider_unavailable",
+      "admission_unavailable",
       error.status,
     );
   }
   return new HostStreamStartError(
     STREAM_MESSAGES.joinFailed,
-    "admission",
     "admission_rejected",
     error.status,
   );
@@ -499,7 +487,6 @@ export class StreamService {
         else
           throw new HostStreamStartError(
             STREAM_MESSAGES.invalidResponse,
-            "admission",
             "admission_rejected",
             null,
           );
@@ -559,8 +546,7 @@ export class StreamService {
       if (role === "host")
         throw new HostStreamStartError(
           STREAM_MESSAGES.hostUnavailable,
-          "admission",
-          "provider_unavailable",
+          "admission_unavailable",
           null,
         );
       throw localizedError(STREAM_MESSAGES.joinFailed, undefined, error);

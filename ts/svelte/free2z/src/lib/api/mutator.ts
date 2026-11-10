@@ -218,12 +218,9 @@ export const customInstance = async <T>(
   const suppressErrorLog = Boolean(
     (init as RequestTimeoutOption | undefined)?.suppressErrorLog,
   );
-  if (init && "timeoutMs" in init) {
+  if (init && ("timeoutMs" in init || "suppressErrorLog" in init)) {
     init = { ...init };
     delete (init as RequestTimeoutOption).timeoutMs;
-  }
-  if (init && "suppressErrorLog" in init) {
-    init = { ...init };
     delete (init as RequestTimeoutOption).suppressErrorLog;
   }
 

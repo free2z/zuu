@@ -166,9 +166,7 @@ def _host_room_response(response, stage):
         and 'error' not in payload
         and payload.get('success') is not False
         and isinstance(data, dict)
-        and isinstance(room_id, str)
-        and bool(room_id)
-        and len(room_id) <= 64
+        and room_id is not None
     )
     if valid:
         return room_id, None
