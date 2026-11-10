@@ -2301,7 +2301,8 @@
       "title": "Shared screens",
       "choose": "Choose a shared screen",
       "you": "You",
-      "subscribeError": "A shared screen is available, but this device could not subscribe to its video."
+      "subscribeError": "A shared screen is available, but this device could not subscribe to its video.",
+      "unsubscribeError": "A screen share ended, but its video subscription could not be released."
     },
     "backToProfile": "Back to Profile",
     "isLive": "{name} is live",
