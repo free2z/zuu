@@ -121,6 +121,18 @@
         "body": "Los datos de pago de este creador no pueden cruzar el puente, así que nunca se le pidió nada a ZUULI y no se envió nada.",
         "title": "free2z no pudo enviar esta solicitud"
       }
+    },
+    "follow": {
+      "action": "Seguir",
+      "following": "Siguiendo",
+      "retry": "Reintentar estado de seguimiento",
+      "unavailable": "Precio de membresía no disponible",
+      "readError": "No se pudo consultar el seguimiento. Vuelve a intentarlo.",
+      "mutationError": "No se pudo actualizar el seguimiento gratuito. Comprueba tu conexión e inténtalo de nuevo.",
+      "recorded": "El cambio de seguimiento gratuito se guardó, pero no se pudo actualizar el estado. Actualízalo antes de volver a cambiarlo.",
+      "success": "Sigues a {name}. Es un seguimiento gratuito; no inicia una membresía ni renovación de pago.",
+      "unfollowSuccess": "Dejaste de seguir a {name}. Es un seguimiento gratuito; no inicia una membresía ni renovación de pago.",
+      "unfollow": "Dejar de seguir a {name}"
     }
   },
   "error": {

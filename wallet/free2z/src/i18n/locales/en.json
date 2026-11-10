@@ -121,6 +121,18 @@
         "body": "This creator's payment details cannot be carried across the bridge, so ZUULI was never asked and nothing was sent.",
         "title": "free2z could not send this request"
       }
+    },
+    "follow": {
+      "action": "Follow",
+      "following": "Following",
+      "retry": "Retry follow status",
+      "unavailable": "Membership price unavailable",
+      "readError": "Could not read follow status. Retry to check it.",
+      "mutationError": "Could not update your free follow. Check your connection before trying again.",
+      "recorded": "Your free follow change was recorded, but status could not be refreshed. Refresh status before making another change.",
+      "success": "Following {name}. Free creator follow only; no paid membership or renewal started.",
+      "unfollowSuccess": "Unfollowed {name}. Free creator follow only; no paid membership or renewal started.",
+      "unfollow": "Unfollow {name}"
     }
   },
   "error": {

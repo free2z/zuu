@@ -71,6 +71,7 @@ import {
   mockSearchCreators,
   mockSearchPages,
   mockSubscribe,
+  mockCreatorFollow,
   mockSubscriptions,
   mockTransactions,
   mockUnsubscribe,
@@ -2041,6 +2042,27 @@ export class PrivateRoomUnavailableError extends Error {
 
 // ─── Tuzi (2Z) economy ───────────────────────────────────────────────────────
 export const tuzi = {
+  /** The creator-follow graph is free and grants no subscription entitlement. */
+  async creatorFollow(
+    username: string,
+    action: "state" | "follow" | "unfollow",
+  ): Promise<boolean> {
+    if (useMock()) {
+      await delay(100);
+      return mockCreatorFollow(username, action);
+    }
+    const response = await request<{ following: boolean }>(
+      `/api/creator/${encodeURIComponent(username)}/follow/`,
+      {
+        method:
+          action === "state" ? "GET" : action === "follow" ? "PUT" : "DELETE",
+        cache: "no-store",
+      },
+    );
+    if (typeof response?.following !== "boolean")
+      throw new Error("Invalid creator follow state.");
+    return response.following;
+  },
   async transactions(): Promise<TuziTransaction[]> {
     if (useMock()) {
       await delay();

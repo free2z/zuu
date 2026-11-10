@@ -763,6 +763,21 @@ export const mockSubscriptions: Subscription[] = [
   },
 ];
 
+/** Per-account free follow graph, persisted for the lifetime of the mock session. */
+const mockCreatorFollows = new Map<string, Set<string>>();
+export function mockCreatorFollow(
+  username: string,
+  action: "state" | "follow" | "unfollow",
+): boolean {
+  const actor = mockUser.username.toLowerCase();
+  const creator = username.toLowerCase();
+  const follows = mockCreatorFollows.get(actor) ?? new Set<string>();
+  if (action === "follow") follows.add(creator);
+  if (action === "unfollow") follows.delete(creator);
+  mockCreatorFollows.set(actor, follows);
+  return follows.has(creator);
+}
+
 /**
  * Mock `tuzi.subscribe(username)`. Mirrors `CreatorSubscribeView.post`:
  * get-or-create a `Subscription` for (star, fan) and extend it 30 days from

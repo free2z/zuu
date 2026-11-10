@@ -3,7 +3,7 @@ import {
   ModerationControls,
 } from "@/features/moderation/Moderation";
 import { useLiveGate } from "./useLiveGate";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -408,7 +408,7 @@ function formatMembershipDate(iso?: string): string {
   });
 }
 
-function SubscribeButton({
+export function SubscribeButton({
   creator,
   restored,
 }: {
@@ -416,6 +416,7 @@ function SubscribeButton({
   restored: PaidIntent | null;
 }) {
   const name = creator.display_name || creator.username;
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const user = useSession((s) => s.user);
@@ -442,6 +443,14 @@ function SubscribeButton({
   // stops renewal), so we track the unfollow intent locally to drop the follow
   // from the UI immediately and keep it dropped across the refetch.
   const [unfollowed, setUnfollowed] = useState(false);
+  const [freeFollowing, setFreeFollowing] = useState<boolean | null>(null);
+  const [freeFollowBusy, setFreeFollowBusy] = useState(false);
+  const [freeFollowNeedsRead, setFreeFollowNeedsRead] = useState(false);
+  const [freeFollowReadFailed, setFreeFollowReadFailed] = useState(false);
+  const freeGeneration = useRef(0);
+  const freeIdentity = `${creator.username.toLowerCase()}:${user?.username.toLowerCase() ?? "anonymous"}`;
+  const freeIdentityRef = useRef(freeIdentity);
+  freeIdentityRef.current = freeIdentity;
 
   useEffect(() => {
     if (
@@ -452,7 +461,42 @@ function SubscribeButton({
     }
   }, [creator.username, restored]);
 
-  const price = creator.member_price ?? 0;
+  const rawPrice = creator.member_price;
+  const priceKnown =
+    (typeof rawPrice === "number" &&
+      Number.isFinite(rawPrice) &&
+      rawPrice >= 0) ||
+    (typeof rawPrice === "string" &&
+      /^(0|[1-9]\d*)(\.\d+)?$/.test(rawPrice) &&
+      Number.isFinite(Number(rawPrice)));
+  const freeTier = priceKnown && Number(creator.member_price) === 0;
+  const price = priceKnown ? Number(creator.member_price) : 0;
+  useEffect(() => {
+    const generation = ++freeGeneration.current;
+    const identity = freeIdentity;
+    const isCurrent = () => freeGeneration.current === generation;
+    if (user && freeTier) {
+      setFreeFollowing(null);
+      void tuzi
+        .creatorFollow(creator.username, "state")
+        .then((following) => {
+          if (isCurrent() && freeIdentityRef.current === identity)
+            setFreeFollowing(following);
+        })
+        .catch(() => {
+          if (isCurrent() && freeIdentityRef.current === identity) {
+            setFreeFollowing(null);
+            setFreeFollowReadFailed(true);
+          }
+        });
+    } else {
+      setFreeFollowing(null);
+      setFreeFollowReadFailed(false);
+    }
+    return () => {
+      freeGeneration.current += 1;
+    };
+  }, [creator.username, freeIdentity, freeTier, user?.username]);
   const gate = paidActionGate({
     sessionLoading,
     user,
@@ -485,6 +529,69 @@ function SubscribeButton({
   // before the refetch confirms it.
   const renewing =
     renewOverride ?? (sub ? Number(sub.max_price ?? 0) > 0 : true);
+
+  async function toggleFreeFollow() {
+    if (!user) {
+      signInToSubscribe();
+      return;
+    }
+    if (freeFollowing === null) return;
+    const generation = freeGeneration.current;
+    const isCurrent = () => freeGeneration.current === generation;
+    const identity = freeIdentity;
+    setFreeFollowBusy(true);
+    try {
+      await tuzi.creatorFollow(
+        creator.username,
+        freeFollowing ? "unfollow" : "follow",
+      );
+      if (!isCurrent() || freeIdentityRef.current !== identity) return;
+      try {
+        const following = await tuzi.creatorFollow(creator.username, "state");
+        if (!isCurrent() || freeIdentityRef.current !== identity) return;
+        setFreeFollowing(following);
+        setFreeFollowNeedsRead(false);
+        toast.success(
+          t(
+            following
+              ? MESSAGE_KEYS.creatorFollowSuccess
+              : MESSAGE_KEYS.creatorUnfollowSuccess,
+            { name },
+          ),
+        );
+      } catch {
+        if (!isCurrent() || freeIdentityRef.current !== identity) return;
+        setFreeFollowNeedsRead(true);
+        toast.error(t(MESSAGE_KEYS.creatorFollowRecorded));
+      }
+    } catch {
+      if (!isCurrent() || freeIdentityRef.current !== identity) return;
+      toast.error(t(MESSAGE_KEYS.creatorFollowMutationError));
+    } finally {
+      if (isCurrent() && freeIdentityRef.current === identity)
+        setFreeFollowBusy(false);
+    }
+  }
+
+  async function refreshFreeFollow() {
+    const generation = freeGeneration.current;
+    const isCurrent = () => freeGeneration.current === generation;
+    const identity = freeIdentity;
+    setFreeFollowBusy(true);
+    try {
+      const following = await tuzi.creatorFollow(creator.username, "state");
+      if (!isCurrent() || freeIdentityRef.current !== identity) return;
+      setFreeFollowing(following);
+      setFreeFollowNeedsRead(false);
+      setFreeFollowReadFailed(false);
+    } catch {
+      if (isCurrent() && freeIdentityRef.current === identity)
+        toast.error(t(MESSAGE_KEYS.creatorFollowReadError));
+    } finally {
+      if (isCurrent() && freeIdentityRef.current === identity)
+        setFreeFollowBusy(false);
+    }
+  }
 
   // A fresh subscribe and a resume-renewal are the same backend call — POST
   // /api/tuzis/subscribe/{username} get-or-creates the membership and (re)sets
@@ -573,41 +680,69 @@ function SubscribeButton({
     }
   }
 
-  // Free follow: undo the follow entirely.
-  async function unfollow() {
-    if (!useSession.getState().user) {
-      signInToSubscribe();
-      return;
-    }
-    setBusy(true);
-    try {
-      await tuzi.unsubscribe(creator.username);
-      setUnfollowed(true);
-      setJustSubscribed(null);
-      toast.success(`Unfollowed ${name}`);
-      void reloadSubscriptions();
-    } catch {
-      toast.error("Couldn't unfollow. Please try again.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!creator.member_price) {
-    // No paid tier — a plain follow/unfollow toggle.
+  if (!priceKnown) {
     return (
       <Button
-        variant={subscribed ? "secondary" : "default"}
-        onClick={subscribed ? unfollow : subscribe}
-        disabled={busy || gate === "loading"}
-        aria-label={subscribed ? `Unfollow ${name}` : `Follow ${name}`}
+        variant="secondary"
+        disabled
+        aria-label={t(MESSAGE_KEYS.creatorFollowUnavailable)}
       >
-        {busy ? (
+        {t(MESSAGE_KEYS.creatorFollowUnavailable)}
+      </Button>
+    );
+  }
+
+  if (freeTier) {
+    if (!user)
+      return (
+        <Button
+          onClick={signInToSubscribe}
+          aria-label={`${t(MESSAGE_KEYS.creatorFollowAction)} ${name}`}
+        >
+          {t(MESSAGE_KEYS.creatorFollowAction)}
+        </Button>
+      );
+    if (freeFollowReadFailed)
+      return (
+        <Button
+          variant="secondary"
+          onClick={refreshFreeFollow}
+          disabled={freeFollowBusy}
+        >
+          {t(MESSAGE_KEYS.creatorFollowRetry)}
+        </Button>
+      );
+    if (freeFollowNeedsRead)
+      return (
+        <Button
+          variant="secondary"
+          onClick={refreshFreeFollow}
+          disabled={freeFollowBusy}
+        >
+          {t(MESSAGE_KEYS.creatorFollowRetry)}
+        </Button>
+      );
+    return (
+      <Button
+        variant={freeFollowing ? "secondary" : "default"}
+        onClick={toggleFreeFollow}
+        disabled={
+          freeFollowBusy || freeFollowing === null || gate === "loading"
+        }
+        aria-label={
+          freeFollowing
+            ? t(MESSAGE_KEYS.creatorFollowUnfollow, { name })
+            : `${t(MESSAGE_KEYS.creatorFollowAction)} ${name}`
+        }
+      >
+        {freeFollowBusy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        ) : subscribed ? (
+        ) : freeFollowing ? (
           <Check className="h-4 w-4" aria-hidden />
         ) : null}
-        {subscribed ? "Following" : "Subscribe"}
+        {freeFollowing
+          ? t(MESSAGE_KEYS.creatorFollowFollowing)
+          : t(MESSAGE_KEYS.creatorFollowAction)}
       </Button>
     );
   }

@@ -121,6 +121,18 @@
         "body": "Les informations de paiement de ce créateur ne peuvent pas franchir le pont, donc ZUULI n'a jamais été sollicité et rien n'a été envoyé.",
         "title": "free2z n'a pas pu envoyer cette demande"
       }
+    },
+    "follow": {
+      "action": "Suivre",
+      "following": "Abonné",
+      "retry": "Réessayer de lire le suivi",
+      "unavailable": "Prix de l’adhésion indisponible",
+      "readError": "Impossible de lire le suivi. Réessayez.",
+      "mutationError": "Impossible de modifier le suivi gratuit. Vérifiez votre connexion et réessayez.",
+      "recorded": "La modification du suivi gratuit a été enregistrée, mais son état n’a pas pu être actualisé. Actualisez avant toute autre modification.",
+      "success": "Vous suivez {name}. Suivi gratuit uniquement ; aucune adhésion ni aucun renouvellement payant n’a commencé.",
+      "unfollowSuccess": "Vous ne suivez plus {name}. Suivi gratuit uniquement ; aucune adhésion ni aucun renouvellement payant n’a commencé.",
+      "unfollow": "Ne plus suivre {name}"
     }
   },
   "error": {
