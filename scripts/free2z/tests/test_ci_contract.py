@@ -25,7 +25,9 @@ class CIContract(unittest.TestCase):
         publish = self.release['jobs']['publish']['steps']
         release = self.release['jobs']['release']['steps']
         for steps in (publish, release):
-            retry = steps[0]
+            bootstrap = steps[0]
+            self.assertEqual(bootstrap.get('name'), 'Select verified CI trust before clients')
+            retry = steps[1]
             self.assertEqual(retry.get('name'), 'Explain safe workflow retry')
             self.assertEqual(retry.get('if'), 'github.run_attempt > 1')
             self.assertIn('::warning::', retry.get('run', ''))
