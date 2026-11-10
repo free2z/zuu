@@ -19,16 +19,16 @@ The project declares and lockfiles `@cloudflare/realtimekit` and `@cloudflare/re
 
 Use a disposable host room in a supported browser, open the in-room troubleshooting control, and capture browser version, operating system, room role, SDK package versions, media permission state, console logs, and observed `mediaScoreUpdate` events with tokens redacted. The UI does not make an identifiable report request, so DevTools request blocking/network throttling alone does not deterministically delay this local rendering; reproduce slow/missing stats by delaying or suppressing the SDK score event in an actual provider test harness, if that SDK exposes one.
 
-| Case | Action | Record |
-|---|---|---|
-| Audio | Open Audio troubleshooting with microphone enabled; wait beyond the displayed “few seconds” | Whether report content replaces progress; visible fields and completion time |
-| Video | Repeat with camera enabled | Same, plus whether report reflects the active camera track |
-| Screenshare | Start screen sharing, open its troubleshooting view | Same, plus behavior after stopping the share |
-| No media | Open each relevant view with its source disabled | Whether SDK gives a clear enable-media state or leaves progress visible |
-| Slow | Delay the provider's `mediaScoreUpdate` delivery in a supported SDK test harness | Time to first score event, whether progress remains visible, any SDK timeout/error affordance |
-| Missing event | With source media enabled, suppress the relevant `mediaScoreUpdate` event | Confirm current package behavior: “Generating report…” remains because no deadline/error transition is present in the inspected component |
-| Recovery | Resume score event delivery after the missing-event case | Whether the listener updates rows without rejoining; verify separately for audio, camera video, and screen share |
-| Media disabled | Disable the corresponding source | Whether the component shows its localized enable-media message; confirm stale stats clear on audio/video disable or screen-share stop |
+| Case           | Action                                                                                      | Record                                                                                                                                    |
+| -------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| Audio          | Open Audio troubleshooting with microphone enabled; wait beyond the displayed “few seconds” | Whether report content replaces progress; visible fields and completion time                                                              |
+| Video          | Repeat with camera enabled                                                                  | Same, plus whether report reflects the active camera track                                                                                |
+| Screenshare    | Start screen sharing, open its troubleshooting view                                         | Same, plus behavior after stopping the share                                                                                              |
+| No media       | Open each relevant view with its source disabled                                            | Whether SDK gives a clear enable-media state or leaves progress visible                                                                   |
+| Slow           | Delay the provider's `mediaScoreUpdate` delivery in a supported SDK test harness            | Time to first score event, whether progress remains visible, any SDK timeout/error affordance                                             |
+| Missing event  | With source media enabled, suppress the relevant `mediaScoreUpdate` event                   | Confirm current package behavior: “Generating report…” remains because no deadline/error transition is present in the inspected component |
+| Recovery       | Resume score event delivery after the missing-event case                                    | Whether the listener updates rows without rejoining; verify separately for audio, camera video, and screen share                          |
+| Media disabled | Disable the corresponding source                                                            | Whether the component shows its localized enable-media message; confirm stale stats clear on audio/video disable or screen-share stop     |
 
 The installed package exposes bundled component code, not a documented test fixture API. No deterministic fixture or actual SDK component browser test was run. Do not replace the `<rtk-meeting>` element with a local imitation: that would test Free2Z markup and not the provider score event lifecycle.
 
