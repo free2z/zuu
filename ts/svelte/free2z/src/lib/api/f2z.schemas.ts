@@ -2903,6 +2903,29 @@ export interface HostSessionStatus {
 }
 
 /**
+ * * `available` - available
+ * * `unavailable` - unavailable
+ */
+export type HostUsageStatusEnum = typeof HostUsageStatusEnum[keyof typeof HostUsageStatusEnum];
+
+
+export const HostUsageStatusEnum = {
+  available: 'available',
+  unavailable: 'unavailable',
+} as const;
+
+/**
+ * Usage settled for the current provider session; never historical.
+ */
+export interface HostUsage {
+  /** @nullable */
+  amount_2z: number | null;
+  complete: boolean;
+  as_of: string;
+  status: HostUsageStatusEnum;
+}
+
+/**
  * * `donation` - donation
  * * `ppv` - ppv
  */
