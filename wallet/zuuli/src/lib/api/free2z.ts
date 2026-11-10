@@ -69,7 +69,7 @@ function mockSocialProvidersWire(): unknown {
   if (scenario === "x") {
     return {
       providers: [
-        { provider: "x", configured: true },
+        { provider: "x", configured: true, web_reauthentication: false },
         { provider: "google", configured: false },
         { provider: "github", configured: false },
       ],

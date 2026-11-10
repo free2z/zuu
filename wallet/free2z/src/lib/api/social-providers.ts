@@ -42,8 +42,10 @@ function isSocialProvider(value: unknown): value is SocialProvider {
 
 /**
  * Validate the production discovery wire shape and normalize it into a total
- * internal map. Any ambiguity rejects the entire response so one valid-looking
- * entry cannot enable OAuth alongside malformed or unknown data.
+ * internal map. Legacy object maps are deliberately rejected. The backend may
+ * send optional boolean `web_reauthentication` metadata; it is validated but
+ * never used as sign-in readiness. Any ambiguity rejects the entire response
+ * so one valid entry cannot enable OAuth alongside malformed or unknown data.
  */
 export function parseSocialProvidersStatus(
   value: unknown,
@@ -65,10 +67,13 @@ export function parseSocialProvidersStatus(
   for (const entry of value.providers) {
     if (
       !isPlainRecord(entry) ||
-      !hasExactKeys(entry, ["provider", "configured"])
+      !(
+        hasExactKeys(entry, ["provider", "configured"]) ||
+        hasExactKeys(entry, ["provider", "configured", "web_reauthentication"])
+      )
     ) {
       return contractError(
-        "each entry must contain exactly `provider` and boolean `configured` fields.",
+        "each entry must contain `provider`, boolean `configured`, and only optional boolean `web_reauthentication` metadata.",
       );
     }
     if (!isSocialProvider(entry.provider)) {
@@ -76,6 +81,14 @@ export function parseSocialProvidersStatus(
     }
     if (typeof entry.configured !== "boolean") {
       return contractError("an entry's `configured` field was not boolean.");
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(entry, "web_reauthentication") &&
+      typeof entry.web_reauthentication !== "boolean"
+    ) {
+      return contractError(
+        "an entry's `web_reauthentication` field was not boolean.",
+      );
     }
     if (seen.has(entry.provider)) {
       return contractError("a provider appeared more than once.");
@@ -94,5 +107,5 @@ export function parseSocialProvidersStatus(
 export function configuredSocialProviders(
   status: SocialProvidersStatus,
 ): SocialProvider[] {
-  return SOCIAL_PROVIDERS.filter((provider) => status[provider]);
+  return SOCIAL_PROVIDERS.filter((provider) => status[provider] === true);
 }
