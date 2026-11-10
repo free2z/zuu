@@ -716,6 +716,21 @@
     }
   });
 
+  function logHostStartFailure(
+    err: unknown,
+    stage: "admission" | "meeting_setup",
+  ) {
+    const failure = err instanceof HostStreamStartError ? err : null;
+    console.warn("Host stream startup failed", {
+      stage: failure?.stage ?? stage,
+      code:
+        failure?.failureCode ??
+        (stage === "meeting_setup" ? "sdk_init_failed" : "admission_rejected"),
+      status: failure?.status ?? null,
+      request_id: failure?.requestId ?? null,
+    });
+  }
+
   async function startStream({ takeover = false } = {}) {
     const owner = captureOwner();
     if (!owner || !user || loading) return;
@@ -951,17 +966,7 @@
       if (startType === "private") {
         console.error("Failed to start private stream:", err);
       } else {
-        const failure = err instanceof HostStreamStartError ? err : null;
-        console.warn("Host stream startup failed", {
-          stage: failure?.stage ?? hostStartStage,
-          code:
-            failure?.failureCode ??
-            (hostStartStage === "meeting_setup"
-              ? "sdk_init_failed"
-              : "admission_rejected"),
-          status: failure?.status ?? null,
-          request_id: failure?.requestId ?? null,
-        });
+        logHostStartFailure(err, hostStartStage);
       }
       // The seat may have been taken before the room join failed; this tab is
       // not broadcasting, so give it back rather than lock out a retry.
@@ -1021,6 +1026,7 @@
     cleanup = null;
     ownedMeeting = null;
     let waitingForRoomJoin = false;
+    let hostStartStage: "admission" | "meeting_setup" = "admission";
     try {
       if (oldCleanup) await oldCleanup();
       if (!isCurrentReconnect()) return;
@@ -1036,6 +1042,7 @@
         },
       );
       if (!isCurrentReconnect()) return;
+      hostStartStage = "meeting_setup";
       const initialized = await initRtkMeeting({
         authToken: auth_token,
         streamType: type,
@@ -1138,7 +1145,7 @@
       liveStreamStore.setError(null, null);
     } catch (err) {
       if (!isCurrentReconnect()) return;
-      console.error("Failed to reconnect host stream:", err);
+      logHostStartFailure(err, hostStartStage);
       endSeat();
       hostReconnectFailed = true;
       startController = null;

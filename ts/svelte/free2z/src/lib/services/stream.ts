@@ -129,10 +129,9 @@ export class HostStreamStartError extends LocalizedError {
     stage: HostStartStage,
     failureCode: HostStartFailureCode,
     status: number | null = null,
-    cause?: unknown,
     requestId: string | null = null,
   ) {
-    super(descriptor, undefined, { cause });
+    super(descriptor);
     this.name = "HostStreamStartError";
     this.stage = stage;
     this.failureCode = failureCode;
@@ -157,7 +156,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "eligibility_changed",
       error.status,
-      error,
     );
   }
   if (error.status === 400) {
@@ -166,7 +164,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "invalid_request",
       error.status,
-      error,
     );
   }
   if (error.status === 403) {
@@ -175,7 +172,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "admission_rejected",
       error.status,
-      error,
     );
   }
   if (error.status === 404) {
@@ -184,7 +180,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "admission_rejected",
       error.status,
-      error,
     );
   }
   if (code === "host_retirement_temporarily_unavailable") {
@@ -193,7 +188,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "host_retirement_temporarily_unavailable",
       error.status,
-      error,
     );
   }
   if (
@@ -205,7 +199,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "livestream_compensation_integration_unavailable",
       error.status,
-      error,
     );
   }
   if (code === "provider_unavailable") {
@@ -215,7 +208,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "provider_unavailable",
       error.status,
-      error,
       typeof requestId === "string" && /^[0-9a-f]{32}$/i.test(requestId)
         ? requestId.toLowerCase()
         : null,
@@ -227,7 +219,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       "admission",
       "provider_unavailable",
       error.status,
-      error,
     );
   }
   return new HostStreamStartError(
@@ -235,7 +226,6 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
     "admission",
     "admission_rejected",
     error.status,
-    error,
   );
 }
 
@@ -512,7 +502,6 @@ export class StreamService {
             "admission",
             "admission_rejected",
             null,
-            error,
           );
         throw localizedError(STREAM_MESSAGES.invalidResponse, undefined, error);
       }
@@ -573,7 +562,6 @@ export class StreamService {
           "admission",
           "provider_unavailable",
           null,
-          error,
         );
       throw localizedError(STREAM_MESSAGES.joinFailed, undefined, error);
     }

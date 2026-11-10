@@ -558,6 +558,84 @@ test("failed host room reinitializes with the same seat and keeps that seat", as
   await expect(page.getByTestId("stream-seat-panel")).toHaveCount(0);
 });
 
+for (const status of [404, 503]) {
+  test(`host reconnect ${status} logs only safe metadata and retains no raw cause`, async ({
+    page,
+  }) => {
+    await openDashboard(page);
+    await stubProvider(page);
+    const messages: string[] = [];
+    page.on("console", (message) => messages.push(message.text()));
+    let starts = 0;
+    let releases = 0;
+    const sentinel = "credential-sentinel-must-never-be-logged";
+    await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+      starts++;
+      return starts === 1
+        ? route.fulfill({ json: { auth_token: "host-token" } })
+        : route.fulfill({ status, json: { error: sentinel } });
+    });
+    await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        });
+      if (route.request().postDataJSON()?.action === "release") releases++;
+      return route.fulfill({ json: {} });
+    });
+    await page.getByTestId("stream-start").click();
+    await expect(
+      page.getByText("The stream started successfully. You are live!", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.evaluate(() => window.hostTest.endRoom("failed"));
+    await expect.poll(() => starts).toBe(2);
+    await expect.poll(() => releases).toBe(1);
+    const diagnostic = messages.find((message) =>
+      message.includes("Host stream startup failed"),
+    );
+    expect(diagnostic).toContain("stage: admission");
+    expect(diagnostic).toContain(`status: ${status}`);
+    expect(messages.join("\n")).not.toContain(sentinel);
+    expect(messages.join("\n")).not.toContain(
+      "Failed to reconnect host stream:",
+    );
+    expect(messages.join("\n")).not.toContain("API request failed:");
+
+    const rejection = await page.evaluate(
+      async ({ loader, username }) => {
+        const { StreamService } = await new Function(loader)();
+        try {
+          await StreamService.initStream(username, "broadcast", {
+            role: "host",
+          });
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          return {
+            name: error.name,
+            hasRawCause: Object.hasOwn(error, "cause"),
+          };
+        }
+        throw new Error("expected API rejection");
+      },
+      {
+        loader: devSourceModuleLoader("/src/lib/services/stream.ts"),
+        username: USER,
+      },
+    );
+    expect(rejection).toEqual({
+      name: "HostStreamStartError",
+      hasRawCause: false,
+    });
+  });
+}
+
 test("room failure during host retry initialization releases the seat without retrying forever", async ({
   page,
 }) => {
