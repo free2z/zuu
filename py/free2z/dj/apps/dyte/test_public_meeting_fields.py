@@ -43,10 +43,14 @@ EXPECTED_FIELDS = {
     "last_seen_at",
     "created_at",
     "price_per_minute",
+    "title",
     "e2ee",
 }
 
-DISCOVERY_FIELDS = {"username", "avatar", "meeting_type", "price_per_minute"}
+DISCOVERY_FIELDS = {
+    "username", "avatar", "meeting_type", "price_per_minute", "title",
+    "admission_minimum_tuzis",
+}
 
 
 def _live_room(creator, **kwargs):
@@ -57,6 +61,7 @@ def _live_room(creator, **kwargs):
         is_public=True,
         live_now=True,
         last_seen_at=timezone.now() - timedelta(seconds=5),
+        title="A live title",
     )
     defaults.update(kwargs)
     return CreatorMeeting.objects.create(**defaults)
@@ -143,6 +148,7 @@ def test_public_list_includes_each_public_mode_but_never_private(
             meeting_id=f"mtg-{meeting_type}",
             meeting_type=meeting_type,
             price_per_minute="1.25" if meeting_type == "ppv" else "0.00",
+            title=f"{meeting_type} title",
         )
     _live_room(
         creator,
@@ -172,6 +178,14 @@ def test_public_list_includes_each_public_mode_but_never_private(
         "subscribers-only",
     }
     assert all(set(row) == DISCOVERY_FIELDS for row in payload["results"])
+    ppv = next(row for row in payload["results"] if row["meeting_type"] == "ppv")
+    assert ppv["title"] == "ppv title"
+    assert ppv["price_per_minute"] == "1.25"
+    assert ppv["admission_minimum_tuzis"] == 53
+    assert all(
+        row["admission_minimum_tuzis"] is None
+        for row in payload["results"] if row["meeting_type"] != "ppv"
+    )
 
 
 @pytest.mark.django_db

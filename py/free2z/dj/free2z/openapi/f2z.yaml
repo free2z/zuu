@@ -12491,6 +12491,9 @@ components:
           format: decimal
           pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
           description: Optional fee set by Creator
+        title:
+          type: string
+          maxLength: 255
         e2ee:
           type: boolean
       required:
@@ -14803,6 +14806,15 @@ components:
           type: integer
           description: Original viewer account ID; required for a first-party paid
             PPV join under the active economic policy.
+        title:
+          type: string
+          maxLength: 255
+        price_per_minute:
+          type: string
+          format: decimal
+          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
+          description: 'Host only, PPV only. Ignored when resuming or taking over
+            a live session: a live stream''s price never changes mid-session.'
         admission_idempotency_key:
           type: string
           format: uuid
@@ -14831,12 +14843,6 @@ components:
             when another tab or device holds it. The other tab is told on its next
             heartbeat and leaves the room. The live room is kept, so viewers stay
             connected.
-        price_per_minute:
-          type: string
-          format: decimal
-          pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
-          description: 'Host only, PPV only. Ignored when resuming or taking over
-            a live session: a live stream''s price never changes mid-session.'
     MeetingJoinResponse:
       type: object
       properties:
@@ -16472,7 +16478,14 @@ components:
           format: decimal
           pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
           description: Optional fee set by Creator
+        title:
+          type: string
+          maxLength: 255
+        admission_minimum_tuzis:
+          type: string
+          readOnly: true
       required:
+      - admission_minimum_tuzis
       - avatar
       - meeting_type
       - username

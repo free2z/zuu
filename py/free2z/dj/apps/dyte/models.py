@@ -131,6 +131,7 @@ class CreatorMeeting(models.Model):
         max_digits=6, decimal_places=2, default=0,
         help_text="Optional fee set by Creator",
     )
+    title = models.CharField(max_length=255, blank=True, default='', db_default='')
     secret = models.UUIDField(
         unique=True, null=True, editable=False,
         help_text="Secret UUID used to join private"

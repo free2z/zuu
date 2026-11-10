@@ -164,17 +164,18 @@ def test_the_same_tab_retrying_resumes_instead_of_duplicating(
     api_client, provider, host,
 ):
     tab = uuid.uuid4()
-    first = _start(api_client, host, session=tab)
+    first = _start(api_client, host, session=tab, title='Original title')
     # A day later the row is "aged" -- the pre- rule would rotate here.
     CreatorMeeting.objects.filter(creator=host).update(
         created_at=timezone.now() - timedelta(days=3))
 
-    again = _start(api_client, host, session=tab)
+    again = _start(api_client, host, session=tab, title='Must not replace title')
 
     assert again.status_code == 200, again.data
     assert again.data['resumed'] is True
     assert again.data['meeting_id'] == first.data['meeting_id']
     assert provider.create_meeting.call_count == 1
+    assert CreatorMeeting.objects.get(creator=host, is_public=True).title == 'Original title'
     assert _roles(provider) == ['host', 'host']
 
 

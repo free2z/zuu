@@ -2250,6 +2250,7 @@ class DyteMeeting(APIView):
                 request, meeting_type, dc,
                 host_session=body.validated_data.get('host_session'),
                 takeover=body.validated_data.get('takeover', False),
+                validated_data=body.validated_data,
             )
 
         # Viewer -- including the creator on their own public stream page.
@@ -2398,7 +2399,7 @@ class DyteMeeting(APIView):
         })
 
     def _start_or_resume_host(
-        self, request, meeting_type, dc, *, host_session, takeover,
+        self, request, meeting_type, dc, *, host_session, takeover, validated_data,
     ):
         """Start/resume a host with provider calls outside seat transactions."""
         creator = request.user
@@ -2459,7 +2460,9 @@ class DyteMeeting(APIView):
                     'host_participant_id', 'host_start_claim', 'host_start_claim_at', 'host_evictions'])
             resumed = held_fresh and held.pk == cm.pk
             if not resumed and (created or not cm.live_now):
-                cm.price_per_minute = request.data.get('price_per_minute', cm.price_per_minute)
+                cm.price_per_minute = validated_data.get('price_per_minute', cm.price_per_minute)
+                if validated_data.get('title') is not None:
+                    cm.title = validated_data['title']
             if meeting_type == PAY_PER_VIEW and ppv_join_threshold(cm.price_per_minute) is None:
                 return Response(status=status.HTTP_400_BAD_REQUEST,
                     data="PPV price must be a positive amount with at most two decimals")
@@ -2712,6 +2715,8 @@ class DyteMeeting(APIView):
                         pending.append({'meeting_id': current_held.meeting_id,
                             'participant_id': current_held.host_participant_id, 'attempts': 0})
                     cm.price_per_minute = price
+                    if not resumed and validated_data.get('title') is not None:
+                        cm.title = validated_data['title']
                     pending = [entry for entry in pending
                                if entry.get('claim_id') != str(start_claim)]
                     cm.host_evictions = pending
@@ -2723,7 +2728,7 @@ class DyteMeeting(APIView):
                     cm.live_now = True
                     cm.zero_probe_since = None
                     cm.last_seen_at = now
-                    cm.save(update_fields=['price_per_minute', 'live_now', 'last_seen_at',
+                    cm.save(update_fields=['price_per_minute', 'title', 'live_now', 'last_seen_at',
                         'zero_probe_since',
                         'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim', 'host_start_claim_at'])
                     _defer_host_evictions(cm)
