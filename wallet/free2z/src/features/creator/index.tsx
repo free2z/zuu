@@ -3,7 +3,7 @@ import {
   ModerationControls,
 } from "@/features/moderation/Moderation";
 import { useLiveGate } from "./useLiveGate";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -39,6 +39,9 @@ import { Markdown } from "@/components/common/Markdown";
 import { RemoteMedia } from "@/components/common/RemoteMedia";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { discover, tuzi } from "@/lib/api/free2z";
+import { getTokenSnapshot } from "@/lib/api/http";
+import { ApiError } from "@/lib/api/http";
+import { membershipAttempt, clearMembershipAttempt, markMembershipAttemptUncertain } from "@/features/live/membership";
 import {
   formatTuzis,
   formatZecDisplay,
@@ -421,9 +424,10 @@ function SubscribeButton({
   const user = useSession((s) => s.user);
   const sessionLoading = useSession((s) => s.loading);
   const balance = useSession((s) => s.tuzis);
-  const adjustTuzis = useSession((s) => s.adjustTuzis);
+  const setTuzis = useSession((s) => s.setTuzis);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const subscribeLock = useRef(false);
   // Set the instant `subscribe()` succeeds so the button reflects the new
   // state immediately, even before `reloadSubscriptions` below lands (and
   // even if that refetch fails) — see the comment on `tuzi.mySubscriptions`
@@ -491,19 +495,54 @@ function SubscribeButton({
   // renewal at the current price — so they share one runner and differ only in
   // the copy and whether the dialog stays open to show the flipped state.
   async function runSubscribe(mode: "subscribe" | "resume") {
+    if (subscribeLock.current) return;
     const currentUser = useSession.getState().user;
     if (!currentUser || gate === "sign-in") {
       signInToSubscribe();
       return;
     }
     if (gate !== "ready") return;
+    subscribeLock.current = true;
+    const actor = currentUser.username.toLowerCase();
+    const creatorIdentity = creator.username.toLowerCase();
+    const tokenSnapshot = getTokenSnapshot();
+    const isCurrent = () => useSession.getState().user?.username.toLowerCase() === actor && getTokenSnapshot().generation === tokenSnapshot.generation && creator.username.toLowerCase() === creatorIdentity;
+    const setBusyIfCurrent = (value: boolean) => { if (isCurrent()) setBusy(value); };
     setBusy(true);
     try {
-      await tuzi.subscribe(creator.username);
-      // Debit only after the POST succeeds, and only for a paid tier — never
-      // credit/debit on failure.
-      if (price > 0) adjustTuzis(-price);
-      const expires = new Date(Date.now() + 30 * 86400000).toISOString();
+      const paid = price > 0;
+      const attempt = paid ? membershipAttempt(currentUser.username, creator.username, price) : null;
+      let receipt;
+      if (paid) {
+        const before = await tuzi.subscriptionStatus(creator.username);
+        if (useSession.getState().user?.username.toLowerCase() !== currentUser.username.toLowerCase() || getTokenSnapshot().generation !== tokenSnapshot.generation) throw new Error("Account changed during membership check.");
+        if (!isCurrent()) return;
+        if (before.active) {
+          await useSession.getState().refresh();
+          if (!isCurrent()) return;
+          setUnfollowed(false);
+          setJustSubscribed({ fan: { username: currentUser.username, free2zaddr: currentUser.free2zaddr ?? currentUser.username }, star: { username: creator.username, free2zaddr: creator.free2zaddr }, expires: before.expires ?? undefined, max_price: before.max_price ?? "0" });
+          clearMembershipAttempt(currentUser.username, creator.username, attempt!.key);
+          void reloadSubscriptions();
+          return;
+        }
+        if (!isCurrent()) return;
+        try { receipt = await tuzi.subscribeConfirmed(creator.username, attempt!.key, price); }
+        catch (error) {
+          if (error instanceof ApiError && [400, 409, 412].includes(error.status)) clearMembershipAttempt(currentUser.username, creator.username, attempt!.key);
+          else markMembershipAttemptUncertain(currentUser.username, creator.username, price);
+          throw error;
+        }
+        if (!isCurrent()) return;
+        const balanceValue = Number(receipt.balance);
+        if (!Number.isFinite(balanceValue) || balanceValue < 0 || !Number.isFinite(Date.parse(receipt.expires)) || !receipt.subscription) throw new Error("Malformed membership receipt; retry to reconcile safely.");
+        setTuzis(balanceValue);
+        clearMembershipAttempt(currentUser.username, creator.username, attempt!.key);
+      } else {
+        await tuzi.subscribe(creator.username);
+      }
+      const expires = receipt?.expires ?? (price === 0 ? new Date(Date.now() + 30 * 86400000).toISOString() : undefined);
+      if (!isCurrent()) return;
       setUnfollowed(false);
       if (mode === "resume") setRenewOverride(true);
       setJustSubscribed({
@@ -534,13 +573,14 @@ function SubscribeButton({
       }
       void reloadSubscriptions();
     } catch {
-      toast.error(
+      if (isCurrent()) toast.error(
         mode === "resume"
           ? "Couldn't resume auto-renew. Please try again."
           : "Couldn't complete the subscription. Please try again.",
       );
     } finally {
-      setBusy(false);
+      setBusyIfCurrent(false);
+      subscribeLock.current = false;
     }
   }
 
