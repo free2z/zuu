@@ -2198,7 +2198,8 @@ def _residual_envelope(text, source):
     )
 
 
-def translate_unit(ai_model, unit, source_language, target_language, deadline):
+def translate_unit(ai_model, unit, source_language, target_language, deadline,
+                  observer=None):
     """Translate one fragment. Raises:class:`TranslationFailed`.
 
     A fragment that came back TRUNCATED -- either because we stopped reading at
@@ -2344,6 +2345,9 @@ def translate_unit(ai_model, unit, source_language, target_language, deadline):
         # Billed the moment the provider produced it, kept or not.
         used_in += provider_message_tokens(ai_model, messages)
         used_out += provider_tokens(ai_model, raw)
+        if observer is not None:
+            observer(raw, provider_message_tokens(ai_model, messages),
+                     provider_tokens(ai_model, raw), messages)
         spent = provider_tokens(ai_model, raw)
         token_limit_hit = _hit_output_token_limit(
             ai_model.provider, termination_reason
@@ -2591,7 +2595,8 @@ def _require_target_script(replies, target_language):
 
 
 def translate_document(*, title, description, content, source_language,
-                       target_language, ai_model, timeout=None):
+                       target_language, ai_model, timeout=None,
+                       output_observer=None):
     """Translate a whole zPage. Raises:class:`TranslationFailed`.
 
     Every fragment is translated independently; verbatim units (code blocks,
@@ -2661,7 +2666,8 @@ def translate_document(*, title, description, content, source_language,
                 body.append(unit.text)
                 continue
             text, used_in, used_out = translate_unit(
-                ai_model, unit, source_language, target_language, deadline
+                ai_model, unit, source_language, target_language, deadline,
+                observer=output_observer,
             )
             input_tokens += used_in
             output_tokens += used_out
