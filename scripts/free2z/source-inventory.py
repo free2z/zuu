@@ -75,7 +75,7 @@ def facts(path, kind, content):
 
 
 def validate_triage(t):
-    if set(t) != {'owner', 'disposition', 'evidence', 'issue'} or not isinstance(t['owner'], str) or not t['owner'].strip():
+    if set(t) != {'owner', 'disposition', 'evidence', 'issue'} or not isinstance(t['owner'], str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9 ._-]*', t['owner']):
         raise ValueError('invalid triage fields or owner')
     combinations = {'work-remaining': {'unreviewed-source', 'source-only', 'runtime', 'not-verifiable'}, 'reviewed': {'source-only', 'runtime'}, 'accepted-downstream': {'unreviewed-source', 'source-only', 'runtime', 'not-verifiable'}}
     if t['disposition'] not in combinations or t['evidence'] not in combinations[t['disposition']]:
@@ -90,8 +90,13 @@ def inventory(root, paths, scope, previous):
     for row in previous.get('rows', []):
         if row['path'] in old:
             raise ValueError('duplicate inventory path')
-        validate_triage(row['triage'])
-        old[row['path']] = row
+        # Migrate the former generated product/subsystem label without changing
+        # any disposition, evidence, issue, or independently assigned owner.
+        triage = dict(row['triage'])
+        if triage.get('owner') == 'free2z' + '/' + row['subsystem']:
+            triage['owner'] = 'free2z'
+        validate_triage(triage)
+        old[row['path']] = {**row, 'triage': triage}
     rows, census = [], Counter()
     for path in sorted(set(paths)):
         row, excluded = classify(path, scope)
@@ -107,7 +112,7 @@ def inventory(root, paths, scope, previous):
         row['sha256'] = hashlib.sha256(content).hexdigest()
         row['facts'] = facts(path, row['kind'], content)
         prior = old.get(path, {})
-        default = {'owner': 'free2z/' + row['subsystem'], 'disposition': 'work-remaining', 'evidence': 'unreviewed-source', 'issue': ''}
+        default = {'owner': 'free2z', 'disposition': 'work-remaining', 'evidence': 'unreviewed-source', 'issue': ''}
         row['triage'] = prior.get('triage', default) if prior.get('sha256') == row['sha256'] and prior.get('kind') == row['kind'] and prior.get('subsystem') == row['subsystem'] else default
         rows.append(row)
         census[row['kind']] += 1

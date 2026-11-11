@@ -46,6 +46,13 @@ class InventoryTest(unittest.TestCase):
             self.assertEqual(len(row['facts']), 2)
             row['triage'] = {'owner': 'ledger-team', 'disposition': 'reviewed', 'evidence': 'source-only', 'issue': ''}
             self.assertEqual(module.inventory(root, [path], SCOPE, first)['rows'][0]['triage'], row['triage'])
+            row['triage']['owner'] = 'free2z' + '/' + 'ledger'
+            migrated = module.inventory(root, [path], SCOPE, first)['rows'][0]['triage']
+            self.assertEqual(migrated, {'owner': 'free2z', 'disposition': 'reviewed', 'evidence': 'source-only', 'issue': ''})
+            row['triage']['owner'] = 'another/team'
+            with self.assertRaises(ValueError):
+                module.inventory(root, [path], SCOPE, first)
+            row['triage']['owner'] = 'ledger-team'
             target.write_text('path("y", view)\n')
             self.assertEqual(module.inventory(root, [path], SCOPE, first)['rows'][0]['triage']['evidence'], 'unreviewed-source')
             target.unlink()
