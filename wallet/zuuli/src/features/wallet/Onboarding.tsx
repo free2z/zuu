@@ -228,7 +228,7 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
               type="button"
               onClick={() => setReveal((r) => !r)}
               disabled={!sensitiveEntry.editable}
-              className="min-tap inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-tap inline-flex items-center gap-1 rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               aria-pressed={reveal}
             >
               {reveal ? (
@@ -465,7 +465,7 @@ function SeedReveal({
                 type="button"
                 onClick={() => void reveal()}
                 disabled={busy}
-                className="min-h-24 w-full rounded-lg border border-border bg-secondary/40 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-h-24 w-full rounded-lg border border-border bg-secondary/40 text-sm font-medium focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="flex items-center justify-center gap-2">
                   {busy ? (

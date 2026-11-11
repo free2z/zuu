@@ -1,6 +1,20 @@
 @import "tailwindcss";
 @config "../tailwind.config.cjs";
 
+/* Restore the native button pointer while allowing utility cursors to override it. */
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  input:is([type="button"], [type="submit"], [type="reset"]):not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* Tailwind 3's default border and placeholder colors. */
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button { border-color: #e5e7eb; }
+  input::placeholder, textarea::placeholder { color: #9ca3af; }
+}
+
 body {
   margin: 0;
   background-color: #09090b;

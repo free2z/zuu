@@ -54,7 +54,7 @@ export function ArticleCard({
                 <Link
                   to={articleHref(article)}
                   aria-label={`Read “${article.title}”`}
-                  className="block h-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="block h-full focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <img
                     src={url}
@@ -69,7 +69,7 @@ export function ArticleCard({
             <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
           )}
           {article.category ? (
-            <Badge className="pointer-events-none absolute start-3 top-3 backdrop-blur-sm">
+            <Badge className="pointer-events-none absolute start-3 top-3 backdrop-blur-xs">
               {article.category}
             </Badge>
           ) : null}
@@ -78,7 +78,7 @@ export function ArticleCard({
         <Link
           to={articleHref(article)}
           aria-label={`Read “${article.title}”`}
-          className="flex flex-1 flex-col focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex flex-1 flex-col focus:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           {/* Body */}
           <div className="flex flex-1 flex-col gap-2 p-5 pb-3">
@@ -101,7 +101,7 @@ export function ArticleCard({
         <Link
           to={`/creator/${author.username}`}
           aria-label={`View ${name}’s profile`}
-          className="mt-auto flex items-center gap-3 px-5 pb-5 focus:outline-none"
+          className="mt-auto flex items-center gap-3 px-5 pb-5 focus:outline-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           <Avatar className="h-8 w-8">

@@ -113,7 +113,7 @@ export function TopBar() {
             <TooltipTrigger asChild aria-describedby={undefined}>
               <DropdownMenuTrigger asChild>
                 <button
-                  className="min-tap rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-tap rounded-full outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={t(MESSAGE_KEYS.navAccountMenu)}
                 >
                   {/* Initials only. A remote avatar would be the one image the

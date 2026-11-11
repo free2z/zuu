@@ -241,7 +241,7 @@ function CopyButton({ getText }: { getText: () => string }) {
         setCopied(true);
         window.setTimeout(() => setCopied(false), 1500);
       }}
-      className="min-tap absolute end-2 top-2 z-10 inline-flex items-center justify-center rounded-md border border-border bg-card/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+      className="min-tap absolute end-2 top-2 z-10 inline-flex items-center justify-center rounded-md border border-border bg-card/80 p-1.5 text-muted-foreground opacity-0 backdrop-blur transition hover:text-foreground focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
     >
       {copied ? (
         <Check className="h-4 w-4 text-primary" />

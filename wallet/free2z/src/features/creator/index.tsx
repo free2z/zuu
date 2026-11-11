@@ -953,7 +953,7 @@ function TipButton({
               onClick={() => setCurrency("zec")}
               aria-pressed={currency === "zec"}
               className={cn(
-                "min-tap rounded-lg border px-3 py-2 text-start text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "min-tap rounded-lg border px-3 py-2 text-start text-sm transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                 currency === "zec"
                   ? "border-zec/50 bg-zec/10 text-foreground"
                   : "border-border text-muted-foreground hover:bg-secondary",
@@ -967,7 +967,7 @@ function TipButton({
               onClick={() => setCurrency("tuzi")}
               aria-pressed={currency === "tuzi"}
               className={cn(
-                "min-tap rounded-lg border px-3 py-2 text-start text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "min-tap rounded-lg border px-3 py-2 text-start text-sm transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                 currency === "tuzi"
                   ? "border-primary bg-primary/15 text-foreground"
                   : "border-border text-muted-foreground hover:bg-secondary",
@@ -1001,7 +1001,7 @@ function TipButton({
                         onClick={() => setZecAmount(preset)}
                         aria-pressed={zecAmount === preset}
                         className={cn(
-                          "min-tap rounded-lg border px-2 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                          "min-tap rounded-lg border px-2 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                           zecAmount === preset
                             ? "border-zec/50 bg-zec/10 text-zec"
                             : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
@@ -1059,7 +1059,7 @@ function TipButton({
                     onClick={() => setAmount(String(preset))}
                     aria-pressed={parsedAmount === preset}
                     className={cn(
-                      "min-tap rounded-lg border px-3 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      "min-tap rounded-lg border px-3 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                       parsedAmount === preset
                         ? "border-primary bg-primary/15 text-primary"
                         : "border-border bg-transparent text-muted-foreground hover:bg-secondary",
@@ -1196,7 +1196,7 @@ function PageCard({ article }: { article: Article }) {
                 <Link
                   to={`/articles/${article.slug ?? article.id}`}
                   aria-label={`Read “${article.title}”`}
-                  className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="block h-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <img
                     src={url}
@@ -1216,7 +1216,7 @@ function PageCard({ article }: { article: Article }) {
         <Link
           to={`/articles/${article.slug ?? article.id}`}
           aria-label={`Read “${article.title}”`}
-          className="flex flex-1 flex-col gap-2 rounded-md p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex flex-1 flex-col gap-2 rounded-md p-4 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           <h3
             className="line-clamp-2 font-semibold leading-snug group-hover:text-primary"
@@ -1287,7 +1287,7 @@ function BackLink() {
       <button
         type="button"
         onClick={() => navigate(-1)}
-        className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ArrowLeft className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
         Back
@@ -1301,7 +1301,7 @@ function BackLink() {
   return (
     <Link
       to="/articles"
-      className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="min-tap inline-flex items-center gap-2 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
       <ArrowLeft className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
       Articles

@@ -17,7 +17,7 @@ import { MESSAGE_KEYS } from "@/i18n/messages";
 
 const desktopLinkClass = ({ isActive }: { isActive: boolean }) =>
   cn(
-    "min-tap flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    "min-tap flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
     isActive
       ? "bg-primary/15 text-primary"
       : "text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -59,7 +59,7 @@ function DesktopRoute({ item }: { item: NavigationRoute }) {
       onClick={onClick}
     >
       <Icon className="h-[18px] w-[18px]" aria-hidden />
-      <span className="min-w-0 break-words [overflow-wrap:anywhere]" aria-hidden>
+      <span className="min-w-0 wrap-anywhere" aria-hidden>
         {t(item.labelKey)}
       </span>
     </NavLink>
@@ -123,7 +123,7 @@ function MobileRoute({ item }: { item: NavigationRoute }) {
       onClick={onClick}
       className={({ isActive }) =>
         cn(
-          "min-tap flex min-w-0 flex-col items-center justify-center gap-1 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+          "min-tap flex min-w-0 flex-col items-center justify-center gap-1 text-xs focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
           isActive ? "text-primary" : "text-muted-foreground",
         )
       }
