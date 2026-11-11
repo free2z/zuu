@@ -256,10 +256,6 @@ function ProfileForm({ user }: { user: AuthUser }) {
               </p>
             ) : null}
           </Card>
-          <p className="px-1 text-xs text-muted-foreground">
-            Avatar and banner image uploads are coming soon — for now they can
-            be set from the classic free2z site.
-          </p>
         </div>
       </div>
     </div>

@@ -592,6 +592,16 @@ allowed to execute in a credential-bearing job.
    requires to run. Do not start promotion with a stale commit/date or an
    undispositioned non-ready row.
 
+   Also re-derive the [#396 product readiness audit](product-readiness-396.md)
+   for the candidate, target and owning app. A visible known broken path is a
+   release stop until fixed and evidenced or removed/disabled on that target;
+   an internal-test disposition does not make it ready. The checked Zuuli
+   inventory blocks promotion for every visible `blocked` or `unverified` row;
+   `disabled` is reserved for a path hidden or disabled on every target.
+   Current authenticated,
+   production and signed-device evidence must cover each claimed operation;
+   an anonymous read or mocked contract cannot establish it.
+
    The recorded `origin/main` SHA is the exact candidate tree against which the
    evidence was re-derived, immediately before committing the `STATUS.md`
    update. It is deliberately not the commit containing that update (a commit
@@ -756,8 +766,9 @@ Before widening either tester cohort:
 - migrate the legacy development wallet and compare its expected address;
 - sync to tip, receive a tiny amount, restart during sync, send a tiny amount,
   and confirm the durable-send recovery UI after forced interruption;
-- exercise Free2Z login/deep-link return, article playback, AI, and live media;
-- verify denial paths for camera/microphone, offline startup, app upgrade with
+- exercise Zuuli login and deep-link return; separately exercise article
+  playback, AI, and live media in the Free2Z app on its own release candidate;
+- verify applicable denial paths for camera/microphone in Free2Z, offline startup, app upgrade with
   wallet data intact, and delete/reinstall behavior;
 - record device/OS/build, checksums, transactions, failures, and stop/go decision
   on issue #238 without recording secrets or seed words.

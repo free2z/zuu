@@ -16,13 +16,14 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const defaultRepoRoot = resolve(scriptDirectory, "../../..");
 const statusPath = "wallet/zuuli/STATUS.md";
 const releasingPath = "wallet/zuuli/docs/releasing.md";
+export const productReadinessPath = "wallet/zuuli/docs/product-readiness-396.md";
 // Seal the complete reviewed source surfaces so unknown prose cannot create an
 // exception beside otherwise canonical sections. STATUS has exactly one
 // enumerated dynamic field: the canonical audit SHA/date marker replaced below
 // before hashing. The semantic section/table checks remain independent so a
 // reviewer gets a precise diagnostic rather than an opaque digest alone.
 //
-// The two digests live in their own file, not in this script (#987). A
+// The digests live in their own file, not in this script (#987). A
 // re-derivation must update them, and this script is release-impacting code:
 // with the seals inside it, the commit that re-derives STATUS.md changed a
 // release-impacting path after its own recorded audit SHA, so the audit was
@@ -36,6 +37,7 @@ export const statusEvidenceSealsPath =
 const {
   releasing: RELEASING_DOCUMENT_SHA256,
   status: STATUS_DOCUMENT_SHA256,
+  productReadiness: PRODUCT_READINESS_SHA256,
 } = JSON.parse(
   readFileSync(resolve(scriptDirectory, "status-evidence-seals.json"), "utf8"),
 );
@@ -164,6 +166,37 @@ export function releasingEvidenceDocumentDigest(contents) {
 
 export function statusEvidenceDocumentDigest(contents) {
   return sha256(canonicalStatusDocument(contents));
+}
+
+export function productReadinessDigest(contents) {
+  return sha256(contents);
+}
+
+// A conservative common inventory: release is blocked unless each visible
+// surface has evidence, or the path is disabled on every target. Internal
+// testing is not a readiness state. The complete document is sealed as well.
+export function verifyProductReadiness(contents, expectedDigest = PRODUCT_READINESS_SHA256) {
+  if (sha256(contents) !== expectedDigest) throw new Error("product readiness audit differs from its reviewed seal");
+  const section = markdownSection(contents, "## Zuuli release disposition", { ordinal: 0, next: "## Surface evidence" });
+  const lines = markdownTopLevel(section).visibleText.split("\n").filter((line) => line.startsWith("|"));
+  const rows = lines.map(tableCells);
+  const header = ["Surface", "Visibility", "Disposition", "Evidence", "Issue"];
+  if (JSON.stringify(rows[0]) !== JSON.stringify(header) || !rows[1]?.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+    throw new Error("product readiness inventory header is missing or malformed");
+  }
+  const expected = new Set(["http", "auth", "wallet", "card", "activity", "zec-funding"]);
+  const seen = new Set();
+  for (const row of rows.slice(2)) {
+    if (!row || row.length !== 5 || !expected.has(row[0]) || seen.has(row[0]) || !row[3] || !/^https:\/\/github\.com\/free2z\/zuu\/issues\/[1-9][0-9]*$/.test(row[4])) {
+      throw new Error("product readiness inventory contains a malformed or duplicate row");
+    }
+    seen.add(row[0]);
+    const [, visibility, state, evidence] = row;
+    if (visibility === "disabled" && state === "disabled") continue;
+    if (visibility === "visible" && state === "ready" && /\b\d{4}-\d{2}-\d{2}\b/.test(evidence) && /https:\/\/[^\s]+/.test(evidence)) continue;
+    throw new Error(`product readiness release stop: ${row[0]} is ${visibility}/${state}`);
+  }
+  if (seen.size !== expected.size) throw new Error("product readiness inventory is incomplete");
 }
 
 // CommonMark 0.31.2 §4.6 type-6 block tags. Type 1 (script/pre/style/textarea)
@@ -830,6 +863,7 @@ function readStatusAtSource(repoRoot, sourceSha) {
 export function verifyStatusFreshness({
   repoRoot = defaultRepoRoot,
   sourceSha,
+  expectedProductReadinessDigest = PRODUCT_READINESS_SHA256,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sourceSha ?? "")) {
     throw new Error(
@@ -844,6 +878,10 @@ export function verifyStatusFreshness({
     releasingContents: readTextAtCommit(repoRoot, sourceSha, releasingPath),
     statusContents,
   });
+  verifyProductReadiness(
+    readTextAtCommit(repoRoot, sourceSha, productReadinessPath),
+    expectedProductReadinessDigest,
+  );
   const { auditSha, auditDate } = parseStatusMarker(statusContents);
   requireCommit(repoRoot, auditSha, "recorded STATUS.md audit source");
   if (!isFirstParentAncestor(repoRoot, auditSha, parentSha)) {
