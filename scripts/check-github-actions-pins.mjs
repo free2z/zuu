@@ -1700,6 +1700,20 @@ function requiredChangesControlFailures(relativeFile, lines, changes) {
     );
   }
 
+  const sdkSteps = steps.filter(step => step.properties.get("name")?.value === "Verify wallet Android compile SDK inventory");
+  const sdk = sdkSteps[0];
+  const checkout = steps.find(step => step.properties.get("uses")?.value === GATE_CHECKOUT_REFERENCE);
+  const selector = steps.find(step => step.properties.get("name")?.value === "Detect release-impacting ZUULI changes");
+  if (sdkSteps.length !== 1 || !checkout || !selector || sdk.start <= checkout.start || sdk.start >= selector.start ||
+      exactStepSource(lines, sdk) !== [
+        "      - name: Verify wallet Android compile SDK inventory",
+        "        run: |",
+        "          node scripts/check-wallet-android-sdk.mjs --self-test",
+        "          node scripts/check-wallet-android-sdk.mjs",
+      ].join("\n")) {
+    failures.push(`${relativeFile}: changes must run the exact Android SDK inventory after checkout and before selection`);
+  }
+
   const wasmPolicySteps = steps.filter(
     (step) =>
       step.properties.get("name")?.value ===
@@ -5361,6 +5375,40 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         "changes policy step must exactly self-test and enforce the current-source policy",
       source: source.replace(`          ${POW_POLICY_COMMAND}\n`, ""),
     },
+    ...[
+      ["deletion", ""],
+      ["skip", "        if: false\n"],
+      ["soft failure", "        continue-on-error: true\n"],
+    ].map(([name, addition]) => ({
+      name: `real workflow rejects Android SDK inventory ${name}`,
+      needle: "changes must run the exact Android SDK inventory",
+      source: source.replace(
+        "      - name: Verify wallet Android compile SDK inventory\n        run: |\n          node scripts/check-wallet-android-sdk.mjs --self-test\n          node scripts/check-wallet-android-sdk.mjs\n",
+        name === "deletion" ? "" : `      - name: Verify wallet Android compile SDK inventory\n${addition}        run: |\n          node scripts/check-wallet-android-sdk.mjs --self-test\n          node scripts/check-wallet-android-sdk.mjs\n`,
+      ),
+    })),
+    {
+      name: "real workflow rejects Android SDK inventory after selection",
+      needle: "changes must run the exact Android SDK inventory",
+      source: (() => {
+        const block = "      - name: Verify wallet Android compile SDK inventory\n        run: |\n          node scripts/check-wallet-android-sdk.mjs --self-test\n          node scripts/check-wallet-android-sdk.mjs\n";
+        const without = source.replace(block, "");
+        const selector = without.indexOf("      - name: Detect release-impacting ZUULI changes");
+        const next = without.indexOf("      - name:", selector + 1);
+        if (selector < 0 || next < 0) throw new Error("SDK ordering fixture cannot find selector boundary");
+        return without.slice(0, next) + block + without.slice(next);
+      })(),
+    },
+    {
+      name: "real workflow rejects Android SDK command reordering",
+      needle: "changes must run the exact Android SDK inventory",
+      source: source.replace("          node scripts/check-wallet-android-sdk.mjs --self-test\n          node scripts/check-wallet-android-sdk.mjs", "          node scripts/check-wallet-android-sdk.mjs\n          node scripts/check-wallet-android-sdk.mjs --self-test"),
+    },
+    {
+      name: "real workflow rejects soft-failing Android SDK verdict",
+      needle: "changes must run the exact Android SDK inventory",
+      source: source.replace("          node scripts/check-wallet-android-sdk.mjs\n", "          node scripts/check-wallet-android-sdk.mjs || true\n"),
+    },
     {
       name: "real workflow rejects a missing WASM boundary policy",
       needle: "changes must contain exactly one Rust/WASM boundary policy step",
@@ -6343,6 +6391,15 @@ function runSelfTest(repoRoot) {
     `          ${LIBRUSTZCASH_POLICY_COMMAND}`,
     `          ${POW_POLICY_SELF_TEST_COMMAND}`,
     `          ${POW_POLICY_COMMAND}`,
+    `      - uses: ${GATE_CHECKOUT_REFERENCE} # reviewed`,
+    "      - name: Verify wallet Android compile SDK inventory",
+    "        run: |",
+    "          node scripts/check-wallet-android-sdk.mjs --self-test",
+    "          node scripts/check-wallet-android-sdk.mjs",
+    "      - name: Detect release-impacting ZUULI changes",
+    "        env:",
+    "          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}",
+    "        run: true",
     "      - name: Verify the required Rust/WASM build boundary",
     "        run: |",
     `          ${WASM_POLICY_SELF_TEST_COMMAND}`,
