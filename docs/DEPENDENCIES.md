@@ -284,11 +284,12 @@ break a build.
 Two nuances that make "nothing else consumes `z/`" not strictly true, and one
 piece of housekeeping:
 
-* **`py/experiments/zcash-rag/store.py` reads two submodules as document corpora.** It
-  loads `../../../z/ZcashFoundation/zebra/` (`.rs`, `.toml`, `.yaml`, `.md`,
-  `.json`, `.proto`) and `../../../z/zcash/zips/` (`.rst`) into a Chroma vector
-  store. Not a build input, but a consumer: emptying or moving either path
-  changes what the retriever indexes.
+* **`py/experiments/zcash-rag/store.py` records a legacy source/data relationship.**
+  Its former ingestion path loaded `../../../z/ZcashFoundation/zebra/` (`.rs`,
+  `.toml`, `.yaml`, `.md`, `.json`, `.proto`) and `../../../z/zcash/zips/`
+  (`.rst`) into a Chroma vector store. The source remains for reference, but
+  #1534 retired its unsupported installable environment; no CI, deployment, or
+  shipping application consumes it. These paths are not current build inputs.
 * **`z/zcash/zcash` is archived upstream** (`archived: true`, last push
   2026-07-19, the zcashd EOL merge). It is a **frozen artifact, not a tracked
   upstream** — "stay on HEAD" does not apply, and `git submodule update
