@@ -10,6 +10,8 @@ module.exports = {
     },
     extend: {
       colors: {
+        // Keep the reviewed v3 palette while the v4 engine handles utilities.
+        ...require("../shared/tailwind-v3-colors.json"),
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
