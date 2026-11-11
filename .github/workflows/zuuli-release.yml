@@ -265,7 +265,7 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: "24.22.2"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: "21.0.12"
@@ -394,7 +394,7 @@ jobs:
               output.write(data)
           subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
           PY
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: "21.0.12"
