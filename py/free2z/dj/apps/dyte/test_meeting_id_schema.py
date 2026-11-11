@@ -11,6 +11,8 @@ from django.utils import timezone
 
 from dj.apps.dyte.models import (
     BROADCAST,
+    PAY_PER_VIEW,
+    PRIVATE,
     SUBSCRIBERS_ONLY,
     LIFECYCLE_CREATE_UNKNOWN,
     CreatorMeeting,
@@ -56,8 +58,9 @@ def test_pending_rows_use_null_and_real_room_ids_remain_unique(creator_factory):
             )
 
 
+@pytest.mark.parametrize("meeting_type", [BROADCAST, SUBSCRIBERS_ONLY, PAY_PER_VIEW, PRIVATE])
 def test_retained_legacy_blank_does_not_block_another_creators_host_start(
-    api_client, creator_factory, mocker, settings,
+    api_client, creator_factory, mocker, settings, meeting_type,
 ):
     """Exercise get_or_create and provider I/O with an old empty-string row."""
     settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
@@ -77,8 +80,8 @@ def test_retained_legacy_blank_does_not_block_another_creators_host_start(
     def start(creator):
         api_client.force_authenticate(user=creator)
         return api_client.post(
-            f"/api/dyte/{creator.username}/{BROADCAST}",
-            {"role": "host", "host_session": str(uuid.uuid4())},
+            f"/api/dyte/{creator.username}/{meeting_type}",
+            {"role": "host", "host_session": str(uuid.uuid4()), "price_per_minute": "1"},
             format="json",
         )
 
@@ -97,11 +100,18 @@ def test_retained_legacy_blank_does_not_block_another_creators_host_start(
     legacy_row.refresh_from_db()
     assert legacy_row.meeting_id == ""
     new_row = CreatorMeeting.objects.get(creator=next_creator)
-    assert new_row.meeting_id == response.data["meeting_id"]
     assert new_row.meeting_id
+    assert new_row.meeting_type == meeting_type
+    assert new_row.is_public is (meeting_type != PRIVATE)
     assert provider.create_meeting.call_count == 1
-    assert provider.add_participant.call_count == 1
-    assert provider.add_participant.call_args.args[1] == new_row.meeting_id
+    if meeting_type == PRIVATE:
+        assert response.data["secret"] == new_row.secret
+        provider.add_participant.assert_not_called()
+    else:
+        assert new_row.meeting_id == response.data["meeting_id"]
+        assert response.data["auth_token"] == "host-token"
+        assert provider.add_participant.call_count == 1
+        assert provider.add_participant.call_args.args[1] == new_row.meeting_id
 
 
 @pytest.mark.django_db(transaction=True)
