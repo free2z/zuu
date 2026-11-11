@@ -1,9 +1,7 @@
 # Supply-chain policy for every Rust crate under wallet/.
 #
-# One config for all three crates (wallet/plugins/tauri-plugin-zcash,
-# wallet/zuuli/src-tauri, wallet/zuuallet/src-tauri) so they cannot drift into
-# disagreeing about what is acceptable. `scripts/check-rust-deny.sh` runs
-# cargo-deny against each lockfile with `--config wallet/deny.toml`.
+# One config for the wallet manifests discovered by `scripts/check-rust-deny.sh`,
+# which runs cargo-deny against each graph with `--config wallet/deny.toml`.
 #
 # HOW TO READ THE `ignore` LIST BELOW
 #
@@ -44,12 +42,8 @@ yanked = "warn"
 
 ignore = [
   # ---------------------------------------------------------------------------
-  # Vulnerabilities. Each of these is transitive; none is a crate we depend on
-  # directly. The advisories that a plain `cargo update` could reach — the
-  # rustls-webpki 0.103 line, time, crossbeam-epoch and rand 0.8 — were cleared
-  # by the tier-1 sweep in #351 and their entries are gone from this list. What
-  # remains needs an intermediate crate to move first, so `cargo update` cannot
-  # reach it from the committed lockfiles.
+  # No vulnerability exceptions are currently listed. SQLite RUSTSEC-2026-0459
+  # remains unsuppressed and is tracked separately in #1531.
   # ---------------------------------------------------------------------------
 
   # ---------------------------------------------------------------------------
@@ -59,19 +53,6 @@ ignore = [
   # They are listed one by one anyway: `unmaintained = "warn"` would also hide
   # the next unmaintained crate to appear, and that is the signal worth keeping.
   # ---------------------------------------------------------------------------
-
-  # gtk-rs GTK3 bindings, all reached through tauri -> gtk 0.18. Tauri v2 still
-  # targets GTK3 on Linux; the migration is upstream's.
-  { id = "RUSTSEC-2024-0411", reason = "gdkwayland-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux, no successor to move to" },
-  { id = "RUSTSEC-2024-0412", reason = "gdk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0413", reason = "atk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0414", reason = "gdkx11-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0415", reason = "gtk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0416", reason = "atk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0417", reason = "gdkx11 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0418", reason = "gdk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0419", reason = "gtk3-macros 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0420", reason = "gtk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
 
   # Standalone D-Bus crates merged into zbus 6; informational maintenance notices.
   # Tauri currently resolves zbus 5. Follow-up #1237; recheck by 2026-11-20.
@@ -83,7 +64,6 @@ ignore = [
   # None of this ships in a release binary.
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4: unmaintained; build-time proc-macro dependency, no code in the shipped binary" },
   { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 2.0.1: unmaintained; build-time proc-macro dependency, no code in the shipped binary" },
-  { id = "RUSTSEC-2025-0057", reason = "fxhash 0.2.1: unmaintained; transitive through the Tauri/servo CSS stack" },
   { id = "RUSTSEC-2025-0075", reason = "unic-char-range 0.9.0: unmaintained; build-time Unicode tables" },
   { id = "RUSTSEC-2025-0080", reason = "unic-common 0.9.0: unmaintained; build-time Unicode tables" },
   { id = "RUSTSEC-2025-0081", reason = "unic-char-property 0.9.0: unmaintained; build-time Unicode tables" },
