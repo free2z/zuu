@@ -3,7 +3,7 @@ import {
   ModerationControls,
 } from "@/features/moderation/Moderation";
 import { useLiveGate } from "./useLiveGate";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -408,7 +408,7 @@ function formatMembershipDate(iso?: string): string {
   });
 }
 
-function SubscribeButton({
+export function SubscribeButton({
   creator,
   restored,
 }: {
@@ -416,9 +416,13 @@ function SubscribeButton({
   restored: PaidIntent | null;
 }) {
   const name = creator.display_name || creator.username;
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
   const user = useSession((s) => s.user);
+  const freeFollowIdentity = `${creator.username.toLowerCase()}:${user?.username.toLowerCase() ?? "anonymous"}`;
+  const freeFollowIdentityRef = useRef(freeFollowIdentity);
+  freeFollowIdentityRef.current = freeFollowIdentity;
   const sessionLoading = useSession((s) => s.loading);
   const balance = useSession((s) => s.tuzis);
   const adjustTuzis = useSession((s) => s.adjustTuzis);
@@ -437,11 +441,24 @@ function SubscribeButton({
   // two optimistic overrides let the dialog reflect the user's latest action
   // instantly, before the background `reloadSubscriptions` refetch lands.
   const [renewOverride, setRenewOverride] = useState<boolean | null>(null);
-  // For a free follow there's no "access until expires" — unfollowing should
-  // remove the follow outright. But the backend/mock keeps the row (DELETE only
-  // stops renewal), so we track the unfollow intent locally to drop the follow
-  // from the UI immediately and keep it dropped across the refetch.
-  const [unfollowed, setUnfollowed] = useState(false);
+  const [freeFollowSnapshot, setFreeFollowSnapshot] = useState({
+    identity: "",
+    following: null as boolean | null,
+    busy: false,
+    loading: true,
+    needsRead: false,
+  });
+  const freeFollowGeneration = useRef(0);
+  const activeFreeFollow =
+    freeFollowSnapshot.identity === freeFollowIdentity
+      ? freeFollowSnapshot
+      : {
+          identity: freeFollowIdentity,
+          following: null,
+          busy: false,
+          loading: Boolean(user),
+          needsRead: false,
+        };
 
   useEffect(() => {
     if (
@@ -452,7 +469,13 @@ function SubscribeButton({
     }
   }, [creator.username, restored]);
 
-  const price = creator.member_price ?? 0;
+  const rawPrice = creator.member_price;
+  const freeTier =
+    rawPrice === null || rawPrice === undefined || rawPrice === 0;
+  const priceValid =
+    freeTier ||
+    (typeof rawPrice === "number" && Number.isFinite(rawPrice) && rawPrice > 0);
+  const price = priceValid && !freeTier ? Number(rawPrice) : 0;
   const gate = paidActionGate({
     sessionLoading,
     user,
@@ -478,13 +501,185 @@ function SubscribeButton({
     (s) => s.star.username.toLowerCase() === creator.username.toLowerCase(),
   );
   const sub = remoteSub ?? justSubscribed;
-  const subscribed = unfollowed ? false : Boolean(sub);
+  const subscribed = Boolean(sub);
   // `max_price === 0` means the fan cancelled auto-renew (DELETE
   // /api/tuzis/subscribe/{username}) — access still runs to `expires`, it
   // just won't recur. `renewOverride` reflects a just-issued cancel/resume
   // before the refetch confirms it.
   const renewing =
     renewOverride ?? (sub ? Number(sub.max_price ?? 0) > 0 : true);
+
+  useEffect(() => {
+    const generation = ++freeFollowGeneration.current;
+    const identity = freeFollowIdentity;
+    const current = () =>
+      freeFollowGeneration.current === generation &&
+      freeFollowIdentityRef.current === identity;
+    const shouldRead = Boolean(user && freeTier);
+    setFreeFollowSnapshot({
+      identity,
+      following: null,
+      busy: shouldRead,
+      loading: shouldRead,
+      needsRead: false,
+    });
+    if (!user || !freeTier) return;
+    void tuzi
+      .creatorFollow(creator.username, "state")
+      .then((state) => {
+        if (current()) {
+          setFreeFollowSnapshot({
+            identity,
+            following: state.following,
+            busy: false,
+            loading: false,
+            needsRead: false,
+          });
+        }
+      })
+      .catch(() => {
+        if (current()) {
+          setFreeFollowSnapshot({
+            identity,
+            following: null,
+            busy: false,
+            loading: false,
+            needsRead: true,
+          });
+        }
+      });
+    return () => {
+      freeFollowGeneration.current += 1;
+    };
+  }, [creator.username, freeFollowIdentity, freeTier, user?.username]);
+
+  async function changeFreeFollow() {
+    if (!user) {
+      navigate("/login", { state: { returnTo: location.pathname } });
+      return;
+    }
+    const { following, busy, loading, needsRead } = activeFreeFollow;
+    if (following === null || needsRead || busy || loading) return;
+    const wantedFollowing = !following;
+    const generation = ++freeFollowGeneration.current;
+    const identity = freeFollowIdentity;
+    const current = () =>
+      freeFollowGeneration.current === generation &&
+      freeFollowIdentityRef.current === identity;
+    setFreeFollowSnapshot({
+      ...activeFreeFollow,
+      busy: true,
+    });
+    try {
+      await tuzi.creatorFollow(
+        creator.username,
+        following ? "unfollow" : "follow",
+      );
+      if (!current()) return;
+      const state = await tuzi.creatorFollow(creator.username, "state");
+      if (!current()) return;
+      setFreeFollowSnapshot({
+        identity,
+        following: state.following,
+        busy: false,
+        loading: false,
+        needsRead: false,
+      });
+      if (state.following === wantedFollowing) {
+        toast.success(
+          state.following
+            ? t(MESSAGE_KEYS.creatorFollowSuccess, { name })
+            : t(MESSAGE_KEYS.creatorUnfollowSuccess, { name }),
+        );
+      } else {
+        toast.error(t(MESSAGE_KEYS.creatorFollowMutationError));
+      }
+    } catch {
+      if (!current()) return;
+      try {
+        const state = await tuzi.creatorFollow(creator.username, "state");
+        if (!current()) return;
+        setFreeFollowSnapshot({
+          identity,
+          following: state.following,
+          busy: false,
+          loading: false,
+          needsRead: false,
+        });
+        if (state.following === wantedFollowing) {
+          toast.success(
+            state.following
+              ? t(MESSAGE_KEYS.creatorFollowSuccess, { name })
+              : t(MESSAGE_KEYS.creatorUnfollowSuccess, { name }),
+          );
+        } else {
+          toast.error(t(MESSAGE_KEYS.creatorFollowMutationError));
+        }
+      } catch {
+        if (!current()) return;
+        setFreeFollowSnapshot({
+          identity,
+          following: null,
+          busy: false,
+          loading: false,
+          needsRead: true,
+        });
+        toast.error(t(MESSAGE_KEYS.creatorFollowUnknown));
+      }
+    } finally {
+      if (current()) {
+        setFreeFollowSnapshot((snapshot) =>
+          snapshot.identity === identity
+            ? { ...snapshot, busy: false }
+            : snapshot,
+        );
+      }
+    }
+  }
+
+  async function refreshFreeFollow() {
+    if (activeFreeFollow.loading || activeFreeFollow.busy) return;
+    const identity = freeFollowIdentity;
+    const generation = ++freeFollowGeneration.current;
+    const current = () =>
+      freeFollowGeneration.current === generation &&
+      freeFollowIdentityRef.current === identity;
+    setFreeFollowSnapshot({
+      ...activeFreeFollow,
+      busy: true,
+      loading: true,
+    });
+    try {
+      const state = await tuzi.creatorFollow(creator.username, "state");
+      if (!current()) return;
+      setFreeFollowSnapshot({
+        identity,
+        following: state.following,
+        busy: false,
+        loading: false,
+        needsRead: false,
+      });
+    } catch {
+      if (current()) {
+        setFreeFollowSnapshot({
+          identity,
+          following: null,
+          busy: false,
+          loading: false,
+          needsRead: true,
+        });
+        toast.error(t(MESSAGE_KEYS.creatorFollowReadError));
+      }
+    } finally {
+      if (current()) {
+        setFreeFollowSnapshot((snapshot) =>
+          snapshot.identity === identity
+            ? { ...snapshot, busy: false }
+            : snapshot,
+        );
+      }
+    }
+  }
 
   // A fresh subscribe and a resume-renewal are the same backend call — POST
   // /api/tuzis/subscribe/{username} get-or-creates the membership and (re)sets
@@ -504,7 +699,6 @@ function SubscribeButton({
       // credit/debit on failure.
       if (price > 0) adjustTuzis(-price);
       const expires = new Date(Date.now() + 30 * 86400000).toISOString();
-      setUnfollowed(false);
       if (mode === "resume") setRenewOverride(true);
       setJustSubscribed({
         fan: {
@@ -573,41 +767,66 @@ function SubscribeButton({
     }
   }
 
-  // Free follow: undo the follow entirely.
-  async function unfollow() {
-    if (!useSession.getState().user) {
-      signInToSubscribe();
-      return;
-    }
-    setBusy(true);
-    try {
-      await tuzi.unsubscribe(creator.username);
-      setUnfollowed(true);
-      setJustSubscribed(null);
-      toast.success(`Unfollowed ${name}`);
-      void reloadSubscriptions();
-    } catch {
-      toast.error("Couldn't unfollow. Please try again.");
-    } finally {
-      setBusy(false);
-    }
+  if (!priceValid) {
+    return (
+      <Button variant="secondary" disabled>
+        {t(MESSAGE_KEYS.creatorFollowUnavailable)}
+      </Button>
+    );
   }
 
-  if (!creator.member_price) {
-    // No paid tier — a plain follow/unfollow toggle.
+  if (freeTier) {
+    if (!user) {
+      return (
+        <Button
+          onClick={changeFreeFollow}
+          aria-label={t(MESSAGE_KEYS.creatorFollowActionAccessible, { name })}
+        >
+          {t(MESSAGE_KEYS.creatorFollowAction)}
+        </Button>
+      );
+    }
+    if (activeFreeFollow.needsRead) {
+      return (
+        <Button
+          variant="secondary"
+          onClick={refreshFreeFollow}
+          disabled={activeFreeFollow.busy}
+          aria-label={t(MESSAGE_KEYS.creatorFollowRetry)}
+        >
+          {t(MESSAGE_KEYS.creatorFollowRetry)}
+        </Button>
+      );
+    }
+    if (activeFreeFollow.loading || activeFreeFollow.following === null) {
+      return (
+        <Button
+          disabled
+          aria-label={t(MESSAGE_KEYS.creatorFollowActionAccessible, { name })}
+        >
+          {t(MESSAGE_KEYS.creatorFollowAction)}
+        </Button>
+      );
+    }
     return (
       <Button
-        variant={subscribed ? "secondary" : "default"}
-        onClick={subscribed ? unfollow : subscribe}
-        disabled={busy || gate === "loading"}
-        aria-label={subscribed ? `Unfollow ${name}` : `Follow ${name}`}
+        variant={activeFreeFollow.following ? "secondary" : "default"}
+        onClick={changeFreeFollow}
+        disabled={activeFreeFollow.busy}
+        aria-label={
+          activeFreeFollow.following
+            ? t(MESSAGE_KEYS.creatorFollowUnfollow, { name })
+            : t(MESSAGE_KEYS.creatorFollowActionAccessible, { name })
+        }
       >
-        {busy ? (
+        {activeFreeFollow.busy ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-        ) : subscribed ? (
+        ) : activeFreeFollow.following ? (
           <Check className="h-4 w-4" aria-hidden />
         ) : null}
-        {subscribed ? "Following" : "Subscribe"}
+        {activeFreeFollow.following
+          ? t(MESSAGE_KEYS.creatorFollowFollowing)
+          : t(MESSAGE_KEYS.creatorFollowAction)}
       </Button>
     );
   }

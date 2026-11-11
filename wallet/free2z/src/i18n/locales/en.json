@@ -19,6 +19,19 @@
     "tryAgain": "Try again."
   },
   "creator": {
+    "follow": {
+      "action": "Follow",
+      "actionAccessible": "Follow {name}",
+      "following": "Following",
+      "unfollow": "Unfollow {name}",
+      "retry": "Retry follow status",
+      "unavailable": "Membership price unavailable",
+      "readError": "Could not read follow status. Retry to check it.",
+      "mutationError": "Could not update your free follow. Check your connection before trying again.",
+      "unknown": "We couldn't confirm whether your free follow change was applied. Check follow status before trying again.",
+      "success": "You're following {name}. This free follow does not start a paid membership or renewal.",
+      "unfollowSuccess": "You unfollowed {name}. This free follow does not change any paid membership or renewal."
+    },
     "chat": {
       "trigger": "Start encrypted chat",
       "triggerAccessible": "Start encrypted chat with @{username}",

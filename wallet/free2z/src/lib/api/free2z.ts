@@ -60,6 +60,7 @@ import {
   mockComments,
   mockCreatePersonality,
   mockCreatorDetail,
+  mockCreatorFollow,
   mockCreators,
   mockDeletePersonality,
   mockKycIdentityDocuments,
@@ -90,6 +91,7 @@ import type {
   CommentInput,
   CommentVote,
   CreatorDetail,
+  CreatorFollowState,
   CreatorPagesPage,
   DyteJoinTicket,
   KycIdentityDocType,
@@ -237,8 +239,45 @@ function parsePrice(v: string | null | undefined): number | null {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
+/** Creator profiles treat absent/null as free, but preserve malformed wire prices as invalid. */
+export function parseCreatorMembershipPrice(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return Math.round(value);
+  }
+  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) {
+    return Number.NaN;
+  }
+  const price = Number(value);
+  return Number.isFinite(price) ? Math.round(price) : Number.NaN;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function parseCreatorFollowState(
+  value: unknown,
+  expectedUsername: string,
+): CreatorFollowState {
+  if (
+    !isRecord(value) ||
+    typeof value.username !== "string" ||
+    value.username.toLowerCase() !== expectedUsername.toLowerCase() ||
+    typeof value.following !== "boolean" ||
+    !Number.isSafeInteger(value.follower_count) ||
+    Number(value.follower_count) < 0 ||
+    !Number.isSafeInteger(value.following_count) ||
+    Number(value.following_count) < 0
+  ) {
+    throw new Error("Malformed creator follow response.");
+  }
+  return {
+    username: value.username,
+    following: value.following,
+    follower_count: value.follower_count as number,
+    following_count: value.following_count as number,
+  };
 }
 
 function parseDecimalString(value: unknown, field: string): string {
@@ -450,7 +489,7 @@ function mapCreatorDetail(c: RawCreator): CreatorDetail {
     // the creator screen can fall back to a live-status probe only when the
     // payload genuinely can't tell it.
     is_live: c.is_live,
-    member_price: parsePrice(c.member_price),
+    member_price: parseCreatorMembershipPrice(c.member_price),
     zpages: typeof c.zpages === "number" ? c.zpages : 0,
     total: c.total != null ? Math.round(Number(c.total)) || 0 : 0,
     p2paddr: c.p2paddr ?? null,
@@ -2283,6 +2322,30 @@ export const tuzi = {
         cache: "no-store",
       }),
     );
+  },
+
+  /** Read or change the independent, unpaid creator-follow relationship. */
+  async creatorFollow(
+    username: string,
+    action: "state" | "follow" | "unfollow" = "state",
+  ): Promise<CreatorFollowState> {
+    if (useMock()) {
+      await delay(100);
+      const following = mockCreatorFollow(mockUser.username, username, action);
+      return {
+        username,
+        following,
+        follower_count: 0,
+        following_count: 0,
+      };
+    }
+    const method =
+      action === "state" ? "GET" : action === "follow" ? "PUT" : "DELETE";
+    const response = await request<unknown>(
+      `/api/creator/${encodeURIComponent(username)}/follow/`,
+      { method, cache: "no-store" },
+    );
+    return parseCreatorFollowState(response, username);
   },
 
   /**
