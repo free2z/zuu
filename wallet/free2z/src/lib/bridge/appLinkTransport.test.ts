@@ -388,3 +388,26 @@ describe("a creator tip over the App Link", () => {
     expect(result).not.toHaveProperty("txid");
   });
 });
+
+it("a delayed OS-open rejection cannot settle a subsequent exchange", async () => {
+  let failOpen!: (error: Error) => void;
+  mocks.openUrl.mockImplementationOnce(() => new Promise((_resolve, reject) => { failOpen = reject; }));
+  const first = appLinkIntentTransport.exchange(new Uint8Array([1]), context());
+  deliverInbound(reply(toHex(ANSWER), REQUEST_ID));
+  await expect(first).resolves.toEqual(ANSWER);
+  const nextId = "08".repeat(32);
+  const mutableContext = context({ requestId: nextId });
+  const second = appLinkIntentTransport.exchange(new Uint8Array([2]), mutableContext);
+  mutableContext.requestId = REQUEST_ID;
+  failOpen(new Error("late platform failure"));
+  await macrotask();
+  deliverInbound(reply(toHex(ANSWER), nextId));
+  await expect(second).resolves.toEqual(ANSWER);
+});
+
+it.each([
+  "https://user@free2z.com/bridge/free2z/",
+  "https://free2z.com:8443/bridge/free2z/",
+])("refuses an altered reply authority %s", (base) => {
+  expect(inboundAnswer(`${base}#res=00&rid=${REQUEST_ID}`)).toBeNull();
+});
