@@ -10651,6 +10651,8 @@ components:
       - mcp:live
       - mcp:spend
       - mcp:delete
+      - mcp:transfer
+      - mcp:renew
       type: string
       description: |-
         * `openid` - openid
@@ -10671,6 +10673,8 @@ components:
         * `mcp:live` - mcp:live
         * `mcp:spend` - mcp:spend
         * `mcp:delete` - mcp:delete
+        * `mcp:transfer` - mcp:transfer
+        * `mcp:renew` - mcp:renew
     ApiStyleEnum:
       enum:
       - openai_responses
@@ -14615,7 +14619,7 @@ components:
         scope:
           type: string
           default: mcp:read mcp:write mcp:publish mcp:uploads mcp:ai mcp:social mcp:account
-            mcp:media mcp:live mcp:spend mcp:delete offline_access
+            mcp:media mcp:live mcp:spend mcp:delete mcp:transfer mcp:renew offline_access
       required:
       - redirect_uris
     MCPConnection:
@@ -17051,6 +17055,8 @@ components:
       - mcp:live
       - mcp:spend
       - mcp:delete
+      - mcp:transfer
+      - mcp:renew
       type: string
       description: |-
         * `openid` - openid
@@ -17071,6 +17077,8 @@ components:
         * `mcp:live` - mcp:live
         * `mcp:spend` - mcp:spend
         * `mcp:delete` - mcp:delete
+        * `mcp:transfer` - mcp:transfer
+        * `mcp:renew` - mcp:renew
     SdkGrant:
       type: object
       properties:
@@ -20158,3 +20166,7 @@ components:
               limit
             mcp:delete: Permanently delete your pages, translations, comments, conversations,
               collections and files
+            mcp:transfer: Donate 2Z and buy memberships within each explicit immediate
+              charge limit
+            mcp:renew: Authorize future membership renewals up to an explicit cap,
+              update caps and cancel renewals

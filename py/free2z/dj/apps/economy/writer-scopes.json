@@ -72,6 +72,12 @@
       "disposition": "central fence; source-led caller review",
       "boundary": "Mutative ledger API now pins and central DB guards reject missed/stale writers safely. Ordinary grants/incoming usage remain capped; validated debt-only restore distinct from positive usage loading. Direct SQL jobs must declare epoch in the exclusive writer audit.",
       "verification": "Existing balance-writer AST inventory and foundation bypass tests. Runtime model enumeration is bounded source triage, not proof of all admin/operator behavior."
+    },
+    {
+      "scope": "mcpserver/financial.py hosted donation and membership dispatch",
+      "disposition": "native delegation only",
+      "boundary": "Explicit transfer and separate renewal consent; stable recipients prelocked in global Creator order; exact hosted intent metadata stored on native receipts in settlement transaction. Native APIs alone transfer value, extend membership and set or cancel renewal caps. No new economic model, balance writer or deletion relationship.",
+      "verification": "mcpserver/test_financial.py real PostgreSQL linked attribution, replay, rename, grant revocation, reciprocal donations and cancellation/renewal races."
     }
   ],
   "external_writer": {

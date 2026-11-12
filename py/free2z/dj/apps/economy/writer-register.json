@@ -1263,19 +1263,19 @@
     },
     {
       "source": "py/free2z/dj/apps/g12f/models/creator.py",
-      "line": 1031,
+      "line": 988,
       "call": "ledger.lock_in_order",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/g12f/models/creator.py",
-      "line": 1057,
+      "line": 1060,
       "call": "ledger.transfer",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/g12f/tasks.py",
-      "line": 726,
+      "line": 649,
       "call": "ledger.lock_in_order",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1545,73 +1545,73 @@
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 175,
+      "line": 179,
       "call": "_ledger.spend",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 204,
+      "line": 208,
       "call": "_ledger.spend_up_to",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 241,
+      "line": 245,
       "call": "_ledger.credit_purchase",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 247,
+      "line": 251,
       "call": "_ledger.credit_user",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 274,
+      "line": 278,
       "call": "_ledger.transfer_users",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 439,
+      "line": 443,
       "call": "_ledger.credit_with_repay",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 462,
+      "line": 466,
       "call": "_ledger.lock_creator",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 465,
+      "line": 469,
       "call": "_ledger.lock_account",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 562,
+      "line": 566,
       "call": "_ledger.post_transfer",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 578,
+      "line": 582,
       "call": "_ledger.lock_creator",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 592,
+      "line": 596,
       "call": "_ledger.lock_creator",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/tuzis/ledger.py",
-      "line": 599,
+      "line": 603,
       "call": "_ledger.lock_account",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1700,7 +1700,7 @@
     "py/free2z/dj/apps/g12f/models/account_deletion.py": "8e7d03912f3eebc33f132bc9c927f817edca3a3d8413bee8e299ae6eae489e89",
     "py/free2z/dj/apps/g12f/models/address.py": "135f3ed8f2292e5ab13c49628a962d5d54a36a1edc455ec9381bc19a0ace146b",
     "py/free2z/dj/apps/g12f/models/comment.py": "50c250f23b3a3536db0f38d103744ca5d2b1e991cc133ecaba6b6f73c756977c",
-    "py/free2z/dj/apps/g12f/models/creator.py": "2b42660344dba469f988bd437377f02292ec4acf1dea5be73f0a9a849d89abfe",
+    "py/free2z/dj/apps/g12f/models/creator.py": "a4bafab6b6985d1df7aa5c1916c24e3d08b434db3acf546103ebb2f8ea4daf4c",
     "py/free2z/dj/apps/g12f/models/credentials.py": "4a449350aa6f941084f7600b9906284cfe284707a0300ef3f04678774337c940",
     "py/free2z/dj/apps/g12f/models/follow.py": "f1fe4c7c1e8e8a4214528f5cd24737f823071d37bc1d484c91f8445c3e2d1a2b",
     "py/free2z/dj/apps/g12f/models/poll.py": "7d2f6aa7aacc6aa9715d451034696f24caaf5ae6a82356db9b8768beeca99c06",
@@ -1708,11 +1708,11 @@
     "py/free2z/dj/apps/g12f/models/transaction.py": "cd4c6d096ad078ce10ee2f1f729cdb96c39ce8ece3370faa5c29cfed3e48102d",
     "py/free2z/dj/apps/g12f/models/viewed.py": "be1895e41d832bf45fbe2daac8a27c678038aa7a6ee7d486393bf97203d4574d",
     "py/free2z/dj/apps/g12f/models/zpage.py": "2c1c8171226265b12a1620bbe66ff66be01be5c61acbc19e74e004bd12589c62",
-    "py/free2z/dj/apps/g12f/tasks.py": "2b3e1710b3cd810bd478ee5d45e99b623083286520b13922f008adc994af9142",
+    "py/free2z/dj/apps/g12f/tasks.py": "7f4579a0781b877ec959df3ff6d5d5c23cc9c7baa3cc83635e56ab32efbf4120",
     "py/free2z/dj/apps/g12f/translation/charges.py": "1880f2c28b822df00d4eeafabc7337e3ebfc66eb8b590ddd4745a8296253e451",
     "py/free2z/dj/apps/g12f/views/translate.py": "da6814a16c3693c675c4aeb40d62dd4e15057628ecb43ef26e2572a8f42c645d",
     "py/free2z/dj/apps/g12f/views/translate_batch.py": "042d4a092f6ec85e5d8a4785b536dee83867325f9378b03ea23cde17e79a9886",
-    "py/free2z/dj/apps/g12f/views/zpage.py": "1e2a95d88fbefce74e7e6fd74857dd34f359283234963ed814765ef053b0bfae",
+    "py/free2z/dj/apps/g12f/views/zpage.py": "8a43996efa2bbc4f889a0ef599fba7e5235409ee0a4a969d847d7ef176b47bcc",
     "py/free2z/dj/apps/handles/models.py": "4787949bbab9b905ca99b59918c492bcc1087e315605eea968526b9d45fdf808",
     "py/free2z/dj/apps/identity/models.py": "bc7779a97afd262f39bf6b38d332931fc68a9a1c5f34809f2f821cb4550edf1c",
     "py/free2z/dj/apps/jobs/models.py": "2fb699398f6cc4b66f52386fa769b652305c2832525f63240413ec65ef291b90",
@@ -1734,7 +1734,7 @@
     "py/free2z/dj/apps/tagging/models.py": "eef860992c90a0c6e82061a7c14f3e4d3851e65c45a0da00219363fb7810b6c0",
     "py/free2z/dj/apps/tax/models.py": "d986f0356a5b279aa20a427065139e93586d79a2623b0b0922af9cd57282da83",
     "py/free2z/dj/apps/tuzis/grants.py": "305a2669b604d875555679b162807e223bd3d81ee6f858194d4ac37b714a7ec7",
-    "py/free2z/dj/apps/tuzis/ledger.py": "49cf243de6d401169118c5f0a354424d467b1922a49758eeebeac2caf52fd383",
+    "py/free2z/dj/apps/tuzis/ledger.py": "0463350f004a7d25cbcc68f9a083e821f4bf9fae0b395347f1b7412d10dce843",
     "py/free2z/dj/apps/tuzis/management/commands/cleanup_idempotency.py": "28f1a4b70db341aafa2645aa7e19f56fbf8379c8938788bffb98b79b55941cf2",
     "py/free2z/dj/apps/tuzis/management/commands/heal_ledger_drift.py": "bcd1bd67e9fa3afbabca1ddc5216afc4ad01d8216e05e369ab35e13c7f4b60c6",
     "py/free2z/dj/apps/tuzis/models.py": "2cbe07826e84b58fbe06cc2e1f7bad8b516edc540b32a7b8a5cace9dadd871e3",
