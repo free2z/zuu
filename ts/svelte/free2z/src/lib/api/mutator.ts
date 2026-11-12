@@ -39,6 +39,16 @@ function expectsTextResponse(url: string): boolean {
   }
 }
 
+function isAccountExportRequest(url: string): boolean {
+  try {
+    return /^\/api\/exports\/account(?:\/|$)/.test(
+      new URL(url, "https://api.invalid").pathname,
+    );
+  } catch {
+    return false;
+  }
+}
+
 function createSsrApiSignal(signal?: AbortSignal | null) {
   return createAbortSignalWithTimeout(signal, DEFAULT_SSR_API_TIMEOUT_MS);
 }
@@ -252,6 +262,20 @@ export const customInstance = async <T>(
   try {
     const balanceReadOrder = browser ? beginAccountBalanceRead() : undefined;
     const response = await fetch(url, requestInit);
+    // Only account export 401s can be recent-sign-in challenges. Other auth
+    // failures must retain the immediate header-time invalidation contract,
+    // even when their response body stalls or fails to decode.
+    const deferredExportAuth =
+      response.status === 401 && isAccountExportRequest(url);
+    if (
+      browser &&
+      requestInit.credentials !== "omit" &&
+      requestIsCurrent() &&
+      !deferredExportAuth &&
+      authStore.handleAuthFailure(response.status)
+    ) {
+      console.log("Session expired, user logged out");
+    }
 
     if (!response.ok) {
       let errorData;
@@ -274,6 +298,7 @@ export const customInstance = async <T>(
         browser &&
         requestInit.credentials !== "omit" &&
         requestIsCurrent() &&
+        deferredExportAuth &&
         !isStepUp &&
         authStore.handleAuthFailure(response.status)
       ) {
