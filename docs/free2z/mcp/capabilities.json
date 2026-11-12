@@ -3,6 +3,46 @@
   "supported_count": 103,
   "operations": [
     {
+      "operation_id": "account_data_export_create",
+      "method": "POST",
+      "path": "/api/exports/account/",
+      "summary": "Request an account data archive",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "account_data_export_download",
+      "method": "GET",
+      "path": "/api/exports/account/{id}/download/",
+      "summary": "Download the account data archive",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "account_data_export_latest",
+      "method": "GET",
+      "path": "/api/exports/account/latest/",
+      "summary": "Retrieve the latest account data archive status",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "account_data_export_retrieve",
+      "method": "GET",
+      "path": "/api/exports/account/{id}/",
+      "summary": "Check account export status",
+      "supported": false,
+      "keywords": "",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
       "operation_id": "account_deletion_keep",
       "method": "POST",
       "path": "/api/auth/account-deletion/keep/",
