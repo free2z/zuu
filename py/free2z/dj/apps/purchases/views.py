@@ -456,6 +456,16 @@ class PurchaseIntentCreateView(SdkAPIView):
                 if not locked_actor.is_active or Creator.objects.values_list(
                     'kt_account_epoch', flat=True).get(pk=request.user.pk) != request.user.kt_account_epoch:
                     raise EconomicRefusal('actor_authentication_changed')
+            if application is not None:
+                # Same account -> app order as consent and deletion. Explicitly
+                # acquire the deferred FK lock before checking the owner.
+                from dj.apps.oidc.consent import _lock_application_for_consent
+                from dj.apps.oidc.models import F2ZApplication
+                if not _lock_application_for_consent(application):
+                    raise EconomicRefusal("application_unavailable")
+                application = F2ZApplication.objects.select_related("user").filter(pk=application.pk).first()
+                if application is None or (application.user_id is not None and not application.user.is_active):
+                    raise EconomicRefusal("application_unavailable")
             intent = PurchaseIntent.objects.create(
                 creator=request.user,
                 application=application,

@@ -1938,6 +1938,36 @@
       "paid": null
     },
     {
+      "operation_id": "oidc_app_transfer_create",
+      "method": "POST",
+      "path": "/api/oauth/apps/{app_id}/transfer/",
+      "summary": "Offer an app to a recipient",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "oidc_app_transfer_resolve",
+      "method": "POST",
+      "path": "/api/oauth/app-transfers/{transfer_id}/{action}/",
+      "summary": "Accept or cancel an app offer",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
+      "operation_id": "oidc_app_transfers_list",
+      "method": "GET",
+      "path": "/api/oauth/app-transfers/",
+      "summary": "List app ownership offers",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
       "operation_id": "oidc_authorize_decide",
       "method": "POST",
       "path": "/api/oauth/authorize",

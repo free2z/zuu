@@ -100,7 +100,7 @@ import json
 from dataclasses import dataclass, field
 from datetime import timedelta
 
-from django.db import models, transaction
+from django.db import OperationalError, models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -1224,6 +1224,20 @@ def schedule_deletion(creator, *, confirm_username: str, auth_epoch: int):
             raise DeletionBlocked(REAUTHENTICATE)
         if creator.username != confirm_username:
             raise DeletionBlocked(CONFIRMATION_MISMATCH)
+        # Serialize with grant and purchase admission before checking blockers.
+        # New admissions wait on these rows and then observe the inactive owner.
+        from dj.apps.oidc.models import F2ZApplication
+        try:
+            # Older writers may hold an app and need this Creator at commit.
+            # Do not wait while holding the Creator: return a retryable refusal.
+            with transaction.atomic():
+                list(F2ZApplication.objects.select_for_update(nowait=True).filter(
+                    user_id=creator.pk,
+                ).order_by("pk"))
+        except OperationalError as exc:
+            if getattr(exc.__cause__, "sqlstate", None) != "55P03":
+                raise
+            raise DeletionBlocked("app_busy") from None
         found = blockers(creator)
         if found:
             raise DeletionBlocked(found[0])

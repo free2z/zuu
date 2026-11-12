@@ -102,7 +102,8 @@ _SCHEDULE_RESPONSES = {
     409: OpenApiResponse(_ERROR, description=(
         "`earnings_owed`, `app_has_users` or `staff_account` (see the "
         "preview's `blockers`), or `inactive` (the account is already "
-        "deleted or deactivated). Nothing was changed.")),
+        "deleted or deactivated), or `app_busy` (an app is changing; retry). "
+        "Nothing was changed.")),
 }
 
 

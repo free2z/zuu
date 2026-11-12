@@ -682,3 +682,33 @@ suite exercises the same list from the other side.
   requires it (`f2z-id` is always present, §6.1).
 - `auth_time` is the real time of the last interactive authentication, not
   the time of token issue.
+
+### Developer app ownership transfer
+
+A developer who owns an app with grants or purchase history can offer it to
+another active account at `/developers/apps`. The recipient signs in to their
+own account and explicitly accepts within seven days; either party may cancel.
+A recovery or scheduled deletion of either account invalidates the offer, and
+an expired offer cannot be accepted. The sender remains responsible until
+acceptance. Transfer every app with grants or purchases before requesting
+account deletion; the `app_has_users` blocker remains until then. App deletion
+with notice is not provided by this lifecycle.
+
+Transfer keeps the app ID, historical grants, purchases, and settings. A
+confidential client's prior owner may still know its secret, so the recipient
+should rotate it and update their server. First-party apps cannot be transferred
+through this console. Offers and their resolutions are retained as an audit
+record using account IDs and the app ID.
+
+The ownership projection and registry change in one transaction. If grant or
+purchase admission is holding the app, the offer operation returns `app_busy`;
+retry once the operation finishes. Acceptance waits for hold admission and refuses while any app hold remains open; release,
+settlement, or expiry must complete first. Settled split records retain their
+original developer. The hold-insertion database trigger is installed before
+transfer is enabled, including for older application pods during rollout; the
+migration installs a five-second lock timeout and a 30-second statement timeout
+before creating the transfer table or installing any triggers. Its atomic
+transaction rolls back all of those changes if a busy shipping table blocks a
+trigger installation. The recipient can retry acceptance once usage has
+finished. Offers are listed in bounded pages; continue through history to find
+older pending offers. Hosted MCP does not delegate this account-security operation.

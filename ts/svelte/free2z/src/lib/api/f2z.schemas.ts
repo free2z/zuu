@@ -5127,6 +5127,39 @@ export interface TokenResponse {
   id_token?: string;
 }
 
+export interface TransferOffer {
+  readonly id: string;
+  application_id: string;
+  /** @maxLength 255 */
+  application_name: string;
+  readonly sender: string;
+  readonly recipient: string;
+  created_at?: string;
+  expires_at: string;
+  /** @nullable */
+  resolved_at?: string | null;
+  readonly state: string;
+  readonly role: string;
+}
+
+export interface TransferOfferInput {
+  /** @maxLength 150 */
+  recipient: string;
+  /** @minimum 1 */
+  expected_actor_id: number;
+}
+
+export interface TransferPage {
+  results: TransferOffer[];
+  /** @nullable */
+  next_cursor: string | null;
+}
+
+export interface TransferResolveInput {
+  /** @minimum 1 */
+  expected_actor_id: number;
+}
+
 export interface TranslationItemFailure {
   language: string;
   /** Why THIS language was refused: `price_changed`, `source_changed`, `variant_published`, `translation_in_progress` (a job for this exact language is already running), `published_variant_limit`, `draft_variant_limit`, `not_translatable`, `same_language`, `empty_article`, `unknown_source_language`, `invalid_language`, `duplicate_language`. */
@@ -6429,6 +6462,13 @@ page?: number;
  * A search term.
  */
 search?: string;
+};
+
+export type OidcAppTransfersListParams = {
+/**
+ * Opaque continuation from the previous page.
+ */
+cursor?: string;
 };
 
 export type OidcAuthorizeEvaluateParams = {

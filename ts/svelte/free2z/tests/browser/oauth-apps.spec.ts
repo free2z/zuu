@@ -926,3 +926,342 @@ test("X opened in place on an SDK-facing page returns to that page (#2640)", asy
     "/account/apps?client_id=tutor-client",
   );
 });
+
+test("ownership offers use the generated transport, survive reload, and expire naturally", async ({
+  page,
+}) => {
+  await signIn(page);
+  await mockDeveloperApps(page, { initial: [devApp()] });
+  const writes: { path: string; body: any }[] = [];
+  const expiration = new Date(Date.now() + 5000).toISOString();
+  const item = {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    application_id: devApp().id,
+    application_name: "Tutor Desktop",
+    sender: "fixtureowner",
+    recipient: "recipient",
+    created_at: new Date().toISOString(),
+    expires_at: expiration,
+    resolved_at: null,
+    state: "pending",
+    role: "sender",
+  };
+  let offers: unknown[] = [];
+  await page.route(
+    (url) => url.pathname.startsWith("/api/oauth/app-transfers/"),
+    (route) => {
+      if (route.request().method() === "GET")
+        return json(route, 200, { results: offers, next_cursor: null });
+      writes.push({
+        path: new URL(route.request().url()).pathname,
+        body: route.request().postDataJSON(),
+      });
+      return json(route, 200, { ...item, state: "cancelled" });
+    },
+  );
+  await page.route("**/api/oauth/apps/*/transfer/", (route) => {
+    writes.push({
+      path: new URL(route.request().url()).pathname,
+      body: route.request().postDataJSON(),
+    });
+    item.expires_at = new Date(Date.now() + 8000).toISOString();
+    offers = [item];
+    return json(route, 201, item);
+  });
+  await page.goto("/developers/apps");
+  await page
+    .getByRole("combobox", { name: "App" })
+    .selectOption(String(devApp().id));
+  await page.getByLabel("Recipient username").fill("recipient");
+  await page.getByRole("button", { name: "Send offer" }).click();
+  await expect(page.getByTestId("transfer-offer")).toContainText("Pending");
+  expect(writes[0].body).toMatchObject({
+    recipient: "recipient",
+    expected_actor_id: expect.any(Number),
+  });
+  await page.reload();
+  await expect(page.getByTestId("transfer-offer")).toContainText("Pending");
+  await expect(page.getByTestId("transfer-offer")).toContainText("Expired", {
+    timeout: 10000,
+  });
+  await expect(page.getByRole("button", { name: "Cancel offer" })).toHaveCount(
+    0,
+  );
+});
+
+test("ownership offers clear on account switch and accept only for the displayed account", async ({
+  page,
+}) => {
+  await signIn(page);
+  await mockDeveloperApps(page, { initial: [] });
+  let calls = 0;
+  const writes: any[] = [];
+  const item = {
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    application_id: devApp().id,
+    application_name: "Incoming app",
+    sender: "sender",
+    recipient: "fixtureowner",
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 60000).toISOString(),
+    resolved_at: null,
+    state: "pending",
+    role: "recipient",
+  };
+  await page.route(
+    (url) => url.pathname.startsWith("/api/oauth/app-transfers/"),
+    (route) => {
+      if (route.request().method() === "GET")
+        return json(route, 200, {
+          results: ++calls === 1 ? [item] : [],
+          next_cursor: null,
+        });
+      writes.push(route.request().postDataJSON());
+      return json(route, 200, { ...item, state: "accepted" });
+    },
+  );
+  await page.goto("/developers/apps");
+  await expect(page.getByTestId("transfer-offer")).toContainText(
+    "Incoming app",
+  );
+  await page.evaluate(async (loader) => {
+    const { authStore } = await new Function(loader)();
+    authStore.hydrateFromSession({ id: 9999, username: "other" });
+  }, devSourceModuleLoader("/src/lib/stores/auth.ts"));
+  await expect(page.getByTestId("transfer-offer")).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Accept ownership" }),
+  ).toHaveCount(0);
+  expect(writes).toEqual([]);
+});
+
+test("recipient explicitly accepts through the generated client", async ({
+  page,
+}) => {
+  await signIn(page);
+  await mockDeveloperApps(page, { initial: [] });
+  const item = {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    application_id: devApp().id,
+    application_name: "Incoming app",
+    sender: "sender",
+    recipient: "fixtureowner",
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 60000).toISOString(),
+    resolved_at: null,
+    state: "pending",
+    role: "recipient",
+  };
+  let state = "pending";
+  const writes: any[] = [];
+  await page.route(
+    (url) => url.pathname.startsWith("/api/oauth/app-transfers/"),
+    (route) => {
+      if (route.request().method() === "GET")
+        return json(route, 200, {
+          results: [{ ...item, state }],
+          next_cursor: null,
+        });
+      writes.push({
+        path: new URL(route.request().url()).pathname,
+        body: route.request().postDataJSON(),
+      });
+      state = "accepted";
+      return json(route, 200, { ...item, state });
+    },
+  );
+  await page.goto("/developers/apps");
+  await expect(page.getByTestId("transfer-offer")).toContainText(
+    "Incoming app",
+  );
+  await page.getByRole("button", { name: "Accept ownership" }).click();
+  await expect(page.getByTestId("transfer-offer")).toContainText("Accepted");
+  expect(writes).toEqual([
+    {
+      path: `/api/oauth/app-transfers/${item.id}/accept/`,
+      body: { expected_actor_id: 4301 },
+    },
+  ]);
+});
+
+for (const action of ["create", "rotate", "delete"] as const) {
+  test(`developer console discards delayed ${action} after an account switch`, async ({
+    page,
+  }) => {
+    await signIn(page);
+    const oldApp = devApp({
+      client_type: "confidential",
+      name: "Old owner's app",
+      has_client_secret: true,
+      redirect_uris: ["https://api.example.test/callback"],
+    });
+    await mockDeveloperApps(page, { initial: [oldApp] });
+    await page.route(
+      (url) => url.pathname.startsWith("/api/oauth/app-transfers/"),
+      (route) => json(route, 200, { results: [], next_cursor: null }),
+    );
+    let start!: () => void;
+    const started = new Promise<void>((resolve) => {
+      start = resolve;
+    });
+    let release!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await page.route(
+      (url) => url.pathname.startsWith("/api/oauth/apps/"),
+      async (route) => {
+        const request = route.request();
+        const path = new URL(request.url()).pathname;
+        const matches =
+          action === "create"
+            ? path === "/api/oauth/apps/" && request.method() === "POST"
+            : action === "rotate"
+              ? path.endsWith("/rotate-secret/") && request.method() === "POST"
+              : request.method() === "DELETE";
+        if (!matches) return route.fallback();
+        start();
+        await ready;
+        if (action === "delete")
+          return route.fulfill({ status: 204, body: "" });
+        return json(
+          route,
+          action === "create" ? 201 : 200,
+          action === "create"
+            ? { ...oldApp, client_secret: "old-secret-must-stay-hidden" }
+            : { client_secret: "old-secret-must-stay-hidden" },
+        );
+      },
+    );
+    await page.goto("/developers/apps");
+    await expect(page.getByTestId("dev-app")).toHaveCount(1);
+    if (action === "create") {
+      await page.getByTestId("dev-app-new").click();
+      await page.getByTestId("dev-app-name").fill("Created app");
+      await page.getByTestId("dev-app-type-confidential").check();
+      await page
+        .getByTestId("dev-app-redirects")
+        .fill("https://api.example.test/callback");
+      await page.getByTestId("dev-app-save").click();
+    } else if (action === "rotate") {
+      await page.getByTestId("dev-app-rotate").click();
+      await page.getByTestId("dev-app-rotate-confirm").click();
+    } else {
+      await page.getByTestId("dev-app-delete").click();
+      await page.getByTestId("dev-app-delete-confirm").click();
+    }
+    await started;
+    await page.evaluate(async (loader) => {
+      const { authStore } = await new Function(loader)();
+      authStore.hydrateFromSession({ id: 9999, username: "other" });
+    }, devSourceModuleLoader("/src/lib/stores/auth.ts"));
+    const settled = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/oauth/apps/") &&
+        response.request().method() ===
+          (action === "delete" ? "DELETE" : "POST"),
+    );
+    release();
+    await (await settled).finished();
+    await page.waitForTimeout(100);
+    await expect(page.getByTestId("dev-app-secret-dialog")).toHaveCount(0);
+    await expect(page.getByText("old-secret-must-stay-hidden")).toHaveCount(0);
+    await expect(page.getByTestId("dev-apps-notice")).toHaveCount(0);
+    await expect(page.getByTestId("dev-app")).toHaveCount(1);
+  });
+}
+
+test("transfer history can load an older pending offer", async ({ page }) => {
+  await signIn(page);
+  await mockDeveloperApps(page, { initial: [] });
+  const item = {
+    id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    application_id: devApp().id,
+    application_name: "Older pending app",
+    sender: "sender",
+    recipient: "fixtureowner",
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 60000).toISOString(),
+    resolved_at: null,
+    state: "pending",
+    role: "recipient",
+  };
+  await page.route(
+    (url) => url.pathname.startsWith("/api/oauth/app-transfers/"),
+    (route) => {
+      const url = new URL(route.request().url());
+      return json(
+        route,
+        200,
+        url.searchParams.has("cursor")
+          ? { results: [item], next_cursor: null }
+          : { results: [], next_cursor: "next-page" },
+      );
+    },
+  );
+  await page.goto("/developers/apps");
+  await page.getByRole("button", { name: "Load more offers" }).click();
+  await expect(page.getByTestId("transfer-offer")).toContainText(
+    "Older pending app",
+  );
+  await expect(
+    page.getByRole("button", { name: "Accept ownership" }),
+  ).toBeVisible();
+});
+
+test("delayed clipboard completion cannot change another account's secret dialog", async ({
+  page,
+}) => {
+  await signIn(page);
+  await mockDeveloperApps(page, {
+    initial: [
+      devApp({
+        client_type: "confidential",
+        has_client_secret: true,
+        redirect_uris: ["https://api.example.test/callback"],
+      }),
+    ],
+  });
+  await page.route(
+    (url) => url.pathname.startsWith("/api/oauth/app-transfers/"),
+    (route) => json(route, 200, { results: [], next_cursor: null }),
+  );
+  let rotates = 0;
+  await page.route("**/api/oauth/apps/*/rotate-secret/", (route) =>
+    json(route, 200, {
+      client_secret: ++rotates === 1 ? "old-secret" : "new-secret",
+    }),
+  );
+  await page.goto("/developers/apps");
+  await expect(page.getByTestId("dev-app")).toHaveCount(1);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: () =>
+          new Promise<void>((resolve) => {
+            (window as any).releaseCopy = resolve;
+          }),
+      },
+    });
+  });
+  await page.getByTestId("dev-app-rotate").click();
+  await page.getByTestId("dev-app-rotate-confirm").click();
+  await expect(page.getByTestId("dev-app-secret")).toHaveText("old-secret");
+  await page.getByTestId("dev-app-secret-copy").click();
+  await page.evaluate(async (loader) => {
+    const { authStore } = await new Function(loader)();
+    authStore.hydrateFromSession({ id: 9999, username: "other" });
+  }, devSourceModuleLoader("/src/lib/stores/auth.ts"));
+  await expect(page.getByTestId("dev-app")).toHaveCount(1);
+  await page.getByTestId("dev-app-rotate").click();
+  await page.getByTestId("dev-app-rotate-confirm").click();
+  await expect(page.getByTestId("dev-app-secret")).toHaveText("new-secret");
+  await page.evaluate(async () => {
+    (window as any).releaseCopy();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  await expect(page.getByTestId("dev-app-secret-copy")).not.toHaveText(
+    "Copied",
+  );
+});
