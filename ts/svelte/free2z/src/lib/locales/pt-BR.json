@@ -3427,6 +3427,17 @@
       "left": "Nada mudou. Sua conta ainda será excluída.",
       "invalid": "Este link expirou. Entre novamente para manter sua conta.",
       "failed": "Não foi possível manter sua conta. Tente novamente."
+    },
+    "export": {
+      "title": "Baixar dados da conta",
+      "partial": "Este arquivo é parcial. Alguns dados sensíveis de identidade, compartilhados e operacionais são excluídos. O manifesto explica a cobertura. Não é necessário email.",
+      "limits": "O arquivo tem limites de tamanho e tempo e expira em 24 horas. Os links expiram em 15 minutos.",
+      "incomplete": "Este arquivo está incompleto; consulte os avisos e o manifesto.",
+      "download": "Baixar arquivo",
+      "request": "Solicitar exportação",
+      "reauth": "Entrar novamente",
+      "failed": "Não foi possível concluir a exportação. Tente novamente.",
+      "expired": "Este arquivo não está mais disponível."
     }
   },
   "credits": {

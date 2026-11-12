@@ -3427,6 +3427,17 @@
       "left": "Nothing changed. Your account will still be deleted.",
       "invalid": "This link has expired. Sign in again to keep your account.",
       "failed": "Your account could not be kept. Please try again."
+    },
+    "export": {
+      "title": "Download your account data",
+      "partial": "This archive is partial. Some sensitive identity, shared and operational records are excluded. The manifest explains its coverage. No email is required.",
+      "limits": "Archives are size and time limited, and expire after 24 hours. Download links expire after 15 minutes.",
+      "incomplete": "This archive is incomplete; review its warnings and manifest.",
+      "download": "Download archive",
+      "request": "Request export",
+      "reauth": "Sign in again",
+      "failed": "The export could not be completed. Please try again.",
+      "expired": "This archive is no longer available."
     }
   },
   "credits": {
