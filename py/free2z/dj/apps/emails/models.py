@@ -1,6 +1,6 @@
 import uuid
 
-from django.db import models
+from django.db import models, router, transaction
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 
@@ -87,7 +87,35 @@ class Email(models.Model):
         return timezone.now() > self.expires_at
 
 
+class OptOutQuerySet(models.QuerySet):
+    def bulk_create(self, objs, batch_size=None, ignore_conflicts=False,
+                    update_conflicts=False, update_fields=None, unique_fields=None):
+        from .suppression import lock_addresses
+
+        if 'email' in (update_fields or ()):
+            raise ValueError('Changing opt-out addresses in bulk is unsupported')
+        objs = list(objs)
+        with transaction.atomic(using=self.db):
+            lock_addresses((obj.email for obj in objs), using=self.db)
+            return super().bulk_create(
+                objs, batch_size=batch_size, ignore_conflicts=ignore_conflicts,
+                update_conflicts=update_conflicts, update_fields=update_fields,
+                unique_fields=unique_fields,
+            )
+
+    def update(self, **kwargs):
+        if 'email' in kwargs:
+            raise ValueError('Changing opt-out addresses in bulk is unsupported')
+        return super().update(**kwargs)
+
+    def bulk_update(self, objs, fields, batch_size=None):
+        if 'email' in fields:
+            raise ValueError('Changing opt-out addresses in bulk is unsupported')
+        return super().bulk_update(objs, fields, batch_size=batch_size)
+
+
 class OptOutEmail(models.Model):
+    objects = OptOutQuerySet.as_manager()
     email = models.EmailField(unique=True)
     opted_out_at = models.DateTimeField(auto_now_add=True)
     #The unsubscribe link token that was spent to create this row.
@@ -107,6 +135,21 @@ class OptOutEmail(models.Model):
     link_token = models.CharField(
         max_length=100, null=True, blank=True, unique=True,
     )
+
+    def save(self, *args, **kwargs):
+        from .suppression import lock_addresses
+
+        using = kwargs.get('using') or router.db_for_write(type(self), instance=self)
+        with transaction.atomic(using=using):
+            # Existing rows can be edited only without changing their address.
+            # A delete followed by an insert is explicit and takes the same
+            # lock as every other supported insertion.
+            if self.pk and type(self).objects.using(using).filter(pk=self.pk).exclude(
+                email=self.email,
+            ).exists():
+                raise ValueError('Changing an opt-out address is unsupported')
+            lock_addresses([self.email], using=using)
+            return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.email

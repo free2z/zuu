@@ -1694,7 +1694,7 @@
     "py/free2z/dj/apps/economy/products.py": "3552fc2d37365214944b363ba15f0b2485e9488328f058578d6543c6649f10d4",
     "py/free2z/dj/apps/economy/services.py": "31edcca04691a45f8f38b71a4019b71f7b5ab63d8c385c80b2987a89db5a823e",
     "py/free2z/dj/apps/efm/models.py": "97b42f27e99097079d8b063e7cff8f9f7dd64db942922488878bbb2c408b16b4",
-    "py/free2z/dj/apps/emails/models.py": "d16b123c3d2593d59785cea563be6f816aa3995641b7ef63b2c6536e3b53125d",
+    "py/free2z/dj/apps/emails/models.py": "9f16c7fa4a6bd01417402e98ab77463ee8d1731d467c8bd75f7baadce5700963",
     "py/free2z/dj/apps/events/models.py": "7a6b0a09066c24280e4e4235f663cdf98c6273c862cbe6781e928d257ba3e5b6",
     "py/free2z/dj/apps/exports/models.py": "61161ff8dbf0a6aeea60121fbebf8da609a5b6eb2a334c53508dd08e690b9327",
     "py/free2z/dj/apps/g12f/models/account_deletion.py": "8e7d03912f3eebc33f132bc9c927f817edca3a3d8413bee8e299ae6eae489e89",

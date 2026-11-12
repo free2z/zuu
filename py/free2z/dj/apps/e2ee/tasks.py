@@ -105,7 +105,8 @@ def _skip(chat_request, detail: str) -> None:
 
 def _deliverable_address(chat_request):
     """Return ``(Email, None)`` or ``(None, reason)``. Reads only."""
-    from dj.apps.emails.models import Email, OptOutEmail
+    from dj.apps.emails.models import Email
+    from dj.apps.emails.suppression import is_suppressed
 
     recipient = chat_request.recipient
     sender = chat_request.sender
@@ -128,7 +129,7 @@ def _deliverable_address(chat_request):
         return None, "unconfirmed"
     if not email.get_notifications:
         return None, "notifications_off"
-    if OptOutEmail.objects.filter(email=email.email).exists():
+    if is_suppressed(email.email):
         return None, "opted_out"
     return email, None
 

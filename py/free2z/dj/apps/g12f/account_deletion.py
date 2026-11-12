@@ -1484,14 +1484,18 @@ def _notify_cancelled(creator_pk: int) -> None:
     and changes nothing."""
     from django.core.mail import EmailMultiAlternatives
 
-    from dj.apps.emails.models import Email, OptOutEmail
+    from dj.apps.emails.models import Email
     from dj.apps.emails.sender import get_email_sender
+    from dj.apps.emails.suppression import is_suppressed
 
     address = (
         Email.objects.filter(user_id=creator_pk, confirmed_at__isnull=False)
         .values_list("email", flat=True).first()
     )
-    if not address or OptOutEmail.objects.filter(email=address).exists():
+    if not address:
+        return
+    if is_suppressed(address):
+        logger.info("account_keep_email_suppressed_opt_out")
         return
     try:
         EmailMultiAlternatives(
