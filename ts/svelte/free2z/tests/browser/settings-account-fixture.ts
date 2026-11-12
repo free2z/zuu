@@ -38,7 +38,7 @@ export async function openHydratedSettings(
   page: Page,
   url: string,
   recoveryReads: () => number,
-  destination: "Financial" | "Security" = "Financial",
+  destination: "Account" | "Financial" | "Security" = "Financial",
 ) {
   const session = page.waitForResponse(
     (response) => response.url().endsWith("/api/auth/user/") && response.ok(),
@@ -53,8 +53,10 @@ export async function openHydratedSettings(
   await expect(account).toHaveAttribute("data-state", "active");
   await expect(page.getByTestId("recovery-no-email")).toBeVisible();
   expect(recoveryReads()).toBe(1);
-  const tab = page.getByRole("tab", { name: destination, exact: true });
-  await tab.click();
-  await expect(tab).toHaveAttribute("data-state", "active");
+  if (destination !== "Account") {
+    const tab = page.getByRole("tab", { name: destination, exact: true });
+    await tab.click();
+    await expect(tab).toHaveAttribute("data-state", "active");
+  }
   expect(recoveryReads()).toBe(1);
 }
