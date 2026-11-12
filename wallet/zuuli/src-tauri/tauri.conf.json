@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; worker-src 'none'; img-src 'self' data:; media-src 'none'; frame-src 'none'; connect-src 'self' https://free2z.cash https://*.free2z.cash; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
+      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; worker-src 'none'; img-src 'self' data:; media-src 'none'; frame-src 'none'; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
     }
   },
   "bundle": {
@@ -52,21 +52,33 @@
     "deep-link": {
       "mobile": [
         {
-          "scheme": ["cash.free2z.zuuli"],
+          "scheme": [
+            "cash.free2z.zuuli"
+          ],
           "host": "oauth",
-          "path": ["/callback"],
+          "path": [
+            "/callback"
+          ],
           "appLink": false
         },
         {
-          "scheme": ["cash.free2z.zuuli"],
+          "scheme": [
+            "cash.free2z.zuuli"
+          ],
           "host": "checkout",
-          "path": ["/return"],
+          "path": [
+            "/return"
+          ],
           "appLink": false
         },
         {
-          "scheme": ["https"],
+          "scheme": [
+            "https"
+          ],
           "host": "free2z.com",
-          "pathPrefix": ["/bridge/zuuli/"],
+          "pathPrefix": [
+            "/bridge/zuuli/"
+          ],
           "appLink": true
         }
       ]

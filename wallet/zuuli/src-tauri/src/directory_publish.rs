@@ -147,6 +147,9 @@ impl HandleAssertionClient {
     /// `internal` if the HTTP client cannot be built.
     pub fn new(url: &str) -> Result<Self> {
         let client = tauri_plugin_http::reqwest::Client::builder()
+            .dns_resolver(std::sync::Arc::new(crate::network::DirectResolver))
+            .no_proxy()
+            .pool_max_idle_per_host(0)
             .timeout(ASSERTION_TIMEOUT)
             // A redirect would carry the Knox token to wherever it points.
             .redirect(tauri_plugin_http::reqwest::redirect::Policy::none())
@@ -333,6 +336,9 @@ impl Free2zAccountClient {
         url.set_query(None);
         url.set_fragment(None);
         let client = tauri_plugin_http::reqwest::Client::builder()
+            .dns_resolver(std::sync::Arc::new(crate::network::DirectResolver))
+            .no_proxy()
+            .pool_max_idle_per_host(0)
             .timeout(ASSERTION_TIMEOUT)
             .redirect(tauri_plugin_http::reqwest::redirect::Policy::none())
             .build()

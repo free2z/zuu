@@ -44,5 +44,24 @@
       "label": "Preserved legacy wallet",
       "title": "Earlier wallet preserved"
     }
+  },
+  "tor": {
+    "title": "Tor for wallet connections",
+    "scope": "Wallet RPCs use your local Tor service. Free2Z API, enrollment, parameter downloads and external links are blocked while enabled. Other apps are not covered.",
+    "enable": "Enable Tor",
+    "disable": "Disable Tor",
+    "reconnect": "Reconnect",
+    "advanced": "Advanced diagnostics",
+    "details": "Requires an independently managed Tor SOCKS5 service at 127.0.0.1:9050. Hostnames go to the proxy. ZUULI does not start Tor, verify its identity or measure bootstrap progress. A proxy connection is not proof of Tor. Returning from background or changing networks requires Reconnect.",
+    "mobile": "Android and iOS signed-device acceptance is still open. No bundled mobile Tor runtime or system-wide protection is provided.",
+    "epoch": "Connection epoch",
+    "direct": "Direct connection",
+    "waiting": "Waiting for a wallet request through the proxy",
+    "proxyConnected": "Proxy connected · Tor identity unverified",
+    "degraded": "Proxy unavailable · no direct fallback",
+    "suspended": "Connections paused · reconnect to continue",
+    "web": "Available only in the native app",
+    "loading": "Reading connection state",
+    "error": "Connection change failed · check native state before continuing"
   }
 }

@@ -15,22 +15,14 @@ function fixture() {
       permissions: [
         "core:default",
         "deep-link:default",
-        "opener:default",
         ...REVIEWED_MOBILE_ZCASH_PERMISSIONS,
-        {
-          identifier: "http:default",
-          allow: [
-            { url: "https://free2z.cash/*" },
-            { url: "https://*.free2z.cash/*" },
-            { url: "https://stage.free2z.cash/*" },
-          ],
-        },
+
       ],
     },
     tauri: {
       app: {
         security: {
-          csp: "default-src 'self'; img-src 'self' data:; connect-src 'self' https://free2z.cash https://*.free2z.cash; frame-src 'none'",
+          csp: "default-src 'self'; img-src 'self' data:; connect-src 'self'; frame-src 'none'",
         },
       },
     },
@@ -188,7 +180,7 @@ test("image and connect authority stay exact rather than merely present", () => 
   // matters, so both are exact-match rather than "contains".
   const widenedImages = fixture();
   widenedImages.tauri.app.security.csp =
-    "default-src 'self'; img-src 'self' data: https:; connect-src 'self' https://free2z.cash https://*.free2z.cash; frame-src 'none'";
+    "default-src 'self'; img-src 'self' data: https:; connect-src 'self'; frame-src 'none'";
   assert.throws(
     () =>
       assertMobileWebviewAuthority(widenedImages.mobile, widenedImages.tauri),
@@ -197,7 +189,7 @@ test("image and connect authority stay exact rather than merely present", () => 
 
   const blobImages = fixture();
   blobImages.tauri.app.security.csp =
-    "default-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://free2z.cash https://*.free2z.cash; frame-src 'none'";
+    "default-src 'self'; img-src 'self' data: blob:; connect-src 'self'; frame-src 'none'";
   assert.throws(
     () => assertMobileWebviewAuthority(blobImages.mobile, blobImages.tauri),
     /only bundled and inlined images/,
@@ -212,7 +204,7 @@ test("image and connect authority stay exact rather than merely present", () => 
         missingSubdomains.mobile,
         missingSubdomains.tauri,
       ),
-    /only the free2z API origins/,
+    /only the local app/,
   );
 
   const widenedConnect = fixture();
@@ -221,17 +213,14 @@ test("image and connect authority stay exact rather than merely present", () => 
   assert.throws(
     () =>
       assertMobileWebviewAuthority(widenedConnect.mobile, widenedConnect.tauri),
-    /only the free2z API origins/,
+    /only the local app/,
   );
 
   const widenedHttp = fixture();
-  const http = widenedHttp.mobile.permissions.find(
-    (permission) => typeof permission === "object",
-  );
-  http.allow.push({ url: "https://*.example.com/*" });
+  widenedHttp.mobile.permissions.push({ identifier: "http:default", allow: [{url: "https://free2z.cash/*"}] });
   assert.throws(
     () => assertMobileWebviewAuthority(widenedHttp.mobile, widenedHttp.tauri),
-    /mobile HTTP URLs differs/,
+    /mobile non-wallet permissions differs/,
   );
 });
 

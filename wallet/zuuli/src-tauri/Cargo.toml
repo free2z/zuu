@@ -19,6 +19,7 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+zuuli-transport = { path = "../../zuuli-transport" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -104,6 +105,8 @@ tracing = "0.1"
 # Tauri's mock runtime: those tests are not Windows-gated, and a dev-dependency
 # the compiler cannot see on one target is a build that fails only there.
 [dev-dependencies]
+# Read-only Tor acceptance probe uses the shipping lightwalletd protobuf type.
+zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["lightwalletd-tonic"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [target.'cfg(not(target_os = "windows"))'.dev-dependencies]

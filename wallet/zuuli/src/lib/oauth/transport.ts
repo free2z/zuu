@@ -195,7 +195,7 @@ async function runDesktopLoopback(
     const redirectUri = `http://127.0.0.1:${loopback.port}/${loopback.redirectPath}`;
     const start = await abortable(buildStart(redirectUri), signal);
     const authorizeUrl = validateAuthorizationStart(provider, start, redirectUri, false);
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    const { openNetworkUrl: openUrl } = await import("@/lib/network");
     if (signal.aborted) throw sessionChanged();
     await abortable(openUrl(authorizeUrl), signal);
     if (signal.aborted) throw sessionChanged();
@@ -374,7 +374,7 @@ async function runMobileDeepLink(
   // still awaited below so the caller receives the same rejection.
   void callback.catch(() => undefined);
   try {
-    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    const { openNetworkUrl: openUrl } = await import("@/lib/network");
     if (outerSignal.aborted) throw sessionChanged();
     await abortable(openUrl(authorizeUrl), outerSignal);
     if (outerSignal.aborted) throw sessionChanged();

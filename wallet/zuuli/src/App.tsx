@@ -33,6 +33,8 @@ import {
   recoverCheckoutReturn,
 } from "@/lib/checkout/native-return";
 
+import { installNetworkLifecycle } from "@/lib/network";
+
 import AuthFeature from "@/features/auth";
 
 // ZUULI is the wallet authority (#904): the only routes it mounts are the ones
@@ -232,8 +234,10 @@ export default function App() {
   const bootstrapWallet = useWallet((s) => s.bootstrap);
 
   useEffect(() => {
+    const stopNetworkLifecycle = installNetworkLifecycle();
     void bootstrapSession();
     void bootstrapWallet();
+    return stopNetworkLifecycle;
   }, [bootstrapSession, bootstrapWallet]);
 
   return (

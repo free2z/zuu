@@ -106,13 +106,7 @@ export const REVIEWED_MOBILE_F2ZMSG_PERMISSIONS = [
 const REVIEWED_NON_WALLET_PERMISSIONS = [
   "core:default",
   "deep-link:default",
-  "opener:default",
-  "http:default",
-];
-const REVIEWED_HTTP_URLS = [
-  "https://free2z.cash/*",
-  "https://*.free2z.cash/*",
-  "https://stage.free2z.cash/*",
+
 ];
 
 function exactSet(actual, expected, label) {
@@ -196,31 +190,9 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
     "mobile non-wallet permissions",
   );
 
-  const httpPermission = mobile.permissions.find(
-    (permission) =>
-      typeof permission === "object" &&
-      permission?.identifier === "http:default",
-  );
-  if (!httpPermission || !Array.isArray(httpPermission.allow)) {
-    throw new Error(
-      "mobile HTTP permission must retain its exact scoped allowlist",
-    );
+  if (mobile.permissions.some((permission) => typeof permission === "object")) {
+    throw new Error("mobile network plugin scopes are forbidden; use native policy commands");
   }
-  if (
-    mobile.permissions.some(
-      (permission) =>
-        typeof permission === "object" && permission !== httpPermission,
-    )
-  ) {
-    throw new Error(
-      "only the reviewed mobile HTTP permission may carry scope data",
-    );
-  }
-  exactSet(
-    httpPermission.allow.map((entry) => entry?.url),
-    REVIEWED_HTTP_URLS,
-    "mobile HTTP URLs",
-  );
 
   const csp = tauriConfig?.app?.security?.csp;
   if (typeof csp !== "string") {
@@ -250,10 +222,10 @@ export function assertMobileWebviewAuthority(mobile, tauriConfig) {
   const connectSources = cspDirective(csp, "connect-src") ?? [];
   if (
     connectSources.join(" ") !==
-    "'self' https://free2z.cash https://*.free2z.cash"
+    "'self'"
   ) {
     throw new Error(
-      "packaged connect CSP must admit only the free2z API origins",
+      "packaged connect CSP must admit only the local app",
     );
   }
 }

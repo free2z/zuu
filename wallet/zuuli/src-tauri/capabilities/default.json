@@ -1,19 +1,16 @@
 {
   "identifier": "default",
   "description": "Desktop capability for the main ZUULI window. No f2zmsg:* grant: ZUULI has no messaging frontend (#904 phase 3 moved it to wallet/e2e2z), and the seed-holding WebView must reach no command it cannot use (#916). Enrollment stays in this app as three app-crate commands that need the seed and are not plugin commands, so no capability grants them - see src-tauri/src/messaging.rs.",
-  "platforms": ["linux", "macOS", "windows"],
-  "windows": ["main"],
+  "platforms": [
+    "linux",
+    "macOS",
+    "windows"
+  ],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
-    "opener:default",
-    "zcash:default",
-    {
-      "identifier": "http:default",
-      "allow": [
-        { "url": "https://free2z.cash/*" },
-        { "url": "https://*.free2z.cash/*" },
-        { "url": "https://stage.free2z.cash/*" }
-      ]
-    }
+    "zcash:default"
   ]
 }

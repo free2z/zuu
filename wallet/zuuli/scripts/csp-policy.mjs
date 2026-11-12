@@ -59,19 +59,8 @@ export const REVIEWED_DIRECTIVES = Object.freeze({
     why: "#367: a remote subframe resolves as the trusted main window.",
   }),
   "connect-src": Object.freeze({
-    sources: Object.freeze([
-      "'self'",
-      "https://free2z.cash",
-      "https://*.free2z.cash",
-    ]),
-    why:
-      "The free2z API for auth and 2Z balances, matching the `http:default` " +
-      "capability's URL allowlist. lightwalletd (`*.zec.rocks`) is reached " +
-      "from Rust by tauri-plugin-zcash and was never a WebView connection; " +
-      "Stripe Checkout is opened in the OS browser by tauri-plugin-opener, " +
-      "not fetched; RealtimeKit and `*.dyte.io` left with Live (#921 — " +
-      "RealtimeKit 1.5.1 throws on a dyte.io base URI, so those two origins " +
-      "were already dead).",
+    sources: Object.freeze(["'self'"]),
+    why: "All packaged outbound requests use native policy commands (#787); browser network access cannot inherit their Tor policy.",
   }),
   "style-src": Object.freeze({
     sources: Object.freeze(["'self'", "'unsafe-inline'"]),
@@ -183,17 +172,17 @@ const SELF_TEST_MUTATIONS = Object.freeze([
   ["worker-src is reopened", "worker-src 'none'", "worker-src 'self'"],
   [
     "connect-src re-admits the dead dyte.io origins (#921)",
-    "connect-src 'self' https://free2z.cash",
+    "connect-src 'self'",
     "connect-src 'self' https://*.dyte.io wss://*.dyte.io https://free2z.cash",
   ],
   [
     "connect-src re-admits lightwalletd, which the WebView never calls",
-    "connect-src 'self' https://free2z.cash",
+    "connect-src 'self'",
     "connect-src 'self' https://*.zec.rocks https://free2z.cash",
   ],
   [
     "connect-src re-admits the RealtimeKit signalling origins",
-    "connect-src 'self' https://free2z.cash",
+    "connect-src 'self'",
     "connect-src 'self' https://api.realtime.cloudflare.com https://free2z.cash",
   ],
   ["base-uri is dropped", "base-uri 'self'; ", ""],

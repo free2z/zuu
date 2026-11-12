@@ -11,12 +11,13 @@ function readEnv(key: string, fallback: string): string {
   return v && v.length > 0 ? v : fallback;
 }
 
-// In dev / `tauri dev` (import.meta.env.DEV), talk to the API via a same-origin
+// In browser dev (import.meta.env.DEV), talk to the API via a same-origin
 // relative base so the Vite proxy handles it (no CORS). The proxy target
 // defaults to staging (stage.free2z.cash) during development — see
 // vite.config.ts / VITE_F2Z_PROXY. In a production build use the absolute host
-// below (reached through tauri-plugin-http, which isn't subject to browser
-// CORS). Override either with VITE_F2Z_API / VITE_F2Z_MEDIA.
+// below. Native dev uses the same reviewed staging origin through the native
+// policy command; it never bypasses that command via Vite. Native HTTPS origins
+// retain the existing allowlist. Override browser bases with VITE_F2Z_API / VITE_F2Z_MEDIA.
 const IS_DEV = Boolean(
   (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
 );
