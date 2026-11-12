@@ -435,6 +435,12 @@ another app's environment would receive that app's signing material.
 `scripts/mobile-release.sh android [--upload]` is the operator path for the same
 Android artifact from a workstation.
 
+Android digital purchases are **unavailable pending release-owner review**
+([decision and inventory](../../docs/free2z/app-suite/release/ANDROID-PURCHASES.md)).
+The Android release preflight additionally blocks distribution until policy
+selection and signed-device acceptance are reviewed; completing store identity
+alone does not lift that block. Wallet-mediated ZEC tips remain a separate flow.
+
 ### Where each store stands
 
 free2z ships to **TestFlight first**. `node scripts/store-identity.mjs
