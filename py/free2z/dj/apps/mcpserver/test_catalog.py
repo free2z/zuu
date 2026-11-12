@@ -872,3 +872,12 @@ def test_download_offload_runs_after_commit_and_rejects_invalid_authority(
             == 403
         )
     assert len(calls) == 2
+
+
+def test_app_transfer_requires_browser_consent():
+    from dj.apps.mcpserver.catalog import gap, operations, summary
+
+    for operation in ("oidc_app_transfers_list", "oidc_app_transfer_create", "oidc_app_transfer_resolve"):
+        assert operation in operations()
+        assert not summary(operation)["supported"]
+        assert "account security" in gap(operation)[0]

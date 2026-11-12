@@ -792,3 +792,18 @@ test("registry and credential errors are private, malformed reload fails closed,
   }
   assert.equal(f.received.length, 0);
 });
+
+test("app ownership transfer stays unavailable through MCP", async (t) => {
+  const f = await fixture(t);
+  for (const operation_id of [
+    "oidc_app_transfers_list",
+    "oidc_app_transfer_create",
+    "oidc_app_transfer_resolve",
+  ]) {
+    await assert.rejects(
+      execute(f.config, { operation_id }),
+      /unavailable through MCP/,
+    );
+  }
+  assert.equal(f.received.length, 0);
+});
