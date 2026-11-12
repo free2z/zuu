@@ -8,7 +8,7 @@ The endpoint is part of the Free2Z Python application. It uses the hash-locked o
 
 Call `free2z_list_accounts` first. It returns the connection ID, connection owner's username, and authorized accounts with stable grant IDs, current usernames, effective scopes, and availability. Every content tool requires an explicit `account`, either an exact listed username or its grant ID. A browser login cannot change that selection.
 
-To add an account, call `free2z_connect_account` with its exact username. Open the returned consent link, sign in as that account, and approve the requested permissions. Linked accounts persist with the connection across token refreshes. A missing, revoked, renamed, or unauthorized selection fails without choosing another account. Free2Z's connected-apps settings lets account owners review and revoke connections and account grants.
+To add an account, call `free2z_connect_account` with its exact username. Open the returned consent link, sign in as that account, and approve the requested permissions. Linked accounts persist with the connection across token refreshes. A missing, revoked, renamed, or unauthorized selection fails without choosing another account. Free2Z's connected-apps settings lets account owners review and revoke connections and account grants. Connection owners can choose Add account there to request a ten-minute consent link with selected permissions, without an MCP token in the browser. The named account still signs in and approves; this never changes the acting account for tool calls.
 
 | Permission | Access |
 | --- | --- |
