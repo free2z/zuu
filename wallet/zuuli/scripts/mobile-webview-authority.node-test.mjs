@@ -14,6 +14,9 @@ function fixture() {
       windows: ["main"],
       permissions: [
         "core:default",
+        "core:window:deny-create",
+        "core:webview:deny-create-webview",
+        "core:webview:deny-create-webview-window",
         "deep-link:default",
         ...REVIEWED_MOBILE_ZCASH_PERMISSIONS,
 

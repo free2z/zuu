@@ -16,11 +16,14 @@
         "width": 1280,
         "height": 860,
         "minWidth": 380,
-        "minHeight": 640
+        "minHeight": 640,
+        "label": "main",
+        "create": false,
+        "url": "index.html"
       }
     ],
     "security": {
-      "csp": "default-src 'self'; base-uri 'self'; object-src 'none'; worker-src 'none'; img-src 'self' data:; media-src 'none'; frame-src 'none'; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
+      "csp": "default-src 'self'; base-uri 'self'; form-action 'none'; object-src 'none'; worker-src 'none'; img-src 'self' data:; media-src 'none'; frame-src 'none'; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'wasm-unsafe-eval'"
     }
   },
   "bundle": {

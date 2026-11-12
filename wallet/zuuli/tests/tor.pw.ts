@@ -71,3 +71,40 @@ test("packaged CSP refuses remote fetch before dispatch, with a live allowed neg
   expect(await page.evaluate(async url => (await fetch(url)).text(),url)).toBe("fixture");
   expect(requests).toBe(1);
 });
+
+test("negative control: exact shipping CSP alone still dispatches HTTPS top-level navigation", async ({ page }) => {
+  const config = JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  const target = "https://navigation.fixture.test/leak";
+  let dispatched = 0;
+  await page.route(target, async route => {
+    dispatched++;
+    await route.fulfill({ status: 200, contentType: "text/html", body: "controlled navigation fixture" });
+  });
+  await page.goto("/about");
+  await page.setContent(`<meta http-equiv="Content-Security-Policy" content="${config.app.security.csp}"><body>local</body>`);
+  await page.evaluate(url => location.assign(url), target);
+  await expect(page).toHaveURL(target);
+  expect(dispatched).toBe(1);
+  await expect(page.getByText("controlled navigation fixture")).toBeVisible();
+  // This is deliberately the unguarded Chromium negative control. The actual
+  // native factory is exercised with live DNS/TCP counters by navigation_probe.
+});
+
+test("direct form submission is refused, with the previous CSP as a dispatch control", async ({ page }) => {
+  const config = JSON.parse(readFileSync(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  const target="https://navigation.fixture.test/form";
+  let dispatched=0;
+  await page.route(target,async route=>{dispatched++;await route.fulfill({status:200,contentType:"text/html",body:"form dispatch control"});});
+  await page.goto("/about");
+  await page.setContent(`<meta http-equiv="Content-Security-Policy" content="${config.app.security.csp}"><body></body>`);
+  expect(await page.evaluate(url=>new Promise<string>(resolve=>{
+    document.addEventListener("securitypolicyviolation",event=>{if(event.violatedDirective==="form-action")resolve("refused");});
+    const form=document.createElement("form");form.method="POST";form.action=url;document.body.append(form);form.submit();
+  }),target)).toBe("refused");
+  expect(dispatched).toBe(0);
+  await page.goto("/about");
+  await page.setContent(`<meta http-equiv="Content-Security-Policy" content="${config.app.security.csp.replace("form-action 'none';","")}"><body></body>`);
+  await page.evaluate(url=>{const form=document.createElement("form");form.method="POST";form.action=url;document.body.append(form);form.submit();},target);
+  await expect(page).toHaveURL(target);
+  expect(dispatched).toBe(1);
+});

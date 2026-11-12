@@ -2,6 +2,7 @@ mod bridge;
 mod directory_publish;
 pub mod intent;
 mod messaging;
+mod navigation;
 mod network;
 mod oauth;
 mod session;
@@ -31,6 +32,7 @@ const WRAP_KEY_NAMESPACE: &str = "cash.free2z.zuuli.f2zmsg.wrap.v1";
 pub fn run() {
     zuuli_transport::global().suspend();
     tauri::Builder::default()
+        .plugin(navigation::plugin())
         .plugin(tauri_plugin_opener::init())
         // Native payment confirmation is intentionally available only to Rust.
         // No dialog permission is granted to the privileged webview.
@@ -141,6 +143,7 @@ pub fn run() {
         // IPC name.
         .setup(|app| {
             tauri::async_runtime::block_on(network::initialize(app.handle()));
+            navigation::create_main(app.handle())?;
             bridge::install(app.handle());
             Ok(())
         })

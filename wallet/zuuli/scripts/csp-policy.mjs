@@ -34,6 +34,10 @@ export const REVIEWED_DIRECTIVES = Object.freeze({
     sources: Object.freeze(["'self'"]),
     why: "An injected <base> cannot re-root every relative URL in the app.",
   }),
+  "form-action": Object.freeze({
+    sources: Object.freeze(["'none'"]),
+    why: "Forms use native API commands; direct form submission cannot bypass navigation hooks (including Android POST callback limitations).",
+  }),
   "object-src": Object.freeze({
     sources: Object.freeze(["'none'"]),
     why: "No plugin content, ever, in the process that holds the seed.",

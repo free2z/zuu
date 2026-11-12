@@ -104,6 +104,9 @@ export const REVIEWED_MOBILE_F2ZMSG_PERMISSIONS = [
 ];
 
 const REVIEWED_NON_WALLET_PERMISSIONS = [
+  "core:window:deny-create",
+  "core:webview:deny-create-webview",
+  "core:webview:deny-create-webview-window",
   "core:default",
   "deep-link:default",
 

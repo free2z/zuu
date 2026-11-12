@@ -109,6 +109,10 @@ tracing = "0.1"
 zcash_client_backend = { path = "../../../z/zcash/librustzcash/zcash_client_backend", features = ["lightwalletd-tonic"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# Native WebKit settings must be installed before loading any renderer code.
+webkit2gtk = { version = "2.0.2", features = ["v2_32"] }
+
 [target.'cfg(not(target_os = "windows"))'.dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 

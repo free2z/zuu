@@ -82,3 +82,53 @@ fn wallet_rpc_has_no_second_direct_connector_and_native_http_inventory_is_explic
         }
     }
 }
+
+#[test]
+fn shipping_webview_creation_cannot_skip_the_native_navigation_and_popup_boundary() {
+    let host = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .join("zuuli/src-tauri");
+    let lib = fs::read_to_string(host.join("src/lib.rs")).unwrap();
+    assert!(lib.contains(".plugin(navigation::plugin())"));
+    assert!(lib.contains("navigation::create_main(app.handle())?"));
+    let navigation = fs::read_to_string(host.join("src/navigation.rs")).unwrap();
+    assert!(navigation.contains(".on_navigation(allowed)"));
+    assert!(navigation.contains(".on_new_window(deny_new_window)"));
+    assert!(navigation.contains("protect(WebviewWindowBuilder::from_config(app, config)?)"));
+    assert!(navigation.contains("NetworkProxySettings::new(Some(\"http://127.0.0.1:0\"), bypass)"));
+    assert!(
+        navigation.find("data.set_network_proxy_settings").unwrap()
+            < navigation.find("view.load_uri").unwrap()
+    );
+    let mut sources = vec![];
+    rust_sources(&host.join("src"), &mut sources);
+    for (file, source) in sources {
+        // Unit mock builders do not create a real engine. Every production
+        // constructor stays in the guarded module; examples are fixtures only.
+        let production = source.split("#[cfg(test)]").next().unwrap();
+        if !file.ends_with("/navigation.rs") {
+            for constructor in [
+                "WebviewWindowBuilder::",
+                "WebviewBuilder::",
+                ".with_webview(",
+            ] {
+                assert!(
+                    !production.contains(constructor),
+                    "new WebView construction needs an explicit boundary: {file}"
+                );
+            }
+        }
+    }
+    for capability in ["default", "mobile"] {
+        let permissions =
+            fs::read_to_string(host.join(format!("capabilities/{capability}.json"))).unwrap();
+        for deny in [
+            "core:window:deny-create",
+            "core:webview:deny-create-webview",
+            "core:webview:deny-create-webview-window",
+        ] {
+            assert!(permissions.contains(deny));
+        }
+    }
+}
