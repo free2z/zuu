@@ -1,4 +1,5 @@
 agent-accounts.spec.ts
+apple-signin.spec.ts
 creator-ai-cover-disclosure.spec.ts
 legacy-route-redirects.spec.ts
 live-route-ssr.spec.ts
