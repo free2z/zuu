@@ -32,6 +32,7 @@ pub mod auth;
 pub mod call;
 pub mod catalog;
 pub mod chat;
+pub mod compat;
 pub mod config;
 pub mod error;
 pub mod estimate;

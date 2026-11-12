@@ -62,6 +62,8 @@ pub enum ErrorCode {
     /// The `Idempotency-Key` was used with a different body, or names a call
     /// that is still running (`details.call_id`).
     IdempotencyConflict,
+    /// A completed compatibility response is no longer retained.
+    CompletionNotRetained,
     /// The account already has the maximum number of open holds.
     TooManyHolds,
     /// The input does not fit the model's context window.
@@ -115,6 +117,7 @@ impl ErrorCode {
         Self::CallNotFound,
         Self::PurchaseNotFound,
         Self::IdempotencyConflict,
+        Self::CompletionNotRetained,
         Self::TooManyHolds,
         Self::PayloadTooLarge,
         Self::RateLimited,
@@ -150,6 +153,7 @@ impl ErrorCode {
             | Self::ModelDisabled => 403,
             Self::ModelNotFound | Self::CallNotFound | Self::PurchaseNotFound => 404,
             Self::IdempotencyConflict | Self::TooManyHolds => 409,
+            Self::CompletionNotRetained => 410,
             Self::PayloadTooLarge => 413,
             Self::RateLimited | Self::ConcurrencyLimit => 429,
             Self::Internal | Self::Unknown => 500,
@@ -220,6 +224,7 @@ impl ErrorCode {
             Self::CallNotFound => "call_not_found",
             Self::PurchaseNotFound => "purchase_not_found",
             Self::IdempotencyConflict => "idempotency_conflict",
+            Self::CompletionNotRetained => "completion_not_retained",
             Self::TooManyHolds => "too_many_holds",
             Self::ContextLengthExceeded => "context_length_exceeded",
             Self::PayloadTooLarge => "payload_too_large",

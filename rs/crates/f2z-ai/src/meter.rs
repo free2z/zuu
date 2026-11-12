@@ -140,6 +140,18 @@ impl ClaimKey {
     fn fingerprint(&self, request: &ChatRequest) -> Result<String, ApiFailure> {
         Ok(self.mac(b"f2z-ai fingerprint v1\0", &canonical_request(request)?))
     }
+    fn compat_fingerprint(
+        &self,
+        request: &ChatRequest,
+        include_usage: bool,
+    ) -> Result<String, ApiFailure> {
+        let domain = if include_usage {
+            b"f2z-ai fingerprint chat_completions usage v1\0".as_slice()
+        } else {
+            b"f2z-ai fingerprint chat_completions v1\0".as_slice()
+        };
+        Ok(self.mac(domain, &canonical_request(request)?))
+    }
     fn idempotency_key(&self, key: &str) -> String {
         self.mac(b"f2z-ai idempotency-key v1\0", key.as_bytes())
     }
@@ -833,10 +845,22 @@ impl Metered {
                     outcome(Outcome::Orphaned);
                     return Ok(Admitted::Canonical);
                 }
+                if call.is_compat() {
+                    return Err(ApiFailure::new(
+                        ErrorCode::IdempotencyConflict,
+                        "idempotency key belongs to an existing call",
+                    ));
+                }
                 request_fingerprint(request)?
             }
             Form::Keyed(kid) => match self.keys().find(|k| k.id() == kid) {
-                Some(key) => key.fingerprint(request)?,
+                Some(key) => {
+                    if call.is_compat() {
+                        key.compat_fingerprint(request, call.compat_include_usage())?
+                    } else {
+                        key.fingerprint(request)?
+                    }
+                }
                 None => return unknown(),
             },
         };
@@ -987,7 +1011,12 @@ impl ChatBackend for Metered {
         // carries is always canonical — never the caller's text, even when
         // it replays a call the previous image claimed in the plain form.
         let form = Form::Keyed(self.key.id().to_owned());
-        let fingerprint = self.key.fingerprint(&request)?;
+        let fingerprint = if call.is_compat() {
+            self.key
+                .compat_fingerprint(&request, call.compat_include_usage())?
+        } else {
+            self.key.fingerprint(&request)?
+        };
         let key = call.idempotency_key().map(|k| self.key.idempotency_key(k));
         // A request whose key is already held in another form — a call the
         // image before zuu#1225 claimed in the plain form, one under a
@@ -1287,6 +1316,7 @@ impl ChatBackend for Metered {
         }
         *lock(&active.plan) = Some(actual.clone());
         request.max_output_tokens = Some(actual.output);
+        let catalog_version = catalog.catalog().version;
         let upstream = self.provider.start(request, catalog, call).await?;
         *lock(&active.provider_started) = true;
         let mut meta = Meta::new(id.to_string(), actual.model.id.clone(), actual.hold);
@@ -1303,6 +1333,7 @@ impl ChatBackend for Metered {
             terminal: None,
             ended: false,
             outcome: None,
+            catalog_version,
             heartbeat: Box::pin(tokio::time::sleep(Duration::from_secs(60))),
             extending: None,
         }))
@@ -1836,11 +1867,17 @@ struct MeterStream {
     terminal: Option<TerminalFuture>,
     ended: bool,
     outcome: Option<ProviderOutcome>,
+    catalog_version: u64,
     heartbeat: Pin<Box<tokio::time::Sleep>>,
     extending: Option<ExtendFuture>,
 }
 #[async_trait]
 impl Upstream for MeterStream {
+    fn hold_headers(&self) -> Option<(u64, u64)> {
+        self.meta
+            .as_ref()
+            .map(|meta| (meta.hold_2z.get(), self.catalog_version))
+    }
     fn call_id(&self) -> Option<String> {
         Some(self.active.id.to_string())
     }
