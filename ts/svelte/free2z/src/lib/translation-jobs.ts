@@ -45,6 +45,24 @@ type Translate = (
   vars?: Record<string, string | number>,
 ) => string;
 
+/** Explain failures whose causes need different remedies. */
+export function translationFailureReason(
+  error: string | null | undefined,
+  t: Translate,
+): string {
+  if (error === "timeout")
+    return t(
+      "translationJobs.failureTimeout",
+      "The translation took too long. Try a shorter article or try again later.",
+    );
+  if (error === "output_truncated")
+    return t(
+      "translationJobs.failureTruncated",
+      "The translation reached its output limit before it was finished. Try a shorter article.",
+    );
+  return "";
+}
+
 /** One flagged item as text ( sends strings; tolerate objects). */
 export function warningItemText(item: unknown): string {
   if (typeof item === "string") return item;

@@ -3103,6 +3103,8 @@
     "chipUnknown": "Checking…",
     "deliveredToast": "{language} is ready to review.",
     "doneReviewing": "Done",
+    "failureTimeout": "The translation took too long. Try a shorter article or try again later.",
+    "failureTruncated": "The translation reached its output limit before it was finished. Try a shorter article.",
     "flaggedItemNotFound": "not present verbatim in this draft; compare it with the original",
     "flaggedTextInDraft": "Find flagged items in the draft",
     "emptyBody": "Pick as many languages as you like. They translate side by side while you keep writing, and each one waits here for your review.",
