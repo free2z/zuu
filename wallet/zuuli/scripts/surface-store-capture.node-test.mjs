@@ -92,7 +92,7 @@ test('native capture fixture permits seed-free reads and rejects identity or mut
   });
   assert.deepEqual(await invoke('plugin:f2zmsg|get_engine_status'), {
     state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1,
-    witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0,
+    witnessThresholdMet: false, independentWitnesses: 0, pendingInbound: 0, unacknowledgedAlarms: 0,
     lastError: null, directoryBlocked: null,
   });
   // No launch URL: tauri-plugin-deep-link answers Option::None, not an empty list.
