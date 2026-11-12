@@ -1,6 +1,7 @@
+import { digitalPurchasesUnavailable } from "../purchases/availability";
 import type { AuthUser } from "@/lib/api/types";
 
-export type PaidActionGate = "loading" | "sign-in" | "low-balance" | "ready";
+export type PaidActionGate = "unavailable" | "loading" | "sign-in" | "low-balance" | "ready";
 
 /**
  * The shared ordering for every action that can spend 2Z.
@@ -19,6 +20,7 @@ export function paidActionGate({
   balance: number;
   cost: number | null;
 }): PaidActionGate {
+  if (digitalPurchasesUnavailable()) return "unavailable";
   if (sessionLoading) return "loading";
   if (!user) return "sign-in";
   if (cost !== null && cost > balance) return "low-balance";

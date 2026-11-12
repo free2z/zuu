@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { PurchaseUnavailable } from "@/components/common/PurchaseUnavailable";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
@@ -111,7 +113,7 @@ function conversationKey(
   return `${model.id}:${personality?.id ?? "default"}`;
 }
 
-export default function AiFeature() {
+function AiFeatureAvailable() {
   const { registerViewport } = useRouteScroll();
   const navigate = useNavigate();
   const user = useSession((s) => s.user);
@@ -918,4 +920,8 @@ function EmptyHero({
       </div>
     </div>
   );
+}
+
+export default function AiFeature() {
+  return digitalPurchasesUnavailable() ? <PurchaseUnavailable /> : <AiFeatureAvailable />;
 }

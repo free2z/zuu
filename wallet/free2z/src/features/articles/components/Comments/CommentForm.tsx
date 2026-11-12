@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { PurchaseUnavailable } from "@/components/common/PurchaseUnavailable";
 import { useId, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -38,7 +40,7 @@ interface CommentFormProps {
   autoFocus?: boolean;
 }
 
-export function CommentForm({
+function CommentFormAvailable({
   submit,
   onPosted,
   onCancel,
@@ -243,4 +245,8 @@ export function CommentForm({
       </div>
     </div>
   );
+}
+
+export function CommentForm(props: Parameters<typeof CommentFormAvailable>[0]) {
+  return digitalPurchasesUnavailable() ? <PurchaseUnavailable /> : <CommentFormAvailable {...props} />;
 }

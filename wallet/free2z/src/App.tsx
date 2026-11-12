@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { discardPaidIntent } from "@/lib/auth/paid-intent";
 import { bootstrapReporter } from "@free2z/wallet-shared";
 import { diagnostics } from "@/lib/diagnostics";
 import { RootFallback } from "./app-bootstrap";
@@ -203,6 +205,7 @@ export default function App() {
   const [bootstrapFailed, setBootstrapFailed] = useState(false);
   useEffect(() => {
     let active = true;
+    if (digitalPurchasesUnavailable()) discardPaidIntent();
     void Promise.resolve().then(bootstrapSession).catch((error: unknown) => {
       bootstrapReporter(diagnostics)("free2z session bootstrap failed", error);
       if (active) setBootstrapFailed(true);

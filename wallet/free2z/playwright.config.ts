@@ -1,5 +1,6 @@
 import { defineConfig } from "@playwright/test";
 
+const artifact = process.env.FREE2Z_PW_ANDROID_ASSETS === "1";
 const port = Number(process.env.FREE2Z_PW_PORT ?? 1435);
 
 export default defineConfig({
@@ -21,7 +22,7 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: `npm run dev -- --host 127.0.0.1 --port ${port}`,
+    command: `npm run ${artifact ? "preview" : "dev"} -- --host 127.0.0.1 --port ${port}`,
     env: { ...process.env, VITE_MOCK: "1" },
     reuseExistingServer: false,
     stderr: "pipe",

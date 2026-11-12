@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { PurchaseUnavailable } from "@/components/common/PurchaseUnavailable";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { ArrowRight, Heart, Loader2 } from "lucide-react";
@@ -31,7 +33,7 @@ import { usePaidIntent } from "@/hooks/usePaidIntent";
 
 const PRESETS = [50, 100, 250, 500];
 
-export function TipDialog({ author }: { author: SimpleCreator }) {
+function TipDialogAvailable({ author }: { author: SimpleCreator }) {
   const name = author.display_name || author.username;
   const navigate = useNavigate();
   const location = useLocation();
@@ -215,4 +217,8 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
       </DialogContent>
     </Dialog>
   );
+}
+
+export function TipDialog(props: Parameters<typeof TipDialogAvailable>[0]) {
+  return digitalPurchasesUnavailable() ? <PurchaseUnavailable /> : <TipDialogAvailable {...props} />;
 }

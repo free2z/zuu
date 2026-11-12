@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { PurchaseUnavailable } from "@/components/common/PurchaseUnavailable";
 import {
   BlockedContent,
   ModerationControls,
@@ -593,6 +595,8 @@ function SubscribeButton({
     }
   }
 
+  if (digitalPurchasesUnavailable() && !subscribed) return <PurchaseUnavailable />;
+
   if (!creator.member_price) {
     // No paid tier — a plain follow/unfollow toggle.
     return (
@@ -680,6 +684,8 @@ function SubscribeButton({
                 ) : null}
                 Cancel membership
               </Button>
+            ) : digitalPurchasesUnavailable() ? (
+              <PurchaseUnavailable />
             ) : gate === "ready" ? (
               <Button
                 onClick={resumeRenewal}
@@ -1049,7 +1055,7 @@ function TipButton({
                 </p>
               )}
             </div>
-          ) : (
+          ) : digitalPurchasesUnavailable() ? <PurchaseUnavailable /> : (
             <>
               <div className="grid grid-cols-4 gap-2">
                 {TIP_PRESETS.map((preset) => (
@@ -1138,6 +1144,8 @@ function TipButton({
                 </>
               )}
             </Button>
+          ) : digitalPurchasesUnavailable() ? (
+            <PurchaseUnavailable />
           ) : gate === "loading" ? (
             <Button disabled>
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />

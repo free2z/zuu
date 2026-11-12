@@ -1,0 +1,172 @@
+{
+  "id": "android-digital-purchases-unavailable-pending-owner-review-v1",
+  "ownerDecision": "pending",
+  "rules": [
+    {
+      "prefix": "/api/stripe/create-checkout-session",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/pricing/quote",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/tuzis/donate",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/tuzis/donate-idempotent",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/tuzis/subscribe",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/tuzis/subscribe-confirmed",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/openai/",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/ai",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/comments/",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/e2ee/chat-requests/",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/dyte/",
+      "suffix": "/ppv",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/ai/creator-options",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/storytime",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/zpage/fund",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/zpage",
+      "suffix": "/vote",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/zpage",
+      "suffix": "/quote",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/zpage",
+      "contains": "/translat",
+      "methods": [
+        "POST"
+      ]
+    },
+    {
+      "prefix": "/api/economy/usage-purchase-quote",
+      "methods": [
+        "*"
+      ]
+    },
+    {
+      "prefix": "/api/economy/usage-purchases",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/sdk/v1/purchases",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/sdk/v1/grant",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/api/mcp",
+      "methods": [
+        "POST",
+        "PUT",
+        "PATCH"
+      ]
+    },
+    {
+      "prefix": "/v1/chat",
+      "methods": [
+        "*"
+      ]
+    }
+  ]
+}

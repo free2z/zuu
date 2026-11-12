@@ -1,3 +1,4 @@
+import { assertDigitalPurchaseAvailable } from "../purchases/availability";
 // The free2z API surface ZUULI uses, mapping the REAL production endpoints
 // (tuzi/f2z.yaml / free2z.cash) into stable internal types the features
 // depend on. Field names here match production; the returned objects match
@@ -1268,6 +1269,7 @@ export const ai = {
     conversationId?: string;
     signal?: AbortSignal;
   }): Promise<PromptResponse> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(700);
       return mockAiReply(args.prompt, args.model.display_name);
@@ -1358,6 +1360,7 @@ export const ai = {
       model: AIModel;
       personality?: Personality | null;
     }): Promise<AIConversation> {
+      assertDigitalPurchaseAvailable();
       if (useMock()) {
         await delay(200);
         return {
@@ -1392,6 +1395,7 @@ export const ai = {
       personality?: Personality | null;
       signal?: AbortSignal;
     }): Promise<PromptResponse> {
+      assertDigitalPurchaseAvailable();
       if (useMock()) {
         await delay(700);
         return mockConversationReply(
@@ -1756,6 +1760,7 @@ export const comments = {
     uuid: string,
     body: CommentInput,
   ): Promise<Comment> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(300);
       return mockCommentCreate(uuid, body);
@@ -1772,6 +1777,7 @@ export const comments = {
    * parent's content object. Requires auth and costs `tuzis`.
    */
   async createReply(parentUuid: string, body: CommentInput): Promise<Comment> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(300);
       return mockCommentReplyCreate(parentUuid, body);
@@ -1785,6 +1791,7 @@ export const comments = {
 
   /** Vote on a comment — POST /api/comments/{uuid}/vote/ (costs 1 2Z). */
   async vote(uuid: string, dir: CommentVote): Promise<void> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(150);
       mockCommentVote(uuid, dir);
@@ -1894,6 +1901,7 @@ export const live = {
 
   /** Creator starts/ensures their stream and receives its host ticket. */
   async start(kind: StreamKind): Promise<LiveStartResult> {
+    if (kind === "ppv") assertDigitalPurchaseAvailable();
     const meetingType = typeFromStreamKind(kind);
     if (useMock()) {
       await delay(500);
@@ -1958,6 +1966,7 @@ export const live = {
       previousAuthToken?: string;
     } = {},
   ): Promise<DyteJoinTicket> {
+    if (kind === "ppv") assertDigitalPurchaseAvailable();
     const meetingType = typeFromStreamKind(kind);
     if (useMock()) {
       await delay(600);
@@ -2068,6 +2077,7 @@ export const tuzi = {
     tuzis: number,
     returnMode: CheckoutReturnMode = "web",
   ): Promise<{ url: string }> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(400);
       return {
@@ -2115,6 +2125,7 @@ export const tuzi = {
   },
 
   async donate(username: string, tuzis: number): Promise<void> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(400);
       return;
@@ -2130,6 +2141,7 @@ export const tuzi = {
     tuzis: number,
     idempotencyKey: string,
   ): Promise<DonationResult> {
+    assertDigitalPurchaseAvailable();
     if (!isDonationIdempotencyKey(idempotencyKey)) {
       throw new DonationContractError("Donation idempotency key is invalid");
     }
@@ -2175,6 +2187,7 @@ export const tuzi = {
   },
 
   async subscribe(username: string, idempotencyKey?: string): Promise<void> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(400);
       const creator = mockCreators.find(
@@ -2201,6 +2214,7 @@ export const tuzi = {
     idempotencyKey: string,
     expectedPrice: number,
   ): Promise<SubscribeResult> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(400);
       return mockSubscribe(username, idempotencyKey, expectedPrice);
@@ -2555,6 +2569,7 @@ export const pricing = {
    * The backend returns the precise `zec_amount` to send — display it directly.
    */
   async quote(tuzis: number, signal?: AbortSignal): Promise<PricingQuote> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(180);
       const zecAmount = Math.ceil((tuzis / MOCK_TUZIS_PER_ZEC) * 1e8) / 1e8;
@@ -2786,6 +2801,7 @@ function takeMockChatFault(): MockChatFault | null {
 export const e2ee = {
   /** GET the server-set price. The client never proposes an amount. */
   async chatRequestPrice(signal?: AbortSignal): Promise<number> {
+    assertDigitalPurchaseAvailable();
     if (useMock()) {
       await delay(150);
       return normalizeChatRequestPrice({ cost: mockChatRequestCost });
@@ -2807,6 +2823,7 @@ export const e2ee = {
     shownCost: number,
     idempotencyKey: string,
   ): Promise<ChatRequestResult> {
+    assertDigitalPurchaseAvailable();
     if (!isChatRequestIdempotencyKey(idempotencyKey)) {
       throw new ChatRequestContractError(
         "Chat request idempotency key is invalid",

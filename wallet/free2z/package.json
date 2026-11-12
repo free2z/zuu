@@ -3,19 +3,20 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "free2z content surface — articles, live, AI, creator and search. Holds no Zcash seed and no messaging keys (see #904).",
+  "description": "free2z content surface \u2014 articles, live, AI, creator and search. Holds no Zcash seed and no messaging keys (see #904).",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.build.json",
     "typecheck:tests": "tsc --noEmit",
-    "test": "vitest run && node --test scripts/ui-copy-truncation.node-test.mjs scripts/release-path.node-test.mjs && playwright test",
+    "test": "vitest run && node --test scripts/ui-copy-truncation.node-test.mjs scripts/release-path.node-test.mjs scripts/purchase-policy.node-test.mjs && playwright test && npm run test:android-purchase-assets",
     "test:e2e": "playwright test",
     "test:ui-copy": "node --test scripts/ui-copy-truncation.node-test.mjs",
     "test:release-path": "node --test scripts/release-path.node-test.mjs",
     "verify": "npm run typecheck && npm run typecheck:tests && npm test",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:android-purchase-assets": "TAURI_ENV_PLATFORM=android npm run build && FREE2Z_PW_ANDROID_ASSETS=1 playwright test tests/android-purchase-assets.pw.ts"
   },
   "dependencies": {
     "@cloudflare/realtimekit": "1.5.1",

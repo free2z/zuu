@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { PurchaseUnavailable } from "@/components/common/PurchaseUnavailable";
 import {
   useCallback,
   useEffect,
@@ -76,7 +78,7 @@ const WRAPPING_BUTTON = "h-auto min-h-11 whitespace-normal text-center";
  * primary button may do, a signed-out tap preserves the intent across login,
  * and every outcome is worded by the exhaustive `chatRequestCopy`.
  */
-export function StartChatButton({
+function StartChatButtonAvailable({
   creator,
   restored,
 }: {
@@ -661,4 +663,8 @@ function OutcomeActions({
       {t(MESSAGE_KEYS.creatorChatActionDone)}
     </Button>
   );
+}
+
+export function StartChatButton(props: Parameters<typeof StartChatButtonAvailable>[0]) {
+  return digitalPurchasesUnavailable() ? <PurchaseUnavailable /> : <StartChatButtonAvailable {...props} />;
 }
