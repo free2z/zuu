@@ -23,6 +23,7 @@
   import { translationJobs } from "$lib/stores/translationJobs";
   import {
     allJobs,
+    translationFailureReason,
     indicatorPage,
     summarizeJobs,
     type TranslationJobEntry,
@@ -78,11 +79,16 @@
       );
     } else if (entry.status === "refunded") {
       toast.error(
-        $t(
-          "editor.translateAiRefunded",
-          "The {language} translation could not be completed, so all {price} 2Z were credited back to your balance.",
-          { language, price: entry.price ?? "" },
-        ),
+        [
+          translationFailureReason(entry.error, $t),
+          $t(
+            "editor.translateAiRefunded",
+            "The {language} translation could not be completed, so all {price} 2Z were credited back to your balance.",
+            { language, price: entry.price ?? "" },
+          ),
+        ]
+          .filter(Boolean)
+          .join(" "),
       );
     } else if (entry.status === "settled") {
       toast.error(

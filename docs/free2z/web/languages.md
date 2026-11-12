@@ -196,3 +196,56 @@ For rendering changes, install the website's locked dependencies using its
 `npm run test:browser -- tests/browser/article-direction.spec.ts tests/browser/editor-direction.spec.ts`
 from `ts/svelte/free2z`. The browser tests also require Playwright's browser
 installation.
+
+### Manual translation throughput measurements
+
+The translation planner's 40 output tokens/second and five-second setup
+allowance remain **unmeasured assumptions**, not provider guarantees. The
+180-second request and 900-second document limits are unchanged. No calibration
+can be justified until measurements cover every enabled model in the deployment's
+`ZPAGE_TRANSLATION_MODELS` preference list and all five high-expansion targets.
+
+From `py/free2z`, with the deployment-equivalent Django settings, catalogue and
+provider credentials configured, run manually (this incurs provider charges):
+
+```sh
+python dj/free2z/manage.py measure_translation_throughput --run-paid > translation-measurements.jsonl
+```
+
+The command makes at most one call per configured model/language pair, in Lao,
+Amharic, Sinhala, Khmer, Burmese order, with the shipping prompt, adapter,
+model cap, request timeout and zero SDK retries. `--model provider:model` and
+`--language lo` may be repeated to run a subset; the model must be in the
+configured preference list. Policy-disabled providers, disabled catalogue rows,
+and missing catalogue rows are reported as configuration exclusions, not required
+measurements. An enabled, permitted model without credentials is an evidence gap;
+client errors and failed calls also prevent complete coverage. A configured key
+is not proof of access: failed calls are recorded by exception type without
+credentials or provider error text.
+Keep the JSONL as evidence outside CI and repeat across representative times
+before making a policy decision. Do not use user content as the sample.
+
+Each JSONL pair records the model identity, classification, cap, elapsed time,
+partial counts and timing even after a timeout, read-cap or provider failure.
+A final summary lists configured and required models, excluded pairs and the
+required matrix's measured, failed, unavailable and ineligible pairs. A subset
+missing a required model or language, or an incomplete matrix, exits nonzero;
+redirect stdout to preserve the summary. An empty required matrix is incomplete. Transport completion is separate from eligibility:
+structurally eligible responses still require human quality review.
+
+Time to first token and sustained rate describe **raw text deltas**, including
+any wrappers or whitespace. The first delta is excluded from the raw rate and
+the remaining raw text is retokenized as a whole. Source and translated output
+counts use the shipping tokenizer, approximate for unmapped provider models;
+translated output follows the shipping fence/envelope/fence normalization.
+Provider output and reasoning usage are separate where available. Raw rate does
+not include reasoning or time before the first text delta. Empty, single-delta,
+refused, capped, failed, unknown-termination, wrong-script, source-echo and
+residual-envelope responses are ineligible. Ineligible expansion is diagnostic,
+not proof of a correct translation.
+Have a fluent reviewer assess translation quality before using expansion as
+representative. Select a conservative floor below the slowest reliable observed
+rate across the full matrix and account separately for worst observed setup,
+variation, hidden reasoning and the sample size; if evidence is insufficient,
+retain the unmeasured assumption and say so. Any proposed timeout change must
+state its impact on worker occupancy and capacity.

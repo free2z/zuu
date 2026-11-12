@@ -3103,6 +3103,8 @@
     "chipUnknown": "Verificando…",
     "deliveredToast": "{language}: pronta para revisar.",
     "doneReviewing": "Concluir",
+    "failureTimeout": "A tradução demorou demais. Tente um artigo mais curto ou tente novamente mais tarde.",
+    "failureTruncated": "A tradução atingiu o limite de saída antes de ser concluída. Tente um artigo mais curto.",
     "flaggedItemNotFound": "não aparece exatamente neste rascunho; compare com o original",
     "flaggedTextInDraft": "Encontrar itens sinalizados no rascunho",
     "emptyBody": "Escolha quantos idiomas quiser. Eles são traduzidos lado a lado enquanto você continua escrevendo, e cada um espera aqui pela sua revisão.",

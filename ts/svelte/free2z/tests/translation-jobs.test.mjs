@@ -25,6 +25,7 @@ import {
   summarizeTray,
   summaryText,
   trayRows,
+  translationFailureReason,
 } from "../src/lib/translation-jobs.ts";
 import { isNoChargeRefusal } from "../src/lib/zpage-translation-purchase.js";
 
@@ -844,4 +845,12 @@ test("tray rows: one per language from jobs and variants; flagged, failed and dr
     "3 ready to review · 1 translating · 1 need attention",
   );
   assert.equal(summaryText({ ready: 0, active: 0, attention: 0 }, t), "");
+});
+
+test("failure reason distinguishes timeouts, output limits, and unknown codes", () => {
+  const t = (_key, fallback) => fallback;
+  assert.match(translationFailureReason("timeout", t), /took too long/);
+  assert.match(translationFailureReason("output_truncated", t), /output limit/);
+  assert.equal(translationFailureReason("provider_error", t), "");
+  assert.equal(translationFailureReason(null, t), "");
 });
