@@ -235,16 +235,14 @@ for (const [action, change, result] of [
 ] as const) {
   test(`late ${action} cannot affect ${change} session`, async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page
-      .context()
-      .addCookies([
-        {
-          name: "sessionid",
-          value: "billing-fixture-session",
-          domain: "127.0.0.1",
-          path: "/",
-        },
-      ]);
+    await page.context().addCookies([
+      {
+        name: "sessionid",
+        value: "billing-fixture-session",
+        domain: "127.0.0.1",
+        path: "/",
+      },
+    ]);
     let user = { id: 8106, username: USER };
     await page.route("**/api/auth/user/", (route) =>
       route.fulfill({ json: user }),
@@ -338,16 +336,14 @@ for (const [action, change, result] of [
 
 test("unmount discards a late email mutation", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page
-    .context()
-    .addCookies([
-      {
-        name: "sessionid",
-        value: "billing-fixture-session",
-        domain: "127.0.0.1",
-        path: "/",
-      },
-    ]);
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "billing-fixture-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
   await page.route("**/api/auth/user/", (route) =>
     route.fulfill({ json: { id: 8106, username: USER } }),
   );
