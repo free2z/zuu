@@ -2807,6 +2807,8 @@
       "mcpMedia": "Descargar, editar y eliminar tus archivos guardados",
       "mcpLive": "Leer y gestionar tu sesión de emisión en directo",
       "mcpDelete": "Eliminar permanentemente tus páginas, traducciones, comentarios, conversaciones, colecciones y archivos",
+      "mcpTransfer": "Donar 2Z y comprar membresías dentro del límite explícito de cada cargo inmediato",
+      "mcpRenew": "Autorizar futuras renovaciones de membresía hasta un límite explícito, actualizar límites y cancelar renovaciones",
       "mcpSpend": "Gastar 2Z en comentarios, votos y traducciones dentro de cada límite explícito"
     },
     "capPeriods": {

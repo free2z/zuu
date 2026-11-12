@@ -729,3 +729,51 @@ REGISTRY.update(
         },
     }
 )
+
+# Explicit donation/membership delegation; legacy charge routes stay excluded.
+REGISTRY.update(
+    {
+        "tuzis_donate_idempotent_create": {
+            "method": "POST",
+            "path": "/api/tuzis/donate-idempotent/{username}",
+            "action": None,
+            "url_name": "donate2z_idempotent",
+            "view": "dj.apps.tuzis.views.IdempotentDonate2Z",
+        },
+        "tuzis_subscribe_confirmed_create": {
+            "method": "POST",
+            "path": "/api/tuzis/subscribe-confirmed/{username}",
+            "action": None,
+            "url_name": "tuzis_subscribe_confirmed",
+            "view": "dj.apps.tuzis.views.ConfirmedSubscribeView",
+        },
+        "tuzis_subscribe_destroy": {
+            "method": "DELETE",
+            "path": "/api/tuzis/subscribe/{username}",
+            "action": None,
+            "url_name": "tuzis_subscribe",
+            "view": "dj.apps.tuzis.views.CreatorSubscribeView",
+        },
+        "tuzis_subscribe_partial_update": {
+            "method": "PATCH",
+            "path": "/api/tuzis/subscribe/{username}",
+            "action": None,
+            "url_name": "tuzis_subscribe",
+            "view": "dj.apps.tuzis.views.CreatorSubscribeView",
+        },
+        "tuzis_subscribe_recovery_create": {
+            "method": "POST",
+            "path": "/api/tuzis/subscribe-recovery/{creator_id}",
+            "action": None,
+            "url_name": "tuzis_subscribe_recovery",
+            "view": "dj.apps.tuzis.views.SubscriptionIntentRecoveryView",
+        },
+        "tuzis_subscription_status_retrieve": {
+            "method": "GET",
+            "path": "/api/tuzis/subscription-status/{username}",
+            "action": None,
+            "url_name": "tuzis_subscription_status",
+            "view": "dj.apps.tuzis.views.SubscriptionStatusView",
+        },
+    }
+)
