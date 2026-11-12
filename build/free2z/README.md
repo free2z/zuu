@@ -131,3 +131,37 @@ scaffold while the full application snapshot is being introduced. A changed or
 partial scaffold fails; introducing the complete backend enables all application
 checks; removing its production lock fails. The release publisher refuses the
 scaffold. Remove this bootstrap exception after the ownership cutover.
+
+## Backend tokenizer vocabularies
+
+The backend image seeds its cache from `tiktoken-vocab/` and verifies that the
+installed tiktoken definitions, source files, and cache agree on the URL and
+SHA-256. A fresh interpreter then loads each encoding with tiktoken's file
+reader disabled. Neither phase downloads vocabularies. A checksum mismatch is
+an integrity error and stops the build; it is not repaired by a network retry.
+The build retains the cached copies for workers; it removes the source directory
+from the final filesystem.
+
+The files are OpenAI's `cl100k_base.tiktoken` and `o200k_base.tiktoken`, from
+[tiktoken 0.14.0's definitions](https://github.com/openai/tiktoken/blob/0.14.0/tiktoken_ext/openai_public.py).
+The tiktoken repository's [MIT license](https://github.com/openai/tiktoken/blob/0.14.0/LICENSE)
+is included in `tiktoken-vocab/LICENSE`. An OpenAI tiktoken collaborator
+[confirmed that the repository license applies to the encoding files](https://github.com/openai/tiktoken/issues/92#issuecomment-1497875652).
+
+To add an encoding, first verify its redistribution terms and record its source
+and attribution. Inspect the exact pinned tiktoken release's encoding definition
+for its source URL and expected SHA-256; download that exact file with a bounded
+transfer and independently compare its SHA-256 to the definition, for example:
+
+```sh
+curl --fail --location --connect-timeout 10 --max-time 60 "$URL_FROM_PINNED_DEFINITION" -o "build/free2z/tiktoken-vocab/$ENCODING.tiktoken"
+shasum -a 256 "build/free2z/tiktoken-vocab/$ENCODING.tiktoken"
+```
+
+Set the two variables from the pinned definition and compare the printed digest
+to its `expected_hash` before proceeding. Add the file
+and its URL/hash to `VOCABULARIES` in `warm_tiktoken_cache.py`, preserving any
+required license notices. Run the tokenizer cache tests and the vocabulary drift
+test, then build the backend image and check the offline proof. If the encoding
+uses a different loader or multiple files, adapt the seeding and proof rather
+than weakening the hash or allowing a runtime download.
