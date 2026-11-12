@@ -19,12 +19,27 @@
 //! rather than an app command, holds no local authority, and reaches only the
 //! URL scope named in `../capabilities/*.json`.
 
+use tauri::Manager as _;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install before plugins or filesystem access: even startup/storage failures
+    // must not fall back to a hook that formats an unredacted panic payload.
+    let diagnostics = std::sync::Arc::new(f2z_diagnostics::Store::memory());
+    let _ = f2z_diagnostics::install(std::sync::Arc::clone(&diagnostics));
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_http::init())
+        .setup(move |app| {
+            // Full/read-only storage loses persistence, never the bounded hook.
+            if let Ok(directory) = app.path().app_data_dir() {
+                let _ = std::fs::create_dir_all(&directory).and_then(|()| {
+                    diagnostics.attach_file(&directory.join("native-diagnostics-v1.log"))
+                });
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -78,6 +93,12 @@ mod tests {
             .nth(1)
             .and_then(|rest| rest.split("\n}").next())
             .expect("the run() body");
+        for forbidden in ["initialization_script", ".emit(", ".emit_to("] {
+            assert!(
+                !builder.contains(forbidden),
+                "no diagnostics broadcast into remote frames"
+            );
+        }
         assert!(
             !builder.contains("invoke_handler"),
             "free2z must register no command: #367 means a remote subframe could call it"

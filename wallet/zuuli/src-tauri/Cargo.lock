@@ -1916,6 +1916,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-diagnostics"
+version = "0.1.0"
+
+[[package]]
 name = "f2z-intent"
 version = "0.1.0"
 dependencies = [
@@ -9805,6 +9809,7 @@ dependencies = [
  "base64 0.22.1",
  "f2z-authority",
  "f2z-codec",
+ "f2z-diagnostics",
  "f2z-intent",
  "f2z-kt-core",
  "f2z-msg-identity",

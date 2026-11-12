@@ -13,9 +13,10 @@
 //! `DeviceCredential` (#905), and #461 still owes that call a transport that
 //! authenticates either end.
 //!
-//! What this crate *does* register is five app-crate commands, none of which
+//! What this crate *does* register is six app-crate commands, none of which
 //! needs a seed or a capability entry:
 //!
+//! * `native_diagnostics_report` — bounded numeric panic records only; no payload or path.
 //! * [`device::e2e2z_device_credential_keys`] — the public halves of this
 //!   device's key set, which an `issue-device-credential` request carries.
 //! * [`device::e2e2z_install_device_credential`] — consumes the credential the
@@ -55,14 +56,35 @@ pub mod device;
 /// does not have.
 const WRAP_KEY_NAMESPACE: &str = "cash.free2z.e2e2z.f2zmsg.wrap.v1";
 
+use tauri::Manager as _;
+
+struct NativeDiagnostics(Option<std::sync::Arc<f2z_diagnostics::Store>>);
+
+#[tauri::command]
+fn native_diagnostics_report(
+    state: tauri::State<'_, NativeDiagnostics>,
+) -> Result<String, &'static str> {
+    state
+        .inner()
+        .0
+        .as_ref()
+        .ok_or("native diagnostics unavailable")?
+        .report()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install before plugins or filesystem access: even startup/storage failures
+    // must not fall back to a hook that formats an unredacted panic payload.
+    let diagnostics = std::sync::Arc::new(f2z_diagnostics::Store::memory());
+    let installed = f2z_diagnostics::install(std::sync::Arc::clone(&diagnostics)).is_ok();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_deep_link::init())
         // This app's own device wrap-key namespace; see `WRAP_KEY_NAMESPACE`.
         .plugin(tauri_plugin_f2zmsg::init(WRAP_KEY_NAMESPACE))
         .invoke_handler(tauri::generate_handler![
+            native_diagnostics_report,
             device::e2e2z_device_credential_keys,
             device::e2e2z_install_device_credential,
             device::e2e2z_retry_device_unlock,
@@ -72,6 +94,16 @@ pub fn run() {
             // set is the argument for the surface existing at all.
             bridge::e2e2z_dispatch_intent
         ])
+        .setup(move |app| {
+            // Full/read-only storage loses persistence, never the bounded hook.
+            if let Ok(directory) = app.path().app_data_dir() {
+                let _ = std::fs::create_dir_all(&directory).and_then(|()| {
+                    diagnostics.attach_file(&directory.join("native-diagnostics-v1.log"))
+                });
+            }
+            app.manage(NativeDiagnostics(installed.then_some(diagnostics)));
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
