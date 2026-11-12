@@ -1,4 +1,8 @@
 import { expect, test } from "@playwright/test";
+import {
+  installSettingsAccountFixture,
+  openHydratedSettings,
+} from "./settings-account-fixture";
 
 const USER = "fixtureowner";
 const SETTINGS = `/${USER}/dashboard/settings`;
@@ -53,9 +57,8 @@ test("recovery email step-up requires re-entering the draft after sign-in", asyn
     });
   });
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto(SETTINGS);
-  await page.waitForLoadState("networkidle");
-  await page.getByRole("tab", { name: "Account", exact: true }).click();
+  const recoveryReads = await installSettingsAccountFixture(page);
+  await openHydratedSettings(page, SETTINGS, recoveryReads, "Account");
   const email = page.getByLabel("Email Address", { exact: true });
   await email.fill("pending@example.com");
   await page.getByRole("button", { name: "Update", exact: true }).click();
@@ -246,9 +249,8 @@ for (const method of [
       });
     }
     await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto(SETTINGS);
-    await page.waitForLoadState("networkidle");
-    await page.getByRole("tab", { name: "Account", exact: true }).click();
+    const recoveryReads = await installSettingsAccountFixture(page);
+    await openHydratedSettings(page, SETTINGS, recoveryReads, "Account");
     const email = page.getByLabel("Email Address", { exact: true });
     await email.fill("pending@example.com");
     await page.getByRole("button", { name: "Update", exact: true }).click();
