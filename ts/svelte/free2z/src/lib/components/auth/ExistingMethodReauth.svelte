@@ -8,6 +8,7 @@
 
   const dispatch = createEventDispatcher<{ success: { creator: any } }>();
   const labels: Record<string, string> = {
+    apple: "Apple",
     google: "Google",
     github: "GitHub",
     x: "X",

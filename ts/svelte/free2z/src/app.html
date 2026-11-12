@@ -61,6 +61,9 @@
       // executes and cannot recover the document. The session marker is shared
       // with the hydrated recovery hook and permits one reload per URL in 30s.
       (() => {
+        // OAuth proof fragments must never enter the asset-recovery marker.
+        // A failed callback load requires a new authorization, not a reload.
+        if (window.location.pathname === "/oauth/reauth-callback") return;
         const storageKey = "f2z:asset-recovery";
         const maxAgeMs = 30_000;
         let recoveryStarted = false;

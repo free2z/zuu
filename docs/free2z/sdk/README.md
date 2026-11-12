@@ -36,7 +36,7 @@ Tauri/TypeScript packages and live-platform prerequisites.
 1. **Sign users in to Free2Z.** Free2Z is an OAuth 2.0 / OpenID Connect
    identity provider. An app gets a short-lived, scoped access token and a
    stable user identity; it never sees a password, a passkey or a linked
-   provider's credential. Users may link Google, GitHub, Apple, X, passkeys
+   provider's credential. Users may link configured Google, GitHub, X and web-only Apple providers, passkeys
    and Zcash to one account, and the app does not need to know which one they
    used. → [`spec/oidc.md`](./spec/oidc.md)
 2. **Show 2Z, and send users to Free2Z to get more.** An app reads the
@@ -58,6 +58,12 @@ Tauri/TypeScript packages and live-platform prerequisites.
    ([`spec/metering.md`](./spec/metering.md#23-splits) §2.3).
    → [`spec/chat-api.md`](./spec/chat-api.md), [`spec/metering.md`](./spec/metering.md), and for function
    calling [`TOOLS.md`](./TOOLS.md)
+
+Apple requires server credentials and a registered HTTPS web callback; native
+loopback/mobile social login does not advertise Apple. Email is optional and
+never the Apple account key. Mobile Google remains disabled until signed-device
+verification and provider-console setup are recorded separately. See the
+[provider setup and availability contract](../app-suite/release/ZUULI-MOBILE-OAUTH.md#apple-web-sign-in-issue-1301).
 
 ## 2Z, in one paragraph
 

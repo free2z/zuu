@@ -1409,8 +1409,9 @@ paths:
         name: redirect_uri
         schema:
           type: string
-        description: Exact configured web redirect, strict ZUULI desktop loopback
-          URI, or cash.free2z.zuuli://oauth/callback.
+        description: 'Apple requires an exact registered HTTPS web callback (code
+          in fragment, no scopes). Other providers: configured web redirect, strict
+          ZUULI desktop loopback URI, or cash.free2z.zuuli://oauth/callback.'
         required: true
       tags:
       - auth
@@ -1437,6 +1438,40 @@ paths:
               schema:
                 $ref: '#/components/schemas/SocialOAuthUnavailable'
           description: ''
+  /api/auth/social/apple/unlink/:
+    post:
+      operationId: auth_social_apple_unlink
+      description: Unlink an Apple web identity using a JSON body so its stable subject
+        does not enter access-log URLs. Uses the same ownership and last-sign-in-method
+        policy as social unlink.
+      tags:
+      - auth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AppleUnlinkRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/AppleUnlinkRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/AppleUnlinkRequest'
+        required: true
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '204':
+          description: Apple identity unlinked.
+        '400':
+          description: Invalid identity.
+        '404':
+          description: No such identity.
+        '409':
+          description: Another usable sign-in method is required.
+        '503':
+          description: Concurrent update; retry.
   /api/auth/social/mobile/callback:
     get:
       operationId: auth_social_mobile_callback_retrieve
@@ -10681,6 +10716,14 @@ components:
         * `openai_responses` - openai_responses
         * `openai_chat` - openai_chat
         * `anthropic_messages` - anthropic_messages
+    AppleUnlinkRequest:
+      type: object
+      properties:
+        provider_uid:
+          type: string
+          maxLength: 191
+      required:
+      - provider_uid
     ApplicationStatusChange:
       type: object
       description: '`{"status":...}` from `POST /api/kyc/change-status`.'
@@ -17468,6 +17511,8 @@ components:
         configured:
           type: boolean
         web_reauthentication:
+          type: boolean
+        web_only:
           type: boolean
       required:
       - configured
