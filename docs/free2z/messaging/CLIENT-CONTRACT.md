@@ -359,6 +359,8 @@ below name the *characteristic* failures only.
 | `start_engine` | — | `EngineStatus` |
 | `stop_engine` | — | `EngineStatus` |
 | `get_device_info` | — | `DeviceInfo` |
+The proposed catch-up surface is documented provisionally in §12.1; it is not
+part of the shipping command surface below.
 
 ```ts
 interface EngineStatus {
@@ -1416,6 +1418,7 @@ type EngineState =
   | "degraded"        // running, but relays unreachable and/or threshold unmet
   | "stopped"
   | "faulted";        // unrecoverable without user action; carries lastError
+
 ```
 
 `degraded` is a **running** state, not an error state. Sending and receiving in
@@ -1774,7 +1777,7 @@ type ErrorCode =
 | `directory-rate-limited` | ● | Back off. |
 | `directory-proof-invalid` | | **Fatal.** An inclusion proof, a monotonicity check, or an entry authorization failed. This is **fork evidence**, not a network glitch ([`KT.md` §8.1](./KT.md#81-lookup), [§6.3](./KT.md#63-monotonicity)). Raise `directory-fork-evidence`; do not retry, do not "try another server". |
 | `directory-version-conflict` | ● | Someone (probably another of the user's own attempts) submitted for this handle in this epoch. Refresh the published state and retry once ([`KT.md` §4.3](./KT.md#43-uniqueness-within-an-epoch--a-must-that-comes-from-the-audit)). |
-| `directory-cooldown` | | A platform reset is pending and its cooldown has not elapsed. Show the cooldown end, and state that the old key remains in force and can still cancel the reset ([ADR 0014](./decisions/0014-directory-key-rotation.md)). |
+| `directory-cooldown` | | A platform reset submission was refused during its cooldown. Show the cooldown end and state that the old key remains in force. **Do not offer reset cancellation:** v1 defines no client command or protocol message for it, and the log does not publish the pending reset before `effective_at_ms` ([`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry), [ADR 0014](./decisions/0014-directory-key-rotation.md)). |
 | `directory-epoch-unavailable` | | The epoch or audit range asked for is outside the horizon the log still serves; it has been pruned ([`KT.md` §9.3](./KT.md#93-sizes-are-a-rate-limit-input-not-a-footnote)). This is the log answering honestly that it no longer holds those bytes — **not** a network failure and **not** fork evidence. Do not retry the same range and do not "try another server". |
 | `directory-protocol-violation` | | The log rejected our request as malformed, unsupported, unauthorized-by-construction or over-wide, or answered something we cannot parse. **This is a bug in one of the two implementations**, exactly as `relay-protocol-violation` is for the relay. Surface it as a defect with a report affordance; never silently retry. Deliberately **not** `directory-proof-invalid`: that one is a *cryptographic* failure and is fork evidence, and collapsing the two would turn every one of our own encoding bugs into an accusation. |
 | `directory-unvouched` | | **Fail closed.** The log's signed authority policy ([`KT.md` §4.6](./KT.md)) does not vouch with exactly the handle authority this build pins ([ADR 0017](./decisions/0017-internal-directory-activation.md) §3): a log deployed without its authority admits first-come registrations, and one with an extra authority admits handles this build never agreed to. Resolve nothing and publish nothing against it. Say that this directory is not the one this app was built for; suggest updating the app and reporting it. Never retry automatically. |
@@ -2007,6 +2010,7 @@ should be designed around speculatively.
 | **Groups larger than 2** | 1:1 is one MLS group like any other, so the model generalizes; fan-out is O(members × devices) and the scale limit is unanswered ([§13-M](./ARCHITECTURE.md#13-open-questions)). `Conversation` deliberately carries `peerHandle` rather than a member list — that is the v1 shape, and it will change. |
 | **Handle rename and transfer** | The internal phase permits one permanent claim for an account without a bound handle ([#1022](https://github.com/free2z/zuu/issues/1022), `WIRE.md` §14.3). Changing or transferring that binding is separate ([§13-K](./ARCHITECTURE.md#13-open-questions)); [ADR 0014](./decisions/0014-directory-key-rotation.md) settles key rotation only. |
 | **Client gossip** | The only anti-equivocation that functions before independent witnesses exist, and **its wire format does not exist** ([`KT.md` §8.4](./KT.md#84-gossip), [§13-R](./ARCHITECTURE.md#13-open-questions)). No UI for it in v1. |
+| **`no_reset` protection** | The flag is encoded, but KT v1 defines no enforcement rule and the client has no command or field to set it. Do not present it as an available protection; owner decisions about reset semantics belong to #551 ([ADR 0014](./decisions/0014-directory-key-rotation.md), [`KT.md` §4.4](./KT.md#44-what-authorizes-an-entry)). |
 | **P2P (WebRTC) transport for messages** | An optimization, not a dependency ([`ARCHITECTURE.md` §10](./ARCHITECTURE.md#10-p2p-webrtc--an-optimization-not-a-dependency)). Not in the v1 command surface. |
 
 ---
@@ -2257,6 +2261,17 @@ witness's job, not a phone's
 [`KT.md` §8.5](./KT.md#85-what-a-client-cannot-verify)). No UI may imply the
 client checked it.
 
+That figure is for one lookup proof, not directory catch-up. KT §8.5 quantifies
+the cold-start cost: one year behind is about 52,560 heads, 206 bounded calls,
+and 15.7 MiB of exact-epoch response bodies without cosignatures (26.0 MiB with
+one per head), plus deployment-dependent overhead. The 1.11 ms lookup benchmark
+is not the time to become directory-ready. The proposed progress/cancel surface
+is described provisionally in §12.1; it is not implemented.
+
+That figure is for one lookup proof, not directory catch-up. The proposed UI
+surface and cold-start cost are documented in §12.1; do not present the 1.11 ms
+lookup measurement as the time to become directory-ready.
+
 ---
 
 ## 12. What is provisional, and what is open
@@ -2270,6 +2285,7 @@ files) are settled.
 
 | Item | Why it is provisional |
 |---|---|
+| **Directory catch-up commands, progress event and status** | The runtime has no catch-up command, event, or `EngineStatus` sub-state. KT §6.3 specifies lower-level bounded pagination of at most 256 exact-epoch heads per call; that is not this client-facing control surface. Proposed surface (outside shipping command/event/type tables): `catch_up_directory` returns `{ catchUpId, state, verifiedEpoch, targetEpoch, verifiedHeads, totalHeads, error }`; `cancel_directory_catch_up({ catchUpId })` returns status; `f2zmsg://directory-catch-up` reports progress. Permit one active operation per engine; concurrent starts must be explicitly rejected or serialized with a defined busy result. Freeze `targetEpoch` from the latest authenticated head at operation start. `totalHeads` is target minus the starting checkpoint epoch; `verifiedHeads` counts consecutive verified heads since that checkpoint, not network responses. Process pages exactly as KT §6.3 specifies. Before reporting durable progress, and before reporting cancellation or failure, persist the last verified `SignedTreeHead` checkpoint. Only that authenticated durable checkpoint authorizes resume; counters and event payloads never do. Cancellation takes effect between requests, preserves the verified prefix, and never skips verification. The directory is not ready for operations requiring the target view until every intervening head is verified and the checkpoint is persisted. These are proposed semantics, not runtime support. Reset ownership/protocol decisions remain scoped to #551. |
 | Every field set in §3 | No `tauri-plugin-f2zmsg` exists. Fields will be added and removed as the engine lands. |
 | `ContactRequest.bodyPreview` | Showing any part of an unsolicited, unauthenticated-at-the-relay first-contact payload is a moderation and safety question ([`WIRE.md` §12.4](./WIRE.md#124-the-honest-limits)) that has not been answered. It may become `null` always. |
 | `WitnessConfig.independent` | Computed by a rule that does not exist ([§13-Q](./ARCHITECTURE.md#13-open-questions)). |
