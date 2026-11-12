@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import { toast, captureAccountToast } from "$lib/toast.js";
   import { mode, resetMode, setMode, userPrefersMode } from "mode-watcher";
   import { requestLogin } from "$lib/stores/auth-modal";
@@ -33,6 +33,28 @@
   let emailStatus: EmailStatus | null = null;
   let emailStatusLoading = false;
   let emailStatusError = "";
+  let recoverySuppressed = false;
+  let recoveryStatusError = false;
+  let recoveryRequest = 0;
+  let accountKey = "";
+  let uiGeneration = 0;
+  let sessionOwner = authStore.captureRequestOwnership();
+
+  function captureOwner() {
+    const owner = authStore.captureRequestOwnership();
+    const generation = uiGeneration;
+    const key = accountKey;
+    const routeUsername = username;
+    return () =>
+      mounted &&
+      !!key &&
+      username === routeUsername &&
+      key === accountKey &&
+      generation === uiGeneration &&
+      sessionOwner() &&
+      owner();
+  }
+  let mounted = false;
   let emailActionLoading = false;
   let emailPublic = false;
   let emailNotifications = false;
@@ -86,10 +108,21 @@
       ?.description || "";
 
   async function fetchEmailStatus() {
+    const key = accountKey;
+    const owns = captureOwner();
+    const request = ++recoveryRequest;
     emailStatusLoading = true;
     emailStatusError = "";
+    recoverySuppressed = false;
+    recoveryStatusError = false;
     try {
-      const response = await apiFetch("/api/emails/status", { method: "GET" });
+      const [response, recoveryResponse] = await Promise.all([
+        apiFetch("/api/emails/status", { method: "GET" }),
+        apiFetch("/api/emails/recovery-status", { method: "GET" }).catch(
+          () => null,
+        ),
+      ]);
+      if (!owns() || request !== recoveryRequest || key !== accountKey) return;
       if (!response.ok) {
         emailStatusError = $t(
           "settings.account.errors.fetchEmailStatus",
@@ -98,6 +131,7 @@
         return;
       }
       const data = await response.json();
+      if (!owns() || request !== recoveryRequest || key !== accountKey) return;
       if (
         typeof data?.confirmed !== "boolean" ||
         !(data.email === null || typeof data.email === "string")
@@ -107,21 +141,70 @@
       emailStatus = data;
       emailPublic = Boolean(data?.is_public);
       emailNotifications = Boolean(data?.get_notifications);
+      if (recoveryResponse?.ok) {
+        const recovery = await recoveryResponse.json();
+        if (!owns() || request !== recoveryRequest || key !== accountKey)
+          return;
+        if (
+          typeof recovery?.email_suppressed !== "boolean" ||
+          typeof recovery?.email_confirmed !== "boolean"
+        ) {
+          recoveryStatusError = true;
+        } else {
+          recoverySuppressed = Boolean(
+            data.confirmed &&
+            data.email &&
+            recovery.email_confirmed &&
+            recovery.email_suppressed,
+          );
+        }
+      } else {
+        recoveryStatusError = true;
+      }
       if (!emailDirty) {
         email = data?.email || "";
       }
     } catch {
+      if (!owns() || request !== recoveryRequest || key !== accountKey) return;
       emailStatusError = $t(
         "settings.account.errors.fetchEmailStatus",
         "Failed to fetch email status.",
       );
     } finally {
+      if (owns() && request === recoveryRequest && key === accountKey)
+        emailStatusLoading = false;
+    }
+  }
+
+  // Discard responses and drafts when the authenticated account changes.
+  $: if (mounted) {
+    const creator = $authStore.creator;
+    const nextKey =
+      creator?.username === username ? `${creator.id}:${creator.username}` : "";
+    if (nextKey !== accountKey || !sessionOwner()) {
+      sessionOwner = authStore.captureRequestOwnership();
+      uiGeneration += 1;
+      accountKey = nextKey;
+      recoveryRequest += 1;
+      emailStatus = null;
+      recoverySuppressed = false;
+      recoveryStatusError = false;
+      email = "";
+      emailDirty = false;
+      emailNeedsReauth = false;
+      emailActionLoading = false;
+      emailPublic = false;
+      emailNotifications = false;
+      emailStatusError = "";
       emailStatusLoading = false;
+      if (nextKey) void fetchEmailStatus();
     }
   }
 
   async function handleEmailUpdate() {
+    const owns = captureOwner();
     const operationNotice = captureAccountToast();
+    if (!owns()) return;
     if (emailActionLoading || !canMutateEmail) return;
     const trimmed = email.trim();
     if (!trimmed) {
@@ -153,8 +236,10 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: trimmed }),
       });
+      if (!owns()) return;
       if (!response.ok) {
         const failure = await readApiError(response);
+        if (!owns()) return;
         const data = failure.data as { code?: string } | null;
         emailNeedsReauth = data?.code === "insufficient_user_authentication";
         operationNotice.error(
@@ -177,36 +262,36 @@
       emailDirty = false;
       await fetchEmailStatus();
     } catch {
+      if (!owns()) return;
       operationNotice.error(
         $t("settings.account.errors.updateEmail", "Failed to update email."),
       );
     } finally {
-      emailActionLoading = false;
+      if (owns()) emailActionLoading = false;
     }
   }
 
   function reauthenticateEmail() {
+    const generation = uiGeneration;
+    const owns = captureOwner();
+    if (!owns()) return;
     requestLogin({
       reauthentication: true,
       notice: $t(
         "settings.account.reauthenticate",
-        "Sign in again to update your recovery email. Your pending email stays here; save it after signing in.",
+        "Sign in again to update your recovery email. Re-enter the address after signing in.",
       ),
-      onSuccess: (creator) => {
+      onSuccess: () => {
+        if (!owns() || generation !== uiGeneration) return;
         emailNeedsReauth = false;
-        if (creator?.username !== username) {
-          // Never carry this account's pending recovery address to another account.
-          email = "";
-          window.location.assign(
-            `/${encodeURIComponent(creator?.username || "")}/dashboard/settings`,
-          );
-        }
       },
     });
   }
 
   async function handleEmailResend() {
+    const owns = captureOwner();
     const operationNotice = captureAccountToast();
+    if (!owns()) return;
     if (emailActionLoading || !emailStatus?.email) return;
     emailActionLoading = true;
     try {
@@ -215,6 +300,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email: emailStatus.email }),
       });
+      if (!owns()) return;
       if (!response.ok) {
         operationNotice.error(
           $t("settings.account.errors.resendEmail", "Failed to resend email."),
@@ -222,20 +308,26 @@
         return;
       }
       operationNotice.success(
-        $t("settings.account.confirmationResent", "Confirmation email resent."),
+        $t(
+          "settings.account.confirmationResent",
+          "If this address can receive mail, a confirmation email has been requested.",
+        ),
       );
       await fetchEmailStatus();
     } catch {
+      if (!owns()) return;
       operationNotice.error(
         $t("settings.account.errors.resendEmail", "Failed to resend email."),
       );
     } finally {
-      emailActionLoading = false;
+      if (owns()) emailActionLoading = false;
     }
   }
 
   async function handleEmailDelete() {
+    const owns = captureOwner();
     const operationNotice = captureAccountToast();
+    if (!owns()) return;
     if (emailActionLoading || !canMutateEmail) return;
     const signsOutEverywhere = hasConfirmedEmail;
     emailActionLoading = true;
@@ -243,6 +335,7 @@
       const response = await apiFetch("/api/emails/delete", {
         method: "DELETE",
       });
+      if (!owns()) return;
       if (!response.ok) {
         operationNotice.error(
           $t("settings.account.errors.deleteEmail", "Failed to delete email."),
@@ -260,16 +353,19 @@
       emailDirty = false;
       await fetchEmailStatus();
     } catch {
+      if (!owns()) return;
       operationNotice.error(
         $t("settings.account.errors.deleteEmail", "Failed to delete email."),
       );
     } finally {
-      emailActionLoading = false;
+      if (owns()) emailActionLoading = false;
     }
   }
 
   async function handleEmailPublicToggle(nextValue: boolean) {
+    const owns = captureOwner();
     const operationNotice = captureAccountToast();
+    if (!owns()) return;
     if (!emailStatus) return;
     emailPublic = nextValue;
     try {
@@ -278,6 +374,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: nextValue }),
       });
+      if (!owns()) return;
       if (!response.ok) {
         operationNotice.error(
           $t(
@@ -293,6 +390,7 @@
         $t("settings.account.publicEmailUpdated", "Public email updated."),
       );
     } catch {
+      if (!owns()) return;
       emailPublic = !nextValue;
       operationNotice.error(
         $t(
@@ -304,7 +402,9 @@
   }
 
   async function handleEmailNotificationsToggle(nextValue: boolean) {
+    const owns = captureOwner();
     const operationNotice = captureAccountToast();
+    if (!owns()) return;
     if (!emailStatus) return;
     emailNotifications = nextValue;
     try {
@@ -313,6 +413,7 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ value: nextValue }),
       });
+      if (!owns()) return;
       if (!response.ok) {
         operationNotice.error(
           $t(
@@ -331,6 +432,7 @@
         ),
       );
     } catch {
+      if (!owns()) return;
       emailNotifications = !nextValue;
       operationNotice.error(
         $t(
@@ -429,8 +531,21 @@
     }
   }
 
+  onDestroy(() => {
+    mounted = false;
+    uiGeneration += 1;
+    recoveryRequest += 1;
+    email = "";
+    emailStatus = null;
+    emailStatusLoading = false;
+    emailActionLoading = false;
+    emailNeedsReauth = false;
+    recoverySuppressed = false;
+    recoveryStatusError = false;
+  });
+
   onMount(() => {
-    fetchEmailStatus();
+    mounted = true;
     fetchMentionPreference();
     void fetchDeletionState();
   });
@@ -505,7 +620,7 @@
             <p class="text-sm">
               {$t(
                 "settings.account.reauthenticate",
-                "Sign in again to update your recovery email. Your pending email stays here; save it after signing in.",
+                "Sign in again to update your recovery email. Re-enter the address after signing in.",
               )}
             </p>
             <Button variant="outline" onclick={reauthenticateEmail}
@@ -545,6 +660,58 @@
             </Button>
           {:else if emailStatus}
             <div class="flex flex-col gap-3 pt-2">
+              {#if recoverySuppressed}
+                <p
+                  role="alert"
+                  data-testid="recovery-suppressed"
+                  class="text-sm text-destructive"
+                >
+                  {$t(
+                    "settings.account.recoverySuppressed",
+                    "Your confirmed recovery email cannot receive mail. Use a different address or contact support for help.",
+                  )}
+                  <a class="underline" href="mailto:help@free2z.com"
+                    >{$t(
+                      "settings.account.contactSupport",
+                      "Contact support",
+                    )}</a
+                  >
+                </p>
+              {:else if !emailStatus.email}
+                <p class="text-sm" data-testid="recovery-no-email">
+                  {$t(
+                    "settings.account.recoveryNoEmail",
+                    "Add and confirm an email address so you can recover your account.",
+                  )}
+                </p>
+              {:else if !emailStatus.confirmed}
+                <p class="text-sm">
+                  {$t(
+                    "settings.account.recoveryPendingHelp",
+                    "If the confirmation does not arrive, try another address or contact support.",
+                  )}
+                  <a class="underline" href="mailto:help@free2z.com"
+                    >{$t(
+                      "settings.account.contactSupport",
+                      "Contact support",
+                    )}</a
+                  >
+                </p>
+              {/if}
+              {#if recoveryStatusError}
+                <p class="text-sm" role="alert">
+                  {$t(
+                    "settings.account.recoveryStatusError",
+                    "Could not check recovery status.",
+                  )}
+                </p>
+                <Button variant="outline" size="sm" onclick={fetchEmailStatus}
+                  >{$t(
+                    "settings.account.retryEmailStatus",
+                    "Retry email status",
+                  )}</Button
+                >
+              {/if}
               <div class="flex items-center gap-2">
                 {#if emailStatus.confirmed}
                   <Badge

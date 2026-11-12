@@ -8,7 +8,7 @@ const CHALLENGE = {
   max_age: 300,
 };
 
-test("recovery email step-up keeps the draft and returns to an explicit save", async ({
+test("recovery email step-up requires re-entering the draft after sign-in", async ({
   page,
 }) => {
   let recent = false;
@@ -63,14 +63,15 @@ test("recovery email step-up keeps the draft and returns to an explicit save", a
   await expect(notice).toContainText("Sign in again");
   await notice.getByRole("button", { name: "Sign in again" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("pending email stays here");
+  await expect(dialog).toContainText("Re-enter the address after signing in");
   await dialog.locator("#username").fill(USER);
   await dialog.locator("#password").fill("correct-password");
   await dialog.getByRole("button", { name: "Log in", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page).toHaveURL(SETTINGS);
-  await expect(email).toHaveValue("pending@example.com");
+  await expect(email).toHaveValue("");
   expect(writes).toEqual(["pending@example.com"]);
+  await email.fill("pending@example.com");
   await page.getByRole("button", { name: "Update", exact: true }).click();
   await expect.poll(() => writes.length).toBe(2);
   await expect(
@@ -101,7 +102,7 @@ for (const method of [
   "bad-otp",
   "expired-submit",
 ] as const) {
-  test(`passwordless recovery-email reauthentication through ${method} preserves the draft`, async ({
+  test(`passwordless recovery-email reauthentication through ${method} fences the draft`, async ({
     page,
     context,
   }) => {
