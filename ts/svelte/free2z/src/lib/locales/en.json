@@ -1464,6 +1464,7 @@
         "reply": "Reply",
         "subscriptionReceived": "Subscription In",
         "subscriptionSent": "Subscription Out",
+        "lowBalance": "Balance notice",
         "zecPending": "Payment Seen"
       },
       "fromUser": "From: {username}",
@@ -2386,6 +2387,9 @@
       "pageVoteReceivedUntitled": "{username} voted on your page with {amount} 2Z.",
       "pageVoteSent": "You voted on “{title}” with {amount} 2Z.",
       "pageVoteSentUntitled": "You voted on a page with {amount} 2Z.",
+      "disableLowBalance": "Turn off low-balance notices",
+      "lowBalanceDisabled": "Low-balance notices are off.",
+      "lowBalance": "A connected app could not use 2Z because your available balance was insufficient.",
       "zecPending": "Your Zcash payment was detected. We’re processing it. Check your credit balance in Credits & Earnings."
     },
     "socket": {
@@ -2560,6 +2564,9 @@
       "publicVisibility": "Public visibility",
       "receiveNotifications": "Receive notifications",
       "receiveMentionNotifications": "Receive in-app notifications when creators mention you",
+      "lowBalanceNotice": "Low-balance notice for connected apps",
+      "lowBalanceDescription": "Optionally receive a notice when a connected app cannot use 2Z. We attempt at most one every 24 hours. Eligible confirmed email addresses receive email; otherwise the notice appears here. No email is required.",
+      "lowBalanceError": "Could not update or load the notice preference.",
       "mentionNotificationsDescription": "Opt in to in-app notifications when creators mention you. This does not affect email or push notifications.",
       "removeEmail": "Remove Email",
       "resendConfirmation": "Resend Confirmation",

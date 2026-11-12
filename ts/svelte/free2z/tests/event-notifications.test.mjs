@@ -152,3 +152,20 @@ test("the payer's own ENCRYPTED_CHAT_REQUEST row is framed as a spend", () => {
   );
   assert.equal(rendered, "You paid 1 2Z to ask bob for an encrypted chat.");
 });
+
+test("low-balance event uses its localized informational message", () => {
+  let key;
+  const rendered = formatEventNotification(
+    event({ type: "LOW_BALANCE_NOTICE", contributor: null, amount: null }),
+    (name, fallback) => {
+      key = name;
+      return fallback;
+    },
+    "en",
+  );
+  assert.equal(key, "notifications.events.lowBalance");
+  assert.equal(
+    rendered,
+    "A connected app could not use 2Z because your available balance was insufficient.",
+  );
+});
