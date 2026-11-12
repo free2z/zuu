@@ -82,6 +82,7 @@ from django.db.models import Count, Exists, F, OuterRef, Q
 from django.utils import timezone
 
 from dj.apps.emails.models import Email, OptOutEmail
+from dj.apps.emails.suppression import is_suppressed, suppressed_addresses
 from dj.apps.otp.models import OTPSecret
 from dj.apps.social.models import SocialIdentity
 from dj.apps.twitter.models import TwitterProfile
@@ -268,9 +269,15 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        already_in_transaction = connection.in_atomic_block
         with transaction.atomic():
             if connection.vendor == "postgresql":
                 with connection.cursor() as cursor:
+                    # A standalone census reads many tables; keep one snapshot
+                    # while addresses and suppression decisions change. A
+                    # caller's existing transaction owns its isolation level.
+                    if not already_in_transaction:
+                        cursor.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
                     cursor.execute("SET TRANSACTION READ ONLY")
             if options["username"]:
                 report = self._one_account(options["username"])
@@ -307,7 +314,7 @@ class Command(BaseCommand):
         """
         return set(
             Email.objects.filter(
-                email__in=OptOutEmail.objects.values('email'),
+                email__in=suppressed_addresses(),
             ).values_list('email', flat=True)
         )
 
@@ -521,7 +528,7 @@ class Command(BaseCommand):
         )
         suppressed = bool(
             email
-            and OptOutEmail.objects.filter(email=email['email']).exists()
+            and is_suppressed(email['email'])
         )
         confirmed = bool(email and email['confirmed_at'] is not None)
         pending = bool(

@@ -463,13 +463,15 @@ def test_failed_reset_delivery_refunds_token_and_quota(
     cache_key = f"reset_email_count_v2_{email.email}"
     cache.delete(cache_key)
     send_mock = mocker.patch(
-        "dj.apps.emails.views.EmailMultiAlternatives.send",
+        "dj.apps.emails.views._bounded_recovery_send",
+        return_value=1,
         side_effect=RuntimeError("mail unavailable"),
     )
 
     with pytest.raises(RuntimeError, match="mail unavailable"):
         send_password_reset_email(email)
 
+    send_mock.assert_called_once()
     assert not PasswordResetToken.objects.filter(email=email).exists()
     assert cache.get(cache_key) in (None, 0)
 
@@ -501,14 +503,15 @@ def test_failed_delivery_does_not_refund_ambiguous_quota_claim(
         return_value=email_views._UNTRACKED_RESET_EMAIL_QUOTA,
     )
     release_mock = mocker.patch.object(email_views, "_release_reset_email_quota")
-    mocker.patch(
-        "dj.apps.emails.views.EmailMultiAlternatives.send",
+    send_mock = mocker.patch(
+        "dj.apps.emails.views._bounded_recovery_send",
         side_effect=RuntimeError("mail unavailable"),
     )
 
     with pytest.raises(RuntimeError, match="mail unavailable"):
         send_password_reset_email(email)
 
+    send_mock.assert_called_once()
     assert not PasswordResetToken.objects.filter(email=email).exists()
     release_mock.assert_not_called()
 
@@ -533,7 +536,7 @@ def test_ambiguous_redis_claim_uses_durable_token_ceiling(
         "_spend_reset_email_quota",
         return_value=email_views._UNTRACKED_RESET_EMAIL_QUOTA,
     )
-    send_mock = mocker.patch("dj.apps.emails.views.EmailMultiAlternatives.send")
+    send_mock = mocker.patch("dj.apps.emails.views._bounded_recovery_send", return_value=1)
 
     assert send_password_reset_email(email) is None
 
@@ -600,7 +603,7 @@ def test_reset_issuance_rechecks_locked_recovery_address(
         return original_get(queryset, *args, **kwargs)
 
     mocker.patch.object(QuerySet, "get", change_address_before_account_lock)
-    send_mock = mocker.patch("dj.apps.emails.views.EmailMultiAlternatives.send")
+    send_mock = mocker.patch("dj.apps.emails.views._bounded_recovery_send", return_value=1)
 
     assert send_password_reset_email(stale_email) is None
 
@@ -973,7 +976,7 @@ def test_concurrent_pre_reset_token_issuance_is_invalidated(
         side_effect=pause_issuance_create,
     )
     mocker.patch.object(QuerySet, "get", observe_redemption_account_lock)
-    mocker.patch("dj.apps.emails.views.EmailMultiAlternatives.send")
+    mocker.patch("dj.apps.emails.views._bounded_recovery_send", return_value=1)
     errors = []
     reset_statuses = []
 
@@ -1052,7 +1055,7 @@ def test_reset_winning_account_lock_suppresses_stale_token_issuance(
 
     mocker.patch.object(QuerySet, "get", pause_issuer_before_account_lock)
     send_mock = mocker.patch(
-        "dj.apps.emails.views.EmailMultiAlternatives.send"
+        "dj.apps.emails.views._bounded_recovery_send", return_value=1
     )
     errors = []
     reset_statuses = []

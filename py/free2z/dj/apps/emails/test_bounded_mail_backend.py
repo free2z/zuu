@@ -158,7 +158,7 @@ def test_a_response_timeout_keeps_the_reset_token(creator_factory, mocker):
     email = _reset_email(creator_factory, "maybe-delivered@example.com")
     release = mocker.patch("dj.apps.emails.views._release_reset_email_quota")
     mocker.patch(
-        "dj.apps.emails.views.EmailMultiAlternatives.send",
+        "dj.apps.emails.views._bounded_recovery_send",
         side_effect=TimeoutError("timed out"),
     )
 
@@ -175,7 +175,7 @@ def test_a_connect_failure_still_retracts_the_reset_token(
 ):
     email = _reset_email(creator_factory, "not-delivered@example.com")
     mocker.patch(
-        "dj.apps.emails.views.EmailMultiAlternatives.send",
+        "dj.apps.emails.views._bounded_recovery_send",
         side_effect=URLError(TimeoutError("timed out")),
     )
 

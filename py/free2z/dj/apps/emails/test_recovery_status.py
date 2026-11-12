@@ -27,6 +27,7 @@ from django.core.management import call_command
 from django.utils import timezone
 
 from dj.apps.emails.models import Email, OptOutEmail, PasswordResetToken
+from dj.apps.emails.views import send_password_reset_email
 from dj.apps.ktauth.epoch import EVENT_PASSWORD_CHANGE, bump_account_epoch
 from dj.apps.otp.models import OTPSecret
 from dj.apps.otp.utils import has_active_totp
@@ -106,6 +107,49 @@ def test_password_without_an_address_is_still_unrecoverable(
     assert body["can_recover"] is False
     assert body["risk"] == "no_recovery"
     assert body["next_step"] == "add_email"
+
+
+@pytest.mark.django_db
+def test_status_reads_current_password_not_authenticated_snapshot(api_client, creator_factory):
+    user = creator_factory()
+    api_client.force_authenticate(user=user)
+    changed = type(user).objects.get(pk=user.pk)
+    changed.set_unusable_password()
+    changed.save(update_fields=["password"])
+
+    body = api_client.get(URL).json()
+
+    assert body["password_set"] is False
+    assert body["risk"] == "no_credentials"
+
+
+@pytest.mark.django_db
+def test_reset_rechecks_suppression_after_waiting_for_account_lock(creator_factory, mocker):
+    user = creator_factory()
+    address = _make_email(user, "race@example.com", confirmed=True)
+    original_filter = OptOutEmail.objects.filter
+    calls = 0
+
+    def filter_with_unsubscribe(**kwargs):
+        nonlocal calls
+        calls += 1
+        queryset = original_filter(**kwargs)
+        if calls == 1:
+            # Model the decision committing between the optimistic check and
+            # the locked recheck; the first query already observed no row.
+            result = mocker.Mock()
+            result.exists.side_effect = lambda: (
+                OptOutEmail.objects.create(email=address.email) and False
+            )
+            return result
+        return queryset
+
+    mocker.patch.object(OptOutEmail.objects, "filter", side_effect=filter_with_unsubscribe)
+    send_password_reset_email(address)
+
+    assert calls == 2
+    assert not PasswordResetToken.objects.filter(email=address).exists()
+    assert not mail.outbox
 
 
 @pytest.mark.django_db
@@ -581,6 +625,7 @@ def test_a_mail_backend_returning_zero_is_not_counted_as_sent(
     message = mocker.Mock()
     message.send.return_value = 0
     mocker.patch("dj.apps.emails.views.EmailMultiAlternatives", return_value=message)
+    mocker.patch("dj.apps.emails.views._bounded_recovery_send", return_value=0)
 
     response = api_client.post(
         "/api/emails/reset-password", {"email": "known@example.com"},

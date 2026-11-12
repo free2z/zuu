@@ -1,5 +1,9 @@
 import { expect, test, type Page } from "@playwright/test";
 import { GUARD_WIDTHS, expectNoHorizontalScroll } from "./mobile-layout-guards";
+import {
+  installSettingsAccountFixture,
+  openHydratedSettings,
+} from "./settings-account-fixture";
 
 // Issue. Three defects on this page, none of which the document-width
 // guards could see:
@@ -96,13 +100,13 @@ test("the save dock rides above whatever else is docked at the bottom", async ({
   // instantiate it and the variable has to be driven directly. Without this the
   // banner covers the only mobile Save/Discard controls on the page.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(SETTINGS_URL);
+  const recoveryReads = await installSettingsAccountFixture(page);
+  await openHydratedSettings(page, SETTINGS_URL, recoveryReads);
+  await page.evaluate(() => window.scrollTo(0, 0));
 
   const dock = page.getByTestId("settings-mobile-actions");
   await expect(dock).toBeVisible();
-  // The tab panel below the dock is filled in on hydration; measuring before
-  // that lands compares two different layouts.
-  await page.waitForLoadState("networkidle");
+  // The account and financial panels have both been hydrated before measuring.
   const restingBottom = await dock.evaluate(
     (el) => el.getBoundingClientRect().bottom,
   );
@@ -140,10 +144,8 @@ test("a failed save reports itself on a phone", async ({ page }) => {
   // The regression this guards is silence: the page used to swallow the error
   // entirely below `lg`, which is worse than a bad message.
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(SETTINGS_URL);
-  // The button is server-rendered before its handler exists; clicking a
-  // pre-hydration button is a no-op and the failure looks exactly like the bug.
-  await page.waitForLoadState("networkidle");
+  const recoveryReads = await installSettingsAccountFixture(page);
+  await openHydratedSettings(page, SETTINGS_URL, recoveryReads);
 
   await page.route(
     (url) => url.pathname === "/api/auth/user/",

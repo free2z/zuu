@@ -663,18 +663,23 @@ def test_email_is_queued_with_the_charge_and_sent(pair, settings):
     ids=["no-address", "unconfirmed", "notifications-off", "opted-out",
          "recipient-inactive"],
 )
-def test_email_preferences_are_respected(pair, setup, reason):
+def test_email_preferences_are_respected(pair, setup, reason, caplog):
     sender, recipient = pair
     chat_request(sender, recipient.username)
     setup(recipient)
     chat = ChatRequest.objects.get()
 
-    run_email_job(chat)
+    with caplog.at_level("INFO", logger="dj.apps.e2ee.tasks"):
+        run_email_job(chat)
 
     assert mail.outbox == []
     chat.refresh_from_db()
     assert chat.email_status == ChatRequest.EMAIL_SKIPPED
     assert chat.email_detail == reason
+    if reason == "opted_out":
+        assert "reason=opted_out" in caplog.text
+        assert f"{recipient.username}@example.com" not in caplog.text
+        assert f"token-{recipient.username}" not in caplog.text
 
 
 @pytest.mark.django_db
