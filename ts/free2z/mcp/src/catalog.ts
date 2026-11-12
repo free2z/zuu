@@ -28,6 +28,9 @@ for (const [path, item] of Object.entries(document.paths) as [
   string,
   Schema,
 ][]) {
+  // This is an explicit first-party consent decision, not a generic account
+  // action that an MCP client may discover and enable on the user's behalf.
+  if (path === "/api/events/low-balance-preference/") continue;
   for (const [method, spec] of Object.entries(item) as [string, Schema][]) {
     if (!methods.has(method) || !spec.operationId) continue;
     if (operations.has(spec.operationId))
