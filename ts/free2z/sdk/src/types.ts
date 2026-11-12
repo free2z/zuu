@@ -596,6 +596,8 @@ export interface CallReport {
   created_at: string;
 }
 export interface Transport {
+  /** Authenticated fetch for the configured AI gateway, when supported. */
+  compatFetch?(): typeof fetch;
   session(): Promise<Session>;
   signIn(options?: SignInOptions): Promise<Session>;
   signOut(): Promise<{ revoked: boolean; generation: string }>;

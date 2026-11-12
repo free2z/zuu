@@ -1602,3 +1602,35 @@ test("public usage preserves the hourly subset as an exact unsigned count", asyn
   assert.equal(decoded.usage.cache_write_tokens, 9007199254740993n);
   assert.equal(decoded.usage.cache_write_1h_tokens, 9007199254740992n);
 });
+
+test("compatFetch injects and refreshes tokens only for the configured gateway", async () => {
+  const mock = issuer();
+  const originalFetch = mock.config.fetch;
+  mock.config.fetch = (input, init) =>
+    input instanceof Request
+      ? originalFetch(input.url, {
+          method: input.method,
+          headers: input.headers,
+          body: input.body,
+          signal: input.signal,
+        })
+      : originalFetch(input, init);
+  const client = new Client(new FetchTransport(mock.config));
+  await client.signIn();
+  const tokens = [];
+  mock.api = (_path, init) => {
+    tokens.push(new Headers(init.headers).get("authorization"));
+    return tokens.length === 1 ? expired() : mock.json({ ok: true });
+  };
+  const fetch = client.compatFetch();
+  const response = await fetch(`${mock.config.aiBase}/chat/completions`, {
+    method: "POST",
+    body: "{}",
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(tokens, ["Bearer access-1", "Bearer access-rotated"]);
+  assert.equal(mock.refreshCalls, 1);
+  await assert.rejects(fetch("https://evil.example/v1/chat/completions"), {
+    code: "invalid_request",
+  });
+});

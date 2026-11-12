@@ -255,7 +255,257 @@
       "output_tokens": 44,
       "tool_calls": 0
     },
-    "encodings": {},
+    "encodings": {
+      "chat_completions": {
+        "chunks": [
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-openai-chat",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant",
+                  "content": ""
+                },
+                "finish_reason": null
+              }
+            ],
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-openai-chat",
+              "hold_2z": 35,
+              "requested_model": "m-openai-chat",
+              "provider": "openai",
+              "max_output_tokens": 8192,
+              "input_tokens_estimate": 543
+            }
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-openai-chat",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "",
+                        "name": "check_answer"
+                      },
+                      "id": "call_q1",
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-openai-chat",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-openai-chat",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 1,
+                      "function": {
+                        "arguments": "",
+                        "name": "check_answer"
+                      },
+                      "id": "call_q2",
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-openai-chat",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 1,
+                      "function": {
+                        "arguments": "{\"question_id\":\"q2\",\"answer\":\"y = -1\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-openai-chat",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 120,
+              "completion_tokens": 44,
+              "total_tokens": 164,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 0
+              }
+            },
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-openai-chat",
+              "hold_2z": 35,
+              "requested_model": "m-openai-chat",
+              "provider": "openai",
+              "max_output_tokens": 8192,
+              "input_tokens_estimate": 543,
+              "charged_2z": 1,
+              "receipt_id": "$RECEIPT_ID",
+              "finish_reason": "tool_calls",
+              "settlement": "settled",
+              "released_2z": 34,
+              "collected_milli_2z": 1000,
+              "shortfall_milli_2z": 0,
+              "cap_remaining_milli_2z": null,
+              "usage_source": "provider"
+            }
+          }
+        ],
+        "response": {
+          "id": "$CALL_ID",
+          "object": "chat.completion",
+          "created": "$CREATED",
+          "model": "m-openai-chat",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "call_q1",
+                    "type": "function",
+                    "function": {
+                      "name": "check_answer",
+                      "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+                    }
+                  },
+                  {
+                    "id": "call_q2",
+                    "type": "function",
+                    "function": {
+                      "name": "check_answer",
+                      "arguments": "{\"question_id\":\"q2\",\"answer\":\"y = -1\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": "tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 120,
+            "completion_tokens": 44,
+            "total_tokens": 164,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "f2z": {
+            "call_id": "$CALL_ID",
+            "model": "m-openai-chat",
+            "message": {
+              "tool_calls": [
+                {
+                  "id": "call_q1",
+                  "name": "check_answer",
+                  "arguments": "{\"question_id\":\"q1\",\"answer\":\"x = 4\"}"
+                },
+                {
+                  "id": "call_q2",
+                  "name": "check_answer",
+                  "arguments": "{\"question_id\":\"q2\",\"answer\":\"y = -1\"}"
+                }
+              ]
+            },
+            "finish_reason": "tool_calls",
+            "usage": {
+              "input_tokens": 120,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 44,
+              "reasoning_tokens": 0,
+              "images": 0,
+              "tool_calls": 0
+            },
+            "usage_source": "provider",
+            "requested_model": "m-openai-chat",
+            "provider": "openai",
+            "charged_2z": 1,
+            "receipt_id": "$RECEIPT_ID",
+            "settlement": "settled",
+            "hold_2z": 35,
+            "released_2z": 34,
+            "collected_milli_2z": 1000,
+            "shortfall_milli_2z": 0,
+            "cap_remaining_milli_2z": null
+          }
+        }
+      }
+    },
     "hold_extends": 0
   }
 }

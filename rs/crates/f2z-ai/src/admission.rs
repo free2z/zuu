@@ -232,6 +232,9 @@ struct CallState {
     principal: OnceLock<Principal>,
     idempotency_key: OnceLock<String>,
     durable_call_id: OnceLock<uuid::Uuid>,
+    compat: OnceLock<bool>,
+    compat_include_usage: OnceLock<bool>,
+    compat_token_alias: OnceLock<&'static str>,
 }
 
 /// The handler's view of an admitted request. Inserted into its extensions.
@@ -263,6 +266,29 @@ impl CallHandle {
 
     pub(crate) fn set_principal(&self, principal: Principal) {
         let _ = self.0.principal.set(principal);
+    }
+
+    pub(crate) fn set_compat(&self) {
+        let _ = self.0.compat.set(true);
+    }
+    pub(crate) fn set_compat_token_alias(&self, alias: &'static str) {
+        let _ = self.0.compat_token_alias.set(alias);
+    }
+    pub(crate) fn compat_token_alias(&self) -> &'static str {
+        self.0
+            .compat_token_alias
+            .get()
+            .copied()
+            .unwrap_or("max_completion_tokens")
+    }
+    pub(crate) fn set_compat_include_usage(&self, value: bool) {
+        let _ = self.0.compat_include_usage.set(value);
+    }
+    pub(crate) fn compat_include_usage(&self) -> bool {
+        self.0.compat_include_usage.get().copied().unwrap_or(false)
+    }
+    pub(crate) fn is_compat(&self) -> bool {
+        self.0.compat.get().copied().unwrap_or(false)
     }
 
     pub(crate) fn set_idempotency_key(&self, key: String) {
@@ -403,6 +429,9 @@ where
             principal: OnceLock::new(),
             idempotency_key: OnceLock::new(),
             durable_call_id: OnceLock::new(),
+            compat: OnceLock::new(),
+            compat_include_usage: OnceLock::new(),
+            compat_token_alias: OnceLock::new(),
         }));
         request.extensions_mut().insert(handle.clone());
         let future = self.inner.call(request);

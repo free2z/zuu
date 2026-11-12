@@ -61,6 +61,7 @@ struct Memory {
     terminal: Option<&'static str>,
     charges: usize,
     hold_requests: usize,
+    extend_requests: usize,
     settle_requests: usize,
     revoked: bool,
     expire_at_completion: bool,
@@ -194,9 +195,12 @@ impl Ledger for Database {
                     json!({"status":if replayed {"replayed"} else {"held"},"state":m.terminal.unwrap_or("open"),"hold_id":m.hold,"amount":m.amount,"applied_markup_bps":0,"available":m.available,"cap_remaining":null,"expires_at":"2026-09-27T00:05:00Z"}),
                 )
             }
-            Operation::Extend { .. } => Ok(
-                json!({"status":"held","state":"open","amount":m.amount,"available":m.available,"cap_remaining":null,"expires_at":"2026-09-27T00:05:00Z"}),
-            ),
+            Operation::Extend { .. } => {
+                m.extend_requests += 1;
+                Ok(
+                    json!({"status":"held","state":"open","amount":m.amount,"available":m.available,"cap_remaining":null,"expires_at":"2026-09-27T00:05:00Z"}),
+                )
+            }
             Operation::Complete {
                 identity,
                 call,
@@ -3650,5 +3654,479 @@ async fn forced_tool_choice_signed_policy_precedes_holds_and_provider_io() {
                 }
             }
         }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_route_uses_the_native_meter_and_retains_no_completion_on_replay() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db.clone(), Scenario::default()).await;
+    let body = json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":false});
+    let (status, value) = post(&r, "/v1/chat/completions", &body).await;
+    assert_eq!(status, StatusCode::OK, "{value}");
+    assert_eq!(value["object"], "chat.completion");
+    assert!(value["usage"]["prompt_tokens"].is_number());
+    assert!(value["choices"][0]["finish_reason"].is_string());
+    assert_eq!(value["f2z"]["settlement"], "settled");
+    final_state(&db).await;
+    {
+        let state = db.0.lock().unwrap();
+        assert_eq!(state.hold_requests, 1);
+        assert_eq!(state.settle_requests, 1);
+        assert_eq!(state.charges, 1);
+    }
+    let (status, value) = post(&r, "/v1/chat/completions", &body).await;
+    assert_eq!(status, StatusCode::GONE, "{value}");
+    assert_eq!(value["error"]["code"], "completion_not_retained");
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_stream_provider_failure_after_hold_is_an_error_chunk() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(
+        db.clone(),
+        Scenario::default().with_fault(f2z_ai_testkit::mock::Fault::Status { status: 503 }),
+    )
+    .await;
+    let body = json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":true});
+    let req = axum::http::Request::post("/v1/chat/completions")
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = support::text(response).await;
+    assert!(text.contains("\"error\""), "{text}");
+    assert!(text.contains("\"settlement\":\"released\""), "{text}");
+    final_state(&db).await;
+    assert_eq!(db.0.lock().unwrap().charges, 0);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_stream_finishes_with_usage_and_settlement() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db.clone(), Scenario::default()).await;
+    let body = json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":true});
+    let req = axum::http::Request::post("/v1/chat/completions")
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.headers()["x-request-id"],
+        response.headers()["x-f2z-call-id"]
+    );
+    assert_eq!(
+        response.headers()["request-id"],
+        response.headers()["x-f2z-call-id"]
+    );
+    assert!(
+        response.headers()["x-f2z-hold-2z"]
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+            > 0
+    );
+    assert!(
+        response.headers()["x-f2z-catalog-version"]
+            .to_str()
+            .unwrap()
+            .parse::<u64>()
+            .is_ok()
+    );
+    let text = support::text(response).await;
+    let chunks: Vec<Value> = text
+        .lines()
+        .filter_map(|line| line.strip_prefix("data: "))
+        .filter_map(|s| serde_json::from_str(s).ok())
+        .collect();
+    let last = chunks.last().unwrap();
+    assert!(last["usage"]["prompt_tokens"].is_number(), "{text}");
+    assert!(last["choices"][0]["finish_reason"].is_string(), "{text}");
+    assert_eq!(last["f2z"]["settlement"], "settled");
+    assert!(text.contains("data: [DONE]"));
+    final_state(&db).await;
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn same_key_across_encodings_cannot_replay_or_charge_again() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db.clone(), Scenario::default()).await;
+    let mut native = request();
+    native["stream"] = json!(false);
+    let (status, _) = post(&r, "/v1/chat", &native).await;
+    assert_eq!(status, StatusCode::OK);
+    let compat = json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":false});
+    let (status, value) = post(&r, "/v1/chat/completions", &compat).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{value}");
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_and_native_requests_have_matching_metering() {
+    let mut observations = Vec::new();
+    for compat in [false, true] {
+        let db = Arc::new(Database::new());
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let (path, body) = if compat {
+            (
+                "/v1/chat/completions",
+                json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":false}),
+            )
+        } else {
+            let mut body = request();
+            body["stream"] = json!(false);
+            ("/v1/chat", body)
+        };
+        let (status, value) = post(&r, path, &body).await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        final_state(&db).await;
+        {
+            let state = db.0.lock().unwrap();
+            observations.push((
+                state.hold_requests,
+                state.settle_requests,
+                state.charges,
+                state.amount,
+                state.settled_usage.clone(),
+            ));
+        }
+        mock.shutdown().await;
+    }
+    assert_eq!(observations[0], observations[1]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_stream_failure_after_output_keeps_settlement() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(
+        db.clone(),
+        Scenario::default().with_fault(f2z_ai_testkit::mock::Fault::ErrorEventAtByte {
+            byte: 300,
+            status: 529,
+        }),
+    )
+    .await;
+    let body = json!({"model":"m-chat","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":true});
+    let req = axum::http::Request::post("/v1/chat/completions")
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = support::text(response).await;
+    assert!(text.contains("chat.completion.chunk"), "{text}");
+    assert!(text.contains("\"error\""), "{text}");
+    assert!(text.contains("\"settlement\""), "{text}");
+    final_state(&db).await;
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_models_and_preflight_use_filtered_catalogue() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db, Scenario::default()).await;
+    let req = axum::http::Request::get("/v1/models")
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let list: Value = serde_json::from_str(&support::text(response).await).unwrap();
+    assert_eq!(list["object"], "list");
+    assert_eq!(list["data"], list["models"]);
+    assert_eq!(list["data"][0]["created"], 0);
+    let id = list["data"][0]["id"].as_str().unwrap();
+    let req = axum::http::Request::get(format!("/v1/models/{id}"))
+        .header("host", "gateway")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let model: Value = serde_json::from_str(&support::text(response).await).unwrap();
+    assert_eq!(model, list["data"][0]);
+    let req = axum::http::Request::builder()
+        .method("OPTIONS")
+        .uri("/v1/chat/completions")
+        .header("host", "gateway")
+        .header("origin", "https://app.example")
+        .header("access-control-request-method", "POST")
+        .header(
+            "access-control-request-headers",
+            "authorization,idempotency-key,x-f2z-max-output-tokens-strict",
+        )
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    assert!(
+        response.headers()["access-control-allow-headers"]
+            .to_str()
+            .unwrap()
+            .to_ascii_lowercase()
+            .contains("authorization")
+    );
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_extension_conflict_is_refused_before_hold() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db.clone(), Scenario::default()).await;
+    let body = json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello"}],"f2z":{"max_output_tokens_strict":true}});
+    let req = axum::http::Request::post("/v1/chat/completions")
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .header("x-f2z-max-output-tokens-strict", "false")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let value: Value = serde_json::from_str(&support::text(response).await).unwrap();
+    assert_eq!(value["error"]["param"], "/f2z/max_output_tokens_strict");
+    assert_eq!(value["error"]["details"]["reason"], "extension_conflict");
+    assert_eq!(db.0.lock().unwrap().hold_requests, 0);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_include_usage_adds_usage_only_chunk() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db, Scenario::default()).await;
+    let body = json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":true,"stream_options":{"include_usage":true}});
+    let req = axum::http::Request::post("/v1/chat/completions")
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = support::text(response).await;
+    let chunks: Vec<Value> = text
+        .lines()
+        .filter_map(|l| l.strip_prefix("data: "))
+        .filter_map(|s| serde_json::from_str(s).ok())
+        .collect();
+    assert_eq!(chunks.last().unwrap()["choices"], json!([]));
+    assert!(chunks.last().unwrap()["usage"]["total_tokens"].is_number());
+    assert!(chunks[chunks.len() - 2]["choices"][0]["finish_reason"].is_string());
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_unknown_member_is_rejected_before_provider_or_hold() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db.clone(), Scenario::default()).await;
+    let body = json!({"model":"m-responses","messages":[{"role":"user","content":"hello"}],"vendor_extension":true});
+    let (status, value) = post(&r, "/v1/chat/completions", &body).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(value["error"]["param"], "/vendor_extension");
+    assert_eq!(value["error"]["details"]["reason"], "unknown");
+    assert_eq!(db.0.lock().unwrap().hold_requests, 0);
+    assert_eq!(mock.request_count(), 0);
+    mock.shutdown().await;
+}
+
+#[tokio::test(start_paused = true)]
+async fn compatibility_and_native_extend_and_settle_equally() {
+    let clock = drive_clock();
+    let mut observations = Vec::new();
+    for compat in [false, true] {
+        let db = Arc::new(Database::new());
+        let (r, mock) = launch_keepalive(
+            db.clone(),
+            Scenario::default().with_ttfb(Duration::from_secs(70)),
+            Some(Duration::from_secs(15)),
+        )
+        .await;
+        let mut body = if compat {
+            json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":true})
+        } else {
+            request()
+        };
+        if !compat {
+            body["stream"] = true.into();
+        }
+        let req = axum::http::Request::post(if compat {
+            "/v1/chat/completions"
+        } else {
+            "/v1/chat"
+        })
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+        let response = support::send(r.public, req).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let text = read_like_the_sdk(response).await.unwrap();
+        let terminal: Value = if compat {
+            text.lines()
+                .filter_map(|line| line.strip_prefix("data: "))
+                .filter_map(|v| serde_json::from_str::<Value>(v).ok())
+                .next_back()
+                .unwrap()["f2z"]
+                .clone()
+        } else {
+            let data = text
+                .split("event: done\ndata: ")
+                .nth(1)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap();
+            serde_json::from_str(data).unwrap()
+        };
+        assert_eq!(settled(&db).await, "settled");
+        {
+            let state = db.0.lock().unwrap();
+            let fields = [
+                "settlement",
+                "charged_2z",
+                "hold_2z",
+                "released_2z",
+                "collected_milli_2z",
+                "shortfall_milli_2z",
+                "cap_remaining_milli_2z",
+                "balance_hint_milli_2z",
+            ];
+            assert!(terminal["receipt_id"].is_string());
+            observations.push((
+                state.hold_requests,
+                state.extend_requests,
+                state.settle_requests,
+                state.amount,
+                state.settled_usage.clone(),
+                fields
+                    .iter()
+                    .map(|f| terminal.get(*f).cloned())
+                    .collect::<Vec<_>>(),
+            ));
+        }
+        mock.shutdown().await;
+    }
+    assert!(observations[0].1 > 0, "heartbeat was not exercised");
+    assert_eq!(observations[0], observations[1]);
+    clock.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_usage_option_changes_idempotency_fingerprint() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(db.clone(), Scenario::default()).await;
+    let mut body = json!({"model":"m-responses","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":false});
+    let (status, _) = post(&r, "/v1/chat/completions", &body).await;
+    assert_eq!(status, StatusCode::OK);
+    body["stream_options"] = json!({"include_usage":true});
+    let (status, value) = post(&r, "/v1/chat/completions", &body).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{value}");
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_nonstream_partial_failure_preserves_settlement_and_no_retry() {
+    let db = Arc::new(Database::new());
+    let (r, mock) = launch(
+        db.clone(),
+        Scenario::default().with_fault(f2z_ai_testkit::mock::Fault::ErrorEventAtByte {
+            byte: 300,
+            status: 529,
+        }),
+    )
+    .await;
+    let body = json!({"model":"m-chat","max_tokens":100,"messages":[{"role":"user","content":"hello tutor"}],"stream":false});
+    let req = axum::http::Request::post("/v1/chat/completions")
+        .header("host", "gateway")
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(body.to_string()))
+        .unwrap();
+    let response = support::send(r.public, req).await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(response.headers()["x-should-retry"], "false");
+    assert!(!response.headers().contains_key("retry-after"));
+    let value: Value = serde_json::from_str(&support::text(response).await).unwrap();
+    assert_eq!(value["f2z"]["settlement"], "settled");
+    assert!(value["f2z"]["receipt_id"].is_string());
+    final_state(&db).await;
+    assert_eq!(db.0.lock().unwrap().charges, 1);
+    mock.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_preserves_requested_logprobs_in_both_modes() {
+    // Synthetic OpenAI Chat Completions shape, including nested top_logprobs:
+    // https://platform.openai.com/docs/api-reference/chat-streaming
+    let probs = json!({"content":[{"token":"Hi","logprob":-0.1,"bytes":[72,105],"top_logprobs":[{"token":"Hi","logprob":-0.1,"bytes":[72,105]},{"token":"Hey","logprob":-1.2,"bytes":[72,101,121]}]}]});
+    let chunks = vec![
+        json!({"id":"synthetic","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{"content":"Hi"},"logprobs":probs,"finish_reason":null}]}),
+        json!({"id":"synthetic","object":"chat.completion.chunk","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}),
+        json!({"choices":[],"usage":{"prompt_tokens":12,"completion_tokens":1,"total_tokens":13}}),
+        json!("[DONE]"),
+    ];
+    let (base, server) = replay_server(&chunks).await;
+    let (catalog, model) = refusal_catalog("openai_interim");
+    let mut signed = catalog.catalog().clone();
+    for entry in &mut signed.models {
+        if entry.id == model {
+            entry.capabilities.logprobs = true;
+        }
+    }
+    let catalog = f2z_ai::catalog::VerifiedCatalog::from_verified(signed).unwrap();
+    for stream in [false, true] {
+        let db = Arc::new(Database::new());
+        let meter = Arc::new(Metered::new(
+            db,
+            adapter_support::backend(&base, adapter_support::tuning(0)),
+            adapter_support::claim_key(),
+        ));
+        let r = support::start(
+            &support::config(&[]),
+            Deps {
+                gate: Arc::new(Gate),
+                catalog: Arc::new(Fixed(catalog.clone())),
+                backend: meter.clone(),
+                settler: meter,
+            },
+        )
+        .await;
+        support::wait_readyz(r.admin, StatusCode::OK).await;
+        let body = json!({"model":model,"messages":[{"role":"user","content":"hi"}],"logprobs":true,"top_logprobs":2,"stream":stream});
+        let (status, value) = post(&r, "/v1/chat/completions", &body).await;
+        assert_eq!(status, StatusCode::OK, "{value}");
+        if stream {
+            let text = value.as_str().unwrap();
+            assert!(text.contains("top_logprobs"), "{text}");
+            assert!(text.contains("-1.2"), "{text}");
+        } else {
+            assert_eq!(value["choices"][0]["logprobs"], probs);
+        }
+    }
+    server.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_limit_errors_preserve_original_token_alias() {
+    for alias in ["max_tokens", "max_completion_tokens"] {
+        let db = Arc::new(Database::new());
+        let (r, mock) = launch(db.clone(), Scenario::default()).await;
+        let mut body = json!({"model":"m-responses","messages":[{"role":"user","content":"hi"}]});
+        body[alias] = json!(0);
+        let (status, error) = post(&r, "/v1/chat/completions", &body).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{error}");
+        assert_eq!(error["error"]["param"], format!("/{alias}"));
+        assert_eq!(db.0.lock().unwrap().hold_requests, 0);
+        mock.shutdown().await;
     }
 }

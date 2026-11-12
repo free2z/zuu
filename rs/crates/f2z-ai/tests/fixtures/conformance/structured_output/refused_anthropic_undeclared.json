@@ -35,6 +35,29 @@
         "field": "response_format"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "reason": "response_format_unsupported",
+            "field": "/response_format"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "this model does not support response_format",
+              "details": {
+                "reason": "response_format_unsupported",
+                "field": "/response_format"
+              },
+              "type": "invalid_request_error",
+              "param": "/response_format"
+            }
+          }
+        }
+      }
+    }
   }
 }

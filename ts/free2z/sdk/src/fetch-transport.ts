@@ -88,6 +88,49 @@ export class FetchTransport implements Transport {
     if (!Number.isSafeInteger(idle) || idle <= 0 || idle > 3_600_000)
       failure("invalid_config");
   }
+  compatFetch(): typeof fetch {
+    return async (input, init) => {
+      const request = new Request(input, init);
+      const target = new URL(request.url);
+      const base = new URL(this.#ai);
+      if (
+        target.origin !== base.origin ||
+        !(
+          target.pathname === base.pathname ||
+          target.pathname.startsWith(`${base.pathname}/`)
+        )
+      )
+        failure("invalid_request");
+      const generation = this.#auth.generation;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const token = await this.#auth.token(
+          "ai:invoke",
+          generation,
+          request.signal,
+          attempt > 0,
+        );
+        const headers = new Headers(request.headers);
+        headers.set("authorization", `Bearer ${token}`);
+        const response = await this.#auth.request(
+          new Request(request.clone(), {
+            headers,
+            redirect: "error",
+            credentials: "omit",
+            referrerPolicy: "no-referrer",
+          }),
+        );
+        if (generation !== this.#auth.generation) {
+          void response.body?.cancel();
+          failure("signed_out");
+        }
+        if (response.status !== 401 || attempt !== 0) return response;
+        const error = await apiError(response.clone(), request.signal);
+        if (error.code !== "token_expired") return response;
+        void response.body?.cancel();
+      }
+      failure("signed_out");
+    };
+  }
   async session(): Promise<Session> {
     return this.#auth.snapshot();
   }
