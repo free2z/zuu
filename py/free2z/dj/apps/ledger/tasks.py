@@ -67,7 +67,9 @@ def expire_holds(timestamp: int | None = None) -> dict:
                     raise
                 deferred += 1
     cleaned, cleanup_deferred = cleanup_gateway_metadata(deadline=monotonic() + 5)
-    from .low_balance_notice import drain
+    # One narrow delivery seam: events owns notification policy and mail;
+    # this existing registered task supplies the deployed periodic wake-up.
+    from dj.apps.events.low_balance_notice import drain
     try:
         drain()
     except Exception as exc:

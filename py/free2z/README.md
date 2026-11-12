@@ -37,7 +37,9 @@ a confirmed lease-thread stall.
 Connected-app low-balance notices are off by default. A refused admission
 coalesces pending work under the creator lock; the existing `ledger.expire_holds`
 worker claims at most one delivery attempt per account per 24 hours. The
-cooldown starts at claim, not enqueue, and remains in force after off/on.
+worker calls the single `events.low_balance_notice.drain` seam; event delivery
+and mail policy are owned by `events`, while the ledger retains enqueue SQL.
+The cooldown starts at claim, not enqueue, and remains in force after off/on.
 Changing the preference clears pending work and increments its generation, so
 a claimed job from prior consent cannot send after re-consent. An ambiguous
 email attempt is never retried or replaced by a site notice: a worker crash or

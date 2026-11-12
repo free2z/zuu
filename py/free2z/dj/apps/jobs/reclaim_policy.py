@@ -481,7 +481,9 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         NEVER,
         'Returns at once while to_regclass(ledger_hold) is '
         'NULL; otherwise runs every '
-        'minute with a 55 s deadline (design §11), so the next tick is its '
+        'minute with a 55 s ledger-work budget, followed by an events notice '
+        'pass with a 5 s between-attempt budget plus one bounded mail call. '
+        'The next tick is its '
         'retry and a requeued copy would only race the live one over the '
         'same expired holds.',
     ),

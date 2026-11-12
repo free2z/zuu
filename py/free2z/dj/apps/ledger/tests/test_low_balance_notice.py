@@ -12,7 +12,7 @@ from django.utils import timezone
 from dj.apps.emails.models import Email, OptOutEmail
 from dj.apps.events.models import Event
 from dj.apps.g12f.models import Creator
-from dj.apps.ledger.low_balance_notice import dispatch_one
+from dj.apps.events.low_balance_notice import dispatch_one
 from . import test_hold_foundation, test_gateway_calls
 
 pytestmark = pytest.mark.django_db
@@ -131,7 +131,7 @@ def test_concurrent_worker_claims_only_once(holder):
 
 @pytest.mark.django_db(transaction=True)
 def test_claimed_intent_cannot_survive_optout_and_reconsent(holder, api_client, mocker):
-    from dj.apps.ledger import low_balance_notice
+    from dj.apps.events import low_balance_notice
     api_client.force_authenticate(holder)
     path = '/api/events/low-balance-preference/'
     api_client.patch(path, {'enabled': True, 'expected_actor_id': holder.pk}, format='json')
@@ -197,7 +197,7 @@ def test_default_off_does_not_queue_a_real_hold_refusal(holder, third_party):
 
 @pytest.mark.django_db(transaction=True)
 def test_ambiguous_mail_failure_is_never_retried_or_replaced_by_site(holder, mocker, settings):
-    from dj.apps.ledger.low_balance_notice import drain
+    from dj.apps.events.low_balance_notice import drain
     settings.CANONICAL_ORIGIN = 'https://free2z.cash'
     settings.DEFAULT_FROM_EMAIL = 'Free2Z <hello@free2z.com>'
     Email.objects.create(user=holder, email='reader@example.org', token='some-token',
@@ -205,7 +205,7 @@ def test_ambiguous_mail_failure_is_never_retried_or_replaced_by_site(holder, moc
                          get_notifications=True)
     set_enabled(holder)
     queue(holder)
-    send = mocker.patch('dj.apps.ledger.low_balance_notice.EmailMultiAlternatives.send', side_effect=TimeoutError())
+    send = mocker.patch('dj.apps.events.low_balance_notice.EmailMultiAlternatives.send', side_effect=TimeoutError())
     assert drain() == 0
     assert drain() == 0
     assert send.call_count == 1
@@ -326,6 +326,19 @@ def test_registered_expiry_worker_drains_pending_notice(holder):
     assert Event.objects.filter(receiving_user=holder, type='LOW_BALANCE_NOTICE').count() == 1
 
 
+@pytest.mark.django_db(transaction=True)
+def test_notice_drain_stops_before_next_attempt_after_budget(holder, mocker):
+    from dj.apps.events import low_balance_notice
+    set_enabled(holder)
+    queue(holder)
+    mocker.patch.object(low_balance_notice, 'monotonic', side_effect=[0, 6])
+    attempt = mocker.patch.object(low_balance_notice, 'dispatch_one')
+    assert low_balance_notice.drain(budget_seconds=5) == 0
+    attempt.assert_not_called()
+    holder.refresh_from_db()
+    assert holder.low_balance_notice_pending
+
+
 def test_stale_full_creator_save_cannot_restore_revoked_consent(holder, api_client):
     api_client.force_authenticate(holder)
     path = '/api/events/low-balance-preference/'
@@ -403,7 +416,7 @@ def test_preference_waits_for_creator_then_refuses_stale_authenticated_snapshot(
 @pytest.mark.django_db(transaction=True)
 def test_optout_between_real_claim_and_delivery_blocks_old_generation(holder, api_client, mocker, settings):
     from threading import Event as ThreadEvent
-    from dj.apps.ledger import low_balance_notice
+    from dj.apps.events import low_balance_notice
     settings.CANONICAL_ORIGIN = 'https://free2z.cash'
     settings.DEFAULT_FROM_EMAIL = 'Free2Z <hello@free2z.com>'
     Email.objects.create(user=holder, email='reader@example.org', token='some-token',
@@ -419,7 +432,7 @@ def test_optout_between_real_claim_and_delivery_blocks_old_generation(holder, ap
         assert release.wait(10)
         return deliver(creator_id, generation, epoch)
     mocker.patch.object(low_balance_notice, 'deliver_claim', side_effect=pause)
-    send = mocker.patch('dj.apps.ledger.low_balance_notice.EmailMultiAlternatives.send')
+    send = mocker.patch('dj.apps.events.low_balance_notice.EmailMultiAlternatives.send')
     def worker():
         close_old_connections()
         try:
@@ -487,7 +500,7 @@ def test_optout_waits_for_inflight_send_and_no_send_follows_optout(holder, mocke
     from threading import Event as ThreadEvent
     from rest_framework.test import APIClient
     from django.db import connection
-    from dj.apps.ledger import low_balance_notice
+    from dj.apps.events import low_balance_notice
     settings.CANONICAL_ORIGIN = 'https://free2z.cash'
     settings.DEFAULT_FROM_EMAIL = 'Free2Z <hello@free2z.com>'
     Email.objects.create(user=holder, email='reader@example.org', token='some-token',
@@ -499,7 +512,7 @@ def test_optout_waits_for_inflight_send_and_no_send_follows_optout(holder, mocke
         sending.set()
         assert release.wait(10)
         return 1
-    provider = mocker.patch('dj.apps.ledger.low_balance_notice.EmailMultiAlternatives.send', side_effect=send)
+    provider = mocker.patch('dj.apps.events.low_balance_notice.EmailMultiAlternatives.send', side_effect=send)
     def deliver():
         close_old_connections()
         try:
