@@ -1059,6 +1059,8 @@ REST_FRAMEWORK = {
     # environment where the limits bite hardest is production, so tune against
     # the Redis numbers.)
     'DEFAULT_THROTTLE_RATES': {
+        'account-export-create': '10/hour',
+        'account-export-download': '60/hour',
         # Private moderation intake, including invalid targets and retries.
         'report_intake': '30/minute',
         # Per logged-in user, across all their tabs and devices. The SPA's
@@ -1614,6 +1616,8 @@ SPECTACULAR_SETTINGS = {
     # Pinning the old names keeps the published names stable; new enums
     # namespace themselves as they should.
     'ENUM_NAME_OVERRIDES': {
+        # Keep the existing publication client enum stable when account exports reuse it.
+        'PublicationExportJobStatusEnum': (('queued', 'Queued'), ('running', 'Running'), ('ready', 'Ready'), ('failed', 'Failed'), ('expired', 'Expired')),
         'StatusEnum': ('queued', 'delivered', 'refunded'),
         # dj.apps.g12f.account_deletion.BLOCKERS: a named enum rather than
         # the generic `BlockersEnum` drf-spectacular would otherwise derive.
@@ -2703,7 +2707,7 @@ _JOB_RECLAIM_EXCLUDED_QUEUES_ENV = os.environ.get(
     "JOB_RECLAIM_EXCLUDED_QUEUES")
 JOB_RECLAIM_EXCLUDED_QUEUES = tuple(
     q.strip()
-    for q in (_JOB_RECLAIM_EXCLUDED_QUEUES_ENV or "exports").split(",")
+    for q in (_JOB_RECLAIM_EXCLUDED_QUEUES_ENV or "exports,account-exports-v1").split(",")
     if q.strip()
 )
 # The default protects the export lane from ordinary/ambiguous requeues.

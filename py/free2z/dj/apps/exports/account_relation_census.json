@@ -1,0 +1,233 @@
+{
+  "admin.LogEntry": [
+    "user"
+  ],
+  "comments.Comment": [
+    "author"
+  ],
+  "comments.ContentReport": [
+    "reporter"
+  ],
+  "dyte.CreatorMeeting": [
+    "creator"
+  ],
+  "dyte.ProviderRoomCleanup": [
+    "creator"
+  ],
+  "dyte.RecordingDelivery": [
+    "creator"
+  ],
+  "dyte.RecordingDeliveryTarget": [
+    "creator"
+  ],
+  "e2ee.ChatRequest": [
+    "sender",
+    "recipient"
+  ],
+  "economy.CompensationAgreement": [
+    "creator",
+    "accepted_by"
+  ],
+  "economy.CreatorPayable": [
+    "creator"
+  ],
+  "economy.FundingReservation": [
+    "recipient",
+    "purchaser"
+  ],
+  "economy.LegacyClaim": [
+    "creator"
+  ],
+  "economy.PaymentRequest": [
+    "requested_by"
+  ],
+  "economy.PurchaserDay": [
+    "purchaser"
+  ],
+  "economy.SdkServiceAdmission": [
+    "subject"
+  ],
+  "economy.ServiceAdmission": [
+    "creator"
+  ],
+  "economy.SupplierOfferApproval": [
+    "creator",
+    "approved_by"
+  ],
+  "economy.SupplierOfferRevocation": [
+    "operator"
+  ],
+  "economy.ZecNoteDisposition": [
+    "actor"
+  ],
+  "emails.Email": [
+    "user"
+  ],
+  "events.Event": [
+    "receiving_user",
+    "contributor",
+    "payee"
+  ],
+  "exports.PublicationExportJob": [
+    "creator"
+  ],
+  "g12f.AccountDeletionEvent": [
+    "creator"
+  ],
+  "g12f.CreatorBlock": [
+    "blocker",
+    "blocked"
+  ],
+  "g12f.CreatorFollow": [
+    "follower",
+    "creator"
+  ],
+  "g12f.CreatorMute": [
+    "muter",
+    "muted"
+  ],
+  "g12f.PageMentionDelivery": [
+    "author",
+    "recipient"
+  ],
+  "g12f.Series": [
+    "creator"
+  ],
+  "g12f.Subscription": [
+    "star",
+    "fan"
+  ],
+  "g12f.Transaction": [
+    "creator"
+  ],
+  "g12f.zPage": [
+    "creator"
+  ],
+  "handles.MessagingHandle": [
+    "user"
+  ],
+  "identity.AuthContext": [
+    "creator"
+  ],
+  "identity.RecoveryCode": [
+    "creator"
+  ],
+  "identity.WebAuthnCredential": [
+    "creator"
+  ],
+  "knox.AuthToken": [
+    "user"
+  ],
+  "kyc.UserProfile": [
+    "user"
+  ],
+  "ledger.Account": [
+    "owner"
+  ],
+  "ledger.LedgerApp": [
+    "developer_creator"
+  ],
+  "ledger.LedgerDevMarkupPending": [
+    "developer_creator"
+  ],
+  "oidc.AccessToken": [
+    "user"
+  ],
+  "oidc.AiOutputReport": [
+    "reporter"
+  ],
+  "oidc.AppAuthorization": [
+    "user"
+  ],
+  "oidc.AudienceChange": [
+    "changed_by"
+  ],
+  "oidc.AuthorizationCode": [
+    "user"
+  ],
+  "oidc.DeviceGrant": [
+    "user"
+  ],
+  "oidc.F2ZApplication": [
+    "user"
+  ],
+  "oidc.IDToken": [
+    "user"
+  ],
+  "oidc.MCPAccountGrant": [
+    "user"
+  ],
+  "oidc.MCPActionAudit": [
+    "primary_user",
+    "target_user"
+  ],
+  "oidc.MCPConnection": [
+    "primary_user"
+  ],
+  "oidc.RefreshToken": [
+    "user"
+  ],
+  "openai.Conversation": [
+    "user"
+  ],
+  "openai.Personality": [
+    "creator"
+  ],
+  "openai.PromptResponse": [
+    "user"
+  ],
+  "otp.OTPSecret": [
+    "user"
+  ],
+  "purchases.PurchaseIntent": [
+    "creator"
+  ],
+  "social.SocialIdentity": [
+    "creator"
+  ],
+  "storytime.Story": [
+    "creator"
+  ],
+  "tagging.TagSuggestion": [
+    "decided_by"
+  ],
+  "tuzis.IdempotencyKey": [
+    "user"
+  ],
+  "tuzis.ProviderReservation": [
+    "user"
+  ],
+  "tuzis.SubscriptionIntentAbandonment": [
+    "user"
+  ],
+  "tuzis.SubscriptionIntentEvidence": [
+    "user"
+  ],
+  "tuzis.TuziGrant": [
+    "creator"
+  ],
+  "tuzis.ZecCreditReceipt": [
+    "creator"
+  ],
+  "tuzis.ZecPendingNotice": [
+    "creator"
+  ],
+  "twitter.Announcement": [
+    "subject_user"
+  ],
+  "twitter.TwitterProfile": [
+    "creator"
+  ],
+  "uploads.GenericFile": [
+    "owner"
+  ],
+  "zauth.ZcashIdentity": [
+    "creator"
+  ],
+  "ztripe.CheckoutIntent": [
+    "user"
+  ],
+  "ztripe.StripeTransaction": [
+    "user"
+  ]
+}

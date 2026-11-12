@@ -12,6 +12,11 @@ class ExportStatus(models.TextChoices):
     EXPIRED = 'expired', 'Expired'
 
 
+class ExportType(models.TextChoices):
+    PUBLICATIONS = 'publications', 'Publications'
+    ACCOUNT = 'account', 'Full account data'
+
+
 class PublicationExportJob(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     creator = models.ForeignKey(
@@ -23,6 +28,14 @@ class PublicationExportJob(models.Model):
         null=True,
         blank=True,
         related_name='publication_export_jobs',
+    )
+    export_type = models.CharField(
+        max_length=16,
+        choices=ExportType.choices,
+        default=ExportType.PUBLICATIONS,
+        db_default=ExportType.PUBLICATIONS,
+        db_index=True,
+        help_text="Whether this job exports publications only or the full account archive.",
     )
     status = models.CharField(
         max_length=16,
@@ -86,10 +99,14 @@ class PublicationExportJob(models.Model):
             models.Index(fields=['status', 'expires_at'], name='exports_pub_stat_exp_idx'),
         ]
         constraints = [
-            # Enforce at most one active (queued/running) publication export job per creator.
+            # One active job per creator and export type. A held account job
+            # must not prevent that creator from requesting a public archive.
             models.UniqueConstraint(
                 fields=['creator'],
-                condition=models.Q(status__in=[ExportStatus.QUEUED, ExportStatus.RUNNING]),
+                condition=models.Q(
+                    export_type=ExportType.PUBLICATIONS,
+                    status__in=[ExportStatus.QUEUED, ExportStatus.RUNNING],
+                ),
                 name='unique_active_publication_export_job',
             ),
         ]
