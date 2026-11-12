@@ -9,7 +9,9 @@ import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { chromium } from "@playwright/test";
 import { PNG } from "pngjs";
+import { installVaultNativeFixture } from "./store-vault-fixture.mjs";
 import {
+  captureInputFiles,
   CAPTURE_NPM_CI_ARGUMENTS,
   CAPTURE_NPM_ENVIRONMENT,
   CAPTURE_CONFIG_PATH,
@@ -37,6 +39,7 @@ const mimeTypes = new Map([
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
   [".woff2", "font/woff2"],
+  [".wasm", "application/wasm"],
 ]);
 export const CAPTURE_PUBLIC_REQUESTS = Object.freeze({
   fresh: Object.freeze(["GET https://free2z.cash/api/zpage/?homeSort=popular&page=1&page_size=24"]),
@@ -119,7 +122,7 @@ async function runInCaptureContainer(argv, config, expectedDigests) {
   const npmEnvironment = Object.entries(CAPTURE_NPM_ENVIRONMENT).flatMap(([name, value]) => ["--env", `${name}=${value}`]);
   const npmCommand = ["npm", ...CAPTURE_NPM_CI_ARGUMENTS].join(" ");
   await command("docker", [
-    "run", "--rm", "--platform", config.browser.platform, "--ipc=host",
+    "run", "--rm", "--label", "cash.free2z.capture=zuuli-956", "--platform", config.browser.platform, "--ipc=host",
     "--env", "CI=1", "--env", "ZUULI_STORE_CAPTURE_CONTAINER=1",
     ...npmEnvironment,
     ...await captureTlsDockerArguments(),
@@ -127,14 +130,15 @@ async function runInCaptureContainer(argv, config, expectedDigests) {
     "--env", `ZUULI_STORE_EXPECTED_CONTRACT_DIGEST=${expectedDigests.contractDigest}`,
     "--env", `ZUULI_STORE_EXPECTED_MANIFEST_DIGEST=${expectedDigests.manifestDigest}`,
     "--env", `HOST_UID=${process.getuid()}`, "--env", `HOST_GID=${process.getgid()}`,
-    "--volume", `${projectRoot}:/work`, "--volume", "/work/node_modules", "--workdir", "/work",
+    "--volume", `${resolve(projectRoot, "..")}:/work`, "--volume", "/work/zuuli/node_modules", "--workdir", "/work/zuuli",
     config.browser.containerImage,
-    "bash", "-lc", `${CAPTURE_TLS_BOOTSTRAP} && node scripts/capture-tls.mjs --verify-runtime && : > "$NPM_CONFIG_USERCONFIG" && : > "$NPM_CONFIG_GLOBALCONFIG" && node scripts/store-screenshot-preflight.mjs && ${npmCommand} && node scripts/store-screenshot-preflight.mjs && node scripts/store-screenshot-capture.mjs ${argv[0]} && chown -R "$HOST_UID:$HOST_GID" store/media store/capture-record.json store/manifest.json dist`,
+    "bash", "-lc", `${CAPTURE_TLS_BOOTSTRAP} && /usr/local/bin/verify-zuuli-store-capture-image && node scripts/capture-tls.mjs --verify-runtime && : > "$NPM_CONFIG_USERCONFIG" && : > "$NPM_CONFIG_GLOBALCONFIG" && node scripts/store-screenshot-preflight.mjs && ${npmCommand} && node scripts/store-screenshot-preflight.mjs && node scripts/store-screenshot-capture.mjs ${argv[0]} && chown -R "$HOST_UID:$HOST_GID" store/media store/capture-record.json store/manifest.json dist`,
   ]);
 }
 
 async function assertCaptureRuntime(config) {
   await assertCaptureTlsRuntime();
+  await command("/usr/local/bin/verify-zuuli-store-capture-image", []);
   if (process.platform !== "linux" || process.arch !== "x64") fail("capture worker is not the declared Linux/amd64 runtime");
   try {
     await access("/.dockerenv");
@@ -195,23 +199,6 @@ async function startStaticServer(distRoot) {
   };
 }
 
-function filteredArticles(fixture, url) {
-  const tags = (url.searchParams.get("tags") ?? "").split(",").filter(Boolean);
-  const search = (url.searchParams.get("search") ?? "").trim().toLowerCase();
-  let articles = fixture.articles;
-  if (tags.length) articles = articles.filter((article) => tags.every((tag) => article.tags.includes(tag)));
-  if (search) articles = articles.filter((article) => [article.title, article.description, article.content, ...article.tags].join(" ").toLowerCase().includes(search));
-  const username = (url.searchParams.get("username") ?? "").toLowerCase();
-  if (username) articles = articles.filter((article) => article.creator.username.toLowerCase() === username);
-  const page = Number(url.searchParams.get("page") ?? "1");
-  return {
-    count: articles.length,
-    next: null,
-    previous: null,
-    results: page === 1 ? articles : [],
-  };
-}
-
 export function computeFeedCaptureScroll({
   currentScroll,
   visibleTop,
@@ -229,195 +216,106 @@ export function computeFeedCaptureScroll({
   return currentScroll + Math.min(contentDelta, controlDelta);
 }
 
-async function positionFeedForCapture(page, target, action) {
-  const requirements = {
-    requireControl: action === "search-privacy",
-    requireFullSummary: action !== "search-privacy" || target.setId !== "play-phone-portrait",
-    rejectBottomChromeOverlap: action === "fresh" && target.setId === "play-phone-portrait",
-  };
-  const initial = await page.evaluate(({ requireFullSummary }) => {
-    const viewport = document.querySelector("[data-scroll-area-viewport]");
-    const topBar = document.querySelector("[data-app-top-bar]");
-    const bottomNav = document.querySelector("[data-app-bottom-nav]");
-    const control = document.querySelector('[role="searchbox"][aria-label="Search articles"]');
-    const card = document.querySelector("[data-article-card]");
-    const title = card?.querySelector("h3");
-    const summary = title?.nextElementSibling;
-    if (!(viewport instanceof HTMLElement) || !(topBar instanceof HTMLElement) || !(control instanceof HTMLElement) || !(title instanceof HTMLElement) || !(summary instanceof HTMLElement)) return null;
-    const viewportRect = viewport.getBoundingClientRect();
-    const topBarRect = topBar.getBoundingClientRect();
-    const bottomNavRect = bottomNav instanceof HTMLElement && bottomNav.offsetHeight > 0 ? bottomNav.getBoundingClientRect() : undefined;
-    const controlRect = control.getBoundingClientRect();
-    const summaryRect = summary.getBoundingClientRect();
-    const visibleTop = Math.max(viewportRect.top, topBarRect.bottom);
-    const visibleBottom = Math.min(viewportRect.bottom, bottomNavRect?.top ?? viewportRect.bottom);
-    return {
-      currentScroll: viewport.scrollTop,
-      visibleTop,
-      visibleBottom,
-      controlTop: controlRect.top,
-      contentBottom: requireFullSummary ? summaryRect.bottom : summaryRect.top + Math.min(16, summaryRect.height),
-    };
-  }, requirements);
-  if (!initial) fail(`capture ${target.setId}/${action} is missing feed geometry anchors`);
-  const scrollTop = computeFeedCaptureScroll({ ...initial, requireControl: requirements.requireControl });
-  await page.locator("[data-scroll-area-viewport]").first().evaluate((node, value) => { node.scrollTop = value; }, scrollTop);
-  await page.waitForFunction((expected) => Math.abs((document.querySelector("[data-scroll-area-viewport]")?.scrollTop ?? -1) - expected) < 2, scrollTop);
-
-  const evidence = await page.evaluate(({ requireControl, requireFullSummary, rejectBottomChromeOverlap }) => {
-    const viewport = document.querySelector("[data-scroll-area-viewport]");
-    const topBar = document.querySelector("[data-app-top-bar]");
-    const bottomNav = document.querySelector("[data-app-bottom-nav]");
-    const control = document.querySelector('[role="searchbox"][aria-label="Search articles"]');
-    const card = document.querySelector("[data-article-card]");
-    const title = card?.querySelector("h3");
-    const summary = title?.nextElementSibling;
-    const tagBar = document.querySelector('[aria-label="Filter by tag"]');
-    const count = [...document.querySelectorAll("p")].find((node) => /^\d+ articles(?:\s|$)/u.test(node.textContent?.trim() ?? ""));
-    if (!(viewport instanceof HTMLElement) || !(topBar instanceof HTMLElement) || !(control instanceof HTMLElement) || !(title instanceof HTMLElement) || !(summary instanceof HTMLElement)) return null;
-    const viewportRect = viewport.getBoundingClientRect();
-    const topBarRect = topBar.getBoundingClientRect();
-    const bottomNavRect = bottomNav instanceof HTMLElement && bottomNav.offsetHeight > 0 ? bottomNav.getBoundingClientRect() : undefined;
-    const controlRect = control.getBoundingClientRect();
-    const titleRect = title.getBoundingClientRect();
-    const summaryRect = summary.getBoundingClientRect();
-    const visibleTop = Math.max(viewportRect.top, topBarRect.bottom);
-    const visibleBottom = Math.min(viewportRect.bottom, bottomNavRect?.top ?? viewportRect.bottom);
-    const fullyVisible = (rect) => rect.top >= visibleTop - 1 && rect.bottom <= visibleBottom + 1;
-    const summaryPixels = Math.max(0, Math.min(summaryRect.bottom, visibleBottom) - Math.max(summaryRect.top, visibleTop));
-    const controlPixels = Math.max(0, Math.min(controlRect.bottom, visibleBottom) - Math.max(controlRect.top, visibleTop));
-    const overlapsBottomChrome = (node) => {
-      if (!(node instanceof HTMLElement) || !bottomNavRect) return false;
-      const rect = node.getBoundingClientRect();
-      return rect.top < bottomNavRect.top && rect.bottom > bottomNavRect.top;
-    };
-    return {
-      controlVisible: !requireControl || fullyVisible(controlRect),
-      titleVisible: fullyVisible(titleRect),
-      summaryVisible: requireFullSummary ? fullyVisible(summaryRect) : summaryPixels >= Math.min(16, summaryRect.height) - 1,
-      bottomChromeClear: !rejectBottomChromeOverlap || (!overlapsBottomChrome(tagBar) && !overlapsBottomChrome(count)),
-      controlPixels,
-      summaryPixels,
-    };
-  }, requirements);
-  if (!evidence || !evidence.controlVisible || !evidence.titleVisible || !evidence.summaryVisible || !evidence.bottomChromeClear) {
-    fail(`capture ${target.setId}/${action} does not show unobscured feed controls and meaningful article content (${JSON.stringify(evidence)})`);
-  }
+export function vaultStaticRequestAllowed(origin, rawUrl, method, shotRoute, staticPaths = new Set()) {
+  const url = new URL(rawUrl);
+  return url.origin === origin && method === "GET" && (!url.search || (url.pathname.endsWith(".wasm") && url.search === "?init")) &&
+    (url.pathname === shotRoute || staticPaths.has(url.pathname));
 }
 
-async function preparePage(context, { origin, fixture, target, shot, fixedTime }) {
+// About authors this public support contact. It is neither a tester nor an
+// account identity; no other email, suffix or route inherits the exception.
+export function vaultDisclosureScanPassed(text, action) {
+  const scanned = action === "about" ? text.replace(/(?<![a-z0-9._%+-])help@free2z\.com(?![a-z0-9-]|\.[a-z0-9-])/giu, "") : text;
+  return !disclosurePattern.test(scanned) && !/\b(?:u1|utest1|zs1|t1|t3)[a-zA-Z0-9]{20,}\b/.test(text);
+}
+
+export async function preparePage(context, { origin, fixture, target, shot, fixedTime, staticPaths }) {
   const page = await context.newPage();
-  const externalRequests = [];
-  const matchedRequests = [];
+  const refused = [], errors = [];
+  page.on("pageerror", () => errors.push("page error"));
+  page.on("console", (message) => { if (message.type() === "error") errors.push("console error"); });
+  await page.routeWebSocket("**/*", (socket) => { refused.push("websocket"); socket.close(); });
   await page.route("**/*", async (route) => {
     const request = route.request();
-    const url = new URL(request.url());
-    if (url.origin === origin) {
+    if (vaultStaticRequestAllowed(origin, request.url(), request.method(), shot.route, staticPaths)) {
       await route.continue();
-      return;
+    } else {
+      refused.push("request");
+      await route.abort("blockedbyclient");
     }
-    const key = requestKey(request);
-    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/zpage/") {
-      matchedRequests.push(key);
-      if (shot.action === "search-privacy" && !url.searchParams.has("search")) await new Promise((accept) => setTimeout(accept, 1200));
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: { "access-control-allow-origin": origin },
-        body: JSON.stringify(filteredArticles(fixture, url)),
-      });
-      return;
-    }
-    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/creator/") {
-      matchedRequests.push(key);
-      await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify({ count: fixture.creators.length, next: null, previous: null, results: fixture.creators }) });
-      return;
-    }
-    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/creator/example_editorial/") {
-      matchedRequests.push(key);
-      await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify(fixture.creators[0]) });
-      return;
-    }
-    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/zpage/why-shielded-defaults-matter/") {
-      matchedRequests.push(key);
-      await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify(fixture.articles[0]) });
-      return;
-    }
-    if (capturePublicRequestAllowed(shot.action, key) && url.pathname === "/api/comments/zpage/editorial-shielded-defaults/") {
-      matchedRequests.push(key);
-      await route.fulfill({ status: 200, contentType: "application/json", headers: { "access-control-allow-origin": origin }, body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) });
-      return;
-    }
-    externalRequests.push(true);
-    await route.abort("blockedbyclient");
   });
   await page.addInitScript(({ safeArea, fixedTime }) => {
-    localStorage.clear();
-    sessionStorage.clear();
-    const fixed = Date.parse(fixedTime);
-    const NativeDate = Date;
+    localStorage.clear(); sessionStorage.clear();
+    const NativeDate = Date, fixed = Date.parse(fixedTime);
     class FixedDate extends NativeDate {
-      constructor(...args) {
-        super(...(args.length ? args : [fixed]));
-      }
+      constructor(...args) { super(...(args.length ? args : [fixed])); }
       static now() { return fixed; }
     }
-    Object.setPrototypeOf(FixedDate, NativeDate);
     window.Date = FixedDate;
-    const root = document.documentElement;
-    for (const [edge, value] of Object.entries(safeArea)) root.style.setProperty(`--safe-area-${edge}`, `${value}px`);
-  }, { safeArea: target.safeArea, fixedTime });
-  await page.goto(`${origin}${shot.route}`, { waitUntil: shot.action === "search-privacy" ? "domcontentloaded" : "networkidle" });
-  await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}" });
-  if (shot.action === "fresh") {
-    await page.getByRole("heading", { name: "Articles", exact: true }).waitFor();
-    await page.getByRole("link", { name: /Read “Why Shielded Defaults Matter”/ }).waitFor();
-  } else if (shot.action === "search-privacy") {
-    await page.getByRole("heading", { name: "Articles", exact: true }).waitFor();
-  }
-  if (shot.action === "fresh") {
-    const write = page.getByRole("link", { name: "Write a new article" });
-    if (await write.getAttribute("href") !== "/articles/new") fail("signed-out Write action does not target the auth-gated author route");
-    await positionFeedForCapture(page, target, shot.action);
-  } else if (shot.action === "search-privacy") {
-    await page.getByRole("searchbox", { name: "Search articles" }).fill("privacy");
-    await page.waitForFunction(() => document.body.textContent?.includes("3 articles"));
-    await page.getByText("Why Shielded Defaults Matter", { exact: true }).waitFor();
-    if (await page.getByRole("button", { name: "addresses", exact: true }).count()) fail("semantic capture accumulated tags from a superseded unfiltered response");
-    await positionFeedForCapture(page, target, shot.action);
-  } else if (shot.action === "article-reader") {
-    await page.getByRole("heading", { name: "Why Shielded Defaults Matter", exact: true }).first().waitFor();
-    await page.getByText("Better defaults, clearer choices", { exact: true }).waitFor();
-    await page.getByRole("heading", { name: "Comments", exact: false }).waitFor();
-    await page.getByText("No comments yet", { exact: true }).waitFor();
-  } else if (shot.action === "creator-profile") {
-    await page.locator("[data-creator-profile]").waitFor();
-    await page.getByRole("heading", { level: 1, name: "Example Editorial", exact: true }).waitFor();
-    await page.getByRole("heading", { name: "Pages by Example Editorial", exact: true }).waitFor();
-    await page.getByRole("link", { name: /Read “Why Shielded Defaults Matter”/ }).waitFor();
-  }
-
-  await page.waitForTimeout(100);
-  if (externalRequests.length) fail(`capture ${target.setId}/${shot.id} attempted ${externalRequests.length} request(s) outside its exact ${shot.action} public contract`);
-  const expected = [...(CAPTURE_PUBLIC_REQUESTS[shot.action] ?? [])].sort();
-  const actual = [...matchedRequests].sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail(`capture ${target.setId}/${shot.id} did not exercise its exact public request contract (expected ${expected.length}, received ${actual.length}: ${actual.join(", ")})`);
-  const evidence = await page.evaluate(() => {
-    const text = document.body.innerText.replace(/\s+/g, " ").trim();
-    const viewport = document.querySelector("[data-scroll-area-viewport]");
-    return {
-      text,
-      loading: Boolean(document.querySelector('[aria-label="Loading more"]')),
-      overflow: document.documentElement.scrollWidth > window.innerWidth || Boolean(viewport && viewport.scrollWidth > viewport.clientWidth + 1),
-      surfaceReady: Boolean(document.querySelector("[data-article-card], article, h1")),
+    const apply = () => {
+      for (const [edge, value] of Object.entries(safeArea)) document.documentElement.style.setProperty(`--safe-area-${edge}`, `${value}px`);
     };
+    if (document.documentElement) apply();
+    else document.addEventListener("DOMContentLoaded", apply, { once: true });
+  }, { safeArea: target.safeArea, fixedTime });
+  await page.addInitScript(installVaultNativeFixture, { fixture, action: shot.action });
+  await page.goto(`${origin}${shot.route}`, { waitUntil: "networkidle" });
+  await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}" });
+  const focus = shot.action === "vault-home" ? page.getByRole("heading", { name: "Welcome to ZUULI", exact: true })
+    : shot.action === "wallet-send" ? page.getByText("Send ZEC", { exact: true })
+    : shot.action === "wallet-history" ? page.getByText("No transactions yet", { exact: true })
+    : page.getByRole("heading", { name: "About ZUULI", exact: true });
+  await focus.waitFor();
+  try {
+    await page.waitForFunction(() => document.documentElement.dataset.wasmSpike === "42");
+    await page.waitForFunction(() => window.__STORE_VAULT_AUDIT__.calls.filter((c) => c === "plugin:zcash|get_wallet_status").length >= 2);
+  } catch {
+    fail(`capture bootstrap incomplete: ${JSON.stringify({ errors, refused, audit: await page.evaluate(() => window.__STORE_VAULT_AUDIT__) })}`);
+  }
+  await page.evaluate(() => document.fonts.ready);
+  // Wait for the coherent snapshot and both identity reads, not an arbitrary delay.
+  if (shot.action === "wallet-send") {
+    await page.waitForFunction(() => !document.body.innerText.includes("Checking for an earlier payment"));
+    if (await page.locator("input, textarea").evaluateAll((nodes) => nodes.some((node) => node.value !== ""))) fail("Send capture must remain blank");
+    if (await page.getByRole("button", { name: /Review/ }).isEnabled()) fail("blank Send must not be payable");
+  }
+  // Scroll only the real route viewport. Browser scrollIntoView can also
+  // move overflow:hidden ancestors, which hides the persistent app chrome.
+  await focus.evaluate((node, action) => {
+    const viewport = document.querySelector("[data-scroll-area-viewport]");
+    const top = Math.max(viewport.getBoundingClientRect().top, document.querySelector("[data-app-top-bar]").getBoundingClientRect().bottom);
+    const bottomNav = document.querySelector("[data-app-bottom-nav]");
+    const bottom = Math.min(viewport.getBoundingClientRect().bottom, bottomNav?.getBoundingClientRect().top || innerHeight);
+    const region = action === "wallet-history" ? node.parentElement : node;
+    const rect = region.getBoundingClientRect();
+    if (action === "wallet-send") viewport.scrollTop += Math.max(0, rect.top - top - 24);
+    else viewport.scrollTop += Math.max(0, rect.bottom - bottom + 8);
+  }, shot.action);
+  const visible = await focus.evaluate((node) => {
+    const rect = node.getBoundingClientRect(), viewport = document.querySelector("[data-scroll-area-viewport]").getBoundingClientRect();
+    const topBar = document.querySelector("[data-app-top-bar]").getBoundingClientRect();
+    const bottomNav = document.querySelector("[data-app-bottom-nav]");
+    const bottom = Math.min(viewport.bottom, bottomNav?.getBoundingClientRect().top || innerHeight);
+    return topBar.top >= -1 && topBar.bottom <= innerHeight && rect.top >= Math.max(viewport.top, topBar.bottom) - 1 && rect.bottom <= bottom + 1 && rect.left >= 0 && rect.right <= innerWidth;
   });
-  if (!evidence.surfaceReady || evidence.loading || evidence.overflow) fail(`capture ${target.setId}/${shot.id} is incomplete or overflows (surface=${evidence.surfaceReady}, loading=${evidence.loading}, overflow=${evidence.overflow})`);
-  if (disclosurePattern.test(evidence.text)) fail(`capture ${target.setId}/${shot.id} contains a forbidden disclosure or private identity`);
+  if (!visible) fail(`capture focus is clipped: ${target.setId}/${shot.id}`);
+  const evidence = await page.evaluate(() => ({
+    text: [document.body.innerText, ...[...document.querySelectorAll("input,textarea")].map((n) => n.value)].join(" ").replace(/\s+/g, " ").trim(),
+    overflow: document.documentElement.scrollWidth > innerWidth || [...document.querySelectorAll("[data-scroll-area-viewport]")].some((n) => n.scrollWidth > n.clientWidth + 1),
+    frames: document.querySelectorAll("iframe,frame,object,embed").length,
+    audit: window.__STORE_VAULT_AUDIT__,
+  }));
+  if (refused.length || errors.length || evidence.audit.refused.length) fail(`capture refused network/native operation or runtime error: ${JSON.stringify({ refused, errors, native: evidence.audit.refused })}`);
+  const required = ["free2z_session_sync", "oauth_callback_transport", "plugin:zcash|get_wallet_status", "plugin:zcash|list_wallets", "plugin:zcash|get_account_balance", "plugin:zcash|get_unified_address", "plugin:zcash|get_sync_status", "plugin:zcash|start_sync"];
+  if (shot.action === "wallet-send") required.push("plugin:zcash|get_pending_send");
+  if (shot.action === "wallet-history") required.push("plugin:zcash|get_transaction_history");
+  if (required.some((call) => !evidence.audit.calls.includes(call))) fail("capture did not exercise its native read contract");
+  if (evidence.overflow || evidence.frames || !vaultDisclosureScanPassed(evidence.text, shot.action) || evidence.text.includes(fixture.unifiedAddress)) fail(`capture contains overflow, frames, private data or a forbidden disclosure: ${target.setId}/${shot.id}`);
   return { page, renderedTextSha256: sha256(Buffer.from(evidence.text, "utf8")) };
 }
 
 async function capturePass({ outputRoot, config, fixture, sourceDigest, contractDigest, distRoot }) {
+  const staticPaths = new Set((await captureInputFiles(distRoot, ["."])).map((path) => `/${path.replace(/^\.\//, "")}`));
   const server = await startStaticServer(distRoot);
   let browser;
   const entries = [];
@@ -431,10 +329,11 @@ async function capturePass({ outputRoot, config, fixture, sourceDigest, contract
         timezoneId: config.timezone,
         colorScheme: config.colorScheme,
         reducedMotion: "reduce",
+        serviceWorkers: "block",
       });
       try {
         for (const shot of config.shots) {
-          const { page, renderedTextSha256 } = await preparePage(context, { origin: server.origin, fixture, target, shot, fixedTime: config.fixedTime });
+          const { page, renderedTextSha256 } = await preparePage(context, { origin: server.origin, fixture, target, shot, fixedTime: config.fixedTime, staticPaths });
           const relativePath = `store/media/${config.locale}/${target.setId}/${shot.id}.png`;
           const destination = resolve(outputRoot, relativePath);
           await mkdir(dirname(destination), { recursive: true });
