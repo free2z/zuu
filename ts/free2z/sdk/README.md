@@ -26,7 +26,8 @@ console.log(balance.available_milli_2z.toString());
 
 The native plugin package is also pending publication. Its Rust builder owns
 client ID, allowed issuer/API endpoints, scopes, callback registration, and OS
-credential persistence. Webview JavaScript receives no tokens. The structural
+credential persistence. Webview JavaScript receives no tokens. Current source also exports `TauriTransport` as an alias of `NativeTransport`;
+it is not in the 0.4.0 tag. The structural
 `NativeBridge` interface also permits a mock adapter; importing this package
 does not import Tauri or read global Tauri internals.
 
@@ -181,11 +182,21 @@ default. Fetch/browser networking may buffer internally. This is not an
 unbounded push-event queue. Model catalogue caching honors ETag and max-age
 (up to one hour) and is scoped to the current login generation.
 
+The [copyable hello-ai app](https://github.com/free2z/zuu/tree/main/wallet/examples/free2z/hello-ai)
+uses package dependencies, an explicit public-client configuration and a
+caller-owned recovery journal. See the [API reference](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/REFERENCE.md)
+and [security/operations guide](https://github.com/free2z/zuu/blob/main/docs/free2z/sdk/SECURITY.md).
+The legacy API's removal is planned for a future breaking 1.0.0 release;
+existing 0.4.x clients keep working.
+
 ## Contributor verification
 
 From `ts/free2z/sdk`: `npm ci`, `npm test`, `npm run test:package`.
 The latter installs the locally built tarball into a temporary isolated consumer
-and checks public imports/types. It is a packaging test, not a supported released
+and checks public imports/types. After `npm ci` in the native plugin package,
+`npm run test:example` installs both local tarballs into a copied hello-ai app,
+runs its focused tests/web/Tauri frontend builds and checks real guest bridge
+types. These are packaging tests, not a supported released
 installation. Tests use a signed mock issuer and fake transports; they do not
 establish production availability or make real payments.
 

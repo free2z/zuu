@@ -15,6 +15,29 @@ separate, owner-authorized step ([RELEASING.md](./RELEASING.md#publication-seque
 
 Per-package detail lives in each package's `CHANGELOG.md`.
 
+## Unreleased — TypeScript contract reconciliation (#1073)
+
+- `@free2z/sdk`: additive `TauriTransport` alias (identical to
+  `NativeTransport`), conservative legacy purchase polling, and package consumer
+  coverage. No endpoint, receipt, integer or token-storage contract changes.
+- `wallet/examples/free2z/hello-ai`: new package-consuming browser app/reusable
+  Tauri frontend, public-client setup, pre-send journal, explicit same-key
+  recovery and billing links. Asynchronous publication checks both operation
+  epoch and the current session subject/generation, including late cancel/logout
+  completion and external native session replacement during a balance read.
+  No native host/device harness is included.
+- D2 integration/quickstart, D3 [reference](./REFERENCE.md) and D4
+  [security/operations](./SECURITY.md) describe actual source support. Legacy
+  card calls remain; deprecated wrapper removal targets the future breaking
+  1.0.0 release, with deployed endpoint compatibility retained.
+- Gateway minimum is unchanged from 0.4.0; no compatibility/fallback work from
+  other branches is included. Manifest versions remain 0.4.0. The alias and
+  polling changes are **not** in `sdk-v0.4.0` and require a future release.
+- Public npm registry metadata for both 0.4.0 packages returned 404 on
+  2026-11-12. Local tarball tests do not meet registry or live-dogfood acceptance.
+  No tag, release or publication was created. Keep the released Rust decoder
+  inventory below unchanged: no Rust response decoder is released here.
+
 ## sdk-v0.4.0 — 2026-10-16
 
 **Apps don't sell 2Z**. A user who needs 2Z gets them on

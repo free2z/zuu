@@ -16,16 +16,15 @@
 > Free2Z's own apps and for SDK 0.3.0 clients, which keep working
 > unchanged. **Zcash is paid on Free2Z's billing page, never through this
 > API by a third-party app:** the platform refuses `rail: zcash` from an app
-> (`400 rail_unavailable`), so §5 describes the platform's own rail, not
+> (`400 rail_unavailable`, with `details.billing_url` pointing to
+> `/buy-2z?client_id=<this app>`), so §5 describes the platform's own rail, not
 > something an app can open. Read the rest of this page as the contract
 > those existing clients rely on.
 
-An app lets a user buy 2Z without ever handling a payment itself. The app
-creates a **purchase intent** on the account API, opens the surface the
-rail returns (a hosted checkout page, the platform's store sheet, or a
-Zcash payment URI), and polls the intent until it is `credited`. The
-platform does the verifying and the crediting; the app never sees a card
-number, a store account or a Zcash key.
+Free2Z's own purchase surfaces create an intent, open the rail's checkout or
+payment UI and poll until crediting. Existing SDK clients may still use the
+card API below. New third-party apps open the account billing page instead;
+they present no purchase UI. See the [legacy SDK migration/removal plan](../REFERENCE.md#legacy-purchase-compatibility-and-removal).
 
 **Third-party apps don't sell 2Z** (see the notice above). An SDK 0.3.0
 client may still create a **card** intent; Zcash is paid on Free2Z's
@@ -155,7 +154,8 @@ quote expired — is still credited on the server. An app therefore
 re-reads `GET /balance` when it comes to the foreground, and may re-read
 an `expired` intent it still displays; it does not poll one indefinitely.
 
-The `hello-ai` reference app polls; a push channel is not part of v1.
+The `hello-ai` consumer uses the billing exit and re-reads balance on foreground;
+it does not poll purchase intents. A push channel is not part of v1.
 
 ## 2. `POST /purchases`
 
