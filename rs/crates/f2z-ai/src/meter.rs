@@ -1354,6 +1354,9 @@ fn is_terminal_refusal(failure: &ApiFailure) -> bool {
 /// client reads a missing member as "not narrowed".
 fn models_controls(m: &CatalogModel) -> Value {
     let mut controls = serde_json::Map::new();
+    if let Some(system_role) = &m.controls.system_role {
+        controls.insert("system_role".into(), json!(system_role));
+    }
     if crate::provider::reasoning_effort_supported(m)
         && let Some(levels) = &m.controls.effort_levels
     {

@@ -1,0 +1,66 @@
+{
+  "name": "openai_chat_two_systems",
+  "feature": "system_messages",
+  "source": "OpenAI Chat Completions create API reference, message roles: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create . Synthetic documented shape; no live provider call.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {},
+  "request": {
+    "model": "m-openai_chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "First instruction."
+          }
+        ]
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "Second instruction."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question?"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "encodings": {},
+    "provider_request": {
+      "messages": [
+        {
+          "role": "system",
+          "content": "First instruction."
+        },
+        {
+          "role": "system",
+          "content": "Second instruction."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Question?"
+            }
+          ]
+        }
+      ]
+    },
+    "hold_extends": 0
+  }
+}

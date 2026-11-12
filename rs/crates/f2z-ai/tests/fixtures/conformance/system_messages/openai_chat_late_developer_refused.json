@@ -1,0 +1,42 @@
+{
+  "name": "openai_chat_late_developer_refused",
+  "feature": "system_messages",
+  "source": "OpenAI Chat Completions create API reference, message roles: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create . Synthetic documented shape; no live provider call.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {},
+  "request": {
+    "model": "m-openai_chat",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question?"
+          }
+        ]
+      },
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "text",
+            "text": "Too late."
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "position",
+        "field": "messages[1].role"
+      }
+    },
+    "encodings": {}
+  }
+}

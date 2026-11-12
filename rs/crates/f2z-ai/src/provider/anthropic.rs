@@ -269,12 +269,12 @@ impl Provider for AnthropicMessages {
         // No effort control on Messages (`thinking` takes a budget): refused
         // whatever the catalogue says, never dropped.
         super::check_reasoning_effort(request, model)?;
-        let mut system = None;
+        let mut system = Vec::new();
         let mut turns: Vec<(&'static str, Vec<Value>)> = Vec::new();
         for (index, message) in request.messages.iter().enumerate() {
             let (role, blocks) = match message.role {
-                Role::System => {
-                    system = Some(text_of(&message.content));
+                Role::System | Role::Developer => {
+                    system.push(text_of(&message.content));
                     continue;
                 }
                 Role::User => ("user", parts(&message.content)),
@@ -326,8 +326,22 @@ impl Provider for AnthropicMessages {
         body.insert("model".into(), json!(model.provider_model_id));
         body.insert("max_tokens".into(), json!(max_output_tokens));
         body.insert("stream".into(), json!(true));
-        if let Some(system) = system {
-            body.insert("system".into(), json!(system));
+        match system.as_slice() {
+            [] => {}
+            [single] => {
+                body.insert("system".into(), json!(single));
+            }
+            _ => {
+                body.insert(
+                    "system".into(),
+                    Value::Array(
+                        system
+                            .into_iter()
+                            .map(|text| json!({"type": "text", "text": text}))
+                            .collect(),
+                    ),
+                );
+            }
         }
         body.insert(
             "messages".into(),

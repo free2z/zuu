@@ -1,0 +1,42 @@
+{
+  "feature": "system_messages",
+  "mutations": [
+    {
+      "name": "drop first OpenAI Chat system message",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/messages/0",
+      "fixtures": [
+        "openai_chat_two_systems"
+      ]
+    },
+    {
+      "name": "drop Responses instructions",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/instructions",
+      "fixtures": [
+        "openai_responses_two_systems"
+      ]
+    },
+    {
+      "name": "drop first Anthropic system block",
+      "target": "provider_request",
+      "op": "remove",
+      "path": "/system/0",
+      "fixtures": [
+        "anthropic_messages_two_systems"
+      ]
+    },
+    {
+      "name": "change authorized developer role to system",
+      "target": "provider_request",
+      "op": "replace",
+      "path": "/messages/0/role",
+      "value": "system",
+      "fixtures": [
+        "openai_chat_developer_authorized"
+      ]
+    }
+  ]
+}

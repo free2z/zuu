@@ -30,10 +30,15 @@ conformance/
     mutations.json     the feature's negative controls (required, non-empty)
 ```
 
-Features today: `text`, `structured_output`, `tool_calling`, `reasoning_effort`. A new
+Features today: `text`, `structured_output`, `tool_calling`, `reasoning_effort`, `system_messages`. A new
 directory must be added to `FEATURES` in `conformance_support/mod.rs`, with
 the signed capability a success fixture of it must declare; an unknown
 directory, a stray file, or a feature without `mutations.json` is a failure.
+
+`system_messages` also covers refusal of image parts on system/developer
+messages before any hold, including mixed text/image content. Its user-image
+negative control lives in `tests/adapter_requests.rs`, where the Responses
+adapter proves documented user `input_image` parts remain intact.
 
 ## A fixture
 
@@ -47,7 +52,7 @@ directory, a stray file, or a feature without `mutations.json` is a failure.
   "provider": "openai",                    // openai | xai | anthropic
   "catalog_model": {                       // the signed members the fixture assumes
     "capabilities": { "structured_output": true },
-    "controls": { },                       // optional, ai-api-design §3.3 (only `effort_levels` is read today)
+    "controls": { },                       // optional signed controls, ai-api-design §3.3
     "limits": { }                          // optional, ditto
   },
   "request": { "model": "m-openai-chat", "messages": [ ], "response_format": { } },

@@ -145,6 +145,35 @@ fn every_measured_prompt_shape_is_covered_and_bounded() {
     }
 }
 
+#[test]
+fn every_system_message_is_counted_in_the_input_estimate() {
+    let one: ChatRequest = serde_json::from_value(json!({
+        "model":"m", "messages":[
+            {"role":"system","content":[{"type":"text","text":"First instruction."}]},
+            {"role":"user","content":[{"type":"text","text":"Question?"}]}
+        ]
+    }))
+    .unwrap();
+    let two: ChatRequest = serde_json::from_value(json!({
+        "model":"m", "messages":[
+            {"role":"system","content":[{"type":"text","text":"First instruction."}]},
+            {"role":"developer","content":[{"type":"text","text":"Second instruction."}]},
+            {"role":"user","content":[{"type":"text","text":"Question?"}]}
+        ]
+    }))
+    .unwrap();
+    let openai = model("openai", "gpt-4o");
+    let one_estimate = input_tokens(&one, &openai).unwrap();
+    let two_estimate = input_tokens(&two, &openai).unwrap();
+    assert!(two_estimate.tokens > one_estimate.tokens);
+
+    let fallback = model("anthropic", "claude-sonnet-5");
+    assert!(
+        input_tokens(&two, &fallback).unwrap().tokens
+            > input_tokens(&one, &fallback).unwrap().tokens
+    );
+}
+
 // The first paid tool turns ¡AHA! ran on prod (2026-10-06, gateway d26c9397,
 // byte-bound estimate): holds of 17–21 2Z against charges of 4–5 — the tool
 // definitions (4–5 deeply nested strict schemas, ~26–37 KB) were reserved
