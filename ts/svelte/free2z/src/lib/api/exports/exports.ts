@@ -22,6 +22,8 @@ import type {
 } from '@tanstack/svelte-query';
 
 import type {
+  AccountExport,
+  AccountExportLatest,
   PublicationExportError,
   PublicationExportJob
 } from '../f2z.schemas.ts';
@@ -30,6 +32,285 @@ import { customInstance } from '.././mutator.ts';
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
+
+/**
+ * Queues a private ZIP archive containing the account owner's profile, publication export, comments, ledger history, purchases, and connected app grants. A timestamp-signed in-session download token expires after 15 minutes; the archive expires after 24 hours.
+ * @summary Request an account data archive
+ */
+export const accountDataExportCreate = (
+
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<AccountExport>(
+      {url: `/api/exports/account/`, method: 'POST', signal
+    },
+      options);
+    }
+
+
+
+
+export const getAccountDataExportCreateMutationKey = () => ['accountDataExportCreate'] as const;
+
+export const getAccountDataExportCreateMutationOptions = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof accountDataExportCreate>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof accountDataExportCreate>>, TError,void, TContext> => {
+
+const mutationKey = getAccountDataExportCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof accountDataExportCreate>>, void> = () => {
+
+
+          return  accountDataExportCreate(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AccountDataExportCreateMutationResult = NonNullable<Awaited<ReturnType<typeof accountDataExportCreate>>>
+
+    export type AccountDataExportCreateMutationError = void
+
+
+    /**
+ * @summary Request an account data archive
+ */
+export const createAccountDataExportCreate = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof accountDataExportCreate>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof accountDataExportCreate>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return createMutation(getAccountDataExportCreateMutationOptions(options));
+    }
+    /**
+ * @summary Check account export status
+ */
+export const accountDataExportRetrieve = (
+    id: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<AccountExport>(
+      {url: `/api/exports/account/${id}/`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+
+
+export const getAccountDataExportRetrieveQueryKey = (id: string,) => {
+    return [
+    `/api/exports/account/${id}/`
+    ] as const;
+    }
+
+
+export const getAccountDataExportRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof accountDataExportRetrieve>>, TError = PublicationExportError>(id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAccountDataExportRetrieveQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof accountDataExportRetrieve>>> = ({ signal }) => accountDataExportRetrieve(id, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AccountDataExportRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof accountDataExportRetrieve>>>
+export type AccountDataExportRetrieveQueryError = PublicationExportError
+
+
+/**
+ * @summary Check account export status
+ */
+
+export function createAccountDataExportRetrieve<TData = Awaited<ReturnType<typeof accountDataExportRetrieve>>, TError = PublicationExportError>(
+ id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAccountDataExportRetrieveQueryOptions(id,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
+ * Streams the private ZIP only to its owning, active account after recent authentication. The signed token expires after 15 minutes.
+ * @summary Download the account data archive
+ */
+export const accountDataExportDownload = (
+    id: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<Blob>(
+      {url: `/api/exports/account/${id}/download/`, method: 'GET',
+        responseType: 'blob', signal
+    },
+      options);
+    }
+
+
+
+
+export const getAccountDataExportDownloadQueryKey = (id: string,) => {
+    return [
+    `/api/exports/account/${id}/download/`
+    ] as const;
+    }
+
+
+export const getAccountDataExportDownloadQueryOptions = <TData = Awaited<ReturnType<typeof accountDataExportDownload>>, TError = PublicationExportError>(id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportDownload>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAccountDataExportDownloadQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof accountDataExportDownload>>> = ({ signal }) => accountDataExportDownload(id, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportDownload>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AccountDataExportDownloadQueryResult = NonNullable<Awaited<ReturnType<typeof accountDataExportDownload>>>
+export type AccountDataExportDownloadQueryError = PublicationExportError
+
+
+/**
+ * @summary Download the account data archive
+ */
+
+export function createAccountDataExportDownload<TData = Awaited<ReturnType<typeof accountDataExportDownload>>, TError = PublicationExportError>(
+ id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportDownload>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAccountDataExportDownloadQueryOptions(id,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
+ * Restore the signed-in account's latest export after leaving the page.
+ * @summary Retrieve the latest account data archive status
+ */
+export const accountDataExportLatest = (
+
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<AccountExportLatest>(
+      {url: `/api/exports/account/latest/`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+
+
+export const getAccountDataExportLatestQueryKey = () => {
+    return [
+    `/api/exports/account/latest/`
+    ] as const;
+    }
+
+
+export const getAccountDataExportLatestQueryOptions = <TData = Awaited<ReturnType<typeof accountDataExportLatest>>, TError = unknown>( options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportLatest>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAccountDataExportLatestQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof accountDataExportLatest>>> = ({ signal }) => accountDataExportLatest(requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportLatest>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AccountDataExportLatestQueryResult = NonNullable<Awaited<ReturnType<typeof accountDataExportLatest>>>
+export type AccountDataExportLatestQueryError = unknown
+
+
+/**
+ * @summary Retrieve the latest account data archive status
+ */
+
+export function createAccountDataExportLatest<TData = Awaited<ReturnType<typeof accountDataExportLatest>>, TError = unknown>(
+  options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof accountDataExportLatest>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAccountDataExportLatestQueryOptions(options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
 
 
 
