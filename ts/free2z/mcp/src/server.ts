@@ -153,6 +153,9 @@ export function createServer(config: Config = loadConfig()): McpServer {
       async (input) => {
         let snapshot = config;
         try {
+          // Reject unexposed operations before profile identity verification
+          // makes any network request, as well as before API dispatch.
+          getOperation(input.operation_id);
           const selected = resolveAccount(config, input.account);
           snapshot = selected.config;
           if (selected.username !== undefined) {

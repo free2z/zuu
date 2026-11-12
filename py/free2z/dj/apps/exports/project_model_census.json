@@ -1,0 +1,2332 @@
+{
+  "comments.Comment": {
+    "fields": {
+      "author": "g12f.Creator",
+      "content": null,
+      "content_type": "contenttypes.ContentType",
+      "created_at": null,
+      "headline": null,
+      "is_banned": null,
+      "object_id": null,
+      "parent": "comments.Comment",
+      "tags": "taggit.Tag",
+      "tuzis": null,
+      "updated_at": null,
+      "uuid": null
+    },
+    "ownership": "author -> Creator; parent and target can belong to others",
+    "treatment": "comments.jsonl: own authored content including moderated rows; other authors and target content excluded"
+  },
+  "comments.CommentConsumerClaim": {
+    "fields": {
+      "claimed_at": null,
+      "comment": "comments.Comment",
+      "consumer": null,
+      "id": null
+    },
+    "ownership": "comment.author -> Creator is author, not the consumer",
+    "treatment": "omitted: consumer delivery claim is operational, not comment content"
+  },
+  "comments.ContentReport": {
+    "fields": {
+      "created_at": null,
+      "details": null,
+      "id": null,
+      "reason": null,
+      "reporter": "g12f.Creator",
+      "staff_notes": null,
+      "status": null,
+      "target_id": null,
+      "target_kind": null
+    },
+    "ownership": "reporter -> Creator; target may belong to a different account",
+    "treatment": "activity.jsonl: reporter-submitted details, reason and status; target identifier and staff notes excluded"
+  },
+  "comments.UUIDTaggedItem": {
+    "fields": {
+      "content_type": "contenttypes.ContentType",
+      "id": null,
+      "object_id": null,
+      "tag": "taggit.Tag"
+    },
+    "ownership": "content_type/object_id resolves a tagged object; not every target is a Creator-owned comment",
+    "treatment": "omitted: generic tag association is not independently owned by a creator"
+  },
+  "dyte.CreatorMeeting": {
+    "fields": {
+      "create_unknown_attempts": null,
+      "create_unknown_next_attempt_at": null,
+      "create_unknown_title": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "e2ee": null,
+      "handshake_managed": null,
+      "host_evictions": null,
+      "host_participant_id": null,
+      "host_session_id": null,
+      "host_session_seen_at": null,
+      "host_start_claim": null,
+      "host_start_claim_at": null,
+      "id": null,
+      "is_public": null,
+      "last_seen_at": null,
+      "lifecycle_state": null,
+      "live_now": null,
+      "meeting_id": null,
+      "meeting_type": null,
+      "price_per_minute": null,
+      "private_lease_adopted_at": null,
+      "private_lease_created_at": null,
+      "private_lease_id": null,
+      "provider_room_cleanup_claimed": null,
+      "provider_session_id": null,
+      "provider_session_started_at": null,
+      "secret": null,
+      "start_id": null,
+      "zero_probe_since": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "activity.jsonl: own role/status and timestamps; other-party targets, provider IDs, secrets and delivery internals excluded"
+  },
+  "dyte.ProviderRoomCleanup": {
+    "fields": {
+      "attempts": null,
+      "completed_at": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "creator_meeting": "dyte.CreatorMeeting",
+      "id": null,
+      "last_error": null,
+      "lease_token": null,
+      "lease_until": null,
+      "meeting_type": null,
+      "next_attempt_at": null,
+      "price_per_minute": null,
+      "provider_meeting_id": null,
+      "provider_session_id": null,
+      "provider_title": null,
+      "start_id": null,
+      "status": null
+    },
+    "ownership": "creator -> Creator or creator_meeting.creator -> Creator",
+    "treatment": "omitted: provider cleanup lease and operational retry records"
+  },
+  "dyte.RecordingDelivery": {
+    "fields": {
+      "completed_at": null,
+      "creator": "g12f.Creator",
+      "creator_id_snapshot": null,
+      "download_url": null,
+      "first_failure_at": null,
+      "generic_file": "uploads.GenericFile",
+      "idempotency_key": null,
+      "last_failure_status": null,
+      "lease_expires_at": null,
+      "lease_token": null,
+      "legacy_fallback": null,
+      "meeting_pk": null,
+      "next_retry_at": null,
+      "processed_at": null,
+      "recovery_queued_at": null,
+      "recovery_started_at": null,
+      "retry_count": null,
+      "retry_exhausted_at": null,
+      "source_url_key": null,
+      "stuck_alerted_at": null
+    },
+    "ownership": "creator -> Creator; generic_file.owner may be another owner",
+    "treatment": "omitted: download_url and lease_token are sensitive delivery capabilities"
+  },
+  "dyte.RecordingDeliveryTarget": {
+    "fields": {
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "creator_id_snapshot": null,
+      "creator_meeting": "dyte.CreatorMeeting",
+      "id": null,
+      "is_public": null,
+      "meeting_type": null,
+      "provider_meeting_id": null,
+      "provider_session_id": null
+    },
+    "ownership": "creator -> Creator or creator_meeting.creator -> Creator",
+    "treatment": "omitted: provider delivery target and lifecycle state"
+  },
+  "dyte.WebhookDelivery": {
+    "fields": {
+      "business_event_key": null,
+      "endpoint": null,
+      "event_type": null,
+      "payload_sha256": null,
+      "processed_at": null,
+      "provider_event_id": null
+    },
+    "ownership": "system provider event; no Creator ownership field",
+    "treatment": "omitted: webhook deduplication and provider event operations"
+  },
+  "e2ee.ChatRequest": {
+    "fields": {
+      "charged": null,
+      "created_at": null,
+      "email_detail": null,
+      "email_status": null,
+      "email_updated_at": null,
+      "id": null,
+      "recipient": "g12f.Creator",
+      "sender": "g12f.Creator",
+      "sender_handle": null
+    },
+    "ownership": "sender or recipient -> Creator; both are distinct parties",
+    "treatment": "activity.jsonl: own sender/recipient role and time; charge only to sender; counterpart and email delivery internals excluded"
+  },
+  "economy.CapturedZecNote": {
+    "fields": {
+      "amount_zatoshi": null,
+      "first_seen_at": null,
+      "id": null,
+      "memo_hex": null,
+      "memo_plain": null,
+      "output_index": null,
+      "pool": null,
+      "source": null,
+      "source_digest": null,
+      "txid": null
+    },
+    "ownership": "no Creator foreign key; a disposition may link a note to an intent or receipt",
+    "treatment": "omitted: shared raw chain memo and reconciliation source data"
+  },
+  "economy.CompensationAgreement": {
+    "fields": {
+      "acceptance_evidence": null,
+      "accepted_at": null,
+      "accepted_by": "g12f.Creator",
+      "contract_digest": null,
+      "contract_version": null,
+      "creator": "g12f.Creator",
+      "effective_at": null,
+      "id": null,
+      "legal_payee": "economy.LegalPayee",
+      "revoked_at": null
+    },
+    "ownership": "creator -> Creator; accepted_by is an actor, legal_payee may be shared",
+    "treatment": "earnings.jsonl: creator-scoped contract version and dates; legal payee and acceptance evidence excluded"
+  },
+  "economy.CompensationSchedule": {
+    "fields": {
+      "contract_version": null,
+      "effective_at": null,
+      "ends_at": null,
+      "id": null,
+      "nusd_per_allocated_m2z": null,
+      "published_digest": null,
+      "service": null,
+      "version": null
+    },
+    "ownership": "system policy, schedule, shared legal payee, or promotion; no Creator ownership key",
+    "treatment": "omitted: shared operational and policy records; payee is not assumed to belong to a Creator"
+  },
+  "economy.CreatorPayable": {
+    "fields": {
+      "balance_nusd": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "currency": null,
+      "held_nusd": null,
+      "id": null,
+      "legal_payee": "economy.LegalPayee"
+    },
+    "ownership": "creator -> Creator; legal_payee may be shared",
+    "treatment": "earnings.jsonl: owner balance, currency and held amount; legal payee excluded"
+  },
+  "economy.EconomicPolicy": {
+    "fields": {
+      "account_daily_limit_m2z": null,
+      "activated_at": null,
+      "fenced": null,
+      "id": null,
+      "manifest": null,
+      "purchaser_daily_limit_nusd": null,
+      "version": null
+    },
+    "ownership": "system policy, schedule, shared legal payee, or promotion; no Creator ownership key",
+    "treatment": "omitted: shared operational and policy records; payee is not assumed to belong to a Creator"
+  },
+  "economy.FundingDay": {
+    "fields": {
+      "account": "ledger.Account",
+      "day": null,
+      "id": null,
+      "incoming_m2z": null,
+      "opening_m2z": null,
+      "reserved_m2z": null
+    },
+    "ownership": "account.owner -> Creator when account is user-owned",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.FundingReservation": {
+    "fields": {
+      "account": "ledger.Account",
+      "amount_m2z": null,
+      "created_at": null,
+      "day": null,
+      "external_receipt": null,
+      "id": null,
+      "idempotency_key": null,
+      "purchaser": "g12f.Creator",
+      "recipient": "g12f.Creator",
+      "sale_nusd": null,
+      "state": null
+    },
+    "ownership": "purchaser and recipient -> Creator are separate parties; account.owner is conditional",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.LegacyClaim": {
+    "fields": {
+      "classification": null,
+      "creator": "g12f.Creator",
+      "evidence": null,
+      "id": null,
+      "liability_nusd": null,
+      "snapshot_at": null,
+      "snapshot_key": null,
+      "usage_snapshot_m2z": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "earnings.jsonl: creator-scoped amount, classification and time; evidence and snapshot key excluded"
+  },
+  "economy.LegacyClaimDecision": {
+    "fields": {
+      "basis": null,
+      "claim": "economy.LegacyClaim",
+      "classification": null,
+      "created_at": null,
+      "id": null,
+      "liability_nusd": null,
+      "operator": null
+    },
+    "ownership": "claim.creator -> Creator; operator is not the owner",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.LegalPayee": {
+    "fields": {
+      "id": null,
+      "jurisdiction": null,
+      "legal_name": null,
+      "verification": null,
+      "verified_at": null,
+      "verified_by": null
+    },
+    "ownership": "system policy, schedule, shared legal payee, or promotion; no Creator ownership key",
+    "treatment": "omitted: shared operational and policy records; payee is not assumed to belong to a Creator"
+  },
+  "economy.PayableJournal": {
+    "fields": {
+      "account": "economy.CreatorPayable",
+      "admission": "economy.ServiceAdmission",
+      "allocated_m2z": null,
+      "basis": null,
+      "created_at": null,
+      "delivery": "economy.ServiceDelivery",
+      "delta_nusd": null,
+      "id": null,
+      "idempotency_key": null,
+      "kind": null,
+      "payment": "economy.PaymentRequest"
+    },
+    "ownership": "account.creator -> Creator",
+    "treatment": "earnings.jsonl: account.creator-scoped amount, kind and time; basis, keys and peer evidence excluded"
+  },
+  "economy.PaymentRequest": {
+    "fields": {
+      "account": "economy.CreatorPayable",
+      "address": null,
+      "address_authorization": null,
+      "amount_nusd": null,
+      "created_at": null,
+      "id": null,
+      "idempotency_key": null,
+      "legal_payee": "economy.LegalPayee",
+      "requested_by": "g12f.Creator",
+      "review": null,
+      "settlement": null,
+      "state": null,
+      "txid": null,
+      "updated_at": null
+    },
+    "ownership": "account.creator -> Creator; requested_by is an actor and legal_payee may be shared",
+    "treatment": "earnings.jsonl: owner payout amount, status and timestamps; address, authorization, settlement and provider data excluded"
+  },
+  "economy.PurchaserDay": {
+    "fields": {
+      "day": null,
+      "id": null,
+      "purchaser": "g12f.Creator",
+      "reserved_nusd": null,
+      "sold_nusd": null
+    },
+    "ownership": "purchaser -> Creator",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.SdkServiceAdmission": {
+    "fields": {
+      "admission": "economy.ServiceAdmission",
+      "call": "ledger.LedgerGatewayCall",
+      "id": null,
+      "offer": "economy.SupplierOfferApproval",
+      "subject": "g12f.Creator"
+    },
+    "ownership": "subject -> Creator; admission.creator and offer.creator can be distinct",
+    "treatment": "earnings.jsonl: own subject admission identifier; other-party offer and internal call evidence excluded"
+  },
+  "economy.ServiceAdmission": {
+    "fields": {
+      "account": "economy.CreatorPayable",
+      "admitted_at": null,
+      "agreement": "economy.CompensationAgreement",
+      "creator": "g12f.Creator",
+      "event_id": null,
+      "id": null,
+      "legal_payee": "economy.LegalPayee",
+      "policy_version": null,
+      "schedule": "economy.CompensationSchedule",
+      "service": null,
+      "source": null,
+      "source_digest": null
+    },
+    "ownership": "creator -> Creator; account.creator -> Creator; legal_payee is shared",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.ServiceDelivery": {
+    "fields": {
+      "admission": "economy.ServiceAdmission",
+      "allocated_m2z": null,
+      "cohort": null,
+      "created_at": null,
+      "evidence": null,
+      "evidence_digest": null,
+      "id": null,
+      "interval": null,
+      "provider_key": null,
+      "service": null
+    },
+    "ownership": "admission.creator -> Creator",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.SupplierOfferApproval": {
+    "fields": {
+      "account": "economy.CreatorPayable",
+      "agreement": "economy.CompensationAgreement",
+      "app": "ledger.LedgerApp",
+      "approved_at": null,
+      "approved_by": "g12f.Creator",
+      "creator": "g12f.Creator",
+      "evidence": null,
+      "evidence_digest": null,
+      "id": null,
+      "legal_payee": "economy.LegalPayee",
+      "markup_bps": null,
+      "schedule": "economy.CompensationSchedule"
+    },
+    "ownership": "creator -> Creator; approved_by is an operator; app has separate developer",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.SupplierOfferRevocation": {
+    "fields": {
+      "created_at": null,
+      "evidence": null,
+      "id": null,
+      "offer": "economy.SupplierOfferApproval",
+      "operator": "g12f.Creator"
+    },
+    "ownership": "offer.creator -> Creator; operator is an actor",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "economy.ZecNoteDisposition": {
+    "fields": {
+      "actor": "g12f.Creator",
+      "created_at": null,
+      "event_key": null,
+      "evidence": null,
+      "funding": "economy.FundingReservation",
+      "id": null,
+      "intent": "purchases.PurchaseIntent",
+      "kind": null,
+      "note": "economy.CapturedZecNote",
+      "receipt": "tuzis.ZecCreditReceipt"
+    },
+    "ownership": "intent.creator or receipt.creator or funding purchaser/recipient may identify different Creators; actor is not an owner",
+    "treatment": "omitted: shared reconciliation evidence and chain note metadata"
+  },
+  "economy.ZecPromotion": {
+    "fields": {
+      "code": null,
+      "enabled": null,
+      "ends_at": null,
+      "id": null,
+      "multiplier": null,
+      "starts_at": null,
+      "title": null
+    },
+    "ownership": "system policy, schedule, shared legal payee, or promotion; no Creator ownership key",
+    "treatment": "omitted: shared operational and policy records; payee is not assumed to belong to a Creator"
+  },
+  "efm.FrostGroup": {
+    "fields": {
+      "max_participants": null,
+      "uuid": null
+    },
+    "ownership": "no Creator relation; participant belongs to a FROST group, not a verified account",
+    "treatment": "omitted: cryptographic participation and challenge data"
+  },
+  "efm.Participant": {
+    "fields": {
+      "group": "efm.FrostGroup",
+      "sign_count": null,
+      "uuid": null,
+      "webauthn_credential_id": null,
+      "webauthn_public_key": null
+    },
+    "ownership": "no Creator relation; participant belongs to a FROST group, not a verified account",
+    "treatment": "omitted: cryptographic participation and challenge data"
+  },
+  "efm.WebAuthnChallenge": {
+    "fields": {
+      "challenge": null,
+      "challenge_type": null,
+      "created_at": null,
+      "participant": "efm.Participant",
+      "uuid": null
+    },
+    "ownership": "no Creator relation; participant belongs to a FROST group, not a verified account",
+    "treatment": "omitted: cryptographic participation and challenge data"
+  },
+  "emails.Email": {
+    "fields": {
+      "confirmed_at": null,
+      "created_at": null,
+      "email": null,
+      "expires_at": null,
+      "get_notifications": null,
+      "id": null,
+      "is_public": null,
+      "token": null,
+      "token_epoch": null,
+      "updated_at": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator",
+    "treatment": "email_preferences.jsonl: address, notification/publicity settings and dates; EMAIL_EXCLUSIONS lists excluded credential and operational fields"
+  },
+  "emails.OptOutEmail": {
+    "fields": {
+      "email": null,
+      "id": null,
+      "link_token": null,
+      "opted_out_at": null
+    },
+    "ownership": "email address is a scalar, not a verified Creator foreign key",
+    "treatment": "omitted: email lookup and unsubscribe link_token are authentication/compliance state"
+  },
+  "emails.PasswordResetToken": {
+    "fields": {
+      "created_at": null,
+      "email": "emails.Email",
+      "id": null,
+      "token": null,
+      "used": null
+    },
+    "ownership": "email.user -> Creator",
+    "treatment": "omitted: password recovery credential"
+  },
+  "events.Event": {
+    "fields": {
+      "amount": null,
+      "content_type": "contenttypes.ContentType",
+      "contributor": "g12f.Creator",
+      "created_at": null,
+      "id": null,
+      "object_id": null,
+      "payee": "g12f.Creator",
+      "read": null,
+      "receiving_user": "g12f.Creator",
+      "type": null,
+      "updated_at": null
+    },
+    "ownership": "receiving_user, contributor and payee are independent Creator roles; object_id is a generic target",
+    "treatment": "activity.jsonl: recipient-owned notification type, amount, read state and timestamps; private target and other-party data excluded"
+  },
+  "exports.PublicationExportJob": {
+    "fields": {
+      "article_count": null,
+      "asset_count": null,
+      "checksum_sha256": null,
+      "complete": null,
+      "completed_at": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "error_message": null,
+      "expires_at": null,
+      "export_type": null,
+      "file_name": null,
+      "file_path": null,
+      "file_size": null,
+      "id": null,
+      "started_at": null,
+      "status": null,
+      "updated_at": null,
+      "warnings": null
+    },
+    "ownership": "creator -> Creator; may be null after deletion",
+    "treatment": "omitted: temporary export jobs, storage paths and cleanup state"
+  },
+  "g12f.AccountDeletionEvent": {
+    "fields": {
+      "at": null,
+      "creator": "g12f.Creator",
+      "detail": null,
+      "id": null,
+      "kind": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "omitted: account deletion and security lifecycle audit"
+  },
+  "g12f.Address": {
+    "fields": {
+      "address": null,
+      "created_at": null,
+      "is_current": null
+    },
+    "ownership": "no Creator relation; address is system wallet state",
+    "treatment": "omitted: wallet address infrastructure, not proven account ownership"
+  },
+  "g12f.Creator": {
+    "fields": {
+      "avatar_image": "uploads.GenericFile",
+      "avatar_url": null,
+      "banner_image": "uploads.GenericFile",
+      "banner_url": null,
+      "date_joined": null,
+      "deleted_at": null,
+      "deletion_cancelled_at": null,
+      "deletion_requested_at": null,
+      "description": null,
+      "email": null,
+      "first_name": null,
+      "full_name": null,
+      "groups": "auth.Group",
+      "id": null,
+      "is_active": null,
+      "is_staff": null,
+      "is_superuser": null,
+      "is_verified": null,
+      "kt_account_epoch": null,
+      "last_login": null,
+      "last_name": null,
+      "member_price": null,
+      "mention_notifications_enabled": null,
+      "p2paddr": null,
+      "password": null,
+      "password_set": null,
+      "public_id": null,
+      "public_profile_updated_at": null,
+      "purge_after": null,
+      "strikes": null,
+      "total": null,
+      "tuzis": null,
+      "updated_at": null,
+      "user_permissions": "auth.Permission",
+      "username": null,
+      "username_ci_legacy": null,
+      "username_released_at": null
+    },
+    "ownership": "row is the signed-in Creator",
+    "treatment": "profile.json: PROFILE_FIELDS and owned avatar/banner identifiers; PROFILE_EXCLUSIONS explains omitted fields"
+  },
+  "g12f.CreatorBlock": {
+    "fields": {
+      "blocked": "g12f.Creator",
+      "blocker": "g12f.Creator",
+      "created_at": null,
+      "id": null
+    },
+    "ownership": "blocker or blocked -> Creator; two independent parties",
+    "treatment": "relationships.jsonl: outgoing blocker state only; received blocks never exported"
+  },
+  "g12f.CreatorFollow": {
+    "fields": {
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "follower": "g12f.Creator",
+      "id": null
+    },
+    "ownership": "follower or creator -> Creator; two independent parties",
+    "treatment": "relationships.jsonl: outgoing follower state and followed username"
+  },
+  "g12f.CreatorMute": {
+    "fields": {
+      "created_at": null,
+      "id": null,
+      "muted": "g12f.Creator",
+      "muter": "g12f.Creator"
+    },
+    "ownership": "muter or muted -> Creator; two independent parties",
+    "treatment": "relationships.jsonl: outgoing muter state only; received mutes never exported"
+  },
+  "g12f.IssuedTokenEpoch": {
+    "fields": {
+      "account_epoch": null,
+      "token": "knox.AuthToken"
+    },
+    "ownership": "token.user -> Creator",
+    "treatment": "omitted: token revocation/security state"
+  },
+  "g12f.PageComment": {
+    "fields": {
+      "comment": null,
+      "created_at": null,
+      "id": null,
+      "tx": "g12f.Transaction",
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "zpage.creator -> Creator; tx.creator may identify a different contributor",
+    "treatment": "omitted: legacy comment may contain another party\u2019s submission"
+  },
+  "g12f.PageMentionDelivery": {
+    "fields": {
+      "author": "g12f.Creator",
+      "created_at": null,
+      "id": null,
+      "recipient": "g12f.Creator",
+      "status": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "author and recipient -> Creator are independent roles; zpage.creator may differ",
+    "treatment": "activity.jsonl: own role/status and timestamps; other-party targets, provider IDs, secrets and delivery internals excluded"
+  },
+  "g12f.PageOrder": {
+    "fields": {
+      "id": null,
+      "order": null,
+      "page": "g12f.zPage",
+      "series": "g12f.Series"
+    },
+    "ownership": "series.creator -> Creator; page.creator also constrains safe publication inclusion",
+    "treatment": "publications.zip: series ordering, subject to publication exporter ownership checks"
+  },
+  "g12f.Poll": {
+    "fields": {
+      "created_at": null,
+      "id": null,
+      "option1": null,
+      "option1_total": null,
+      "option1_votes": null,
+      "option2": null,
+      "option2_total": null,
+      "option2_votes": null,
+      "option3": null,
+      "option3_total": null,
+      "option3_votes": null,
+      "option4": null,
+      "option4_total": null,
+      "option4_votes": null,
+      "option5": null,
+      "option5_total": null,
+      "option5_votes": null,
+      "question": null,
+      "viewing_key": null
+    },
+    "ownership": "referenced by zPage.poll; zPage.creator is the owner context",
+    "treatment": "publications.zip: publication exporter; viewing_key is secret"
+  },
+  "g12f.Series": {
+    "fields": {
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "id": null,
+      "name": null,
+      "pages": "g12f.zPage",
+      "updated_at": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "publications.zip: publication exporter; credentials and private unowned assets excluded by its manifest"
+  },
+  "g12f.Subscription": {
+    "fields": {
+      "expires": null,
+      "fan": "g12f.Creator",
+      "id": null,
+      "last_charged_at": null,
+      "max_price": null,
+      "star": "g12f.Creator"
+    },
+    "ownership": "fan or star -> Creator; two independent parties",
+    "treatment": "relationships.jsonl: fan-owned subscriptions and active subscriber records permitted by the subscriber API; unrelated parties excluded"
+  },
+  "g12f.Transaction": {
+    "fields": {
+      "action": null,
+      "amount": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "memo": null,
+      "memo_plain": null,
+      "txid": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "creator -> Creator; zpage.creator may be a different account",
+    "treatment": "legacy_purchases.jsonl: creator-attributed action, amount and timestamp; memo, page and txid omitted; older transaction attribution may be incomplete or overwritten"
+  },
+  "g12f.ViewedTransaction": {
+    "fields": {
+      "address": null,
+      "amount": null,
+      "block_height": null,
+      "block_time": null,
+      "id": null,
+      "memo": null,
+      "txid": null,
+      "viewing_key": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "zpage.creator -> Creator; transaction sender may be another party",
+    "treatment": "omitted: viewing_key and transaction memo are sensitive"
+  },
+  "g12f.ZPageMutationActor": {
+    "fields": {
+      "action": null,
+      "actor_id": null,
+      "id": null,
+      "language": null,
+      "occurred_at": null,
+      "state_digest": null,
+      "zpage_id": null
+    },
+    "ownership": "zpage_id and actor_id are scalar identifiers; actor and page owner may differ",
+    "treatment": "omitted: mutation security audit and state digest"
+  },
+  "g12f.ZPageTranslation": {
+    "fields": {
+      "content": null,
+      "created_at": null,
+      "description": null,
+      "id": null,
+      "is_published": null,
+      "language": null,
+      "title": null,
+      "updated_at": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "zpage.creator -> Creator",
+    "treatment": "publications.zip: owner-visible variants via publication exporter"
+  },
+  "g12f.ZPageVariant": {
+    "fields": {
+      "ai_model": "openai.AIModel",
+      "content": null,
+      "created_at": null,
+      "description": null,
+      "id": null,
+      "is_published": null,
+      "language": null,
+      "origin": null,
+      "source_digest": null,
+      "title": null,
+      "updated_at": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "zpage.creator -> Creator",
+    "treatment": "publications.zip: owner-visible variants via publication exporter"
+  },
+  "g12f.zPage": {
+    "fields": {
+      "canonical_url": null,
+      "category": null,
+      "content": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "description": null,
+      "detected_at": null,
+      "detected_language": null,
+      "detection_confidence": null,
+      "enclosure": "uploads.GenericFile",
+      "f2z_score": null,
+      "featured_image": "uploads.GenericFile",
+      "free2zaddr": null,
+      "goal": null,
+      "id": null,
+      "is_funded": null,
+      "is_published": null,
+      "is_subscriber_only": null,
+      "is_verified": null,
+      "language_source": null,
+      "mention_notifications_processed_at": null,
+      "p2paddr": null,
+      "password": null,
+      "poll": "g12f.Poll",
+      "publish_at": null,
+      "published_at": null,
+      "searchable_content_updated_at": null,
+      "source_language": null,
+      "tags": "taggit.Tag",
+      "title": null,
+      "total": null,
+      "tuzi_total": null,
+      "updated_at": null,
+      "vanity": null,
+      "viewing_key": null,
+      "vk_updated_at": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "publications.zip: publication exporter; credentials and private unowned assets excluded by its manifest"
+  },
+  "handles.MessagingHandle": {
+    "fields": {
+      "created_at": null,
+      "handle": null,
+      "id": null,
+      "source": null,
+      "status": null,
+      "updated_at": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator",
+    "treatment": "relationships.jsonl: user-owned handle, source and status"
+  },
+  "identity.AuthContext": {
+    "fields": {
+      "account_epoch": null,
+      "acr": null,
+      "amr": null,
+      "auth_time": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "credential_hash": null,
+      "credential_kind": null,
+      "expires_at": null,
+      "id": null,
+      "updated_at": null
+    },
+    "ownership": "user or creator -> Creator according to fields",
+    "treatment": "omitted: authentication secrets, recovery credentials, or session security state"
+  },
+  "identity.RecoveryCode": {
+    "fields": {
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "digest": null,
+      "id": null,
+      "issued_at_epoch": null,
+      "used_at": null
+    },
+    "ownership": "user or creator -> Creator according to fields",
+    "treatment": "omitted: authentication secrets, recovery credentials, or session security state"
+  },
+  "identity.WebAuthnCredential": {
+    "fields": {
+      "aaguid": null,
+      "backed_up": null,
+      "backup_eligible": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "credential_id": null,
+      "fallback_rejected_at_epoch": null,
+      "id": null,
+      "last_used_at": null,
+      "linked_at_epoch": null,
+      "name": null,
+      "public_key": null,
+      "rp_id": null,
+      "sign_count": null,
+      "transports": null,
+      "user_verified": null
+    },
+    "ownership": "user or creator -> Creator according to fields",
+    "treatment": "omitted: authentication secrets, recovery credentials, or session security state"
+  },
+  "jobs.JobLease": {
+    "fields": {
+      "attempt": null,
+      "deadline_at": null,
+      "job_id": null,
+      "last_beat_at": null,
+      "phase": null,
+      "phase_attempt": null,
+      "phase_token": null,
+      "pod": null,
+      "queue": null,
+      "started_at": null,
+      "task_name": null,
+      "token": null,
+      "worker_name": null
+    },
+    "ownership": "system queues, leases and operator records; no Creator ownership relation",
+    "treatment": "omitted: infrastructure payloads, capability tokens and operator actions"
+  },
+  "jobs.OperatorAction": {
+    "fields": {
+      "actor": null,
+      "at": null,
+      "dry_run": null,
+      "id": null,
+      "job_ids": null,
+      "reason": null,
+      "verb": null
+    },
+    "ownership": "system queues, leases and operator records; no Creator ownership relation",
+    "treatment": "omitted: infrastructure payloads, capability tokens and operator actions"
+  },
+  "jobs.OutboxMessage": {
+    "fields": {
+      "attempts": null,
+      "attributes": null,
+      "created_at": null,
+      "dedup_key": null,
+      "ensure_topic": null,
+      "id": null,
+      "last_error": null,
+      "next_attempt_at": null,
+      "ordering_key": null,
+      "payload": null,
+      "published_at": null,
+      "topic": null
+    },
+    "ownership": "system queues, leases and operator records; no Creator ownership relation",
+    "treatment": "omitted: infrastructure payloads, capability tokens and operator actions"
+  },
+  "jobs.ParkedJob": {
+    "fields": {
+      "args": null,
+      "created_at": null,
+      "lock": null,
+      "parked_job_id": null,
+      "priority": null,
+      "queue": null,
+      "queueing_lock": null,
+      "scheduled_at": null,
+      "source_job_id": null,
+      "task_name": null
+    },
+    "ownership": "system queues, leases and operator records; no Creator ownership relation",
+    "treatment": "omitted: infrastructure payloads, capability tokens and operator actions"
+  },
+  "jobs.ProcrastinateEvent": {
+    "fields": {
+      "at": null,
+      "id": null,
+      "job_id": null,
+      "type": null
+    },
+    "ownership": "Unmanaged read-only mapping of the shared procrastinate_events table; job_id identifies an operational job, not an account owner.",
+    "treatment": "Excluded: system job event type and timestamps are operational queue history, not account-owned content."
+  },
+  "jobs.QuarantinedJob": {
+    "fields": {
+      "attempts": null,
+      "job_id": null,
+      "quarantined_at": null,
+      "queue": null,
+      "reason": null,
+      "requeued_at": null,
+      "task_name": null
+    },
+    "ownership": "system queues, leases and operator records; no Creator ownership relation",
+    "treatment": "omitted: infrastructure payloads, capability tokens and operator actions"
+  },
+  "jobs.QueueControl": {
+    "fields": {
+      "actor": null,
+      "draining": null,
+      "paused_at": null,
+      "queue": null,
+      "reason": null
+    },
+    "ownership": "system queues, leases and operator records; no Creator ownership relation",
+    "treatment": "omitted: infrastructure payloads, capability tokens and operator actions"
+  },
+  "kyc.UserProfile": {
+    "fields": {
+      "additional_document": null,
+      "application_status": null,
+      "created_at": null,
+      "id": null,
+      "id_back": null,
+      "id_front": null,
+      "is_individual": null,
+      "is_us": null,
+      "live_photo": null,
+      "rejection_reason": null,
+      "tax_form_signature": null,
+      "updated_at": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator",
+    "treatment": "identities.jsonl: own application metadata and signature; uploads.jsonl/owned_media/: identity documents where storage key is owner-exclusive"
+  },
+  "kyc.W8BEN": {
+    "fields": {
+      "certification": null,
+      "certification_date": null,
+      "citizenship_country": null,
+      "created_at": null,
+      "date_of_birth": null,
+      "file": null,
+      "foreign_tin": null,
+      "foreign_tin_not_required": null,
+      "full_name": null,
+      "id": null,
+      "mailing_address": null,
+      "mailing_city_state_zip": null,
+      "mailing_country": null,
+      "permanent_residence_address": null,
+      "permanent_residence_city_state_zip": null,
+      "permanent_residence_country": null,
+      "print_name": null,
+      "profile": "kyc.UserProfile",
+      "reference_numbers": null,
+      "tin": null,
+      "updated_at": null
+    },
+    "ownership": "profile.user -> Creator",
+    "treatment": "identities.jsonl: own form fields or metadata; uploads.jsonl/owned_media/: form file where storage key is owner-exclusive"
+  },
+  "kyc.W8BENE": {
+    "fields": {
+      "created_at": null,
+      "file": null,
+      "id": null,
+      "profile": "kyc.UserProfile",
+      "updated_at": null
+    },
+    "ownership": "profile.user -> Creator",
+    "treatment": "identities.jsonl: own form fields or metadata; uploads.jsonl/owned_media/: form file where storage key is owner-exclusive"
+  },
+  "kyc.W9": {
+    "fields": {
+      "account_numbers": null,
+      "address": null,
+      "business_name": null,
+      "city_state_zip": null,
+      "created_at": null,
+      "ein": null,
+      "exempt_payee_code": null,
+      "exemption_from_fatca": null,
+      "file": null,
+      "full_name": null,
+      "id": null,
+      "llc_tax_classification": null,
+      "profile": "kyc.UserProfile",
+      "requester_name_address": null,
+      "ssn": null,
+      "tax_classification": null,
+      "updated_at": null
+    },
+    "ownership": "profile.user -> Creator",
+    "treatment": "identities.jsonl: own form fields or metadata; uploads.jsonl/owned_media/: form file where storage key is owner-exclusive"
+  },
+  "ledger.Account": {
+    "fields": {
+      "balance": null,
+      "created_at": null,
+      "frozen": null,
+      "frozen_reason": null,
+      "held": null,
+      "id": null,
+      "journal_only": null,
+      "key": null,
+      "kind": null,
+      "owner": "g12f.Creator",
+      "updated_at": null
+    },
+    "ownership": "owner -> Creator for user/user_debt accounts; system accounts have no owner",
+    "treatment": "ledger.jsonl: account kind and transfer legs only; account identifiers excluded"
+  },
+  "ledger.Config": {
+    "fields": {
+      "dual_write": null,
+      "dual_write_since": null,
+      "heal_enabled": null,
+      "id": null,
+      "writer_boundary": null
+    },
+    "ownership": "system singleton, rollup and reconciliation records, no Creator owner",
+    "treatment": "omitted: internal ledger control and reconciliation state"
+  },
+  "ledger.LedgerAiSplitQueue": {
+    "fields": {
+      "created_at": null,
+      "developer_creator_id": null,
+      "developer_m2z": null,
+      "platform_m2z": null,
+      "provider_m2z": null,
+      "usage_id": null
+    },
+    "ownership": "developer_creator_id is a scalar Creator reference",
+    "treatment": "earnings.jsonl: owner-scoped financial and activity summary; provider, peer, idempotency and security internals excluded"
+  },
+  "ledger.LedgerApp": {
+    "fields": {
+      "approved_markup_bps": null,
+      "developer_creator": "g12f.Creator",
+      "frozen": null,
+      "id": null,
+      "markup_bps": null,
+      "rails": null,
+      "updated_at": null
+    },
+    "ownership": "developer_creator -> Creator",
+    "treatment": "omitted: ledger projection of app financial configuration; app definition is exported separately"
+  },
+  "ledger.LedgerDevMarkupPending": {
+    "fields": {
+      "amount_m2z": null,
+      "created_at": null,
+      "developer_creator": "g12f.Creator"
+    },
+    "ownership": "developer_creator -> Creator",
+    "treatment": "earnings.jsonl: owner-scoped financial and activity summary; provider, peer, idempotency and security internals excluded"
+  },
+  "ledger.LedgerGatewayAttempt": {
+    "fields": {
+      "call": "ledger.LedgerGatewayCall",
+      "hold_id": null,
+      "snapshot": null
+    },
+    "ownership": "call.account.owner -> Creator; snapshot may include internal request data",
+    "treatment": "omitted: gateway retry snapshot and hold state"
+  },
+  "ledger.LedgerGatewayCall": {
+    "fields": {
+      "account": "ledger.Account",
+      "account_epoch": null,
+      "app_id": null,
+      "completed_at": null,
+      "completion_meta": null,
+      "completion_no_hold": null,
+      "created_at": null,
+      "expires_at": null,
+      "fingerprint": null,
+      "grant_generation": null,
+      "id": null,
+      "phase": null,
+      "request_meta": null
+    },
+    "ownership": "account.owner -> Creator for user-owned accounts; app_id may identify a separate developer",
+    "treatment": "earnings.jsonl: owner-scoped financial and activity summary; provider, peer, idempotency and security internals excluded"
+  },
+  "ledger.LedgerGatewayIdempotency": {
+    "fields": {
+      "account": "ledger.Account",
+      "app_id": null,
+      "call": "ledger.LedgerGatewayCall",
+      "expires_at": null,
+      "key": null
+    },
+    "ownership": "account.owner -> Creator for user-owned accounts; app_id may identify a separate developer",
+    "treatment": "omitted: holds, idempotency data, spending controls and refund references require separate financial export review"
+  },
+  "ledger.LedgerHold": {
+    "fields": {
+      "account": "ledger.Account",
+      "amount": null,
+      "app_id": null,
+      "attempt": null,
+      "cap_window_revision": null,
+      "catalog_version": null,
+      "created_at": null,
+      "dev_markup_bps": null,
+      "expires_at": null,
+      "id": null,
+      "idem": null,
+      "logical_key": null,
+      "meta": null,
+      "min_charge_2z": null,
+      "model_id": null,
+      "rate_card_id": null,
+      "window_start": null
+    },
+    "ownership": "account.owner -> Creator for user-owned accounts; app_id may identify a separate developer",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "ledger.LedgerRollupState": {
+    "fields": {
+      "last_run_at": null,
+      "name": null,
+      "rows_consumed": null
+    },
+    "ownership": "system singleton, rollup and reconciliation records, no Creator owner",
+    "treatment": "omitted: internal ledger control and reconciliation state"
+  },
+  "ledger.LedgerSpendCap": {
+    "fields": {
+      "account": "ledger.Account",
+      "app_id": null,
+      "cap_m2z": null,
+      "cap_window_revision": null,
+      "grant_generation": null,
+      "markup_bps": null,
+      "period": null,
+      "revoked_at": null,
+      "updated_at": null
+    },
+    "ownership": "account.owner -> Creator for user-owned accounts; app_id may identify a separate developer",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "ledger.LedgerSpendWindow": {
+    "fields": {
+      "account_id": null,
+      "app_id": null,
+      "held_m2z": null,
+      "spent_m2z": null,
+      "window_start": null
+    },
+    "ownership": "account_id is a scalar ledger.Account identifier; account.owner may be a Creator",
+    "treatment": "earnings.jsonl: owner-scoped financial and activity summary; provider, peer, idempotency and security internals excluded"
+  },
+  "ledger.PurchaseRefund": {
+    "fields": {
+      "account": "ledger.Account",
+      "created_at": null,
+      "credited_m2z": null,
+      "id": null,
+      "rail": null,
+      "ref_id": null,
+      "ref_kind": null,
+      "refunded_m2z": null,
+      "updated_at": null
+    },
+    "ownership": "account.owner -> Creator for user-owned accounts; app_id may identify a separate developer",
+    "treatment": "earnings.jsonl: owner-scoped amount/status/time allowlist; peer, evidence, idempotency and provider data excluded"
+  },
+  "ledger.ReconcileRun": {
+    "fields": {
+      "accounts_checked": null,
+      "detail": null,
+      "drift_count": null,
+      "drift_m2z": null,
+      "finished_at": null,
+      "id": null,
+      "invariant": null,
+      "scope": null,
+      "started_at": null
+    },
+    "ownership": "system singleton, rollup and reconciliation records, no Creator owner",
+    "treatment": "omitted: internal ledger control and reconciliation state"
+  },
+  "ledger.Transfer": {
+    "fields": {
+      "amount": null,
+      "code": null,
+      "created_at": null,
+      "credit_account_id": null,
+      "debit_account_id": null,
+      "id": null,
+      "meta": null,
+      "ref_id": null,
+      "ref_kind": null
+    },
+    "ownership": "debit_account_id or credit_account_id identifies ledger.Account.owner; both legs can have different owners",
+    "treatment": "ledger.jsonl: owner-visible direction, amount, kind, code and timestamp; peer, reference and metadata omitted"
+  },
+  "ledger.TransferKey": {
+    "fields": {
+      "created_at": null,
+      "detail": null,
+      "idem": null,
+      "transfer_id": null
+    },
+    "ownership": "transfer_id is a scalar transfer identifier; transfer can have two owners",
+    "treatment": "omitted: internal idempotency key and detail; owner transfer is in ledger.jsonl"
+  },
+  "oidc.AccessToken": {
+    "fields": {
+      "account_epoch": null,
+      "acr": null,
+      "amr": null,
+      "application": "oidc.F2ZApplication",
+      "auth_time": null,
+      "created": null,
+      "expires": null,
+      "grant_generation": null,
+      "id": null,
+      "id_token": "oidc.IDToken",
+      "mcp_connection": "oidc.MCPConnection",
+      "resource": null,
+      "scope": null,
+      "source_refresh_token": "oidc.RefreshToken",
+      "token": null,
+      "token_checksum": null,
+      "updated": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; application is separately owned",
+    "treatment": "omitted: OAuth credentials, bearer tokens and authorization state"
+  },
+  "oidc.AiOutputReport": {
+    "fields": {
+      "application": "oidc.F2ZApplication",
+      "call_id": null,
+      "created_at": null,
+      "detail": null,
+      "id": null,
+      "model": null,
+      "reason": null,
+      "reporter": "g12f.Creator",
+      "staff_notes": null,
+      "status": null,
+      "unsafe_at": null,
+      "updated_at": null
+    },
+    "ownership": "reporter -> Creator; application.user is separate developer",
+    "treatment": "omitted: moderation report details and staff notes involve multiple parties"
+  },
+  "oidc.AppAuthorization": {
+    "fields": {
+      "application": "oidc.F2ZApplication",
+      "cap_period": null,
+      "consented_at": null,
+      "created_at": null,
+      "generation": null,
+      "id": null,
+      "markup_bps": null,
+      "revoked_at": null,
+      "scope": null,
+      "spend_cap_2z": null,
+      "updated_at": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator is grantor; application.user is separate developer",
+    "treatment": "connected_apps.jsonl: own grant metadata; tokens excluded"
+  },
+  "oidc.AudienceChange": {
+    "fields": {
+      "application": "oidc.F2ZApplication",
+      "changed_by": "g12f.Creator",
+      "child_directed": null,
+      "created_at": null,
+      "id": null,
+      "previous": null,
+      "via": null
+    },
+    "ownership": "application.user -> Creator; changed_by is an actor",
+    "treatment": "omitted: developer app audit and operator attribution"
+  },
+  "oidc.AuthorizationCode": {
+    "fields": {
+      "account_epoch": null,
+      "acr": null,
+      "amr": null,
+      "application": "oidc.F2ZApplication",
+      "auth_time": null,
+      "claims": null,
+      "code": null,
+      "code_challenge": null,
+      "code_challenge_method": null,
+      "created": null,
+      "expires": null,
+      "id": null,
+      "mcp_connection": "oidc.MCPConnection",
+      "nonce": null,
+      "redeemed_access_token": "oidc.AccessToken",
+      "redeemed_at": null,
+      "redeemed_family": null,
+      "redirect_uri": null,
+      "resource": null,
+      "scope": null,
+      "updated": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; application is separately owned",
+    "treatment": "omitted: OAuth credentials, bearer tokens and authorization state"
+  },
+  "oidc.DeviceGrant": {
+    "fields": {
+      "client_id": null,
+      "device_code": null,
+      "expires": null,
+      "id": null,
+      "interval": null,
+      "last_checked": null,
+      "scope": null,
+      "status": null,
+      "user": "g12f.Creator",
+      "user_code": null
+    },
+    "ownership": "user -> Creator; application is separately owned",
+    "treatment": "omitted: OAuth credentials, bearer tokens and authorization state"
+  },
+  "oidc.F2ZApplication": {
+    "fields": {
+      "algorithm": null,
+      "allow_zcash_assertion": null,
+      "allowed_origins": null,
+      "allowed_scopes": null,
+      "approved_markup_bps": null,
+      "authorization_grant_type": null,
+      "child_directed": null,
+      "cimd_expires_at": null,
+      "client_id": null,
+      "client_secret": null,
+      "client_type": null,
+      "created": null,
+      "default_cap_period": null,
+      "default_spend_cap_2z": null,
+      "first_party": null,
+      "frozen": null,
+      "hash_client_secret": null,
+      "id": null,
+      "logo_url": null,
+      "markup_bps": null,
+      "mcp_token_auth_method": null,
+      "name": null,
+      "post_logout_redirect_uris": null,
+      "privacy_url": null,
+      "redirect_uris": null,
+      "registration_source": null,
+      "skip_authorization": null,
+      "terms_url": null,
+      "updated": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator is developer",
+    "treatment": "owned_apps.jsonl: app definition allowlist; client_secret and credentials excluded"
+  },
+  "oidc.IDToken": {
+    "fields": {
+      "application": "oidc.F2ZApplication",
+      "created": null,
+      "expires": null,
+      "id": null,
+      "jti": null,
+      "scope": null,
+      "updated": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; application is separately owned",
+    "treatment": "omitted: OAuth credentials, bearer tokens and authorization state"
+  },
+  "oidc.MCPAIRequest": {
+    "fields": {
+      "access_token": "oidc.AccessToken",
+      "account_grant": "oidc.MCPAccountGrant",
+      "connection": "oidc.MCPConnection",
+      "content_expires_at": null,
+      "content_purged": null,
+      "created_at": null,
+      "finished_at": null,
+      "grant_generation": null,
+      "id": null,
+      "idempotency_key": null,
+      "intent": null,
+      "native_key": null,
+      "quote": null,
+      "quote_expires_at": null,
+      "receipt": null,
+      "started_at": null,
+      "state": null
+    },
+    "ownership": "account_grant.user -> Creator; connection.primary_user may be another account",
+    "treatment": "omitted: temporary request capabilities, token links, receipt/quote and content may be sensitive"
+  },
+  "oidc.MCPAccountGrant": {
+    "fields": {
+      "account_epoch": null,
+      "connection": "oidc.MCPConnection",
+      "consented_at": null,
+      "generation": null,
+      "id": null,
+      "revoked_at": null,
+      "scope": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; connection.primary_user may be another account",
+    "treatment": "mcp_grants.jsonl: own grant metadata; other users and tokens excluded"
+  },
+  "oidc.MCPActionAudit": {
+    "fields": {
+      "account_grant": "oidc.MCPAccountGrant",
+      "application": "oidc.F2ZApplication",
+      "connection": "oidc.MCPConnection",
+      "created_at": null,
+      "id": null,
+      "operation": null,
+      "primary_user": "g12f.Creator",
+      "status": null,
+      "target_user": "g12f.Creator"
+    },
+    "ownership": "primary_user and target_user are different Creator roles; account_grant.user is the consenting account",
+    "treatment": "omitted: action audit can reveal a different account\u2019s activity"
+  },
+  "oidc.MCPConnection": {
+    "fields": {
+      "application": "oidc.F2ZApplication",
+      "created_at": null,
+      "id": null,
+      "primary_epoch": null,
+      "primary_grant_generation": null,
+      "primary_user": "g12f.Creator",
+      "revoked_at": null,
+      "scope": null
+    },
+    "ownership": "primary_user -> Creator; application.user is separate developer",
+    "treatment": "mcp_connections.jsonl: own connection metadata; other linked accounts excluded"
+  },
+  "oidc.MCPLinkIntent": {
+    "fields": {
+      "connection": "oidc.MCPConnection",
+      "created_at": null,
+      "expected_username": null,
+      "expires_at": null,
+      "scope": null,
+      "token_hash": null,
+      "used_at": null
+    },
+    "ownership": "connection.primary_user -> Creator; link target may be a different user",
+    "treatment": "omitted: short-lived account-link bearer state"
+  },
+  "oidc.MCPUploadIntent": {
+    "fields": {
+      "access": null,
+      "access_token": "oidc.AccessToken",
+      "account_grant": "oidc.MCPAccountGrant",
+      "capability_hash": null,
+      "connection": "oidc.MCPConnection",
+      "consumed_at": null,
+      "created_at": null,
+      "description": null,
+      "expected_bytes": null,
+      "expected_sha256": null,
+      "expires_at": null,
+      "filename": null,
+      "grant_generation": null,
+      "id": null,
+      "media": "uploads.GenericFile",
+      "mime_type": null,
+      "title": null
+    },
+    "ownership": "account_grant.user -> Creator; connection.primary_user may be another account",
+    "treatment": "omitted: temporary request capabilities, token links, receipt/quote and content may be sensitive"
+  },
+  "oidc.RefreshToken": {
+    "fields": {
+      "access_token": "oidc.AccessToken",
+      "account_epoch": null,
+      "application": "oidc.F2ZApplication",
+      "created": null,
+      "id": null,
+      "resource": null,
+      "revoked": null,
+      "token": null,
+      "token_checksum": null,
+      "token_family": null,
+      "updated": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; application is separately owned",
+    "treatment": "omitted: OAuth credentials, bearer tokens and authorization state"
+  },
+  "openai.AIModel": {
+    "fields": {
+      "api_style": null,
+      "created_at": null,
+      "display_name": null,
+      "id": null,
+      "idle_timeout_ms": null,
+      "input_price": null,
+      "is_enabled": null,
+      "is_ga": null,
+      "markup": null,
+      "max_output_tokens": null,
+      "max_response_tokens": null,
+      "max_tokens": null,
+      "model": null,
+      "order": null,
+      "output_price": null,
+      "price_checked_at": null,
+      "price_valid_until": null,
+      "provider": null,
+      "provider_model_id": null,
+      "reasoning_effort_levels": null,
+      "safety_factor_bps": null,
+      "sampling_temperature": null,
+      "sampling_top_p": null,
+      "supports_forced_tool_choice": null,
+      "supports_logprobs": null,
+      "supports_penalties": null,
+      "supports_reasoning": null,
+      "supports_reasoning_effort": null,
+      "supports_seed": null,
+      "supports_strict_tools": null,
+      "supports_structured_output": null,
+      "supports_tools": null,
+      "supports_top_k": null,
+      "supports_vision": null,
+      "system_message": null,
+      "temperature_top_p_exclusive": null,
+      "tools_require_effort_none": null,
+      "ttfb_timeout_ms": null,
+      "updated_at": null
+    },
+    "ownership": "shared model catalogue, price, or rate-card data; no Creator owner",
+    "treatment": "omitted: shared system catalogue and pricing"
+  },
+  "openai.Conversation": {
+    "fields": {
+      "ai_model": "openai.AIModel",
+      "created_at": null,
+      "display_name": null,
+      "id": null,
+      "is_public": null,
+      "is_subscriber_only": null,
+      "personality": "openai.Personality",
+      "prompt_response_set": "openai.PromptResponse",
+      "tags": "taggit.Tag",
+      "updated_at": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; personality.creator may be a different account",
+    "treatment": "content.jsonl: user-owned conversation metadata"
+  },
+  "openai.Personality": {
+    "fields": {
+      "creator": "g12f.Creator",
+      "display_name": null,
+      "id": null,
+      "is_public": null,
+      "system_message": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "content.jsonl: creator-owned persona and system message"
+  },
+  "openai.PromptResponse": {
+    "fields": {
+      "ai_model": "openai.AIModel",
+      "conversation": "openai.Conversation",
+      "created_at": null,
+      "id": null,
+      "personality": "openai.Personality",
+      "response": null,
+      "updated_at": null,
+      "user": "g12f.Creator",
+      "user_input": null
+    },
+    "ownership": "user -> Creator; conversation.user may be another account",
+    "treatment": "content.jsonl: user-owned prompt and response; foreign conversation reference suppressed"
+  },
+  "openai.ProviderModel": {
+    "fields": {
+      "availability_changed_at": null,
+      "first_seen_at": null,
+      "id": null,
+      "last_seen_at": null,
+      "metadata": null,
+      "missing_since": null,
+      "provider": null,
+      "provider_model_id": null
+    },
+    "ownership": "shared model catalogue, price, or rate-card data; no Creator owner",
+    "treatment": "omitted: shared system catalogue and pricing"
+  },
+  "otp.OTPSecret": {
+    "fields": {
+      "created_at": null,
+      "id": null,
+      "is_active": null,
+      "last_used_at": null,
+      "secret": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user or creator -> Creator according to fields",
+    "treatment": "omitted: authentication secrets, recovery credentials, or session security state"
+  },
+  "pricing.RateCard": {
+    "fields": {
+      "active": null,
+      "created_at": null,
+      "id": null,
+      "min_margin_bps": null,
+      "platform_margin_bps": null,
+      "published_at": null,
+      "version": null
+    },
+    "ownership": "shared model catalogue, price, or rate-card data; no Creator owner",
+    "treatment": "omitted: shared system catalogue and pricing"
+  },
+  "pricing.RateCardModel": {
+    "fields": {
+      "cache_write_1h_nusd_per_mtok": null,
+      "cache_write_5m_nusd_per_mtok": null,
+      "cached_input_nusd_per_mtok": null,
+      "id": null,
+      "image_nusd": null,
+      "input_nusd_per_mtok": null,
+      "min_charge_2z": null,
+      "model_id": null,
+      "output_nusd_per_mtok": null,
+      "rate_card": "pricing.RateCard",
+      "tool_call_nusd": null
+    },
+    "ownership": "shared model catalogue, price, or rate-card data; no Creator owner",
+    "treatment": "omitted: shared system catalogue and pricing"
+  },
+  "pricing.ZecPriceSnapshot": {
+    "fields": {
+      "created_at": null,
+      "id": null,
+      "median_usd": null,
+      "num_sources": null,
+      "rejected": null,
+      "sources": null,
+      "spread": null,
+      "tuzis_per_zec": null,
+      "zec_usd": null
+    },
+    "ownership": "shared model catalogue, price, or rate-card data; no Creator owner",
+    "treatment": "omitted: shared system catalogue and pricing"
+  },
+  "purchases.PurchaseIntent": {
+    "fields": {
+      "application": "oidc.F2ZApplication",
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "credited_at": null,
+      "credited_milli_2z": null,
+      "currency": null,
+      "expires_at": null,
+      "id": null,
+      "platform": null,
+      "price_minor": null,
+      "pricing_version": null,
+      "quantity_2z": null,
+      "quote": null,
+      "rail": null,
+      "rail_data": null,
+      "return_url": null,
+      "status": null,
+      "updated_at": null
+    },
+    "ownership": "creator -> Creator; application is a separate developer",
+    "treatment": "purchases.jsonl: owner intent allowlist; provider payload and return URL excluded"
+  },
+  "purchases.PurchaseReceipt": {
+    "fields": {
+      "amount_minor": null,
+      "created_at": null,
+      "credited_milli_2z": null,
+      "currency": null,
+      "id": null,
+      "intent": "purchases.PurchaseIntent",
+      "ledger_ref_id": null,
+      "ledger_ref_kind": null,
+      "provider_event_id": null,
+      "rail": null
+    },
+    "ownership": "intent.creator -> Creator",
+    "treatment": "purchase_receipts.jsonl: amount and credit allowlist; provider identifiers excluded"
+  },
+  "search.SearchIndex": {
+    "fields": {
+      "content_type": "contenttypes.ContentType",
+      "id": null,
+      "object_id": null,
+      "vector": null
+    },
+    "ownership": "generic content_type/object_id; ownership depends on target",
+    "treatment": "omitted: derived search vectors, not original content"
+  },
+  "social.SocialIdentity": {
+    "fields": {
+      "avatar_url": null,
+      "creator": "g12f.Creator",
+      "fallback_rejected_at_epoch": null,
+      "handle": null,
+      "id": null,
+      "linked_at_epoch": null,
+      "provider": null,
+      "provider_uid": null,
+      "verified_at": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "identities.jsonl: owner provider, provider UID, handle and verification date; security epochs excluded"
+  },
+  "social.SocialState": {
+    "fields": {
+      "expires": null,
+      "id": null,
+      "payload": null,
+      "state": null
+    },
+    "ownership": "opaque temporary OAuth state; no Creator foreign key",
+    "treatment": "omitted: transient OAuth payload and state"
+  },
+  "storytime.Page": {
+    "fields": {
+      "content": null,
+      "created_at": null,
+      "id": null,
+      "image": "uploads.GenericFile",
+      "order": null,
+      "prompt": null,
+      "story": "storytime.Story",
+      "updated_at": null
+    },
+    "ownership": "story.creator -> Creator; image.owner may differ",
+    "treatment": "content.jsonl: story.creator-scoped prompt/content; image reference only when owner matches"
+  },
+  "storytime.Story": {
+    "fields": {
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "id": null,
+      "is_published": null,
+      "slug": null,
+      "title": null,
+      "updated_at": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "content.jsonl: own story title, slug, publication state and timestamps"
+  },
+  "tagging.TagAlias": {
+    "fields": {
+      "canonical": "taggit.Tag",
+      "created_at": null,
+      "id": null,
+      "name": null,
+      "name_key": null,
+      "slug": null,
+      "source": null
+    },
+    "ownership": "shared tag identity and normalization state; no Creator owner",
+    "treatment": "omitted: shared tagging infrastructure"
+  },
+  "tagging.TagIdentity": {
+    "fields": {
+      "id": null,
+      "name_key": null,
+      "slug": null,
+      "tag": "taggit.Tag"
+    },
+    "ownership": "shared tag identity and normalization state; no Creator owner",
+    "treatment": "omitted: shared tagging infrastructure"
+  },
+  "tagging.TagNormalizationRun": {
+    "fields": {
+      "consolidated": null,
+      "dry_run": null,
+      "finished_at": null,
+      "id": null,
+      "notes": null,
+      "plan": null,
+      "started_at": null
+    },
+    "ownership": "shared tag identity and normalization state; no Creator owner",
+    "treatment": "omitted: shared tagging infrastructure"
+  },
+  "tagging.TagSuggestion": {
+    "fields": {
+      "ai_model": null,
+      "created_at": null,
+      "decided_at": null,
+      "decided_by": "g12f.Creator",
+      "id": null,
+      "name": null,
+      "name_key": null,
+      "source_digest": null,
+      "status": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "zpage.creator -> Creator; decided_by is an actor",
+    "treatment": "omitted: derived internal AI suggestions and review state"
+  },
+  "tagging.TagSuggestionRun": {
+    "fields": {
+      "ai_model": null,
+      "created_at": null,
+      "id": null,
+      "proposed_count": null,
+      "source_digest": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "zpage.creator -> Creator; decided_by is an actor",
+    "treatment": "omitted: derived internal AI suggestions and review state"
+  },
+  "tax.CostBasis": {
+    "fields": {
+      "currency": "tax.Currency",
+      "id": null,
+      "last_updated": null,
+      "quantity": null,
+      "total_cost": null
+    },
+    "ownership": "no Creator relation or verified ownership path in these models",
+    "treatment": "omitted: tax records cannot safely be attributed to an account from this schema"
+  },
+  "tax.Currency": {
+    "fields": {
+      "code": null
+    },
+    "ownership": "no Creator relation or verified ownership path in these models",
+    "treatment": "omitted: tax records cannot safely be attributed to an account from this schema"
+  },
+  "tax.TaxEvent": {
+    "fields": {
+      "amount_in": null,
+      "amount_out": null,
+      "category": null,
+      "currency_in": "tax.Currency",
+      "currency_out": "tax.Currency",
+      "date_time": null,
+      "description": null,
+      "gain_loss": null,
+      "id": null,
+      "type": null,
+      "unique_id": null,
+      "usd_value": null
+    },
+    "ownership": "no Creator relation or verified ownership path in these models",
+    "treatment": "omitted: tax records cannot safely be attributed to an account from this schema"
+  },
+  "tuzis.IdempotencyKey": {
+    "fields": {
+      "abandoned_at": null,
+      "created_at": null,
+      "id": null,
+      "key": null,
+      "owner": null,
+      "request_hash": null,
+      "response_body": null,
+      "response_status": null,
+      "scope": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator",
+    "treatment": "omitted: provider reservation and idempotency state include request hashes or response bodies"
+  },
+  "tuzis.ProviderReservation": {
+    "fields": {
+      "amount": null,
+      "created_at": null,
+      "finished_at": null,
+      "id": null,
+      "operation_key": null,
+      "scope": null,
+      "status": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator",
+    "treatment": "omitted: provider reservation and idempotency state include request hashes or response bodies"
+  },
+  "tuzis.SubscriptionIntentAbandonment": {
+    "fields": {
+      "created_at": null,
+      "creator_id": null,
+      "id": null,
+      "key": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; creator_id is a scalar reference to another Creator",
+    "treatment": "omitted: subscription retry evidence and counterparty identifiers"
+  },
+  "tuzis.SubscriptionIntentEvidence": {
+    "fields": {
+      "abandoned_at": null,
+      "created_at": null,
+      "creator_id": null,
+      "id": null,
+      "key": null,
+      "resolved_at": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator; creator_id is a scalar reference to another Creator",
+    "treatment": "omitted: subscription retry evidence and counterparty identifiers"
+  },
+  "tuzis.TuziGrant": {
+    "fields": {
+      "amount": null,
+      "balance_after": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "environment": null,
+      "id": null,
+      "idempotency_key": null,
+      "operator": null,
+      "reason": null,
+      "username": null
+    },
+    "ownership": "creator -> Creator; operator is an actor",
+    "treatment": "earnings.jsonl: owner-scoped financial and activity summary; provider, peer, idempotency and security internals excluded"
+  },
+  "tuzis.ZecCreditReceipt": {
+    "fields": {
+      "amount_zec": null,
+      "backfilled": null,
+      "confirmations_at_credit": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "id": null,
+      "instant": null,
+      "output_index": null,
+      "pool": null,
+      "settled_at": null,
+      "tuzis_credited": null,
+      "tuzis_per_zec": null,
+      "txid": null,
+      "vanish_resolved_at": null,
+      "vanished_at": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "legacy_purchases.jsonl: own credit amounts and timestamps; txid, output index and provider/security identifiers excluded"
+  },
+  "tuzis.ZecMemoDisposition": {
+    "fields": {
+      "amount_zec": null,
+      "classification": null,
+      "created_at": null,
+      "decision": null,
+      "disposed_at": null,
+      "id": null,
+      "memo_action": null,
+      "memo_target": null,
+      "operator": null,
+      "output_index": null,
+      "pool": null,
+      "reason": null,
+      "txid": null
+    },
+    "ownership": "no Creator relation; memo target is a scalar and not verified owner identity",
+    "treatment": "omitted: chain memo disposition and operator decisions"
+  },
+  "tuzis.ZecPendingNotice": {
+    "fields": {
+      "amount_zec": null,
+      "confirmations": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "id": null,
+      "output_index": null,
+      "pool": null,
+      "txid": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "legacy_purchases.jsonl: own credit amounts and timestamps; txid, output index and provider/security identifiers excluded"
+  },
+  "twitter.Announcement": {
+    "fields": {
+      "attempts": null,
+      "budget_reserved_at": null,
+      "comment": "comments.Comment",
+      "copy_source": null,
+      "created_at": null,
+      "event_key": null,
+      "id": null,
+      "image_data": null,
+      "image_generations": null,
+      "image_source": null,
+      "includes_link": null,
+      "kind": null,
+      "last_error": null,
+      "last_status_code": null,
+      "lease": null,
+      "media_expires_at": null,
+      "media_id": null,
+      "next_attempt_at": null,
+      "posted_at": null,
+      "posting_started_at": null,
+      "reason": null,
+      "source_digest": null,
+      "status": null,
+      "subject_user": "g12f.Creator",
+      "text": null,
+      "updated_at": null,
+      "url": null,
+      "x_post_id": null,
+      "zpage": "g12f.zPage"
+    },
+    "ownership": "subject_user -> Creator; zpage.creator and comment.author can be different",
+    "treatment": "activity.jsonl: own role/status and timestamps; other-party targets, provider IDs, secrets and delivery internals excluded"
+  },
+  "twitter.TwitterProfile": {
+    "fields": {
+      "allow_login": null,
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "description": null,
+      "fallback_rejected_at_epoch": null,
+      "id": null,
+      "is_public": null,
+      "linked_at_epoch": null,
+      "name": null,
+      "profile_image_url": null,
+      "twitter_id": null,
+      "updated_at": null,
+      "username": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "identities.jsonl: own legacy provider profile and settings; security epochs excluded"
+  },
+  "uploads.GenericFile": {
+    "fields": {
+      "access": null,
+      "created_at": null,
+      "description": null,
+      "file": null,
+      "id": null,
+      "legacy_shared_file": null,
+      "mime_type": null,
+      "owner": "g12f.Creator",
+      "skip_thumbnail": null,
+      "title": null,
+      "updated_at": null
+    },
+    "ownership": "owner -> Creator; a reference by another model does not imply ownership",
+    "treatment": "uploads.jsonl and owned_media/: owner-scoped metadata and bytes; unavailable/shared objects carry warnings"
+  },
+  "uploads.ImageVariant": {
+    "fields": {
+      "created_at": null,
+      "file": null,
+      "format": null,
+      "id": null,
+      "parent": "uploads.GenericFile",
+      "width": null
+    },
+    "ownership": "parent.owner -> Creator",
+    "treatment": "uploads.jsonl and owned_media/: parent.owner-scoped variant metadata and bytes"
+  },
+  "uploads.PendingUploadBlobDeletion": {
+    "fields": {
+      "created_at": null,
+      "generation": null,
+      "id": null,
+      "last_enqueued_at": null,
+      "name": null,
+      "storage_alias": null
+    },
+    "ownership": "no Creator foreign key; storage name/generation identify a blob",
+    "treatment": "omitted: blob cleanup queue and storage identifiers"
+  },
+  "uploads.Webp": {
+    "fields": {
+      "file": null,
+      "id": null,
+      "parent": "uploads.GenericFile"
+    },
+    "ownership": "parent.owner -> Creator",
+    "treatment": "uploads.jsonl and owned_media/: parent.owner-scoped thumbnail metadata and bytes"
+  },
+  "zauth.ZcashChallengeClaim": {
+    "fields": {
+      "challenge_digest": null,
+      "claimed_at": null,
+      "expires": null,
+      "id": null
+    },
+    "ownership": "no Creator relation; challenge_digest is transient authentication evidence",
+    "treatment": "omitted: replay-prevention security state"
+  },
+  "zauth.ZcashIdentity": {
+    "fields": {
+      "created_at": null,
+      "creator": "g12f.Creator",
+      "fallback_rejected_at_epoch": null,
+      "id": null,
+      "linked_at_epoch": null,
+      "zcash_address": null
+    },
+    "ownership": "creator -> Creator",
+    "treatment": "identities.jsonl: owner address and creation date; security epochs excluded"
+  },
+  "ztripe.CheckoutFulfillmentAudit": {
+    "fields": {
+      "adjustment_tuzis": null,
+      "attempts": null,
+      "expected_legacy_session_created_at_or_before_epoch": null,
+      "expected_stripe_account_id": null,
+      "expected_stripe_livemode": null,
+      "expected_stripe_mode": null,
+      "first_seen_at": null,
+      "id": null,
+      "idempotency_key": null,
+      "intent": "ztripe.CheckoutIntent",
+      "last_seen_at": null,
+      "outcome": null,
+      "provider_event_id": null,
+      "reason": null,
+      "received_amount_cents": null,
+      "received_checkout_session_id": null,
+      "received_currency": null,
+      "received_event_account_id": null,
+      "received_event_livemode": null,
+      "received_metadata_account_id": null,
+      "received_metadata_livemode": null,
+      "received_metadata_mode": null,
+      "received_payment_intent_id": null,
+      "received_pricing_version": null,
+      "received_session_created_epoch": null,
+      "received_stripe_livemode": null,
+      "received_stripe_mode": null,
+      "received_tuzis": null,
+      "received_user_id": null,
+      "stripe_transaction": "ztripe.StripeTransaction"
+    },
+    "ownership": "intent.user or stripe_transaction.user -> Creator where linked; received_user_id is untrusted provider input",
+    "treatment": "omitted: provider event data and reconciliation evidence; own purchase summaries are exported"
+  },
+  "ztripe.CheckoutIntent": {
+    "fields": {
+      "amount_cents": null,
+      "created_at": null,
+      "currency": null,
+      "fulfilled_at": null,
+      "id": null,
+      "pricing_version": null,
+      "public_id": null,
+      "purchase_intent": "purchases.PurchaseIntent",
+      "state": null,
+      "stripe_account_id": null,
+      "stripe_checkout_session_id": null,
+      "stripe_livemode": null,
+      "stripe_mode": null,
+      "stripe_payment_intent_id": null,
+      "tuzis": null,
+      "updated_at": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator",
+    "treatment": "legacy_purchases.jsonl: amount, status and timestamp allowlist; provider identifiers excluded"
+  },
+  "ztripe.StripeCheckoutRollout": {
+    "fields": {
+      "initialized_at": null,
+      "legacy_session_created_at_or_before_epoch": null,
+      "singleton": null
+    },
+    "ownership": "system Stripe rollout and webhook readiness singletons; no Creator owner",
+    "treatment": "omitted: provider operational and signing fingerprint data"
+  },
+  "ztripe.StripeTransaction": {
+    "fields": {
+      "amount": null,
+      "id": null,
+      "stripe_charge_id": null,
+      "timestamp": null,
+      "tuzis_credited": null,
+      "user": "g12f.Creator"
+    },
+    "ownership": "user -> Creator",
+    "treatment": "legacy_purchases.jsonl: amount, status and timestamp allowlist; provider identifiers excluded"
+  },
+  "ztripe.StripeWebhookReadiness": {
+    "fields": {
+      "provider_event_id": null,
+      "secret_key_fingerprint": null,
+      "signing_secret_fingerprint": null,
+      "singleton": null,
+      "stripe_account_id": null,
+      "stripe_livemode": null,
+      "verified_at": null,
+      "webhook_endpoint_id": null
+    },
+    "ownership": "system Stripe rollout and webhook readiness singletons; no Creator owner",
+    "treatment": "omitted: provider operational and signing fingerprint data"
+  }
+}

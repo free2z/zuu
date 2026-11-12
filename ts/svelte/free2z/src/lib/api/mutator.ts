@@ -39,6 +39,16 @@ function expectsTextResponse(url: string): boolean {
   }
 }
 
+function isAccountExportRequest(url: string): boolean {
+  try {
+    return /^\/api\/exports\/account(?:\/|$)/.test(
+      new URL(url, "https://api.invalid").pathname,
+    );
+  } catch {
+    return false;
+  }
+}
+
 function createSsrApiSignal(signal?: AbortSignal | null) {
   return createAbortSignalWithTimeout(signal, DEFAULT_SSR_API_TIMEOUT_MS);
 }
@@ -113,6 +123,7 @@ export const customInstance = async <T>(
   const callerHeaders = init?.headers;
   let generatedHeaders: HeadersInit | undefined;
   let generatedData: unknown;
+  let responseType: string | undefined;
   const baseURL =
     (init as any)?.baseURL ||
     env.PUBLIC_API_BASE_URL ||
@@ -156,6 +167,7 @@ export const customInstance = async <T>(
 
     generatedHeaders = input.headers;
     generatedData = input.data;
+    responseType = input.responseType;
 
     init = {
       ...init,
@@ -170,6 +182,7 @@ export const customInstance = async <T>(
     delete (init as any).baseURL;
     delete (init as any).data;
     delete (init as any).url;
+    delete (init as any).responseType;
   } else {
     url = input as string;
   }
@@ -249,11 +262,16 @@ export const customInstance = async <T>(
   try {
     const balanceReadOrder = browser ? beginAccountBalanceRead() : undefined;
     const response = await fetch(url, requestInit);
-
+    // Only account export 401s can be recent-sign-in challenges. Other auth
+    // failures must retain the immediate header-time invalidation contract,
+    // even when their response body stalls or fails to decode.
+    const deferredExportAuth =
+      response.status === 401 && isAccountExportRequest(url);
     if (
       browser &&
       requestInit.credentials !== "omit" &&
       requestIsCurrent() &&
+      !deferredExportAuth &&
       authStore.handleAuthFailure(response.status)
     ) {
       console.log("Session expired, user logged out");
@@ -270,6 +288,21 @@ export const customInstance = async <T>(
         }
       } catch (e) {
         errorData = "Unknown error";
+      }
+      // A recent-auth challenge is not a lost session.
+      const isStepUp =
+        errorData &&
+        typeof errorData === "object" &&
+        errorData.code === "insufficient_user_authentication";
+      if (
+        browser &&
+        requestInit.credentials !== "omit" &&
+        requestIsCurrent() &&
+        deferredExportAuth &&
+        !isStepUp &&
+        authStore.handleAuthFailure(response.status)
+      ) {
+        console.log("Session expired, user logged out");
       }
       // The server's own reason when it gave one  — every call site
       // that toasts `error.message` shows it — else a sentence that still
@@ -294,6 +327,20 @@ export const customInstance = async <T>(
     }
 
     const contentType = response.headers?.get?.("content-type") ?? "";
+    if (responseType === "blob") {
+      if (
+        (url.includes("/api/exports/") &&
+          !/^application\/zip(?:\s*;|$)/i.test(contentType)) ||
+        /^(text\/|application\/(?:json|problem\+json))/i.test(contentType)
+      ) {
+        throw new ApiError(
+          `Unexpected content type for ZIP operation: ${url}`,
+          response.status,
+          contentType,
+        );
+      }
+      return (await response.blob()) as T;
+    }
     if (contentType.toLowerCase().startsWith("text/")) {
       const text = await response.text();
       if (!expectsTextResponse(url)) {

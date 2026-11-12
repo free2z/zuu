@@ -3427,6 +3427,17 @@
       "left": "No ha cambiado nada. Tu cuenta se eliminará igualmente.",
       "invalid": "Este enlace ha caducado. Vuelve a iniciar sesión para conservar tu cuenta.",
       "failed": "No se pudo conservar tu cuenta. Inténtalo de nuevo."
+    },
+    "export": {
+      "title": "Descarga los datos de tu cuenta",
+      "partial": "Este archivo es parcial. Excluye algunos datos sensibles de identidad, compartidos y operativos. El manifiesto explica su cobertura. No necesitas correo electrónico.",
+      "limits": "El archivo tiene límites de tamaño y tiempo y vence en 24 horas. Los enlaces vencen en 15 minutos.",
+      "incomplete": "Este archivo está incompleto; revisa sus advertencias y el manifiesto.",
+      "download": "Descargar archivo",
+      "request": "Solicitar exportación",
+      "reauth": "Iniciar sesión de nuevo",
+      "failed": "No se pudo completar la exportación. Inténtalo de nuevo.",
+      "expired": "Este archivo ya no está disponible."
     }
   },
   "credits": {

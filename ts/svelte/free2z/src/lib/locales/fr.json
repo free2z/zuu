@@ -3427,6 +3427,17 @@
       "left": "Rien n'a changé. Votre compte sera quand même supprimé.",
       "invalid": "Ce lien a expiré. Reconnectez-vous pour garder votre compte.",
       "failed": "Votre compte n'a pas pu être gardé. Veuillez réessayer."
+    },
+    "export": {
+      "title": "Télécharger les données du compte",
+      "partial": "Cette archive est partielle. Certaines données sensibles d’identité, partagées et opérationnelles sont exclues. Le manifeste décrit sa couverture. Aucune adresse e-mail n’est nécessaire.",
+      "limits": "La taille et la durée sont limitées. L’archive expire après 24 heures et les liens après 15 minutes.",
+      "incomplete": "Cette archive est incomplète ; consultez ses avertissements et son manifeste.",
+      "download": "Télécharger l’archive",
+      "request": "Demander une exportation",
+      "reauth": "Se reconnecter",
+      "failed": "L’exportation a échoué. Réessayez.",
+      "expired": "Cette archive n’est plus disponible."
     }
   },
   "credits": {

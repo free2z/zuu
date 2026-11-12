@@ -344,3 +344,78 @@ for (const operation of ["read", "write"] as const) {
     }
   });
 }
+
+test("ordinary 401 invalidates at headers while export step-up retains its session", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const authPath = "/src/lib/stores/auth.ts";
+    const apiPath = "/src/lib/api/mutator.ts";
+    const [{ authStore }, { customInstance }] = await Promise.all([
+      import(/* @vite-ignore */ authPath),
+      import(/* @vite-ignore */ apiPath),
+    ]);
+    const originalFetch = window.fetch;
+    const state: any = { status: "", release: null, promise: null };
+    (window as any).__authHeaderTest = state;
+    state.unsubscribe = authStore.subscribe((value: any) => {
+      state.status = value.status;
+    });
+    state.start = (url: string, body: object) => {
+      authStore.hydrateFromSession({ id: 4401, username: "auth-header-owner" });
+      window.fetch = async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              state.release = () => {
+                controller.enqueue(
+                  new TextEncoder().encode(JSON.stringify(body)),
+                );
+                controller.close();
+              };
+            },
+          }),
+          { status: 401, headers: { "Content-Type": "application/json" } },
+        );
+      state.promise = customInstance(url).catch((error: unknown) => error);
+    };
+    state.cleanup = () => {
+      window.fetch = originalFetch;
+      state.unsubscribe();
+    };
+  });
+  try {
+    await page.evaluate(() =>
+      (window as any).__authHeaderTest.start("/api/zpage/test/", {
+        detail: "expired",
+      }),
+    );
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__authHeaderTest.status))
+      .toBe("anonymous");
+    await page.evaluate(async () => {
+      const state = (window as any).__authHeaderTest;
+      state.release();
+      await state.promise;
+    });
+    await page.evaluate(() =>
+      (window as any).__authHeaderTest.start("/api/exports/account/", {
+        code: "insufficient_user_authentication",
+      }),
+    );
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__authHeaderTest.status))
+      .toBe("authenticated");
+    await page.evaluate(async () => {
+      const state = (window as any).__authHeaderTest;
+      state.release();
+      await state.promise;
+    });
+    expect(
+      await page.evaluate(() => (window as any).__authHeaderTest.status),
+    ).toBe("authenticated");
+  } finally {
+    await page.evaluate(() => (window as any).__authHeaderTest.cleanup());
+  }
+});

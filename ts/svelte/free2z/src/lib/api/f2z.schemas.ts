@@ -283,6 +283,54 @@ export interface AccountDeletionScheduled {
 }
 
 /**
+ * * `queued` - Queued
+ * * `running` - Running
+ * * `ready` - Ready
+ * * `failed` - Failed
+ * * `expired` - Expired
+ */
+export type PublicationExportJobStatusEnum = typeof PublicationExportJobStatusEnum[keyof typeof PublicationExportJobStatusEnum];
+
+
+export const PublicationExportJobStatusEnum = {
+  queued: 'queued',
+  running: 'running',
+  ready: 'ready',
+  failed: 'failed',
+  expired: 'expired',
+} as const;
+
+export interface AccountExport {
+  id: string;
+  status: PublicationExportJobStatusEnum;
+  error_message: string;
+  complete: boolean;
+  warnings: string[];
+  file_name: string;
+  /** @nullable */
+  file_size: number | null;
+  created_at: string;
+  /** @nullable */
+  completed_at: string | null;
+  /** @nullable */
+  expires_at: string | null;
+  /**
+     * Authenticated download endpoint; available for 15 minutes after status is read.
+     * @nullable
+     */
+  download_url: string | null;
+  /**
+     * Timestamp-signed for this account, session and job, valid for 15 minutes. Send it in X-Account-Export-Signature rather than putting it in the URL.
+     * @nullable
+     */
+  download_token: string | null;
+}
+
+export interface AccountExportLatest {
+  export: AccountExport | null;
+}
+
+/**
  * * `add_email` - add_email
  * * `confirm_email` - confirm_email
  * * `resend_email` - resend_email
@@ -4360,24 +4408,6 @@ export interface PublicMeetingDiscovery {
 export interface PublicationExportError {
   detail: string;
 }
-
-/**
- * * `queued` - Queued
- * * `running` - Running
- * * `ready` - Ready
- * * `failed` - Failed
- * * `expired` - Expired
- */
-export type PublicationExportJobStatusEnum = typeof PublicationExportJobStatusEnum[keyof typeof PublicationExportJobStatusEnum];
-
-
-export const PublicationExportJobStatusEnum = {
-  queued: 'queued',
-  running: 'running',
-  ready: 'ready',
-  failed: 'failed',
-  expired: 'expired',
-} as const;
 
 export interface PublicationExportJob {
   readonly id: string;

@@ -438,7 +438,15 @@ test("every bundled operation schema can be described and its request validators
     .flatMap((path) => Object.values(path))
     .filter((op) => op.operationId)
     .map((op) => op.operationId);
-  for (const id of schemaIds) assert.ok(operations.has(id), id);
+  const hidden = new Set([
+    "account_data_export_create",
+    "account_data_export_latest",
+    "account_data_export_retrieve",
+    "account_data_export_download",
+  ]);
+  for (const id of schemaIds)
+    assert.equal(operations.has(id), !hidden.has(id), id);
+  for (const id of hidden) assert.ok(schemaIds.includes(id), id);
   for (const op of operations.values()) {
     assert.ok(describe(op).operation);
     for (const parameter of op.spec.parameters ?? []) {
@@ -791,4 +799,84 @@ test("registry and credential errors are private, malformed reload fails closed,
     );
   }
   assert.equal(f.received.length, 0);
+});
+
+test("private account exports are absent and rejected before any transport", async (t) => {
+  const f = await profiles(t);
+  const hidden = [
+    "account_data_export_create",
+    "account_data_export_latest",
+    "account_data_export_retrieve",
+    "account_data_export_download",
+  ];
+  const search = await call(f.client, "free2z_search_operations", {
+    query: "account_data_export",
+  });
+  assert.equal(search.data.total, 0);
+  for (const id of hidden) {
+    assert.equal(operations.has(id), false);
+    assert.equal(
+      (await call(f.client, "free2z_describe_operation", { operation_id: id }))
+        .error,
+      true,
+    );
+    for (const tool of ["free2z_read", "free2z_execute"]) {
+      const result = await call(f.client, tool, {
+        account: "alice",
+        operation_id: id,
+      });
+      assert.equal(result.error, true, `${tool} ${id}`);
+    }
+    await assert.rejects(
+      execute(f.config, { operation_id: id }),
+      /Unknown operation_id/,
+    );
+    // This server has no dry-run mode; its strict tool schema rejects that
+    // argument before dispatch instead of treating it as a bypass.
+    let outcome;
+    try {
+      outcome = await f.client.callTool({
+        name: "free2z_execute",
+        arguments: { account: "alice", operation_id: id, dry_run: true },
+      });
+    } catch (error) {
+      outcome = error;
+    }
+    assert.ok(outcome instanceof Error || outcome.isError === true);
+  }
+  for (const raw of [
+    "/api/exports/account/",
+    "/api/exports/account/latest/",
+    "/api/exports/account/%2e%2e/account/latest/",
+    "/api/exports/account/123/download/",
+  ]) {
+    await assert.rejects(
+      execute(f.config, { operation_id: raw }),
+      /Unknown operation_id/,
+    );
+    await assert.rejects(
+      execute(f.config, {
+        operation_id: "publication_exports_retrieve",
+        path: { id: raw },
+      }),
+      /path.id.*uuid|reserved path character/,
+    );
+  }
+  assert.equal(
+    f.received.length,
+    0,
+    "refusal must precede even profile identity verification",
+  );
+  f.respond((request) =>
+    request.url === "/api/auth/user/"
+      ? { data: { username: "alice" } }
+      : { data: { status: "ready" } },
+  );
+  const allowed = await call(f.client, "free2z_read", {
+    account: "alice",
+    operation_id: "publication_exports_list",
+  });
+  assert.equal(allowed.error, false);
+  assert.equal(f.received.length, 2);
+  assert.equal(f.received[1].url, "/api/exports/publications/");
 });
