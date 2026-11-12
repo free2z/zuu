@@ -11733,11 +11733,6 @@ components:
       description: |-
         * `public` - public
         * `confidential` - confidential
-    CodeC61Enum:
-      enum:
-      - account_changed
-      type: string
-      description: '* `account_changed` - account_changed'
     CodeStatusEnum:
       enum:
       - none
@@ -13618,12 +13613,17 @@ components:
         work.
       properties:
         code:
-          $ref: '#/components/schemas/CodeC61Enum'
+          $ref: '#/components/schemas/ExpectedActorErrorCodeEnum'
         detail:
           type: string
       required:
       - code
       - detail
+    ExpectedActorErrorCodeEnum:
+      enum:
+      - account_changed
+      type: string
+      description: '* `account_changed` - account_changed'
     FaultEnum:
       enum:
       - platform
@@ -14571,7 +14571,7 @@ components:
       type: object
       properties:
         code:
-          $ref: '#/components/schemas/CodeC61Enum'
+          $ref: '#/components/schemas/ExpectedActorErrorCodeEnum'
         detail:
           type: string
       required:

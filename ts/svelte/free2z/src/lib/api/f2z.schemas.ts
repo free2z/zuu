@@ -131,10 +131,10 @@ export interface AIPersonality {
 /**
  * * `account_changed` - account_changed
  */
-export type CodeC61Enum = typeof CodeC61Enum[keyof typeof CodeC61Enum];
+export type ExpectedActorErrorCodeEnum = typeof ExpectedActorErrorCodeEnum[keyof typeof ExpectedActorErrorCodeEnum];
 
 
-export const CodeC61Enum = {
+export const ExpectedActorErrorCodeEnum = {
   account_changed: 'account_changed',
 } as const;
 
@@ -142,7 +142,7 @@ export const CodeC61Enum = {
  * A stale authenticated-account precondition refused before paid work.
  */
 export interface ExpectedActorError {
-  code: CodeC61Enum;
+  code: ExpectedActorErrorCodeEnum;
   detail: string;
 }
 
@@ -3226,7 +3226,7 @@ export interface LowBalancePreference {
 }
 
 export interface LowBalancePreferenceConflict {
-  code: CodeC61Enum;
+  code: ExpectedActorErrorCodeEnum;
   detail: string;
 }
 

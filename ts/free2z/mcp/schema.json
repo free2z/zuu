@@ -16946,13 +16946,6 @@
         "type": "string",
         "description": "* `public` - public\n* `confidential` - confidential"
       },
-      "CodeC61Enum": {
-        "enum": [
-          "account_changed"
-        ],
-        "type": "string",
-        "description": "* `account_changed` - account_changed"
-      },
       "CodeStatusEnum": {
         "enum": [
           "none",
@@ -19285,7 +19278,7 @@
         "description": "A stale authenticated-account precondition refused before paid work.",
         "properties": {
           "code": {
-            "$ref": "#/components/schemas/CodeC61Enum"
+            "$ref": "#/components/schemas/ExpectedActorErrorCodeEnum"
           },
           "detail": {
             "type": "string"
@@ -19295,6 +19288,13 @@
           "code",
           "detail"
         ]
+      },
+      "ExpectedActorErrorCodeEnum": {
+        "enum": [
+          "account_changed"
+        ],
+        "type": "string",
+        "description": "* `account_changed` - account_changed"
       },
       "FaultEnum": {
         "enum": [
@@ -20456,7 +20456,7 @@
         "type": "object",
         "properties": {
           "code": {
-            "$ref": "#/components/schemas/CodeC61Enum"
+            "$ref": "#/components/schemas/ExpectedActorErrorCodeEnum"
           },
           "detail": {
             "type": "string"
