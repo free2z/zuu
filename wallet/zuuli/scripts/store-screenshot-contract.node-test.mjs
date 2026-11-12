@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { setTimeout as wait } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   CAPTURE_CONFIG_PATH,
   CAPTURE_FIXTURE_PATH,
@@ -570,4 +570,32 @@ test("capture framing preserves app chrome by scrolling only the production view
   assert(!runner.includes("await focus.scrollIntoViewIfNeeded()"));
   assert(runner.includes("viewport.scrollTop +="));
   assert(runner.includes("topBar.top >= -1"));
+});
+
+
+test("full CI history restores a historical capture source without changing checked-out renderer", async (t) => {
+  const source = await fixture();
+  const checkout = await mkdtemp(resolve(tmpdir(), "zuuli-capture-history-"));
+  t.after(() => removeGitFixture(source));
+  t.after(() => removeGitFixture(checkout));
+  await git(dirname(source), ["init", "-q"]);
+  await git(source, ["config", "user.name", "Capture Contract"]);
+  await git(source, ["config", "user.email", "capture-contract@example.invalid"]);
+  await git(dirname(source), ["add", "."]);
+  await git(source, ["commit", "-qm", "reviewed renderer"]);
+  const sourceSha = await git(source, ["rev-parse", "HEAD"]);
+  await writeFile(resolve(dirname(source), "history-only.txt"), "Later commit, unchanged renderer.\n");
+  await git(dirname(source), ["add", "history-only.txt"]);
+  await git(source, ["commit", "-qm", "later source history"]);
+  const currentHead = await git(source, ["rev-parse", "HEAD"]);
+  const sourceUrl = pathToFileURL(dirname(source)).href;
+  await git(checkout, ["init", "-q"]);
+  await git(checkout, ["fetch", "--depth=1", sourceUrl, "HEAD"]);
+  await git(checkout, ["checkout", "--detach", "FETCH_HEAD"]);
+  assert.equal(await git(checkout, ["rev-parse", "--is-shallow-repository"]), "true");
+  await rejectsCode(() => assertCaptureSourceCommit(sourceSha, resolve(checkout, "zuuli")), "INVALID_CAPTURE_SOURCE");
+  await git(checkout, ["fetch", "--unshallow", sourceUrl, "HEAD"]);
+  assert.equal(await git(checkout, ["rev-parse", "--is-shallow-repository"]), "false");
+  assert.equal(await git(checkout, ["rev-parse", "HEAD"]), currentHead);
+  await assertCaptureSourceCommit(sourceSha, resolve(checkout, "zuuli"));
 });
