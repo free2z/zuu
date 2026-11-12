@@ -216,6 +216,7 @@ struct Buffer {
 /// The buffer plus what it reports into.
 #[derive(Debug)]
 struct Shared {
+    delivery_ended: Arc<std::sync::atomic::AtomicBool>,
     buffer: Mutex<Buffer>,
     inflight: Arc<InFlight>,
     kill: Option<ConnectionKill>,
@@ -243,6 +244,8 @@ impl Shared {
 
     /// End delivery with `delivery_aborted`, keeping the upstream read going.
     fn abort_delivery(&self, buffer: &mut Buffer, reason: Delivery, now: Instant) {
+        self.delivery_ended
+            .store(true, std::sync::atomic::Ordering::Release);
         self.clear(buffer);
         // Not counted in `bytes`: it is the one frame an aborted delivery
         // still owes, and it replaces everything that was.
@@ -524,6 +527,9 @@ impl Drop for DeliveryBody {
                 // The client went away. Only delivery stops.
                 self.shared.clear(&mut buffer);
                 buffer.state = State::ClientGone;
+                self.shared
+                    .delivery_ended
+                    .store(true, std::sync::atomic::Ordering::Release);
             }
             State::Aborted(_) => buffer.frames.clear(),
             State::Delivered | State::ClientGone | State::Cut => {}
@@ -564,6 +570,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
     let mut abort = inflight.abort_signal();
     let slot = Arc::new(slot);
     let shared = Arc::new(Shared {
+        delivery_ended: call.delivery_signal(),
         buffer: Mutex::new(Buffer {
             frames: VecDeque::new(),
             bytes: 0,
@@ -794,6 +801,7 @@ mod tests {
         let (settle, _) = mpsc::unbounded_channel();
         let inflight = Arc::new(InFlight::new(1, 1, settle, Arc::new(Metrics::default())));
         Shared {
+            delivery_ended: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             buffer: Mutex::new(Buffer {
                 frames: VecDeque::new(),
                 bytes: 0,

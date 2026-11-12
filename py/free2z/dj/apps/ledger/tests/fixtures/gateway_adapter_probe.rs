@@ -45,6 +45,7 @@ fn hold(identity: Identity, call: Uuid) -> Operation {
     Operation::Hold {
         identity,
         call,
+        attempt: 1,
         amount_milli: 10_000,
         model: "review-model".into(),
         rate_card: 99999,
