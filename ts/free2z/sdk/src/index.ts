@@ -2,6 +2,7 @@ export { Client } from "./client.js";
 export { FetchTransport } from "./fetch-transport.js";
 export {
   NativeTransport,
+  NativeTransport as TauriTransport,
   type NativeBridge,
   type NativeChatRequest,
 } from "./native-transport.js";

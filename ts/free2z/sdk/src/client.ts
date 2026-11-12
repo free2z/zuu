@@ -227,7 +227,12 @@ export class Client {
   waitForPurchase(id: string, options?: PollOptions): Promise<Purchase> {
     return this.#poll(
       (signal) => this.purchase(id, signal),
-      (intent) => !["created", "pending", "paid"].includes(intent.status),
+      // Unknown and reversible states are not evidence of finality. The
+      // deadline still bounds polling if a newer status never resolves.
+      (intent) =>
+        ["credited", "failed", "expired", "refunded", "clawed_back"].includes(
+          intent.status,
+        ),
       options,
     );
   }

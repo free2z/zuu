@@ -275,7 +275,7 @@ export type PurchaseStatus =
   | "clawed_back";
 export interface Purchase extends ObjectData {
   id: string;
-  /** `card` or `zcash` for third-party apps; a newer rail keeps its string. */
+  /** Legacy intents may name any rail; new third-party intents support card only. */
   rail: PurchaseRail | "apple_iap" | "google_iap" | (string & {});
   /** Only `credited` means 2Z reached the account. A newer status keeps its
    * string: treat it like `pending` (keep polling), never as credited. */
