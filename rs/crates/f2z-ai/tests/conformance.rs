@@ -761,3 +761,193 @@ async fn sampling_logprobs_are_additive_and_requested_only() {
         }
     }
 }
+
+fn compat_request(fixture: &Fixture, stream: bool) -> Value {
+    let mut request = fixture.request.to_value();
+    let object = request.as_object_mut().unwrap();
+    if let Some(max) = object.remove("max_output_tokens") {
+        object.insert("max_completion_tokens".into(), max);
+    }
+    if let Some(tools) = object.get_mut("tools").and_then(Value::as_array_mut) {
+        for tool in tools {
+            *tool = json!({"type":"function", "function":tool.clone()});
+        }
+    }
+    if let Some(messages) = object.get_mut("messages").and_then(Value::as_array_mut) {
+        for message in messages {
+            if let Some(calls) = message.get_mut("tool_calls").and_then(Value::as_array_mut) {
+                for call in calls {
+                    *call = json!({"id":call["id"],"type":"function","function":{"name":call["name"],"arguments":call["arguments"]}});
+                }
+            }
+        }
+    }
+    object.insert("stream".into(), stream.into());
+    request
+}
+
+// Only generated identities and wall-clock time are normalized. All model,
+// usage, financial, choice, and envelope fields remain exact fixture values.
+fn normalize_compat_wire(value: &mut Value) {
+    let chunks = match value {
+        Value::Array(chunks) => chunks.as_mut_slice(),
+        value => std::slice::from_mut(value),
+    };
+    let mut call_id = None;
+    let mut created = None;
+    for chunk in chunks {
+        let id = chunk["id"]
+            .as_str()
+            .expect("wire id is a string")
+            .to_owned();
+        assert!(
+            uuid::Uuid::parse_str(&id).is_ok(),
+            "invalid generated call id"
+        );
+        assert_eq!(call_id.get_or_insert(id.clone()), &id);
+        let timestamp = chunk["created"].as_u64().expect("created is an integer");
+        assert!(timestamp > 0);
+        assert_eq!(*created.get_or_insert(timestamp), timestamp);
+        chunk["id"] = "$CALL_ID".into();
+        chunk["created"] = "$CREATED".into();
+        if let Some(f2z) = chunk.get_mut("f2z") {
+            assert_eq!(f2z["call_id"], id);
+            f2z["call_id"] = "$CALL_ID".into();
+            if let Some(receipt) = f2z.get_mut("receipt_id") {
+                assert!(
+                    receipt
+                        .as_str()
+                        .and_then(|s| s.strip_prefix("rcpt_"))
+                        .is_some_and(|s| uuid::Uuid::parse_str(s).is_ok())
+                );
+                *receipt = "$RECEIPT_ID".into();
+            }
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_completions_corpus_renders_documented_fixtures() {
+    let corpus = load();
+    let mut ran = 0;
+    for fixture in corpus.fixtures.iter().filter(|f| {
+        f.expect.refusal.is_none() && f.expect.encodings.contains_key("chat_completions")
+    }) {
+        for stream in [false, true] {
+            let harness = Harness::start(fixture, &fixture.catalog_model.capabilities).await;
+            let (status, body) = harness
+                .post(
+                    "/v1/chat/completions",
+                    &compat_request(fixture, stream).to_string(),
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK, "{}: {body}", fixture.name);
+            let mut actual: Value = if stream {
+                let frames: Vec<&str> = body
+                    .lines()
+                    .filter_map(|line| line.strip_prefix("data: "))
+                    .collect();
+                assert_eq!(frames.last(), Some(&"[DONE]"), "{}: {body}", fixture.name);
+                Value::Array(
+                    frames[..frames.len() - 1]
+                        .iter()
+                        .map(|line| serde_json::from_str(line).expect("valid chunk JSON"))
+                        .collect(),
+                )
+            } else {
+                serde_json::from_str(&body).unwrap()
+            };
+            normalize_compat_wire(&mut actual);
+            let expectation = &fixture.expect.encodings["chat_completions"]
+                [if stream { "chunks" } else { "response" }];
+            assert_eq!(&actual, expectation, "{} stream={stream}", fixture.name);
+            // Run mutations on the actual complete wire object. Extra fields,
+            // broken identity/envelopes and dropped terminal fields must fail.
+            for field in ["id", "object", "model", "choices", "usage", "f2z"] {
+                let mut mutant = actual.clone();
+                let target = if stream {
+                    mutant.as_array_mut().unwrap().last_mut().unwrap()
+                } else {
+                    &mut mutant
+                };
+                target.as_object_mut().unwrap().remove(field);
+                assert_ne!(
+                    &mutant, expectation,
+                    "{}: missing {field} escaped",
+                    fixture.name
+                );
+            }
+            let mut mutant = actual.clone();
+            let target = if stream { &mut mutant[0] } else { &mut mutant };
+            target["unexpected"] = true.into();
+            assert_ne!(
+                &mutant, expectation,
+                "{}: extra field escaped",
+                fixture.name
+            );
+            let mut mutant = actual.clone();
+            let target = if stream {
+                mutant.as_array_mut().unwrap().last_mut().unwrap()
+            } else {
+                &mut mutant
+            };
+            target["choices"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove("finish_reason");
+            assert_ne!(
+                &mutant, expectation,
+                "{}: missing finish_reason escaped",
+                fixture.name
+            );
+            assert_eq!(harness.settled().await, Some("settled"));
+            harness.stop().await;
+            ran += 1;
+        }
+    }
+    assert!(ran >= 100, "only {ran} compatibility fixtures ran");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chat_completions_corpus_refusals_precede_hold() {
+    let corpus = load();
+    let mut ran = 0;
+    for fixture in corpus
+        .fixtures
+        .iter()
+        .filter(|f| f.expect.refusal.is_some())
+    {
+        let expected = &fixture.expect.encodings["chat_completions"]["refusal"];
+        for stream in [false, true] {
+            let harness = Harness::start(fixture, &fixture.catalog_model.capabilities).await;
+            let (status, body) = harness
+                .post(
+                    "/v1/chat/completions",
+                    &compat_request(fixture, stream).to_string(),
+                )
+                .await;
+            let error: Value = serde_json::from_str(&body).unwrap();
+            assert_eq!(
+                u64::from(status.as_u16()),
+                expected["status"].as_u64().unwrap(),
+                "{}: {body}",
+                fixture.name
+            );
+            assert_eq!(
+                error["error"]["code"], expected["code"],
+                "{}: {body}",
+                fixture.name
+            );
+            assert_eq!(
+                error, expected["body"],
+                "{}: full error envelope",
+                fixture.name
+            );
+            assert_eq!(harness.ledger.0.lock().unwrap().holds, 0);
+            assert_eq!(harness.mock.request_count(), 0);
+            harness.stop().await;
+            ran += 1;
+        }
+    }
+    assert!(ran >= 60);
+}

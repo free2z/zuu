@@ -41,6 +41,29 @@
         "reason": "range"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "field": "/temperature",
+            "reason": "range"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "sampling control cannot be honoured",
+              "details": {
+                "field": "/temperature",
+                "reason": "range"
+              },
+              "type": "invalid_request_error",
+              "param": "/temperature"
+            }
+          }
+        }
+      }
+    }
   }
 }

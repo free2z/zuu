@@ -333,7 +333,7 @@ pub struct Expect {
     #[serde(default)]
     pub hold_extends: Option<u64>,
     /// Ai-api-design §3.4: what each compat encoding (S6–S8) must render.
-    /// Must be `{}` until an encoding exists to check it against.
+    /// The runner checks complete Chat Completions wire objects and refusals.
     pub encodings: BTreeMap<String, Value>,
 }
 
@@ -587,12 +587,15 @@ pub fn validate(fixture: &Fixture) -> Result<(), String> {
     if request.model.is_empty() {
         return Err("request.model names the fixture's catalogue model".into());
     }
-    if !fixture.expect.encodings.is_empty() {
-        return Err(
-            "expect.encodings is checked by no runner yet (S6-S8 add the decoders); \
-             data nobody checks would read as proof"
-                .into(),
-        );
+    for name in fixture.expect.encodings.keys() {
+        if name != "chat_completions" {
+            return Err(format!("unrecognized encoding {name}"));
+        }
+    }
+    if fixture.expect.refusal.is_none()
+        && !fixture.expect.encodings.contains_key("chat_completions")
+    {
+        return Err("missing chat_completions expectations".into());
     }
     for (name, value) in &fixture.catalog_model.capabilities {
         if !value.is_boolean() {

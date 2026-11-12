@@ -46,6 +46,29 @@
         "reason": "unsupported"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "field": "/top_k",
+            "reason": "unsupported"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "sampling control cannot be honoured",
+              "details": {
+                "field": "/top_k",
+                "reason": "unsupported"
+              },
+              "type": "invalid_request_error",
+              "param": "/top_k"
+            }
+          }
+        }
+      }
+    }
   }
 }

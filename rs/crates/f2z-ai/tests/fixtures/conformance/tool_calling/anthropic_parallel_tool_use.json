@@ -106,7 +106,279 @@
       "output_tokens": 71,
       "tool_calls": 0
     },
-    "encodings": {},
+    "encodings": {
+      "chat_completions": {
+        "chunks": [
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant",
+                  "content": ""
+                },
+                "finish_reason": null
+              }
+            ],
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-anthropic",
+              "hold_2z": 35,
+              "requested_model": "m-anthropic",
+              "provider": "anthropic",
+              "max_output_tokens": 8192,
+              "input_tokens_estimate": 1278
+            }
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "",
+                        "name": "get_weather"
+                      },
+                      "id": "toolu_01A",
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 0,
+                      "function": {
+                        "arguments": "{\"location\": \"Paris\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 1,
+                      "function": {
+                        "arguments": "",
+                        "name": "get_time"
+                      },
+                      "id": "toolu_01B",
+                      "type": "function"
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 1,
+                      "function": {
+                        "arguments": "{\"timezone\":"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "tool_calls": [
+                    {
+                      "index": 1,
+                      "function": {
+                        "arguments": " \"Europe/Paris\"}"
+                      }
+                    }
+                  ]
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "tool_calls"
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 610,
+              "completion_tokens": 71,
+              "total_tokens": 681,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 0
+              }
+            },
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-anthropic",
+              "hold_2z": 35,
+              "requested_model": "m-anthropic",
+              "provider": "anthropic",
+              "max_output_tokens": 8192,
+              "input_tokens_estimate": 1278,
+              "charged_2z": 1,
+              "receipt_id": "$RECEIPT_ID",
+              "finish_reason": "tool_calls",
+              "settlement": "settled",
+              "released_2z": 34,
+              "collected_milli_2z": 1000,
+              "shortfall_milli_2z": 0,
+              "cap_remaining_milli_2z": null,
+              "usage_source": "provider"
+            }
+          }
+        ],
+        "response": {
+          "id": "$CALL_ID",
+          "object": "chat.completion",
+          "created": "$CREATED",
+          "model": "m-anthropic",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                  {
+                    "id": "toolu_01A",
+                    "type": "function",
+                    "function": {
+                      "name": "get_weather",
+                      "arguments": "{\"location\": \"Paris\"}"
+                    }
+                  },
+                  {
+                    "id": "toolu_01B",
+                    "type": "function",
+                    "function": {
+                      "name": "get_time",
+                      "arguments": "{\"timezone\": \"Europe/Paris\"}"
+                    }
+                  }
+                ]
+              },
+              "finish_reason": "tool_calls"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 610,
+            "completion_tokens": 71,
+            "total_tokens": 681,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "f2z": {
+            "call_id": "$CALL_ID",
+            "model": "m-anthropic",
+            "message": {
+              "tool_calls": [
+                {
+                  "id": "toolu_01A",
+                  "name": "get_weather",
+                  "arguments": "{\"location\": \"Paris\"}"
+                },
+                {
+                  "id": "toolu_01B",
+                  "name": "get_time",
+                  "arguments": "{\"timezone\": \"Europe/Paris\"}"
+                }
+              ]
+            },
+            "finish_reason": "tool_calls",
+            "usage": {
+              "input_tokens": 610,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 71,
+              "reasoning_tokens": 0,
+              "images": 0,
+              "tool_calls": 0
+            },
+            "usage_source": "provider",
+            "requested_model": "m-anthropic",
+            "provider": "anthropic",
+            "charged_2z": 1,
+            "receipt_id": "$RECEIPT_ID",
+            "settlement": "settled",
+            "hold_2z": 35,
+            "released_2z": 34,
+            "collected_milli_2z": 1000,
+            "shortfall_milli_2z": 0,
+            "cap_remaining_milli_2z": null
+          }
+        }
+      }
+    },
     "hold_extends": 0
   }
 }
