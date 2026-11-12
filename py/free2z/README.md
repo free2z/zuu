@@ -277,3 +277,40 @@ queueing locks so delayed work cannot hold back a newly actionable eviction.
 Disabling the gate again stops execution and retries without
 clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
 to worker code without the task registration while queued jobs can still exist.
+
+### Recovery mail consent — draft, rollout held
+
+Issue #1288 remains open pending an owner product decision. The proposed rule
+is option 2: retain the existing opt-out for confirmation, password reset,
+notifications and other mail. A confirmed address is disclosed as suppressed
+only to its authenticated account; an unconfirmed address proves no control of
+the mailbox and must not reveal the global list. Support and the account holder
+can use a different address. This proposal is not owner approval and must remain
+on draft/rollout hold until that decision and the remaining review are complete.
+
+The ledger and API are unchanged. New recovery senders lock Creator, Email,
+then the address gate, recheck the current account, address, credential and
+opt-out, and start the provider invocation while holding the gates. A committed
+unsubscribe, removal or ownership change that wins those locks prevents a new
+invocation. An invocation that wins first is already in flight: a subsequent
+change cannot recall it, and provider acceptance is not proof of delivery.
+The gate has a wall-clock deadline. On timeout the provider process is killed
+and reaped before the gates are released, but a request already accepted by the
+provider can still be delivered; its outcome is unknown and its issuance is not
+refunded as a known failure. Supported ORM opt-out inserts, including bulk inserts, take the same
+address gate; raw SQL, bulk address rewrites and uncoordinated writers are not
+part of this protocol and must not be used during its rollout.
+
+The provider worker requires Linux `PR_SET_PDEATHSIG`: it refuses to send on
+other platforms or when parent binding fails, and checks for parent death both
+before and after installing the signal. Recovery lock waits use transaction-local
+limits and the anonymous reset response remains generic when a gate is busy.
+The existing expiring reset-quota counter is not claim-specific: a refund
+after expiry and recreation can affect a later claim. That inherited limitation
+is outside this change and is not a guarantee of claim-specific refunds.
+
+There is no schema migration. Old replicas read the same opt-out ledger but do
+not take this gate, and rolling back to them removes the ordering guarantee.
+**Keep the draft and rollout hold until all old mail senders and opt-out writers
+have drained and the replacement fleet has been verified.** Source tests do
+not establish that deployment condition.

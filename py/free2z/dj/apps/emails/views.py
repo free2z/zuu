@@ -1,9 +1,16 @@
 import hashlib
 import logging
+import os
+import pickle
+import subprocess
+import sys
 import re
 import secrets
 import threading
+import time
 from collections import namedtuple
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import timedelta
 from urllib.parse import quote
 
@@ -18,8 +25,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.contrib.auth.password_validation import validate_password
-from django.db import IntegrityError, transaction
-from django.db.models import F
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Exists, F, OuterRef
 
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -60,6 +67,7 @@ from dj.apps.otp.utils import (
 from .link_origin import get_email_link_origin
 from .sender import get_email_sender
 from .models import Email, OptOutEmail, PasswordResetToken
+from .suppression import is_suppressed, lock_addresses, suppressed_addresses
 from .serializers import EmailSerializer, ChangePasswordSerializer
 from .confirmation_limits import (
     USER_LIMITED as CONFIRMATION_MAIL_USER_LIMITED,
@@ -77,6 +85,8 @@ RESET_EMAIL_LIMIT = 3
 RESET_EMAIL_PERIOD_SECONDS = 86400
 PASSWORD_RESET_MFA_ATTEMPT_LIMIT = 5
 PASSWORD_RESET_MFA_ATTEMPT_TTL_SECONDS = 86400
+_recovery_provider_started = ContextVar('recovery_provider_started', default=False)
+_recovery_worker_elapsed = ContextVar('recovery_worker_elapsed', default=0.0)
 
 
 class ConfirmationMailErrorSerializer(serializers.Serializer):
@@ -460,10 +470,114 @@ OPT_OUT_LEGACY_TOKEN_PARAMETER = OpenApiParameter(
 )
 
 
+@contextmanager
+def _bounded_recovery_transaction():
+    """Bound database waits locally, without changing the caller's settings."""
+    with transaction.atomic():
+        previous = None
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT current_setting('lock_timeout'), current_setting('statement_timeout')")
+                previous = cursor.fetchone()
+                cursor.execute("SELECT set_config('lock_timeout', '2000ms', true), set_config('statement_timeout', '5000ms', true)")
+        yield
+        if previous:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT set_config('lock_timeout', %s, true), set_config('statement_timeout', %s, true)", previous)
+
+
+@contextmanager
+def _recovery_send_gate(email_instance, *, password=None, epoch=None, reset_token=None):
+    """Hold the ownership and address gates through the bounded provider call.
+
+    The lock order is Creator -> Email -> address advisory lock. An opt-out,
+    removal or ownership event that commits first is observed here; one that
+    waits here commits only after the provider call has started and returned.
+    """
+    with _bounded_recovery_transaction():
+        try:
+            account = Creator.objects.select_for_update().get(pk=email_instance.user_id)
+            current = Email.objects.select_for_update().get(
+                pk=email_instance.pk, user_id=account.pk, email=email_instance.email,
+            )
+        except (Creator.DoesNotExist, Email.DoesNotExist):
+            yield False
+            return
+        lock_addresses([current.email])
+        if is_suppressed(current.email):
+            logger.info("recovery_email_suppressed_opt_out")
+            yield False
+            return
+        if reset_token is None:
+            valid = (
+                current.token == email_instance.token
+                and bool(current.token)
+                and current.token_epoch == account.kt_account_epoch
+                and current.expires_at > timezone.now()
+            )
+        else:
+            valid = (
+                current.confirmed_at is not None
+                and account.kt_account_epoch == epoch
+                and secrets.compare_digest(account.password, password)
+                and PasswordResetToken.objects.filter(
+                    pk=reset_token.pk, email_id=current.pk, used=False,
+                ).exists()
+            )
+        yield valid
+
+
+def _bounded_recovery_send(email):
+    """Run the provider in a killable process while the caller holds the gate.
+
+    On deadline subprocess.run kills and reaps the worker before returning. A
+    timeout or crash is ambiguous: the provider may already have accepted the
+    message, so the caller must keep its issuance and quota claim.
+    """
+    if email is not None:
+        _recovery_provider_started.set(True)
+    payload = pickle.dumps((email, settings.EMAIL_BACKEND, settings.EMAIL_SEND_TIMEOUT_SECONDS))
+    worker_started = time.monotonic()
+    try:
+        result = subprocess.run(
+            [sys.executable, '-m', 'dj.apps.emails.recovery_worker', str(os.getpid())],
+            input=payload, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=settings.EMAIL_SEND_TIMEOUT_SECONDS, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        raise TimeoutError('recovery mail provider outcome unknown') from None
+    finally:
+        _recovery_worker_elapsed.set(
+            _recovery_worker_elapsed.get() + time.monotonic() - worker_started
+        )
+    if result.returncode == 0:
+        # The local-memory backend lives in the child; mirror its accepted
+        # message for Django's documented in-process development/test outbox.
+        if email is not None and settings.EMAIL_BACKEND == 'django.core.mail.backends.locmem.EmailBackend':
+            from django.core import mail
+            if not hasattr(mail, 'outbox'):
+                mail.outbox = []
+            mail.outbox.append(email)
+        return 1
+    if result.returncode in (20, 21):
+        raise RuntimeError('recovery mail provider refused the message')
+    raise TimeoutError('recovery mail provider outcome unknown')
+
+
 def send_confirmation_email(email_instance):
-    if OptOutEmail.objects.filter(email=email_instance.email).exists():
+    if is_suppressed(email_instance.email):
         # No address in the line: the log is not where the list is kept.
         logger.info("confirmation_email_suppressed_opt_out")
+        return False
+
+    # The caller commits before contacting the provider. A newer address,
+    # token or ownership epoch must not be replaced by this older snapshot.
+    if not Email.objects.filter(
+        pk=email_instance.pk, user_id=email_instance.user_id,
+        email=email_instance.email, token=email_instance.token,
+        token_epoch=F('user__kt_account_epoch'),
+    ).exists():
+        logger.info("confirmation_email_stale_identity")
         return False
 
     confirmation_url = build_confirm_url(email_instance)
@@ -490,7 +604,10 @@ def send_confirmation_email(email_instance):
     )
     # email.content_subtype = 'html'  # This is important to send HTML email
     email.attach_alternative(html_email_body, "text/html")
-    accepted = email.send()
+    with _recovery_send_gate(email_instance) as may_send:
+        if not may_send:
+            return False
+        accepted = _bounded_recovery_send(email)
     if not accepted:
         raise RuntimeError("Confirmation email backend accepted no messages")
     return True
@@ -591,7 +708,7 @@ def _spend_reset_email_quota(email_address):
 
 
 def send_password_reset_email(email_instance):
-    if OptOutEmail.objects.filter(email=email_instance.email).exists():
+    if is_suppressed(email_instance.email):
         logger.info("password_reset_email_suppressed_opt_out")
         return
 
@@ -600,21 +717,23 @@ def send_password_reset_email(email_instance):
     # that lock, the hash changes and this stale request must not mint a new
     # post-reset credential.
     loaded_password = email_instance.user.password
+    loaded_epoch = email_instance.user.kt_account_epoch
 
     # AtomicMiddleware leaves this endpoint outside its blanket POST
     # transaction. The view path is therefore the outermost transaction: the
-    # token row and quota claim commit before template/SMTP work begins, so the
-    # account lock is not held while the mail provider is contacted. Keeping a
-    # normal atomic block also lets direct maintenance/test callers nest this
-    # helper without Django's durable-transaction guard raising.
+    # token row and quota claim commit before template/SMTP work begins. A
+    # second, bounded gate rechecks them under the ownership locks through the
+    # provider call. Keeping a normal atomic block also lets direct callers
+    # nest this helper without Django's durable-transaction guard raising.
     quota_claimed = False
     reset_token = None
     try:
-        with transaction.atomic():
-            current_user = Creator.objects.select_for_update().only('password').get(
+        with _bounded_recovery_transaction():
+            current_user = Creator.objects.select_for_update().only('password', 'kt_account_epoch').get(
                 pk=email_instance.user_id
             )
-            if not secrets.compare_digest(current_user.password, loaded_password):
+            if (current_user.kt_account_epoch != loaded_epoch or
+                    not secrets.compare_digest(current_user.password, loaded_password)):
                 return
             try:
                 # RequestResetPasswordView resolved this row before the account
@@ -628,6 +747,12 @@ def send_password_reset_email(email_instance):
                     confirmed_at__isnull=False,
                 )
             except Email.DoesNotExist:
+                return
+            # The initial lookup can race an unsubscribe while this request
+            # waits for the account lock. The unsubscribe takes the same lock
+            # before recording its decision, so check again after acquiring it.
+            if is_suppressed(email_instance.email):
+                logger.info("password_reset_email_suppressed_opt_out")
                 return
             quota_claim = _spend_reset_email_quota(email_instance.email)
             if quota_claim is False:
@@ -714,7 +839,16 @@ def send_password_reset_email(email_instance):
         )
         # email.content_subtype = 'html'  # Important for HTML email
         email.attach_alternative(html_email_body, "text/html")
-        accepted = email.send()
+        with _recovery_send_gate(
+            email_instance, password=loaded_password, epoch=loaded_epoch,
+            reset_token=reset_token,
+        ) as may_send:
+            accepted = _bounded_recovery_send(email) if may_send else None
+        if not may_send:
+            token_discarded = _discard_unused_reset_token(reset_token)
+            if quota_claimed and token_discarded:
+                _release_reset_email_quota(email_instance.email)
+            return
         if not accepted:
             # Django's mail API can return zero when a backend silently
             # declines the message. Do not count that as provider acceptance;
@@ -978,37 +1112,27 @@ class RecoveryStatusView(APIView):
         ),
     )
     def get(self, request: Request, *args, **kwargs):
-        email_instance = (
-            Email.objects.filter(user_id=request.user.pk)
-            .only('email', 'confirmed_at')
-            .first()
+        # One statement supplies a consistent account/email/consent snapshot.
+        # A pending address proves no mailbox ownership and cannot expose the
+        # opt-out ledger; staff census may classify it for support separately.
+        own_email = Email.objects.filter(user_id=OuterRef('pk'))
+        confirmed_email = own_email.filter(confirmed_at__isnull=False)
+        current_user = (
+            Creator.objects.filter(pk=request.user.pk)
+            .annotate(
+                recovery_email_on_file=Exists(own_email),
+                recovery_email_confirmed=Exists(confirmed_email),
+                recovery_email_suppressed=Exists(
+                    confirmed_email.filter(email__in=suppressed_addresses())
+                ),
+            )
+            .only('password')
+            .get()
         )
-
-        email_on_file = email_instance is not None
-        if email_instance is None:
-            email_confirmed = False
-            email_pending = False
-            email_suppressed = False
-        else:
-            email_confirmed = email_instance.confirmed_at is not None
-            # Do not expose whether the shared recipient quota allowed a
-            # message: another account can attach a Gmail alias and read this
-            # status. `email_pending` describes an unconfirmed address that
-            # still needs user action, not delivery or token validity. A resend
-            # is the same safe next step whether the prior link is live, stale,
-            # or was never sent.
-            #
-            # Suppression is reported for a CONFIRMED address only. Any
-            # account can put any address on file unconfirmed, so for one the
-            # caller has not proven it controls, the opt-out list is a fact
-            # about somebody else's mailbox and this view must not answer it.
-            # An unconfirmed suppressed address therefore reads exactly like
-            # any other unconfirmed address: pending, resend. The operator
-            # census still classifies it truthfully.
-            email_suppressed = email_confirmed and OptOutEmail.objects.filter(
-                email=email_instance.email,
-            ).exists()
-            email_pending = not email_confirmed
+        email_on_file = current_user.recovery_email_on_file
+        email_confirmed = current_user.recovery_email_confirmed
+        email_suppressed = current_user.recovery_email_suppressed
+        email_pending = email_on_file and not email_confirmed
 
         # The HASH, not the ``password_set`` flag. They are allowed to
         # disagree and on this platform they demonstrably do: g12f migration
@@ -1021,7 +1145,9 @@ class RecoveryStatusView(APIView):
         # tell a user with no password that they have one and then demand an
         # old password they cannot produce -- a dead end inside the very
         # recovery flow this endpoint exists to unblock.
-        password_set = request.user.has_usable_password()
+        # Authentication may have loaded this object before a password change.
+        # Read the current hash rather than reporting that stale snapshot.
+        password_set = current_user.has_usable_password()
         can_recover = email_confirmed and not email_suppressed
 
         if can_recover:
@@ -1125,7 +1251,8 @@ class ResendEmailView(APIView):
                 # Check opt-out before token rotation so a no-mail resend does
                 # not invalidate a live link. Record the same cooldown as a
                 # send so an immediate retry cannot distinguish suppression.
-                if OptOutEmail.objects.filter(email=email_instance.email).exists():
+                if is_suppressed(email_instance.email):
+                    logger.info("confirmation_email_suppressed_opt_out")
                     email_instance.save(update_fields=['updated_at'])
                     return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1262,8 +1389,10 @@ class AddEmailView(APIView):
                     # mailbox quota and prevent them undoing a recovery hijack.
                     send_allowed = (
                         not account_limited
-                        and not OptOutEmail.objects.filter(email=new_email).exists()
+                        and not is_suppressed(new_email)
                     )
+                    if not account_limited and not send_allowed:
+                        logger.info("confirmation_email_suppressed_opt_out")
                     if send_allowed:
                         recipient_claim_id = secrets.token_urlsafe(18)
                         try:
@@ -2091,22 +2220,38 @@ class RequestResetPasswordView(APIView):
             status=status.HTTP_200_OK,
         )
 
+        # Every outcome pays for one worker startup. Otherwise the new isolated
+        # provider process would add a fresh timing distinction for addresses
+        # that reach it. Existing provider I/O timing remains a separate issue.
+        request_started = time.monotonic()
+        marker = _recovery_provider_started.set(False)
+        elapsed_marker = _recovery_worker_elapsed.set(0.0)
         try:
-            email_obj = Email.objects.get(email=email_address, confirmed_at__isnull=False)
-        except Email.DoesNotExist:
-            return generic_response
-
-        # The send is synchronous and can raise (SMTP down, template error). If
-        # that exception escaped, a *registered* address would 500 while an
-        # unknown one returns 200 — reintroducing exactly the enumeration this
-        # view is closing. Swallow it so the response is identical either way;
-        # the failure is logged for operators. (A residual timing oracle
-        # remains because the send blocks the request; moving mail onto a task
-        # queue is the real fix — tracked separately.)
-        try:
-            send_password_reset_email(email_obj)
-        except Exception:
-            logger.exception("Password reset email send failed for a registered address")
+            try:
+                email_obj = Email.objects.get(email=email_address, confirmed_at__isnull=False)
+            except Email.DoesNotExist:
+                email_obj = None
+            if email_obj is not None:
+                try:
+                    send_password_reset_email(email_obj)
+                except Exception:
+                    logger.exception("Password reset email send failed for a registered address")
+        finally:
+            if not _recovery_provider_started.get():
+                try:
+                    _bounded_recovery_send(None)
+                except Exception:
+                    logger.warning("recovery_mail_worker_unavailable")
+            # Equalize the new two-second lock-wait budget before the response.
+            # Provider I/O retains its existing variable timing; worker startup
+            # is common to all paths and excluded from this pre-worker budget.
+            pre_worker_elapsed = (
+                time.monotonic() - request_started - _recovery_worker_elapsed.get()
+            )
+            if pre_worker_elapsed < 2.0:
+                time.sleep(2.0 - pre_worker_elapsed)
+            _recovery_worker_elapsed.reset(elapsed_marker)
+            _recovery_provider_started.reset(marker)
         return generic_response
 
 

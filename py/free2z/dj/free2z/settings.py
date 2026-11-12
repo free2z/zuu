@@ -3279,6 +3279,8 @@ SOCIAL_REDIRECT_URI_ALLOWLIST = [
 EMAIL_BACKEND = "dj.apps.emails.backends.BoundedSendgridBackend"
 EMAIL_SEND_TIMEOUT_SECONDS = _positive_float_env(
     "EMAIL_SEND_TIMEOUT_SECONDS", 10.0)
+if EMAIL_SEND_TIMEOUT_SECONDS > 30:
+    raise ValueError("EMAIL_SEND_TIMEOUT_SECONDS must not exceed 30 seconds")
 
 # THE one From address for every message we send. Until  this literal was
 # copied into three call sites (two in emails/views.py, one in e2ee/tasks.py),

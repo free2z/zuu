@@ -14,7 +14,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory
 from django.utils import timezone
 
-from dj.apps.emails.models import Email
+from dj.apps.emails.models import Email, OptOutEmail
 from dj.util.middleware import AtomicMiddleware
 
 
@@ -50,6 +50,19 @@ def test_unknown_and_known_emails_are_indistinguishable(api_client, creator_fact
     assert known.status_code == 200, known.content
     assert unknown.status_code == known.status_code
     assert unknown.json() == known.json()
+
+
+@pytest.mark.django_db
+def test_opted_out_reset_response_matches_known_and_unknown(api_client, creator_factory):
+    _make_email(creator_factory(), "normal@example.com", confirmed=True)
+    _make_email(creator_factory(), "opted-out@example.com", confirmed=True)
+    OptOutEmail.objects.create(email="opted-out@example.com")
+    responses = [
+        api_client.post("/api/emails/reset-password", {"email": address}, format="json")
+        for address in ("normal@example.com", "opted-out@example.com", "unknown@example.com")
+    ]
+    assert all(response.status_code == 200 for response in responses)
+    assert len({response.content for response in responses}) == 1
 
 
 @pytest.mark.django_db
@@ -116,3 +129,50 @@ def test_email_delivery_commits_outside_request_wide_transaction(path):
     middleware(RequestFactory().post(path))
 
     assert states == [False]
+
+
+@pytest.mark.django_db
+def test_unknown_and_suppressed_also_run_one_worker_start(api_client, creator_factory, mocker):
+    from dj.apps.emails import views
+
+    _make_email(creator_factory(), 'blocked@example.com', confirmed=True)
+    OptOutEmail.objects.create(email='blocked@example.com')
+    worker = mocker.patch.object(views, '_bounded_recovery_send', return_value=1)
+    for address in ('missing@example.com', 'blocked@example.com'):
+        worker.reset_mock()
+        response = api_client.post('/api/emails/reset-password', {'email': address}, format='json')
+        assert response.status_code == 200
+        worker.assert_called_once_with(None)
+
+
+@pytest.mark.django_db
+def test_normal_reset_runs_only_one_worker(api_client, creator_factory, mocker):
+    from dj.apps.emails import views
+
+    _make_email(creator_factory(), 'normal-worker@example.com', confirmed=True)
+
+    def worker(message):
+        if message is not None:
+            views._recovery_provider_started.set(True)
+        return 1
+
+    send = mocker.patch.object(views, '_bounded_recovery_send', side_effect=worker)
+    response = api_client.post(
+        '/api/emails/reset-password', {'email': 'normal-worker@example.com'}, format='json',
+    )
+    assert response.status_code == 200
+    assert send.call_count == 1
+    assert send.call_args.args[0] is not None
+
+
+@pytest.mark.django_db
+def test_unknown_reset_does_not_skip_the_lock_wait_timing_budget(api_client, mocker):
+    import time
+
+    mocker.patch('dj.apps.emails.views._bounded_recovery_send', return_value=1)
+    before = time.monotonic()
+    response = api_client.post(
+        '/api/emails/reset-password', {'email': 'unknown@example.com'}, format='json',
+    )
+    assert response.status_code == 200
+    assert 1.9 <= time.monotonic() - before < 5

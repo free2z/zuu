@@ -1,6 +1,7 @@
 """Confirmation mail quotas bound accounts and recipients."""
 
 from datetime import timedelta
+import logging
 
 import pytest
 from django.core.cache import cache
@@ -206,7 +207,7 @@ def test_account_attempt_boundary_is_independent_of_target_outcome(
 
 @pytest.mark.django_db
 def test_add_opted_out_recipient_revokes_existing_recovery(
-    creator_factory, recent_login, mocker,
+    creator_factory, recent_login, mocker, caplog,
 ):
     user = creator_factory()
     email = Email.objects.create(
@@ -224,9 +225,13 @@ def test_add_opted_out_recipient_revokes_existing_recovery(
     recent_login(client, user)
     send = mocker.patch("dj.apps.emails.views.send_confirmation_email")
 
-    response = client.post(
-        "/api/emails/add", {"email": "suppressed@example.com"}, format="json"
-    )
+    with caplog.at_level(logging.INFO, logger="dj.apps.emails.views"):
+        response = client.post(
+            "/api/emails/add", {"email": "suppressed@example.com"}, format="json"
+        )
+    assert "confirmation_email_suppressed_opt_out" in caplog.text
+    assert "suppressed@example.com" not in caplog.text
+    assert "still-live-confirmation" not in caplog.text
 
     email.refresh_from_db()
     user.refresh_from_db()
@@ -243,7 +248,7 @@ def test_add_opted_out_recipient_revokes_existing_recovery(
 
 
 @pytest.mark.django_db
-def test_resend_suppression_does_not_rotate_a_live_token(creator_factory, mocker):
+def test_resend_suppression_does_not_rotate_a_live_token(creator_factory, mocker, caplog):
     user = creator_factory()
     email = Email.objects.create(
         user=user,
@@ -261,7 +266,11 @@ def test_resend_suppression_does_not_rotate_a_live_token(creator_factory, mocker
     client.force_authenticate(user=user)
     send = mocker.patch("dj.apps.emails.views.send_confirmation_email")
 
-    response = client.post("/api/emails/resend", {}, format="json")
+    with caplog.at_level(logging.INFO, logger="dj.apps.emails.views"):
+        response = client.post("/api/emails/resend", {}, format="json")
+    assert "confirmation_email_suppressed_opt_out" in caplog.text
+    assert email.email not in caplog.text
+    assert email.token not in caplog.text
 
     email.refresh_from_db()
     assert response.status_code == 204
