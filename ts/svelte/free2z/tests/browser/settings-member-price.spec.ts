@@ -1,4 +1,8 @@
 import { expect, test, type Page, type Request } from "@playwright/test";
+import {
+  installSettingsAccountFixture,
+  openHydratedSettings,
+} from "./settings-account-fixture";
 
 /**
  * Settings: the membership price and the server's refusals.
@@ -28,10 +32,9 @@ async function openSettings(page: Page) {
     .addCookies([
       { name: "sessionid", value: SESSION, domain: "127.0.0.1", path: "/" },
     ]);
+  const recoveryReads = await installSettingsAccountFixture(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(SETTINGS_URL);
-  // A pre-hydration click is a no-op and looks exactly like the bug.
-  await page.waitForLoadState("networkidle");
+  await openHydratedSettings(page, SETTINGS_URL, recoveryReads);
 }
 
 /**

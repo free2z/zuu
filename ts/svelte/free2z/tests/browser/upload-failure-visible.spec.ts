@@ -1,4 +1,8 @@
 import { expect, test, type Page, type Route } from "@playwright/test";
+import {
+  installSettingsAccountFixture,
+  openHydratedSettings,
+} from "./settings-account-fixture";
 
 /**
  * An upload that fails must say so — on screen, naming the file and its size,
@@ -12,8 +16,8 @@ import { expect, test, type Page, type Route } from "@playwright/test";
  * is the one thing a unit test cannot show — that the error reaches the DOM.
  *
  * Settings is the surface the owner found the outage on. The mock API is the
- * shared fixture (`mock-api.mjs`); only the upload and the limit are routed
- * here.
+ * shared fixture (`mock-api.mjs`); the upload, limit and account email reads
+ * are routed here.
  */
 
 // Fixture literals are duplicated in tests/browser/mock-api.mjs; keep in sync.
@@ -50,11 +54,9 @@ async function openSettings(page: Page, limitBytes = 5 * MB) {
       body: JSON.stringify(limitPayload(limitBytes)),
     }),
   );
+  const recoveryReads = await installSettingsAccountFixture(page);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(SETTINGS_URL);
-  // The button is server-rendered before its handler exists; clicking a
-  // pre-hydration button is a no-op and looks exactly like the bug.
-  await page.waitForLoadState("networkidle");
+  await openHydratedSettings(page, SETTINGS_URL, recoveryReads);
 }
 
 async function pickAvatar(page: Page, bytes: number) {

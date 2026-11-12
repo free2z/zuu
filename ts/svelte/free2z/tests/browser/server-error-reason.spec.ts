@@ -1,4 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
+import {
+  installSettingsAccountFixture,
+  openHydratedSettings,
+} from "./settings-account-fixture";
 
 /**
  * The server's reason reaches the screen.
@@ -40,9 +44,13 @@ test("change password shows the server's reason, not a generic failure", async (
     });
   });
 
-  await page.goto(`/${USER}/dashboard/settings`);
-  await page.waitForLoadState("networkidle");
-  await page.getByRole("tab", { name: "Security" }).click();
+  const recoveryReads = await installSettingsAccountFixture(page);
+  await openHydratedSettings(
+    page,
+    `/${USER}/dashboard/settings`,
+    recoveryReads,
+    "Security",
+  );
 
   await page.locator("#currentPassword").fill("not-my-password");
   await page.locator("#newPassword").fill("a-brand-new-passphrase");
