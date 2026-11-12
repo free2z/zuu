@@ -1,12 +1,14 @@
 <script lang="ts">
+  import { toast } from "$lib/toast.js";
   import { getCurrentLocale, tStore as t } from "$lib/i18n";
   import { Button } from "$lib/components/ui/button";
   import { onMount, tick } from "svelte";
-  import { Plus } from "@lucide/svelte";
+  import { ImageIcon, Plus } from "@lucide/svelte";
   import EditorFloatingToolbar from "./EditorFloatingToolbar.svelte";
   import EditorEmbedLink from "./EditorEmbedLink.svelte";
   import type { EditorMediaKind } from "./editorMedia";
   import EditorImagePicker from "./EditorImagePicker.svelte";
+  import EditorImageDetails from "./EditorImageDetails.svelte";
   import EditorMentionMenu from "./EditorMentionMenu.svelte";
   import EditorSlashMenu from "./EditorSlashMenu.svelte";
   import { detectMacPlatform } from "./shortcuts";
@@ -111,6 +113,26 @@
   const editorAbandoned = () => isAbandoned?.() === true;
 
   let textareaRef = $state<HTMLTextAreaElement | null>(null);
+  let imageDetailsRef = $state<{
+    show: (alt: string, caption: string) => void;
+    request: (name: string) => Promise<{ alt: string; caption: string } | null>;
+  } | null>(null);
+  let applyImageDetails: ((alt: string, caption: string) => boolean) | null =
+    null;
+  function editImageDetails() {
+    const captured = editor.captureImageDetails();
+    if (!captured) {
+      toast.error(
+        $t(
+          "editor.selectImageFirst",
+          "Place the cursor on a standalone image first.",
+        ),
+      );
+      return;
+    }
+    applyImageDetails = captured.apply;
+    imageDetailsRef?.show(captured.alt, captured.caption);
+  }
   let imagePickerRef = $state<{
     openPicker: (defaultTab?: "device" | "cloud") => void;
   } | null>(null);
@@ -145,6 +167,8 @@
     mediaSlot: () => ({ slot: "body", subscriberOnly }),
     isAbandoned: editorAbandoned,
     openImagePicker: () => imagePickerRef?.openPicker("device"),
+    requestImageDetails: (name) =>
+      imageDetailsRef?.request(name) ?? Promise.resolve(null),
     openMediaPicker,
     resize: resizeTextarea,
     onSelectionSettled: scheduleInsertControlUpdate,
@@ -326,6 +350,12 @@
   show={editor.showFloatingToolbar}
 />
 
+<EditorImageDetails
+  bind:this={imageDetailsRef}
+  {direction}
+  onSave={(alt, caption) => applyImageDetails?.(alt, caption) ?? false}
+/>
+
 <EditorImagePicker
   bind:this={imagePickerRef}
   onChooseCloudImage={editor.insertCloudImage}
@@ -419,6 +449,28 @@
     </Button>
   </div>
 
+  <div
+    class="pointer-events-none absolute start-0 z-10 flex w-0 items-center justify-end motion-safe:transition-[top] motion-safe:duration-150 motion-safe:ease-out"
+    style="top: {insertControlTop +
+      Math.max(
+        36,
+        insertControlLineHeight || FALLBACK_LINE_HEIGHT,
+      )}px; height: {insertControlLineHeight || FALLBACK_LINE_HEIGHT}px;"
+  >
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-sm"
+      dir="ltr"
+      class="pointer-events-auto size-6 text-muted-foreground/80 md:me-1.5 md:size-9"
+      title={$t("editor.editImageDetails", "Edit image at cursor")}
+      aria-label={$t("editor.editImageDetails", "Edit image at cursor")}
+      onpointerdown={(event) => {
+        if (event.pointerType === "mouse") event.preventDefault();
+      }}
+      onclick={editImageDetails}><ImageIcon class="size-3.5" /></Button
+    >
+  </div>
   <textarea
     bind:this={textareaRef}
     bind:value
