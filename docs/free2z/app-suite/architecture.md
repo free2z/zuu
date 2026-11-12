@@ -104,11 +104,17 @@ in that process resolves as the trusted main window — and finds nothing
 privileged to call. A CSP is a policy that can be relaxed under product
 pressure; an absent command cannot be invoked.
 
+Native diagnostics add no renderer transport here: Free2Z writes a bounded
+local file but intentionally offers no native readback. Its diagnostics screen
+and copied report contain frontend records only. See [diagnostics](./diagnostics.md).
+
 ### 3.2 What the messaging surface holds
 
 `wallet/e2e2z/src-tauri/Cargo.lock` contains **zero Zcash crates** — no
 `zcash_*`, no `orchard`, no `sapling`. It registers `tauri-plugin-f2zmsg` and
-five app commands: `e2e2z_device_credential_keys` opens this device's contact
+six app commands: the argument-free `native_diagnostics_report` reads bounded
+payload-free panic records (see [diagnostics](./diagnostics.md)), and
+`e2e2z_device_credential_keys` opens this device's contact
 queue at the relay and returns the **public** halves of an OS-CSPRNG device key
 set together with the endpoint the relay issued (ADR 0017 §4.1),
 `e2e2z_install_device_credential` installs the signed credential,

@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
+  Bug,
   Coins,
   LogIn,
   Radio,
@@ -42,6 +43,11 @@ export type NavigationRoute = {
  * touches a Zcash key.
  */
 export const NAVIGATION: readonly NavigationRoute[] = [
+  {
+    id: "diagnostics", to: "/diagnostics", labelKey: MESSAGE_KEYS.diagnosticsTitle,
+    accessibleLabelKey: MESSAGE_KEYS.diagnosticsTitle, icon: Bug, auth: "always",
+    desktop: { group: "account", order: 3 }, mobileOrder: null,
+  },
   {
     id: "articles",
     to: "/articles",

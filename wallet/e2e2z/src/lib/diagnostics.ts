@@ -6,20 +6,13 @@ import {
 import release from "../../release.json";
 
 /**
- * This surface's diagnostics buffer.
+ * This surface's frontend diagnostics buffer, created before capture handlers
+ * are installed in main.tsx. The shared package owns redaction and persistence;
+ * this module supplies the application identity and storage port.
  *
- * One per process, created before anything else runs so the handlers installed
- * in `main.tsx` have somewhere to write from the first tick. The behaviour is
- * entirely `@free2z/wallet-shared`'s — this file only says which app this is,
- * which build, and where the buffer survives a restart.
- *
- * ## Why e2e2z is the first surface to get a screen
- *
- * Because it is the one that shipped. `0.1.0 (2)` went to TestFlight, hung on
- * a loading skeleton, and left the tester and us with no way to learn why
- * (#973): the rejection that caused it was discarded by a `void`, and nothing
- * in the process was listening. Capture is installed in all three surfaces;
- * the screen exists here first because here it has a failure to explain.
+ * The diagnostics panel displays frontend failures and reads the separately
+ * bounded native panic report through an argument-free managed-state command.
+ * Copy/share exports the displayed report only on the user's explicit action.
  */
 
 function storage() {

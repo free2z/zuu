@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { useEffect, useId, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AlertTriangle, Check, Copy, ExternalLink, Mail, MessagesSquare } from "lucide-react";
@@ -93,6 +95,9 @@ export function FeedbackComposer({
   openExternal = defaultOpenExternal,
   copyText = defaultCopyText,
 }: FeedbackComposerProps) {
+  const { t } = useTranslation();
+  const [includeDiagnostics, setIncludeDiagnostics] = useState(false);
+  const [attachment, setAttachment] = useState("");
   const channelLegendId = useId();
   const diagnosticsDescriptionId = useId();
   const noticeId = useId();
@@ -105,9 +110,6 @@ export function FeedbackComposer({
   const [notice, setNotice] = useState<FeedbackNotice>(null);
   const [busy, setBusy] = useState(false);
 
-  // Deliberately called without a source: arbitrary errors/logs have no route
-  // into this feature until a separate allowlist can prove them safe.
-  const diagnostics = captureFeedbackDiagnostics();
 
   useEffect(() => {
     if (previousStageRef.current !== stage) headingRef.current?.focus();
@@ -116,12 +118,14 @@ export function FeedbackComposer({
 
   const beginReview = () => {
     if (channel === null || description.trim().length === 0) return;
+    const summary = includeDiagnostics ? captureFeedbackDiagnostics() : "";
     const reviewed = createFeedbackDraft(
-      description,
+      summary ? `${description}\n\n${summary}` : description,
       minimalBuildBlock,
       messages.feedbackDefaultSubject,
       messages.feedbackRedactedValue,
     );
+    setAttachment(summary && reviewed.draft.body.includes(summary) ? summary : "");
     setDraft(reviewed.draft);
     setNotice(reviewed.findings.length > 0 ? "scrubbed" : null);
     setStage("preview");
@@ -255,6 +259,7 @@ export function FeedbackComposer({
             readOnly={busy}
             aria-describedby={notice ? noticeId : undefined}
             onChange={(event) => {
+              if (attachment && !event.target.value.includes(attachment)) setAttachment("");
               setDraft((current) => ({ ...current, body: event.target.value }));
               setNotice(null);
             }}
@@ -262,11 +267,11 @@ export function FeedbackComposer({
         </div>
 
         <div className="min-w-0 space-y-1">
-          <Button type="button" variant="outline" disabled aria-describedby="preview-diagnostics-state" className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+          <Button type="button" variant="outline" disabled={busy || !attachment || !draft.body.includes(attachment)} onClick={() => { setDraft((current) => ({ ...current, body: current.body.split(attachment).join("").trim() })); setAttachment(""); }} aria-describedby="preview-diagnostics-state" className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
             {messages.feedbackRemoveDiagnosticsAction}
           </Button>
           <p id="preview-diagnostics-state" className="max-w-full break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
-            {messages.feedbackDiagnosticsUnavailable}
+            {t(MESSAGE_KEYS.diagnosticsFeedbackDescription)}
           </p>
         </div>
 
@@ -372,21 +377,14 @@ export function FeedbackComposer({
       </div>
 
       <div className="grid min-w-0 max-w-full gap-3 rounded-xl border border-border p-4 sm:grid-cols-[auto_minmax(0,1fr)] sm:items-start">
-        {/* `min-tap` on a 44x24 control: #904 phase 4 put `/about` into the
-            touch-target matrix in `tests/touch-targets.pw.ts` (it was only in
-            the viewport matrix before, which does not measure tap size) and
-            that is what surfaced this. Being `disabled` is not a reason to
-            leave it under 44px — nothing else in the audit is exempt for it,
-            and the control becomes interactive the moment diagnostics capture
-            lands. `justify-self-start` keeps it from stretching across the
-            single-column grid at mobile widths. */}
-        <Switch checked={diagnostics !== null} disabled aria-describedby={diagnosticsDescriptionId} aria-label={messages.feedbackDiagnosticsLabel} className="min-tap justify-self-start" />
+        {/* Keep the opt-in touch target at least 44px on narrow screens. */}
+        <Switch checked={includeDiagnostics} onCheckedChange={setIncludeDiagnostics} aria-describedby={diagnosticsDescriptionId} aria-label={t(MESSAGE_KEYS.diagnosticsFeedback)} className="min-tap justify-self-start" />
         <div className="min-w-0 space-y-1">
           <p className="max-w-full break-words text-sm font-medium [overflow-wrap:anywhere]">
-            {messages.feedbackDiagnosticsLabel}
+            {t(MESSAGE_KEYS.diagnosticsFeedback)}
           </p>
           <p id={diagnosticsDescriptionId} className="max-w-full break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
-            {messages.feedbackDiagnosticsUnavailable}
+            {t(MESSAGE_KEYS.diagnosticsFeedbackDescription)}
           </p>
         </div>
       </div>

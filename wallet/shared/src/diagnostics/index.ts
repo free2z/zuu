@@ -124,3 +124,5 @@ export type { DiagnosticsGlobalTarget } from "./capture";
 
 export { REPORT_TITLE, renderDiagnosticsReport } from "./report";
 export type { ReportOptions } from "./report";
+export { nativeDiagnosticsReport } from "./native";
+export { renderFeedbackDiagnostics } from "./report";

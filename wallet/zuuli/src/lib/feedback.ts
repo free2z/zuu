@@ -1,3 +1,6 @@
+import { renderFeedbackDiagnostics } from "@free2z/wallet-shared";
+import { diagnostics } from "./diagnostics";
+
 export type FeedbackChannel = "email" | "github";
 
 export type FeedbackDraft = Readonly<{
@@ -601,14 +604,9 @@ export function scrubFeedbackText(
   return { text, findings: [] };
 }
 
-/**
- * Diagnostics intentionally have no source parameter and no shipping capture
- * path. Arbitrary exceptions, causes, traces and logs therefore cannot cross
- * the privacy boundary. The UI reports diagnostics as unavailable until a
- * future separately reviewed allowlist can prove a safe schema end to end.
- */
-export function captureFeedbackDiagnostics(): null {
-  return null;
+/** Capture only closed failure kinds and counts; never errors, frames or causes. */
+export function captureFeedbackDiagnostics(): string {
+  return renderFeedbackDiagnostics(diagnostics);
 }
 
 export function createFeedbackDraft(

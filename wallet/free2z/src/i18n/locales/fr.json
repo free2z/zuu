@@ -222,5 +222,16 @@
     "violence": "Violence",
     "spam": "Spam ou escroquerie",
     "other": "Autre"
+  },
+  "diagnostics": {
+    "title": "Diagnostics",
+    "description": "Rapport local du frontend. Vérifiez-le avant de le copier ou de le partager ; aucun envoi automatique.",
+    "copy": "Copier le rapport",
+    "share": "Partager le rapport",
+    "refresh": "Actualiser",
+    "clear": "Effacer les données du frontend",
+    "copied": "Rapport copié.",
+    "failed": "Action impossible. Vous pouvez sélectionner le rapport ci-dessous.",
+    "nativeFree2z": "La capture des paniques natives utilise un fichier local limité si le stockage est disponible. Leur lecture est volontairement indisponible dans Free2Z pour protéger cette interface de contenu. Ce rapport ne contient que les données du frontend."
   }
 }

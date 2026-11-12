@@ -1,4 +1,6 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { loadBuildIdentity } from "../scripts/build-identity.mjs";
 
 import { expect, test } from "@playwright/test";
 import { PSEUDO_ABOUT_MESSAGES } from "../src/lib/about-copy";
@@ -63,12 +65,16 @@ test("copy uses the complete stable minimal block and announces completion", asy
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   // Middle, tail-weighted truncation (see #829) — reuses truncateAddress's
   // default 8-head/10-tail split rather than a head-only prefix.
+  const identity = loadBuildIdentity({ root: fileURLToPath(new URL("..", import.meta.url)) });
+  const expectedCommit = identity.sourceCommit
+    ? `${identity.sourceCommit.slice(0, 8)}…${identity.sourceCommit.slice(-10)}`
+    : "Unavailable in this build";
   expect(copied).toMatch(
     new RegExp(
       `^ZUULI\\nVersion: ${RELEASE.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` +
         `\\nBuild: ${RELEASE.build}` +
         "\\nRelease channel: Internal\\nPlatform: Web" +
-        "\\nSource commit: [0-9a-f]{8}…[0-9a-f]{10}$",
+        `\\nSource commit: ${expectedCommit}$`,
     ),
   );
   expect(copied).not.toMatch(/wallet|balance|device|address|\/Users\//i);
@@ -142,5 +148,43 @@ test.describe("pseudo-expanded shipping locale", () => {
     });
     expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
     expect(geometry.overflowing).toEqual([]);
+  });
+});
+
+test("About diagnostics separates full reports from opt-in feedback summaries", async ({ page }) => {
+  await expect(page.getByRole("heading", { name: "Diagnostics", exact: true })).toBeVisible();
+  await expect(page.locator("[data-native-diagnostics-state]")).toContainText("unavailable");
+  await page.evaluate(() => { void Promise.reject(new Error("Failed /Users/alice/private.txt https://private.invalid")); });
+  await expect.poll(() => page.evaluate(() => localStorage.getItem("free2z.diagnostics.v1"))).toContain("unhandled-rejection");
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  const report = page.locator("[data-diagnostics-report]");
+  await expect(report).toContainText("unhandled-rejection");
+  await expect(report).not.toContainText("alice");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.getByRole("button", { name: "Copy report", exact: true }).click();
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("Diagnostics report");
+  const toggle = page.getByRole("switch", { name: "Include reduced diagnostics" });
+  await expect(toggle).not.toBeChecked();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  await page.getByRole("radio", { name: /Private email/ }).check();
+  await page.locator("#feedback-description").fill("The app stopped responding.");
+  await page.getByRole("button", { name: "Review report", exact: true }).click();
+  await expect(page.locator("#feedback-body")).toHaveValue(/Diagnostics summary/);
+  await expect(page.locator("#feedback-body")).not.toHaveValue(/private|alice|\.txt/);
+  const outgoingBody = await page.locator("#feedback-body").inputValue();
+  const summary = outgoingBody.slice(outgoingBody.indexOf("Diagnostics summary"), outgoingBody.indexOf("\n\n---"));
+  expect(summary).toContain("Recorded failures");
+  // Exact copies in the editable preview must not defeat the removal action.
+  await page.locator("#feedback-body").fill(`${summary}\n\n${outgoingBody}`);
+  await page.getByRole("button", { name: "Remove diagnostics", exact: true }).click();
+  await expect(page.locator("#feedback-body")).not.toHaveValue(/Diagnostics summary/);
+});
+
+test.describe("Spanish diagnostics locale", () => {
+  test.use({ locale: "es-ES" });
+  test("uses kernel diagnostics copy", async ({ page }) => {
+    await expect(page.getByRole("heading", { name: "Diagnóstico", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copiar informe", exact: true })).toBeVisible();
   });
 });
