@@ -444,6 +444,16 @@
       "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
     },
     {
+      "operation_id": "auth_social_apple_unlink",
+      "method": "POST",
+      "path": "/api/auth/social/apple/unlink/",
+      "summary": "Unlink an Apple web identity using a JSON body so its stable subject does not enter access-log URLs. Uses the same ownership and last-sign-in-method policy as social unlink.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Identity, credential or account security operation requires its native authentication context.",
+      "next_step": "Implement explicit step-up authentication and narrowly scoped delegation; complete this operation in the browser meanwhile."
+    },
+    {
       "operation_id": "auth_social_create",
       "method": "POST",
       "path": "/api/auth/social/{provider}/",

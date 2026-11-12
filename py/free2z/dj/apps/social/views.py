@@ -636,6 +636,19 @@ class SocialLoginView(APIView):
     throttle_classes = OAUTH_COMPLETION_THROTTLES
 
     @extend_schema(
+        parameters=[OpenApiParameter(
+            name="__Host-apple-oauth", location=OpenApiParameter.COOKIE,
+            required=False, type=str,
+            description=(
+                "Required only when provider is apple; unused for X, Google "
+                "and GitHub. A Secure, HttpOnly, SameSite=Lax, host-only nonce "
+                "set by GET /api/auth/social/apple/start and returned "
+                "unchanged by that browser. After state and CSRF validation, "
+                "a missing or mismatched cookie answers HTTP 400 before "
+                "provider code exchange or any identity/session/token write. "
+                "It is compared to the server-held digest as an authentication "
+                "precondition, never used as a mutable account field."),
+        )],
         request=inline_serializer(
             name="SocialOAuthLoginRequest",
             fields={

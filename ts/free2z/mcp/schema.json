@@ -1988,6 +1988,14 @@
         "description": "POST /api/auth/social/{provider}/  {code, state, redirect_uri, otp_token?}\n-> knox token.\n\nDual-mode (identical to ZcashLoginView):\n  * request carries a valid knox token  -> ASSOCIATE (provider, uid) to that\n    Creator; 409 if that identity already belongs to a different Creator.\n  * otherwise                           -> get-or-create a Creator for the\n    identity and log in.",
         "parameters": [
           {
+            "in": "cookie",
+            "name": "__Host-apple-oauth",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required only when provider is apple; unused for X, Google and GitHub. A Secure, HttpOnly, SameSite=Lax, host-only nonce set by GET /api/auth/social/apple/start and returned unchanged by that browser. After state and CSRF validation, a missing or mismatched cookie answers HTTP 400 before provider code exchange or any identity/session/token write. It is compared to the server-held digest as an authentication precondition, never used as a mutable account field."
+          },
+          {
             "in": "path",
             "name": "provider",
             "schema": {

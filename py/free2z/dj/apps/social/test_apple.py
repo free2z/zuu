@@ -253,7 +253,8 @@ def test_stable_sub_reuses_account_across_email_changes(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "corruption", ["state", "redirect", "cookie", "actor", "csrf", "expired"]
+    "corruption",
+    ["state", "redirect", "cookie", "missing_cookie", "actor", "csrf", "expired"],
 )
 def test_browser_state_and_actor_binding_before_exchange(
     browser, apple, mocker, creator_factory, corruption
@@ -269,6 +270,8 @@ def test_browser_state_and_actor_binding_before_exchange(
         extra["redirect_uri"] = REDIRECT + "/wrong"
     if corruption == "cookie":
         browser.cookies["__Host-apple-oauth"] = "attacker"
+    if corruption == "missing_cookie":
+        del browser.cookies["__Host-apple-oauth"]
     if corruption == "actor":
         browser.force_login(creator_factory())
     if corruption == "csrf":
@@ -543,3 +546,22 @@ def test_apple_mfa_proof_is_required_and_recorded_on_the_web_session(
     assert context is not None
     assert context.acr == ACR_MFA
     assert context.amr == sorted(["fed:apple", "otp", "mfa"])
+
+
+def test_browser_binding_is_a_conditional_cookie_contract():
+    from pathlib import Path
+    import yaml
+
+    spec = yaml.safe_load(
+        (Path(__file__).resolve().parents[3] / "dj/free2z/openapi/f2z.yaml").read_text()
+    )
+    operation = spec["paths"]["/api/auth/social/{provider}/"]["post"]
+    binding = [p for p in operation["parameters"] if p["name"] == "__Host-apple-oauth"]
+    assert len(binding) == 1
+    assert binding[0]["in"] == "cookie"
+    assert binding[0].get("required", False) is False  # Other providers require no Apple cookie.
+    assert binding[0]["schema"]["type"] == "string"
+    assert "provider is apple" in binding[0]["description"]
+    assert "HTTP 400" in binding[0]["description"]
+    body = spec["components"]["schemas"]["SocialOAuthLoginRequest"]
+    assert "__Host-apple-oauth" not in body["properties"]

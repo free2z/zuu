@@ -75,3 +75,16 @@ def test_manifest_matches_reviewed_registry():
     manifest = json.loads((root / 'docs/free2z/mcp/capabilities.json').read_text())
     assert manifest['operations'] == [summary(op) for op in sorted(operations())]
     assert manifest['supported_count'] == sum(row['supported'] for row in manifest['operations'])
+
+
+def test_apple_unlink_remains_outside_delegated_mcp_authority():
+    from .catalog import summary
+    from .registry import REGISTRY
+
+    operation = 'auth_social_apple_unlink'
+    assert operation not in REGISTRY
+    row = summary(operation)
+    assert row['supported'] is False
+    assert row['reason'] == (
+        'Identity, credential or account security operation requires its native authentication context.'
+    )
