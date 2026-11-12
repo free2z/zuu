@@ -29,3 +29,18 @@ def test_every_source_writer_has_a_financial_disposition_or_bounded_caller_revie
     for row in register['writer_calls']:
         assert row['source'] in register['source_sha256']
         assert row['disposition'] == 'source writer identified; outer transaction order requires per-path review'
+
+
+def test_app_transfer_inventory_names_ownership_projection_without_claiming_review():
+    register = json.loads((Path(__file__).parents[1] / 'writer-register.json').read_text())
+    row = next(row for row in register['models'] if row['model'] == 'oidc.AppOwnershipTransfer')
+    assert row['table'] == 'oidc_appownershiptransfer'
+    assert row['review_scope'] == 'bounded source triage only'
+    writers = {writer['writer']: writer for writer in row['source_writers_and_boundaries']}
+    assert set(writers) == {
+        'TransferCreateView.post', 'TransferResolveView.post', 'sync_application',
+        'oidc_transfer_hold_admission trigger',
+    }
+    assert 'F2ZApplication.user' in writers['TransferResolveView.post']['effect']
+    assert 'ledger_app.developer_creator_id' in writers['sync_application']['effect']
+    assert all(writer['source'] in register['source_sha256'] for writer in writers.values())

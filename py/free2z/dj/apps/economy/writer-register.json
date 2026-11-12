@@ -680,6 +680,35 @@
       "disposition": "no economic mutation established by model enumeration"
     },
     {
+      "model": "oidc.AppOwnershipTransfer",
+      "table": "oidc_appownershiptransfer",
+      "source": "py/free2z/dj/apps/oidc/models.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "offer and audit state recorded; ownership and ledger projection effects require per-path review",
+      "source_writers_and_boundaries": [
+        {
+          "source": "py/free2z/dj/apps/oidc/transfers.py",
+          "writer": "TransferCreateView.post",
+          "effect": "marks expired pending offers expired and creates a pending offer"
+        },
+        {
+          "source": "py/free2z/dj/apps/oidc/transfers.py",
+          "writer": "TransferResolveView.post",
+          "effect": "expires or cancels an offer; recipient acceptance records the outcome and changes F2ZApplication.user in the same transaction"
+        },
+        {
+          "source": "py/free2z/dj/apps/oidc/ledger_projection.py",
+          "writer": "sync_application",
+          "effect": "acceptance projects the new developer into ledger_app.developer_creator_id in the same transaction"
+        },
+        {
+          "source": "py/free2z/dj/apps/oidc/migrations/0007_app_ownership_transfer.py",
+          "writer": "oidc_transfer_hold_admission trigger",
+          "effect": "coordinates new ledger_hold admissions with transfer acceptance; acceptance refuses while a hold remains"
+        }
+      ]
+    },
+    {
       "model": "oidc.AudienceChange",
       "table": "oidc_audiencechange",
       "source": "py/free2z/dj/apps/oidc/models.py",
@@ -1712,7 +1741,7 @@
     "py/free2z/dj/apps/g12f/translation/charges.py": "1880f2c28b822df00d4eeafabc7337e3ebfc66eb8b590ddd4745a8296253e451",
     "py/free2z/dj/apps/g12f/views/translate.py": "da6814a16c3693c675c4aeb40d62dd4e15057628ecb43ef26e2572a8f42c645d",
     "py/free2z/dj/apps/g12f/views/translate_batch.py": "042d4a092f6ec85e5d8a4785b536dee83867325f9378b03ea23cde17e79a9886",
-    "py/free2z/dj/apps/g12f/views/zpage.py": "1e2a95d88fbefce74e7e6fd74857dd34f359283234963ed814765ef053b0bfae",
+    "py/free2z/dj/apps/g12f/views/zpage.py": "8a43996efa2bbc4f889a0ef599fba7e5235409ee0a4a969d847d7ef176b47bcc",
     "py/free2z/dj/apps/handles/models.py": "4787949bbab9b905ca99b59918c492bcc1087e315605eea968526b9d45fdf808",
     "py/free2z/dj/apps/identity/models.py": "bc7779a97afd262f39bf6b38d332931fc68a9a1c5f34809f2f821cb4550edf1c",
     "py/free2z/dj/apps/jobs/models.py": "2fb699398f6cc4b66f52386fa769b652305c2832525f63240413ec65ef291b90",
@@ -1720,7 +1749,10 @@
     "py/free2z/dj/apps/kyc/models.py": "285560c38eb803f390b0581ed957b242770c67d311178da84baafcd56a41a045",
     "py/free2z/dj/apps/ledger/models.py": "a2cccfcd82b3dda2562041d464818ec8c6dc9ed124ec57c8e23c0153a6762865",
     "py/free2z/dj/apps/mcpserver/ai.py": "802268518b657e2fbddb4f2d6024dcfc4b71f4b6d1a717b6126494f2c2679613",
-    "py/free2z/dj/apps/oidc/models.py": "672d7756265e30aa2f73a4e214dfa185063b8a09523ea238e13d0204aa9f9b47",
+    "py/free2z/dj/apps/oidc/ledger_projection.py": "e773cdca345417ab2e3956241c3f5f0cafdd903a43f1c85c7585b2edde40773a",
+    "py/free2z/dj/apps/oidc/migrations/0007_app_ownership_transfer.py": "67e8dced85f2841ebb70d508b064e40430d40ee5c7ff3d8675e1f504942536a5",
+    "py/free2z/dj/apps/oidc/models.py": "cdd6b8d039a72c6dffd80336367443471d3e31e3f31c53d10ccb1e697b5fe606",
+    "py/free2z/dj/apps/oidc/transfers.py": "4c8f075999a90199284b0c94820ac72c06f2519b065cc7472bdd7629a717876c",
     "py/free2z/dj/apps/openai/models.py": "1a8da6b297c0aaa77a2e8c8d25dc064b865146076484c2566340f4932b1d15e8",
     "py/free2z/dj/apps/openai/views.py": "2626cf18ba38e859f5c4633ad965960ca0ed1254a26f482704a162a54c3bb3e5",
     "py/free2z/dj/apps/otp/models.py": "d45fd3d4223cbd5f0b93db9e84013c238d216bdbd45fa13d718a230eca2e7556",
