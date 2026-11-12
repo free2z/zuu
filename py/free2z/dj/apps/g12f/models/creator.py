@@ -237,6 +237,9 @@ PROTECTED_FROM_FULL_SAVE = (
     | OWNERSHIP_COUNTER_FIELDS
     | IMMUTABLE_FIELDS
     | PUBLIC_PROFILE_TIMESTAMP_FIELDS
+    | frozenset({"low_balance_notice_enabled", "low_balance_notice_generation",
+                 "low_balance_notice_pending", "low_balance_notice_pending_epoch", "low_balance_notice_attempted_at",
+                 "low_balance_notice_locale"})
 )
 
 
@@ -327,6 +330,15 @@ class Creator(AbstractUser):
     mention_notifications_enabled = models.BooleanField(
         default=False, db_default=False,
     )
+
+    # Private first-party preference. The generation fences queued work across
+    # off/on transitions; the cooldown survives those transitions.
+    low_balance_notice_enabled = models.BooleanField(default=False, db_default=False, editable=False)
+    low_balance_notice_generation = models.PositiveBigIntegerField(default=0, db_default=0, editable=False)
+    low_balance_notice_pending = models.BooleanField(default=False, db_default=False, editable=False)
+    low_balance_notice_pending_epoch = models.PositiveIntegerField(null=True, blank=True, editable=False)
+    low_balance_notice_attempted_at = models.DateTimeField(null=True, blank=True, editable=False)
+    low_balance_notice_locale = models.CharField(max_length=8, default='en', db_default='en', editable=False)
 
     #The durable per-account ownership counter the key-transparency authority
     #signs into a `HandleAssertion` (`KT.md` §4.5.4, issue ). It counts

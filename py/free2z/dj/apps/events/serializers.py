@@ -1,4 +1,5 @@
 from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers
 from django.utils import timezone
 
@@ -9,6 +10,34 @@ from .models import Event
 
 class MentionPreferenceSerializer(serializers.Serializer):
     enabled = serializers.BooleanField()
+
+
+class LowBalancePreferenceSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    actor_id = serializers.IntegerField(read_only=True)
+
+
+class LowBalancePreferenceWriteSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()
+    expected_actor_id = serializers.IntegerField(min_value=1)
+    locale = serializers.ChoiceField(choices=['en', 'es', 'fr', 'pt-BR'], required=False)
+
+
+class LowBalancePreferenceWriteSchema(OpenApiSerializerExtension):
+    target_class = LowBalancePreferenceWriteSerializer
+
+    def map_serializer(self, auto_schema, direction):
+        # PATCH still requires both fields; generic partial inference would
+        # wrongly make the actor assertion optional in generated clients.
+        return {'type': 'object', 'required': ['enabled', 'expected_actor_id'],
+                'properties': {'enabled': {'type': 'boolean'},
+                               'expected_actor_id': {'type': 'integer', 'minimum': 1},
+                               'locale': {'type': 'string', 'enum': ['en', 'es', 'fr', 'pt-BR']}}}
+
+
+class LowBalancePreferenceConflictSerializer(serializers.Serializer):
+    code = serializers.ChoiceField(choices=['account_changed'])
+    detail = serializers.CharField()
 
 # Replaces a notification message whose template interpolated a deactivated
 # counterparty's username (e.g. DONATION_RECEIVED's "...from {username}") —

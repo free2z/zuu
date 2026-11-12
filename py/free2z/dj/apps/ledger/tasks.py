@@ -7,6 +7,7 @@ verify pooling and roll this consumer before any new API/worker producers.
 from __future__ import annotations
 
 from time import monotonic
+import logging
 
 from django.db import OperationalError, connection, transaction
 from procrastinate.contrib.django import app
@@ -16,6 +17,7 @@ from dj.apps.jobs.priorities import MAINTENANCE
 EXPIRE_HOLDS_TASK_NAME = "ledger.expire_holds"
 AI_ROLLUP_TASK_NAME = "ledger.ai_rollup"
 PARTITIONS_TASK_NAME = "ledger.maintain_partitions"
+logger = logging.getLogger(__name__)
 
 #: The L2 table whose absence means "not yet": the doc's own guard.
 _L2_SENTINEL_TABLE = "public.ledger_hold"
@@ -65,6 +67,12 @@ def expire_holds(timestamp: int | None = None) -> dict:
                     raise
                 deferred += 1
     cleaned, cleanup_deferred = cleanup_gateway_metadata(deadline=monotonic() + 5)
+    from .low_balance_notice import drain
+    try:
+        drain()
+    except Exception as exc:
+        # Notice delivery must not invalidate hold maintenance.
+        logger.warning('low balance notice drain failed: %s', type(exc).__name__)
     return {"status": "completed", "expired": expired, "deferred": deferred,
             "calls_cleaned": cleaned, "calls_deferred": cleanup_deferred}
 

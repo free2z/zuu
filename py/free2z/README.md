@@ -34,6 +34,29 @@ The background worker [recovery contract](../../docs/free2z/jobs/recovery.md)
 describes lease fencing, conservative healing latency, and process exit after
 a confirmed lease-thread stall.
 
+Connected-app low-balance notices are off by default. A refused admission
+coalesces pending work under the creator lock; the existing `ledger.expire_holds`
+worker claims at most one delivery attempt per account per 24 hours. The
+cooldown starts at claim, not enqueue, and remains in force after off/on.
+Changing the preference clears pending work and increments its generation, so
+a claimed job from prior consent cannot send after re-consent. An ambiguous
+email attempt is never retried or replaced by a site notice: a worker crash or
+provider failure can therefore lose an informational notice. A confirmed
+address receives mail only when the existing email-notification and opt-out
+policy permits it; otherwise the account gets an in-site event. No email is
+required. Email delivery runs while the creator lock is held so opting out
+serializes with the send; provider timeouts bound that wait.
+The first-party preference API binds both reads and writes to the displayed
+account ID. A write also rechecks the authenticated account epoch and active
+state under the creator lock; a changed account or session returns 409.
+
+Deploy `g12f.0123` and `ledger.0008` before updated gateway and worker pods.
+Old workers ignore pending notices until the new worker is live. Old gateways
+enqueue ledger hold refusals after the migration; pre-hold refusals need the
+new gateway, so that portion begins only after its rollout. Reverse migrations
+are bounded and refuse to discard saved consent or cooldown state; roll forward
+once any such state exists.
+
 The test suite uses PostgreSQL with the pgvector extension. Give each checkout
 its own database and port, then set `DBHOST`, `DBPORT`, `DBNAME`, `DBUSER`, and
 `DBPASS` for that disposable database. Run `python -m pytest` here. Test fixtures

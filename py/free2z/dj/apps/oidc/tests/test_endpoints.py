@@ -85,6 +85,23 @@ def test_oauth_tokens_are_refused_by_views_that_declared_no_scopes(signed_in, us
     assert APIClient().get("/api/oauth/userinfo", **bearer(token)).status_code == 200
 
 
+def test_oauth_cannot_read_or_change_low_balance_consent(signed_in, user, web_app):
+    tokens = Flow(signed_in, user, web_app, redirect_uri=WEB_REDIRECT, scope=web_app.allowed_scopes).run(
+        spend_cap_2z=10, cap_period="day",
+    )
+    user.low_balance_notice_enabled = True
+    user.save(update_fields=['low_balance_notice_enabled'])
+    client = APIClient()
+    path = '/api/events/low-balance-preference/'
+    for response in (client.get(path, **bearer(tokens['access_token'])),
+                     client.patch(path, {'enabled': False}, format='json', **bearer(tokens['access_token']))):
+        assert response.status_code == 403
+        assert 'not accepted' in response.json()['detail']
+        assert 'enabled' not in response.json()
+    user.refresh_from_db()
+    assert user.low_balance_notice_enabled
+
+
 def test_session_and_knox_are_untouched_by_the_third_authenticator(signed_in):
     assert signed_in.get("/api/auth/user/").status_code == 200
     assert signed_in.get("/api/oauth/grants/").status_code == 200
