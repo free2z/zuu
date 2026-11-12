@@ -646,10 +646,10 @@ SLOW_RATE = 20.0
 
 
 @pytest.mark.parametrize("rate,expect", [
-    (REALISTIC_RATE, "delivered"),
+    (service.MIN_OUTPUT_TOKENS_PER_SECOND, "delivered"),
     (SLOW_RATE, "timeout"),
 ])
-def test_a_lao_article_fits_the_request_window_at_a_realistic_rate(
+def test_a_lao_article_fits_the_request_window_at_the_assumed_floor(
     rate, expect, monkeypatch
 ):
     """'s headline, end to end through the PLAN, on gpt-4o's ceiling.
@@ -662,7 +662,7 @@ def test_a_lao_article_fits_the_request_window_at_a_realistic_rate(
     inside ``REQUEST_TIMEOUT_SECONDS`` at the floor rate -- so the replacement
     goes through ``translate_document``.
 
-    * At a realistic 45 tok/s the article is DELIVERED. On main it was planned
+    * At the assumed floor the article is DELIVERED. On main it was planned
       as ~1,199-token fragments whose correct Lao translation (~10,000 tokens)
       needs ~220s at that rate, and the first one timed out at 180s.
     * At 20 tok/s -- under half the floor -- it still fails as ``timeout``, but
