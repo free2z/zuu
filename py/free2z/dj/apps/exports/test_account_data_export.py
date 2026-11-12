@@ -916,23 +916,46 @@ def test_creator_fields_have_explicit_export_or_exclusion(creator_factory):
     assert set(output) == {renamed.get(name, name) for name in PROFILE_FIELDS}
 
 
-def test_project_model_field_and_relation_census_stays_current():
-    """Model, field, and relationship changes require an export inventory update."""
-    from pathlib import Path
+def _project_model_fields():
+    """Include lazily loaded shipping models before enumerating the registry."""
     from django.apps import apps
+    # This unmanaged mapping is declared in a shipping module rather than
+    # models.py and is normally registered only when jobs.ops is imported.
+    from dj.apps.jobs.ops import ProcrastinateEvent
 
-    expected = json.loads((Path(__file__).parent / "project_model_census.json").read_text())
-    found = {}
-    for model in apps.get_models():
-        if not model.__module__.startswith("dj.apps."):
-            continue
-        found[model._meta.label] = {
+    assert not ProcrastinateEvent._meta.managed
+    return {
+        model._meta.label: {
             field.name: field.related_model._meta.label if field.related_model else None
             for field in model._meta.get_fields()
             if field.concrete and (not field.auto_created or field.primary_key)
         }
-    assert found == {name: item["fields"] for name, item in expected.items()}
+        for model in apps.get_models()
+        if model.__module__.startswith("dj.apps.")
+    }
+
+
+def test_project_model_field_and_relation_census_stays_current():
+    """Model, field, and relationship changes require an export inventory update."""
+    from pathlib import Path
+
+    expected = json.loads((Path(__file__).parent / "project_model_census.json").read_text())
+    assert _project_model_fields() == {name: item["fields"] for name, item in expected.items()}
     assert all(item["ownership"] and item["treatment"] and "UNRESOLVED" not in item["ownership"] + item["treatment"] for item in expected.values())
+
+
+def test_census_detects_unregistered_shipping_model(mocker):
+    from types import SimpleNamespace
+    from django.apps import apps
+
+    baseline = _project_model_fields()
+    assert baseline["jobs.ProcrastinateEvent"] == {"id": None, "job_id": None, "type": None, "at": None}
+    shipping_models = list(apps.get_models())
+    field = SimpleNamespace(name="owner", related_model=Creator, concrete=True, auto_created=False, primary_key=False)
+    hypothetical = type("NewShippingModel", (), {"__module__": "dj.apps.example.models", "_meta": SimpleNamespace(label="example.NewShippingModel", get_fields=lambda: [field])})
+    mocker.patch.object(apps, "get_models", return_value=[*shipping_models, hypothetical])
+    assert _project_model_fields()["example.NewShippingModel"] == {"owner": "g12f.Creator"}
+    assert _project_model_fields() != baseline
 
 
 def test_email_preferences_are_owner_scoped_without_confirmation_tokens(creator_factory):

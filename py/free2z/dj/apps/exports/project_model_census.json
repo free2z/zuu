@@ -1009,6 +1009,16 @@
     "ownership": "system queues, leases and operator records; no Creator ownership relation",
     "treatment": "omitted: infrastructure payloads, capability tokens and operator actions"
   },
+  "jobs.ProcrastinateEvent": {
+    "fields": {
+      "at": null,
+      "id": null,
+      "job_id": null,
+      "type": null
+    },
+    "ownership": "Unmanaged read-only mapping of the shared procrastinate_events table; job_id identifies an operational job, not an account owner.",
+    "treatment": "Excluded: system job event type and timestamps are operational queue history, not account-owned content."
+  },
   "jobs.QuarantinedJob": {
     "fields": {
       "attempts": null,
