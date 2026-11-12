@@ -43,6 +43,19 @@ fn a_minimal_request_defaults_to_streaming() {
 }
 
 #[test]
+fn developer_message_constructor_uses_the_additive_role() {
+    let message = Message::developer("Follow the application rules.");
+    assert_eq!(message.role, Role::Developer);
+    assert_eq!(
+        serde_json::to_value(message).unwrap(),
+        serde_json::json!({
+            "role": "developer",
+            "content": [{"type": "text", "text": "Follow the application rules."}]
+        })
+    );
+}
+
+#[test]
 fn a_full_request_parses() {
     let req: ChatRequest = serde_json::from_str(
         r#"{

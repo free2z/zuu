@@ -45,15 +45,6 @@
       "service_tier": "default",
       "input": [
         {
-          "role": "system",
-          "content": [
-            {
-              "type": "input_text",
-              "text": "Be brief."
-            }
-          ]
-        },
-        {
           "role": "user",
           "content": [
             {
@@ -69,7 +60,8 @@
       "include": [
         "message.output_text.logprobs"
       ],
-      "top_logprobs": 3
+      "top_logprobs": 3,
+      "instructions": "Be brief."
     },
     "provider_stream": [
       {

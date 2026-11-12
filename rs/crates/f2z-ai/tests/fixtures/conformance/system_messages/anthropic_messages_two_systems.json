@@ -1,0 +1,68 @@
+{
+  "name": "anthropic_messages_two_systems",
+  "feature": "system_messages",
+  "source": "Anthropic Messages API reference, top-level system parameter: https://docs.anthropic.com/en/api/messages . Synthetic documented shape; no live provider call.",
+  "api_style": "anthropic_messages",
+  "provider": "anthropic",
+  "catalog_model": {},
+  "request": {
+    "model": "m-anthropic_messages",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "First instruction."
+          }
+        ]
+      },
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "text",
+            "text": "Second instruction."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question?"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "encodings": {},
+    "provider_request": {
+      "system": [
+        {
+          "type": "text",
+          "text": "First instruction."
+        },
+        {
+          "type": "text",
+          "text": "Second instruction."
+        }
+      ],
+      "messages": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Question?"
+            }
+          ]
+        }
+      ]
+    },
+    "hold_extends": 0
+  }
+}

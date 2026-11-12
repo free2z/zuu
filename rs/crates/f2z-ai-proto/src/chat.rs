@@ -902,6 +902,13 @@ impl Message {
         Self::text(Role::System, text)
     }
 
+    /// A `developer` turn: instructions sent as `developer` only when the
+    /// signed model controls authorize that role; otherwise sent as `system`.
+    #[must_use]
+    pub fn developer(text: impl Into<String>) -> Self {
+        Self::text(Role::Developer, text)
+    }
+
     /// A `user` turn: what the end user said.
     #[must_use]
     pub fn user(text: impl Into<String>) -> Self {
@@ -970,6 +977,8 @@ fn strict_tool_calls<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<ToolC
 pub enum Role {
     /// Instructions from the application.
     System,
+    /// A synonym for system instructions, subject to the signed model control.
+    Developer,
     /// The end user.
     User,
     /// The model.

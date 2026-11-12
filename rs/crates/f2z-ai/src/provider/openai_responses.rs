@@ -63,6 +63,16 @@ const HOSTED_TOOL_ITEMS: [&str; 2] = ["web_search_call", "file_search_call"];
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OpenAiResponses;
 
+fn text_of(content: &[ContentPart]) -> String {
+    let mut text = String::new();
+    for part in content {
+        if let ContentPart::Text { text: piece } = part {
+            text.push_str(piece);
+        }
+    }
+    text
+}
+
 /// `Authorization: Bearer <key>`, marked sensitive. Shared with Chat
 /// Completions.
 pub(crate) fn bearer(key: &SecretString) -> Result<HeaderMap, ApiFailure> {
@@ -98,7 +108,9 @@ impl Provider for OpenAiResponses {
     ) -> Result<OrderedJson, ApiFailure> {
         // `function_call_output` is text here, and an assistant turn carries
         // no image.
-        super::images_only_on(request, &[Role::User, Role::System])?;
+        // System/developer content is emitted through the text-only
+        // `instructions` field below. Refuse images instead of dropping them.
+        super::images_only_on(request, &[Role::User])?;
         // No `response_format` translation for this API yet: refused, never
         // dropped (an unconstrained answer billed as a structured one).
         super::no_response_format(request)?;
@@ -107,14 +119,13 @@ impl Provider for OpenAiResponses {
         super::check_tool_translation(request, model)?;
         super::check_reasoning_effort(request, model)?;
         let mut input = Vec::new();
+        let mut instructions = Vec::new();
         for message in &request.messages {
             match message.role {
-                Role::System | Role::User => {
-                    let role = if message.role == Role::System {
-                        "system"
-                    } else {
-                        "user"
-                    };
+                Role::System | Role::Developer => {
+                    instructions.push(text_of(&message.content));
+                }
+                Role::User => {
                     let content: Vec<Value> = message
                         .content
                         .iter()
@@ -127,7 +138,7 @@ impl Provider for OpenAiResponses {
                             }),
                         })
                         .collect();
-                    input.push(json!({"role": role, "content": content}));
+                    input.push(json!({"role": "user", "content": content}));
                 }
                 Role::Assistant => {
                     let content: Vec<Value> = message
@@ -173,6 +184,9 @@ impl Provider for OpenAiResponses {
             body.insert("service_tier".into(), json!("default"));
         }
         body.insert("input".into(), Value::Array(input));
+        if !instructions.is_empty() {
+            body.insert("instructions".into(), json!(instructions.join("\n\n")));
+        }
         body.insert("max_output_tokens".into(), json!(max_output_tokens));
         body.insert("stream".into(), json!(true));
         // The gateway keeps no completions (chat-api.md §7); neither should

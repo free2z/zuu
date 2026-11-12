@@ -47,6 +47,39 @@ fn rich(model: &str) -> ChatRequest {
     .unwrap()
 }
 
+#[test]
+fn openai_responses_forwards_user_images_as_input_image_parts() {
+    use f2z_ai::provider::{for_style, openai_chat::UsageConvention};
+    use f2z_ai_proto::catalog::ApiStyle;
+
+    // Negative control for the text-only system/developer instructions:
+    // Responses documents input_image on user content, which must still be
+    // preserved by the adapter.
+    let catalog = catalog(10_000);
+    let model = catalog.catalog().callable_model(RESPONSES.id).unwrap();
+    let request: ChatRequest = serde_json::from_value(json!({
+        "model": RESPONSES.id,
+        "messages": [{"role":"user", "content":[
+            {"type":"text", "text":"What is shown?"},
+            {"type":"image", "media_type":"image/png", "data":"iVBORw0KGgo="}
+        ]}]
+    }))
+    .unwrap();
+    let adapter = for_style(
+        ApiStyle::OpenaiResponses,
+        UsageConvention::CompletionIncludesReasoning,
+    )
+    .unwrap();
+    let body = adapter.body(&request, model, 16).unwrap().to_value();
+    assert_eq!(
+        body["input"][0]["content"],
+        json!([
+            {"type":"input_text", "text":"What is shown?"},
+            {"type":"input_image", "image_url":"data:image/png;base64,iVBORw0KGgo="}
+        ])
+    );
+}
+
 async fn sent_body(mock: &MockProvider, model: Model) -> Value {
     let backend = backend(&mock.base_url(), tuning(0));
     let request = rich(model.id);
@@ -195,7 +228,6 @@ async fn each_adapter_translates_the_unified_request() {
     assert_eq!(
         kinds,
         [
-            "system",
             "user",
             "assistant",
             "function_call",
@@ -203,9 +235,10 @@ async fn each_adapter_translates_the_unified_request() {
             "user"
         ]
     );
-    assert_eq!(input[1]["content"][1]["type"], "input_image");
-    assert_eq!(input[3]["call_id"], "call_1");
-    assert_eq!(input[4]["output"], "{\"f\":1}");
+    assert_eq!(responses["instructions"], "You tutor maths.");
+    assert_eq!(input[0]["content"][1]["type"], "input_image");
+    assert_eq!(input[2]["call_id"], "call_1");
+    assert_eq!(input[3]["output"], "{\"f\":1}");
     assert_eq!(responses["tools"][0]["type"], "function");
     assert_eq!(responses["tools"][0]["strict"], false);
     mock.shutdown().await;
