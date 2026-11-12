@@ -3103,6 +3103,8 @@
     "chipUnknown": "Comprobando…",
     "deliveredToast": "{language}: lista para revisar.",
     "doneReviewing": "Listo",
+    "failureTimeout": "La traducción tardó demasiado. Prueba con un artículo más corto o vuelve a intentarlo más tarde.",
+    "failureTruncated": "La traducción alcanzó su límite de salida antes de terminar. Prueba con un artículo más corto.",
     "flaggedItemNotFound": "no aparece literalmente en este borrador; compáralo con el original",
     "flaggedTextInDraft": "Buscar elementos marcados en el borrador",
     "emptyBody": "Elige todos los idiomas que quieras. Se traducen a la vez mientras sigues escribiendo, y cada uno te espera aquí para que lo revises.",
