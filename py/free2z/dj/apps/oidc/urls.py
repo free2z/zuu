@@ -25,7 +25,7 @@ from .views import (
 
 from .mcp_views import (
     MCPRegisterView, MCPLinkView, MCPLinkEvaluateView, MCPConnectionsView,
-    MCPConnectionRevokeView, MCPAccountRevokeView,
+    MCPConnectionRevokeView, MCPAccountRevokeView, MCPBrowserLinkView,
 )
 
 urlpatterns = [
@@ -34,6 +34,7 @@ urlpatterns = [
     path("mcp/link/", MCPLinkView.as_view(), name="mcp-link"),
     path("mcp/connections/", MCPConnectionsView.as_view(), name="mcp-connections"),
     path("mcp/connections/<uuid:connection_id>/", MCPConnectionRevokeView.as_view(), name="mcp-connection-revoke"),
+    path("mcp/connections/<uuid:connection_id>/link/", MCPBrowserLinkView.as_view(), name="mcp-connection-link"),
     path("mcp/grants/<uuid:grant_id>/", MCPAccountRevokeView.as_view(), name="mcp-account-revoke"),
     path("authorize", AuthorizeView.as_view(), name="oidc-authorize"),
     path("token", TokenView.as_view(), name="oidc-token"),

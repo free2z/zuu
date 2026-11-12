@@ -1,7 +1,8 @@
 <script lang="ts">
   import { formatDateTime } from "$lib/utils/date";
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { tStore as t, getCurrentLocale } from "$lib/i18n";
+  import { Label } from "$lib/components/ui/label";
   import { Button } from "$lib/components/ui/button";
   import {
     scopeLabel,
@@ -26,6 +27,59 @@
     id: string;
     label: string;
   } | null = null;
+  let adding: AgentConnection | null = null;
+  let username = "";
+  let selectedScopes: string[] = [];
+  let creatingLink = false;
+  let linkUrl = "";
+  let linkProblem = "";
+
+  async function askAdd(connection: AgentConnection) {
+    adding = connection;
+    username = "";
+    selectedScopes = connection.scopes.filter((scope) =>
+      ["mcp:read", "mcp:write", "mcp:uploads"].includes(scope),
+    );
+    linkUrl = "";
+    linkProblem = "";
+    await tick();
+    document.getElementById("agent-add-username")?.focus();
+  }
+
+  async function createLink() {
+    if (!adding || creatingLink || linkUrl) return;
+    creatingLink = true;
+    linkProblem = "";
+    try {
+      const result = await agentRequest<{ url: string }>(
+        `/api/oauth/mcp/connections/${encodeURIComponent(adding.id)}/link/`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            expected_username: username,
+            scopes: selectedScopes,
+          }),
+        },
+      );
+      const url = new URL(result.url);
+      if (
+        url.pathname !== "/account/agent-link" ||
+        url.search ||
+        !/^#intent=[A-Za-z0-9_-]{43}$/.test(url.hash)
+      )
+        throw new Error();
+      // Stay on this deployment's browser origin (including local previews).
+      linkUrl = url.pathname + url.hash;
+    } catch {
+      linkProblem = $t(
+        "oauth.agent.addFailed",
+        "The account-link request could not be confirmed. No access is granted until the named account approves. Check Connected apps before trying again.",
+      );
+    } finally {
+      creatingLink = false;
+    }
+  }
   $: connections = data.connections.filter(
     (item) =>
       !item.revoked &&
@@ -143,6 +197,10 @@
             username: connection.primary_username,
           })}
         </p>
+        <p class="text-xs break-all text-muted-foreground">
+          {$t("oauth.agent.connectionId", "Connection ID")}:
+          <code>{connection.id}</code>
+        </p>
         <ul class="space-y-2 text-sm">
           {#each connection.accounts.filter((item) => !item.revoked) as account (account.id)}
             <li class="space-y-1 break-words">
@@ -163,6 +221,112 @@
             </li>
           {/each}
         </ul>
+        {#if connection.available !== false}
+          <Button
+            variant="outline"
+            onclick={() => askAdd(connection)}
+            disabled={creatingLink}
+          >
+            {$t("oauth.agent.addAccount", "Add account")}
+          </Button>
+        {/if}
+        {#if adding?.id === connection.id}
+          <form
+            class="space-y-4 rounded-lg border bg-card p-4"
+            onsubmit={(event) => {
+              event.preventDefault();
+              void createLink();
+            }}
+            aria-label={$t("oauth.agent.addAccount", "Add account")}
+          >
+            <h3 class="font-semibold break-words">
+              {$t("oauth.agent.addTo", "Add an account to {app}", {
+                app: adding.application.name,
+              })}
+            </h3>
+            <p class="text-sm">
+              {$t(
+                "oauth.agent.addHelp",
+                "Enter the exact username. That account must sign in and approve access to this connection; creating a link grants no access.",
+              )}
+            </p>
+            {#if linkUrl}
+              <a
+                href={linkUrl}
+                class="font-medium text-primary underline"
+                referrerpolicy="no-referrer"
+              >
+                {$t("oauth.agent.reviewLink", "Continue to account consent")}
+              </a>
+              <p class="text-sm text-muted-foreground">
+                {$t(
+                  "oauth.agent.linkExpiry",
+                  "This link expires in 10 minutes. After approval, ask your assistant to list accounts again.",
+                )}
+              </p>
+            {:else}
+              <Label for="agent-add-username"
+                >{$t(
+                  "oauth.agent.exactUsername",
+                  "Exact account username",
+                )}</Label
+              >
+              <input
+                id="agent-add-username"
+                class="w-full rounded-md border bg-background px-3 py-2"
+                bind:value={username}
+                required
+                maxlength={150}
+                disabled={creatingLink}
+                autocomplete="off"
+                autocapitalize="none"
+                spellcheck={false}
+              />
+              <fieldset class="space-y-2" disabled={creatingLink}>
+                <legend class="mb-2 text-sm font-medium"
+                  >{$t(
+                    "oauth.agent.permissions",
+                    "Allow this assistant to",
+                  )}</legend
+                >
+                {#each adding.scopes.filter( (scope) => scope.startsWith("mcp:") ) as scope}
+                  <Label control className="flex items-start gap-3 text-sm">
+                    <input
+                      type="checkbox"
+                      value={scope}
+                      bind:group={selectedScopes}
+                      class="mt-0.5 h-4 w-4 shrink-0"
+                    />
+                    <span>{scopeLabel($t, scope)}</span>
+                  </Label>
+                {/each}
+              </fieldset>
+              <Button
+                type="submit"
+                disabled={creatingLink ||
+                  !username ||
+                  username !== username.trim() ||
+                  selectedScopes.length === 0}
+              >
+                {$t("oauth.agent.createLink", "Create consent link")}
+              </Button>
+            {/if}
+            {#if linkProblem}<p role="alert" class="text-sm text-destructive">
+                {linkProblem}
+              </p>{/if}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={creatingLink}
+              onclick={() => {
+                adding = null;
+                linkUrl = "";
+              }}
+            >
+              {$t("oauth.agent.cancel", "Cancel")}
+            </Button>
+          </form>
+        {/if}
         <Button variant="outline" onclick={() => askConnection(connection)}
           >{$t("oauth.agent.removeConnection", "Remove connection")}</Button
         >

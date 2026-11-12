@@ -451,6 +451,18 @@
       </div>
     </header>
 
+    <div class="mb-6 space-y-1 rounded-lg border bg-card p-4">
+      <a href="/account/apps" class="font-medium text-primary underline">
+        {$t("oauth.connectedApps.title", "Connected apps")}
+      </a>
+      <p class="text-sm text-muted-foreground">
+        {$t(
+          "oauth.agent.connectionsHelp",
+          "Manage the accounts your assistants can use. Removing a connection removes its access to every linked account.",
+        )}
+      </p>
+    </div>
+
     <div class="flex flex-col gap-8 lg:flex-row">
       <!-- Sidebar Profile Section -->
       <aside class="w-full shrink-0 space-y-6 lg:w-80">

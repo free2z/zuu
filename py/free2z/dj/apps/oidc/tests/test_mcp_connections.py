@@ -496,3 +496,61 @@ def test_completed_upload_receipt_survives_original_token_removal(signed_in, use
     with pytest.raises(APIException):
         with authorized_upload(receipt.pk, capability):
             pytest.fail("removed original token allowed a new upload")
+
+
+def test_browser_owner_requests_link_without_a_bearer_but_target_must_consent(signed_in, user, creator_factory):
+    _, _, tokens = issue(signed_in, user)
+    raw = tokens["access_token"]
+    connection_id = authenticate_mcp(raw).connection_id
+    target = creator_factory(username="browser-linked")
+    url = f"/api/oauth/mcp/connections/{connection_id}/link/"
+    payload = {"expected_username": target.username, "scopes": ["mcp:read", "mcp:write"]}
+    response = signed_in.post(url, payload, format="json")
+    assert response.status_code == 201, response.content
+    assert response["Cache-Control"] == "no-store"
+    assert response["Referrer-Policy"] == "no-referrer"
+    opaque = parse_qs(urlsplit(response.json()["url"]).fragment)["intent"][0]
+    assert [a["username"] for a in list_accounts(raw)] == [user.username]
+    assert signed_in.post("/api/oauth/mcp/link/", {"intent": opaque, "allow": True}, format="json").status_code == 403
+    browser = APIClient(); browser.force_login(target)
+    assert browser.post(url, payload, format="json").status_code == 403
+    assert APIClient().post(url, payload, format="json").status_code == 401
+    # An MCP bearer cannot initiate this browser/session operation.
+    assert APIClient().post(url, payload, format="json", HTTP_AUTHORIZATION=f"Bearer {raw}").status_code == 401
+    result = browser.post("/api/oauth/mcp/link/", {"intent": opaque, "allow": True, "scopes": ["mcp:read"]}, format="json")
+    assert result.status_code == 200, result.content
+    account = result.json()["account"]
+    with authorized_actor(raw, account["id"], ["mcp:read"]) as actor:
+        assert actor.user.pk == target.pk
+    with pytest.raises(APIException):
+        with authorized_actor(raw, account["id"], ["mcp:write"]):
+            pytest.fail("target scope reduction ignored")
+    assert browser.delete(f"/api/oauth/mcp/grants/{account['id']}/").status_code == 204
+    with pytest.raises(APIException):
+        with authorized_actor(raw, account["id"], ["mcp:read"]):
+            pytest.fail("browser revocation ignored")
+
+
+def test_browser_link_refuses_csrf_scope_widening_and_dead_connections(signed_in, user):
+    from dj.apps.oidc.models import AccessToken, RefreshToken
+    _, _, tokens = issue(signed_in, user)
+    connection_id = authenticate_mcp(tokens["access_token"]).connection_id
+    url = f"/api/oauth/mcp/connections/{connection_id}/link/"
+    payload = {"expected_username": "another-account", "scopes": ["mcp:read"]}
+    csrf = APIClient(enforce_csrf_checks=True); csrf.force_login(user)
+    assert csrf.post(url, payload, format="json").status_code == 403
+    for scopes in ([], ["offline_access"], ["ai:invoke"], "mcp:read"):
+        assert signed_in.post(url, {**payload, "scopes": scopes}, format="json").status_code in {400, 403}
+    MCPConnection.objects.filter(pk=connection_id).update(scope="mcp:read")
+    assert signed_in.post(url, {**payload, "scopes": ["mcp:write"]}, format="json").status_code == 403
+    # Account and pending-intent limits are shared with the assistant route.
+    for _ in range(5):
+        assert signed_in.post(url, payload, format="json").status_code == 201
+    assert signed_in.post(url, payload, format="json").status_code == 400
+    MCPLinkIntent.objects.filter(connection_id=connection_id).delete()
+    RefreshToken.objects.filter(access_token__mcp_connection_id=connection_id).update(revoked=timezone.now())
+    AccessToken.objects.filter(mcp_connection_id=connection_id).update(expires=timezone.now() - timedelta(seconds=1))
+    assert signed_in.post(url, payload, format="json").status_code == 401
+    assert not MCPLinkIntent.objects.filter(connection_id=connection_id).exists()
+    MCPConnection.objects.filter(pk=connection_id).update(revoked_at=timezone.now())
+    assert signed_in.post(url, payload, format="json").status_code == 401

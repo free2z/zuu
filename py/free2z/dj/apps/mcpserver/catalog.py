@@ -126,6 +126,11 @@ def operations():
 
 
 def gap(operation):
+    if operation == "mcp_connection_link":
+        return (
+            "Only a signed-in connection owner may create this browser consent request; it grants no account access.",
+            "Use Connected apps to add an account, or free2z_connect_account to request a link from the assistant. The named account must sign in and approve.",
+        )
     if operation == "ai_conversations_public_retrieve":
         return (
             "This native alias serializes the entire public conversation catalog without pagination.",

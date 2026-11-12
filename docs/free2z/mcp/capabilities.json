@@ -1741,6 +1741,16 @@
       "next_step": "Use the named hosted MCP tools and the exact transfer capability they return."
     },
     {
+      "operation_id": "mcp_connection_link",
+      "method": "POST",
+      "path": "/api/oauth/mcp/connections/{connection_id}/link/",
+      "summary": "Request independent account consent for a connection owned by this session.",
+      "supported": false,
+      "keywords": "",
+      "reason": "Only a signed-in connection owner may create this browser consent request; it grants no account access.",
+      "next_step": "Use Connected apps to add an account, or free2z_connect_account to request a link from the assistant. The named account must sign in and approve."
+    },
+    {
       "operation_id": "mcp_connection_revoke",
       "method": "DELETE",
       "path": "/api/oauth/mcp/connections/{connection_id}/",
