@@ -51,6 +51,7 @@ GATEWAY_CALL_FUNCTIONS = {
     'call_read', 'call_claim', 'call_complete', 'gateway_attempt_snapshot',
     'gateway_expired_call', 'cleanup_gateway_calls',
     'call_owner',   # 0005_call_recovery: private lookup helper, never granted
+    'queue_low_balance_notice',  # 0008: internal consent/cooldown enqueue only
 }
 # Additive economy integration wraps these exact old ABIs; aliases stay private.
 ECONOMY_FUNCTIONS = {
@@ -280,6 +281,19 @@ def test_no_ledger_function_is_executable_by_public(probe_role):
     # function and forgets the REVOKE fails on.
     assert one("SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace "
                "WHERE n.nspname = 'ledger' AND p.proacl IS NULL")[0] == 0
+
+
+def test_gateway_cannot_call_low_balance_notice_helper_directly():
+    from psycopg import sql as pg_sql
+    from django.db import connection
+
+    gateway = one("SELECT ledger.gateway_role_name()")[0]
+    assert one("SELECT has_function_privilege(%s, 'ledger.queue_low_balance_notice(bigint)', 'EXECUTE')",
+               [gateway])[0] is False
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute(pg_sql.SQL('SET LOCAL ROLE {}').format(pg_sql.Identifier(gateway)))
+        with pytest.raises(DatabaseError, match="permission denied"), transaction.atomic():
+            cursor.execute('SELECT ledger.queue_low_balance_notice(%s)', [1])
 
 
 def test_a_low_privilege_role_cannot_mint_credits(probe_role, creator_factory):

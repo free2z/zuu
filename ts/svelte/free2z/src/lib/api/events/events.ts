@@ -23,10 +23,14 @@ import type {
 
 import type {
   EventsListParams,
+  EventsLowBalancePreferenceRetrieveParams,
   EventsUnreadCountRetrieve200,
   EventsUnreadCountRetrieveParams,
+  LowBalancePreference,
+  LowBalancePreferenceConflict,
   MentionPreference,
   PaginatedEventList,
+  PatchedLowBalancePreferenceWrite,
   PatchedMentionPreference
 } from '../f2z.schemas.ts';
 
@@ -167,6 +171,138 @@ export function createEventsHasRetrieve<TData = Awaited<ReturnType<typeof events
 
 
 /**
+ * First-party account preference; no OAuth scope grants access.
+ */
+export const eventsLowBalancePreferenceRetrieve = (
+    params: EventsLowBalancePreferenceRetrieveParams,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<LowBalancePreference>(
+      {url: `/api/events/low-balance-preference/`, method: 'GET',
+        params, signal
+    },
+      options);
+    }
+
+
+
+
+export const getEventsLowBalancePreferenceRetrieveQueryKey = (params?: EventsLowBalancePreferenceRetrieveParams,) => {
+    return [
+    `/api/events/low-balance-preference/`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getEventsLowBalancePreferenceRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof eventsLowBalancePreferenceRetrieve>>, TError = LowBalancePreferenceConflict>(params: EventsLowBalancePreferenceRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof eventsLowBalancePreferenceRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getEventsLowBalancePreferenceRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof eventsLowBalancePreferenceRetrieve>>> = ({ signal }) => eventsLowBalancePreferenceRetrieve(params, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof eventsLowBalancePreferenceRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type EventsLowBalancePreferenceRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof eventsLowBalancePreferenceRetrieve>>>
+export type EventsLowBalancePreferenceRetrieveQueryError = LowBalancePreferenceConflict
+
+
+
+export function createEventsLowBalancePreferenceRetrieve<TData = Awaited<ReturnType<typeof eventsLowBalancePreferenceRetrieve>>, TError = LowBalancePreferenceConflict>(
+ params: EventsLowBalancePreferenceRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof eventsLowBalancePreferenceRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getEventsLowBalancePreferenceRetrieveQueryOptions(params,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
+ * First-party account preference; no OAuth scope grants access.
+ */
+export const eventsLowBalancePreferencePartialUpdate = (
+    patchedLowBalancePreferenceWrite: PatchedLowBalancePreferenceWrite,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<LowBalancePreference>(
+      {url: `/api/events/low-balance-preference/`, method: 'PATCH',
+      headers: {'Content-Type': 'application/json', },
+      data: patchedLowBalancePreferenceWrite, signal
+    },
+      options);
+    }
+
+
+
+
+export const getEventsLowBalancePreferencePartialUpdateMutationKey = () => ['eventsLowBalancePreferencePartialUpdate'] as const;
+
+export const getEventsLowBalancePreferencePartialUpdateMutationOptions = <TError = LowBalancePreferenceConflict,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof eventsLowBalancePreferencePartialUpdate>>, TError,EventsLowBalancePreferencePartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof eventsLowBalancePreferencePartialUpdate>>, TError,EventsLowBalancePreferencePartialUpdateMutationVariables, TContext> => {
+
+const mutationKey = getEventsLowBalancePreferencePartialUpdateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof eventsLowBalancePreferencePartialUpdate>>, EventsLowBalancePreferencePartialUpdateMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  eventsLowBalancePreferencePartialUpdate(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EventsLowBalancePreferencePartialUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof eventsLowBalancePreferencePartialUpdate>>>
+    export type EventsLowBalancePreferencePartialUpdateMutationBody = PatchedLowBalancePreferenceWrite
+    export type EventsLowBalancePreferencePartialUpdateMutationError = LowBalancePreferenceConflict
+    export type EventsLowBalancePreferencePartialUpdateMutationVariables = {data: PatchedLowBalancePreferenceWrite}
+
+    export const createEventsLowBalancePreferencePartialUpdate = <TError = LowBalancePreferenceConflict,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof eventsLowBalancePreferencePartialUpdate>>, TError,EventsLowBalancePreferencePartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof eventsLowBalancePreferencePartialUpdate>>,
+        TError,
+        EventsLowBalancePreferencePartialUpdateMutationVariables,
+        TContext
+      > => {
+      return createMutation(getEventsLowBalancePreferencePartialUpdateMutationOptions(options));
+    }
+    /**
  * Read or update the authenticated creator's in-app mention opt-out.
  */
 export const eventsMentionPreferenceRetrieve = (

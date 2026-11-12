@@ -4000,6 +4000,67 @@ paths:
       responses:
         '200':
           description: No response body
+  /api/events/low-balance-preference/:
+    get:
+      operationId: events_low_balance_preference_retrieve
+      description: First-party account preference; no OAuth scope grants access.
+      parameters:
+      - in: query
+        name: expected_actor_id
+        schema:
+          type: integer
+        required: true
+      tags:
+      - events
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalancePreference'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalancePreferenceConflict'
+          description: ''
+    patch:
+      operationId: events_low_balance_preference_partial_update
+      description: First-party account preference; no OAuth scope grants access.
+      tags:
+      - events
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatchedLowBalancePreferenceWrite'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/PatchedLowBalancePreferenceWrite'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/PatchedLowBalancePreferenceWrite'
+        required: true
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalancePreference'
+          description: ''
+        '409':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalancePreferenceConflict'
+          description: ''
   /api/events/mention-preference/:
     get:
       operationId: events_mention_preference_retrieve
@@ -14488,6 +14549,34 @@ components:
       - One-Click
       type: string
       description: '* `One-Click` - One-Click'
+    LocaleEnum:
+      type: string
+      enum:
+      - en
+      - es
+      - fr
+      - pt-BR
+    LowBalancePreference:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        actor_id:
+          type: integer
+          readOnly: true
+      required:
+      - actor_id
+      - enabled
+    LowBalancePreferenceConflict:
+      type: object
+      properties:
+        code:
+          $ref: '#/components/schemas/ExpectedActorErrorCodeEnum'
+        detail:
+          type: string
+      required:
+      - code
+      - detail
     MCPAccount:
       type: object
       properties:
@@ -15887,6 +15976,19 @@ components:
           allOf:
           - $ref: '#/components/schemas/MimeTypeEnum'
           readOnly: true
+    PatchedLowBalancePreferenceWrite:
+      type: object
+      required:
+      - enabled
+      - expected_actor_id
+      properties:
+        enabled:
+          type: boolean
+        expected_actor_id:
+          type: integer
+          minimum: 1
+        locale:
+          $ref: '#/components/schemas/LocaleEnum'
     PatchedMentionPreference:
       type: object
       properties:
@@ -18848,6 +18950,7 @@ components:
       - username
     TypeEnum:
       enum:
+      - LOW_BALANCE_NOTICE
       - AISCORE_COMMENT
       - MADE_COMMENT
       - VOTE_COMMENT_RECEIVED
@@ -18869,6 +18972,7 @@ components:
       - ENCRYPTED_CHAT_REQUEST
       type: string
       description: |-
+        * `LOW_BALANCE_NOTICE` - LOW_BALANCE_NOTICE
         * `AISCORE_COMMENT` - AISCORE_COMMENT
         * `MADE_COMMENT` - MADE_COMMENT
         * `VOTE_COMMENT_RECEIVED` - VOTE_COMMENT_RECEIVED

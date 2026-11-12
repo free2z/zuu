@@ -30,3 +30,9 @@ def test_empty_worker_ticks_complete_without_moving_money():
     seed_rollup()
     assert tasks.expire_holds.func(timestamp=0) == {"status": "completed", "expired": 0, "deferred": 0, "calls_cleaned": 0, "calls_deferred": 0}
     assert tasks.ai_rollup.func(timestamp=0) == {"status": "completed", "rows": 0, "credited": 0, "deferred": 0}
+
+
+def test_notice_drain_failure_does_not_fail_hold_maintenance(mocker):
+    drain = mocker.patch('dj.apps.events.low_balance_notice.drain', side_effect=RuntimeError('failure'))
+    assert tasks.expire_holds.func(timestamp=0)['status'] == 'completed'
+    drain.assert_called_once_with()

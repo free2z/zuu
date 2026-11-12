@@ -1464,6 +1464,7 @@
         "reply": "Resposta",
         "subscriptionReceived": "Pagamento de assinatura recebido",
         "subscriptionSent": "Pagamento de assinatura enviado",
+        "lowBalance": "Aviso de saldo",
         "zecPending": "Pagamento detectado"
       },
       "fromUser": "De: {username}",
@@ -1824,6 +1825,7 @@
     }
   },
   "common": {
+    "retry": "Tentar novamente",
     "creator": {
       "ViewAll": "Mais criadores"
     },
@@ -2386,6 +2388,9 @@
       "pageVoteReceivedUntitled": "{username} votou na sua página com {amount} 2Z.",
       "pageVoteSent": "Você votou em “{title}” com {amount} 2Z.",
       "pageVoteSentUntitled": "Você votou em uma página com {amount} 2Z.",
+      "disableLowBalance": "Desativar avisos de saldo baixo",
+      "lowBalanceDisabled": "Os avisos de saldo baixo estão desativados.",
+      "lowBalance": "Um aplicativo conectado não pôde usar 2Z porque o saldo disponível era insuficiente.",
       "zecPending": "Seu pagamento em Zcash foi detectado. Estamos processando. Confira seu saldo de créditos em Créditos e ganhos."
     },
     "socket": {
@@ -2560,6 +2565,9 @@
       "publicVisibility": "Visibilidade pública",
       "receiveNotifications": "Receber notificações",
       "receiveMentionNotifications": "Receber notificações no app quando criadores mencionarem você",
+      "lowBalanceNotice": "Aviso de saldo baixo para aplicativos conectados",
+      "lowBalanceDescription": "Receba um aviso opcional quando um aplicativo conectado não puder usar 2Z. Tentamos enviar no máximo um a cada 24 horas. Um e-mail confirmado elegível recebe o aviso; caso contrário, ele aparece aqui. Nenhum e-mail é necessário.",
+      "lowBalanceError": "Não foi possível carregar ou atualizar a preferência.",
       "mentionNotificationsDescription": "Ative as notificações no app quando criadores mencionarem você. Isso não afeta notificações por e-mail ou push.",
       "removeEmail": "Remover e-mail",
       "resendConfirmation": "Reenviar confirmação",

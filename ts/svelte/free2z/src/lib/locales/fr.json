@@ -1464,6 +1464,7 @@
         "reply": "Réponse",
         "subscriptionReceived": "Paiement d’abonnement reçu",
         "subscriptionSent": "Paiement d’abonnement envoyé",
+        "lowBalance": "Avis de solde",
         "zecPending": "Paiement détecté"
       },
       "fromUser": "De : {username}",
@@ -1824,6 +1825,7 @@
     }
   },
   "common": {
+    "retry": "Réessayer",
     "creator": {
       "ViewAll": "Plus de Créateurs"
     },
@@ -2386,6 +2388,9 @@
       "pageVoteReceivedUntitled": "{username} a voté sur votre page avec {amount} 2Z.",
       "pageVoteSent": "Vous avez voté sur « {title} » avec {amount} 2Z.",
       "pageVoteSentUntitled": "Vous avez voté sur une page avec {amount} 2Z.",
+      "disableLowBalance": "Désactiver les avis de solde faible",
+      "lowBalanceDisabled": "Les avis de solde faible sont désactivés.",
+      "lowBalance": "Une application connectée n’a pas pu utiliser de 2Z car le solde disponible était insuffisant.",
       "zecPending": "Votre paiement Zcash a été détecté. Nous le traitons. Consultez votre solde de crédits dans Crédits et revenus."
     },
     "socket": {
@@ -2560,6 +2565,9 @@
       "publicVisibility": "Visibilité publique",
       "receiveNotifications": "Recevoir des notifications",
       "receiveMentionNotifications": "Recevoir une notification dans l’application quand des créateurs vous mentionnent",
+      "lowBalanceNotice": "Avis de solde faible pour les applications connectées",
+      "lowBalanceDescription": "Recevez éventuellement un avis lorsqu’une application connectée ne peut pas utiliser de 2Z. Nous essayons d’en envoyer au maximum un toutes les 24 heures. Un e-mail confirmé admissible est utilisé ; sinon, l’avis apparaît ici. Aucun e-mail n’est nécessaire.",
+      "lowBalanceError": "Impossible de charger ou de modifier cette préférence.",
       "mentionNotificationsDescription": "Activez les notifications dans l’application lorsque des créateurs vous mentionnent. Cela ne concerne pas les notifications par e-mail ou push.",
       "removeEmail": "Supprimer l’adresse e-mail",
       "resendConfirmation": "Renvoyer l’e-mail de confirmation",

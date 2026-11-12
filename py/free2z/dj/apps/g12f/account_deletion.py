@@ -913,6 +913,11 @@ def _scrub_profile(creator, *, keep_public_profile: bool = False) -> None:
         creator.banner_image = None
         creator.p2paddr = ""
     creator.mention_notifications_enabled = False
+    creator.low_balance_notice_enabled = False
+    creator.low_balance_notice_pending = False
+    creator.low_balance_notice_pending_epoch = None
+    creator.low_balance_notice_locale = 'en'
+    creator.low_balance_notice_generation += 1
     creator.is_active = False
     creator.is_staff = False
     creator.is_superuser = False
@@ -929,6 +934,7 @@ def _scrub_profile(creator, *, keep_public_profile: bool = False) -> None:
         "email", "first_name", "last_name", "full_name",
         "description", "avatar_url", "banner_url", "avatar_image",
         "banner_image", "p2paddr", "mention_notifications_enabled",
+        "low_balance_notice_enabled", "low_balance_notice_pending", "low_balance_notice_pending_epoch", "low_balance_notice_generation", "low_balance_notice_locale",
         "is_active", "is_staff", "is_superuser", "is_verified", "password",
         "password_set", "deleted_at", "updated_at",
     ])

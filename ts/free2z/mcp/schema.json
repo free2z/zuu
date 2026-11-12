@@ -6289,6 +6289,112 @@
         }
       }
     },
+    "/api/events/low-balance-preference/": {
+      "get": {
+        "operationId": "events_low_balance_preference_retrieve",
+        "description": "First-party account preference; no OAuth scope grants access.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "expected_actor_id",
+            "schema": {
+              "type": "integer"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "events"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LowBalancePreference"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LowBalancePreferenceConflict"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "patch": {
+        "operationId": "events_low_balance_preference_partial_update",
+        "description": "First-party account preference; no OAuth scope grants access.",
+        "tags": [
+          "events"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedLowBalancePreferenceWrite"
+              }
+            },
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedLowBalancePreferenceWrite"
+              }
+            },
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchedLowBalancePreferenceWrite"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LowBalancePreference"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LowBalancePreferenceConflict"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/events/mention-preference/": {
       "get": {
         "operationId": "events_mention_preference_retrieve",
@@ -20321,6 +20427,46 @@
         "type": "string",
         "description": "* `One-Click` - One-Click"
       },
+      "LocaleEnum": {
+        "type": "string",
+        "enum": [
+          "en",
+          "es",
+          "fr",
+          "pt-BR"
+        ]
+      },
+      "LowBalancePreference": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "actor_id": {
+            "type": "integer",
+            "readOnly": true
+          }
+        },
+        "required": [
+          "actor_id",
+          "enabled"
+        ]
+      },
+      "LowBalancePreferenceConflict": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ExpectedActorErrorCodeEnum"
+          },
+          "detail": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "detail"
+        ]
+      },
       "MCPAccount": {
         "type": "object",
         "properties": {
@@ -22087,6 +22233,25 @@
               }
             ],
             "readOnly": true
+          }
+        }
+      },
+      "PatchedLowBalancePreferenceWrite": {
+        "type": "object",
+        "required": [
+          "enabled",
+          "expected_actor_id"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "expected_actor_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "locale": {
+            "$ref": "#/components/schemas/LocaleEnum"
           }
         }
       },
@@ -25569,6 +25734,7 @@
       },
       "TypeEnum": {
         "enum": [
+          "LOW_BALANCE_NOTICE",
           "AISCORE_COMMENT",
           "MADE_COMMENT",
           "VOTE_COMMENT_RECEIVED",
@@ -25590,7 +25756,7 @@
           "ENCRYPTED_CHAT_REQUEST"
         ],
         "type": "string",
-        "description": "* `AISCORE_COMMENT` - AISCORE_COMMENT\n* `MADE_COMMENT` - MADE_COMMENT\n* `VOTE_COMMENT_RECEIVED` - VOTE_COMMENT_RECEIVED\n* `VOTE_COMMENT_SENT` - VOTE_COMMENT_SENT\n* `NEW_REPLY` - NEW_REPLY\n* `PAGE_UPDATE` - PAGE_UPDATE\n* `PAGE_VOTE` - PAGE_VOTE\n* `PAGE_MENTION` - PAGE_MENTION\n* `DONATION_RECEIVED` - DONATION_RECEIVED\n* `DONATION_SENT` - DONATION_SENT\n* `SUBSCRIPTION_RECEIVED` - SUBSCRIPTION_RECEIVED\n* `SUBSCRIPTION_SENT` - SUBSCRIPTION_SENT\n* `BOUGHT_TUZI` - BOUGHT_TUZI\n* `ZEC_PENDING` - ZEC_PENDING\n* `CHAT2Z` - CHAT2Z\n* `PLATFORM_FEE` - PLATFORM_FEE\n* `PAY_PER_VIEW_REVENUE` - PAY_PER_VIEW_REVENUE\n* `PAY_PER_VIEW_SPEND` - PAY_PER_VIEW_SPEND\n* `ENCRYPTED_CHAT_REQUEST` - ENCRYPTED_CHAT_REQUEST"
+        "description": "* `LOW_BALANCE_NOTICE` - LOW_BALANCE_NOTICE\n* `AISCORE_COMMENT` - AISCORE_COMMENT\n* `MADE_COMMENT` - MADE_COMMENT\n* `VOTE_COMMENT_RECEIVED` - VOTE_COMMENT_RECEIVED\n* `VOTE_COMMENT_SENT` - VOTE_COMMENT_SENT\n* `NEW_REPLY` - NEW_REPLY\n* `PAGE_UPDATE` - PAGE_UPDATE\n* `PAGE_VOTE` - PAGE_VOTE\n* `PAGE_MENTION` - PAGE_MENTION\n* `DONATION_RECEIVED` - DONATION_RECEIVED\n* `DONATION_SENT` - DONATION_SENT\n* `SUBSCRIPTION_RECEIVED` - SUBSCRIPTION_RECEIVED\n* `SUBSCRIPTION_SENT` - SUBSCRIPTION_SENT\n* `BOUGHT_TUZI` - BOUGHT_TUZI\n* `ZEC_PENDING` - ZEC_PENDING\n* `CHAT2Z` - CHAT2Z\n* `PLATFORM_FEE` - PLATFORM_FEE\n* `PAY_PER_VIEW_REVENUE` - PAY_PER_VIEW_REVENUE\n* `PAY_PER_VIEW_SPEND` - PAY_PER_VIEW_SPEND\n* `ENCRYPTED_CHAT_REQUEST` - ENCRYPTED_CHAT_REQUEST"
       },
       "UploadCreateUnsupported": {
         "type": "object",

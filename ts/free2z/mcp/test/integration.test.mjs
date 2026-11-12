@@ -10,6 +10,20 @@ import { loadConfig, redact } from "../dist/config.js";
 import { operations, describe, validate, document } from "../dist/catalog.js";
 import { execute } from "../dist/api.js";
 
+test("private notice consent is excluded from generic MCP actions", () => {
+  const path = document.paths["/api/events/low-balance-preference/"];
+  assert.ok(path);
+  assert.equal(path.patch.requestBody.required, true);
+  const ref = path.patch.requestBody.content["application/json"].schema.$ref;
+  const schema = document.components.schemas[ref.split("/").pop()];
+  assert.deepEqual(schema.required, ["enabled", "expected_actor_id"]);
+  assert.equal(operations.has("events_low_balance_preference_retrieve"), false);
+  assert.equal(
+    operations.has("events_low_balance_preference_partial_update"),
+    false,
+  );
+});
+
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), "free2z-mcp-test-"));
   const received = [];
@@ -438,7 +452,10 @@ test("every bundled operation schema can be described and its request validators
     .flatMap((path) => Object.values(path))
     .filter((op) => op.operationId)
     .map((op) => op.operationId);
-  for (const id of schemaIds) assert.ok(operations.has(id), id);
+  for (const id of schemaIds) {
+    if (id.startsWith("events_low_balance_preference_")) continue;
+    assert.ok(operations.has(id), id);
+  }
   for (const op of operations.values()) {
     assert.ok(describe(op).operation);
     for (const parameter of op.spec.parameters ?? []) {

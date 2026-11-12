@@ -1464,6 +1464,7 @@
         "reply": "Respuesta",
         "subscriptionReceived": "Pago de suscripción recibido",
         "subscriptionSent": "Pago de suscripción enviado",
+        "lowBalance": "Aviso de saldo",
         "zecPending": "Pago detectado"
       },
       "fromUser": "De: {username}",
@@ -1824,6 +1825,7 @@
     }
   },
   "common": {
+    "retry": "Reintentar",
     "creator": {
       "ViewAll": "Más Creadores"
     },
@@ -2386,6 +2388,9 @@
       "pageVoteReceivedUntitled": "{username} votó tu página con {amount} 2Z.",
       "pageVoteSent": "Votaste en “{title}” con {amount} 2Z.",
       "pageVoteSentUntitled": "Votaste una página con {amount} 2Z.",
+      "disableLowBalance": "Desactivar avisos de saldo bajo",
+      "lowBalanceDisabled": "Los avisos de saldo bajo están desactivados.",
+      "lowBalance": "Una aplicación conectada no pudo usar 2Z porque el saldo disponible era insuficiente.",
       "zecPending": "Detectamos tu pago en Zcash. Lo estamos procesando. Consulta tu saldo de créditos en Créditos y ganancias."
     },
     "socket": {
@@ -2560,6 +2565,9 @@
       "publicVisibility": "Visibilidad pública",
       "receiveNotifications": "Recibir notificaciones",
       "receiveMentionNotifications": "Recibir notificaciones dentro de la aplicación cuando los creadores te mencionen",
+      "lowBalanceNotice": "Aviso de saldo bajo para aplicaciones conectadas",
+      "lowBalanceDescription": "Recibe un aviso opcional cuando una aplicación conectada no pueda usar 2Z. Intentamos enviar uno como máximo cada 24 horas. Se usa el correo confirmado si cumple las condiciones; de lo contrario, el aviso aparece aquí. No se requiere correo.",
+      "lowBalanceError": "No se pudo cargar o actualizar la preferencia.",
       "mentionNotificationsDescription": "Activa las notificaciones dentro de la aplicación cuando los creadores te mencionen. Esto no afecta a las notificaciones por correo electrónico o push.",
       "removeEmail": "Eliminar correo electrónico",
       "resendConfirmation": "Reenviar confirmación",
