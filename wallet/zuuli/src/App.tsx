@@ -33,6 +33,8 @@ import {
   recoverCheckoutReturn,
 } from "@/lib/checkout/native-return";
 
+import { listenForWalletHistoryLinks } from "@/lib/wallet/history-link";
+
 import AuthFeature from "@/features/auth";
 
 // ZUULI is the wallet authority (#904): the only routes it mounts are the ones
@@ -175,9 +177,24 @@ function MobileCheckoutRecovery() {
   return null;
 }
 
+/** Read-only receipt navigation, with cold and warm App Link delivery. */
+function WalletHistoryLinks() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listenForWalletHistoryLinks((path) => { if (!disposed) navigate(path); })
+      .then((unlisten) => { if (disposed) unlisten(); else stop = unlisten; })
+      .catch(() => undefined);
+    return () => { disposed = true; stop?.(); };
+  }, [navigate]);
+  return null;
+}
+
 function AppRoutes() {
   return (
     <>
+      <WalletHistoryLinks />
       <MobileOAuthRecovery />
       <MobileCheckoutRecovery />
       <Routes>

@@ -120,7 +120,19 @@
       "unsent": {
         "body": "This creator's payment details cannot be carried across the bridge, so ZUULI was never asked and nothing was sent.",
         "title": "free2z could not send this request"
-      }
+      },
+      "openManually": "Open ZUULI on this device and check wallet history.",
+      "attribution": "{amount} for {creator} (@{username})",
+      "pending": "Waiting for ZUULI. Do not start another payment.",
+      "recovery": "A previous ZEC request may have reached ZUULI. Check wallet history and recover any pending transaction there before starting another payment.",
+      "history": "View in ZUULI wallet history",
+      "checked": "I checked ZUULI for this payment and any pending transaction. A new payment could pay twice.",
+      "newPayment": "Start a new payment",
+      "changed": "The creator payment details changed. Close this dialog and review the profile again.",
+      "destination": "Destination loaded for @{username}; ZUULI validates it before confirmation.",
+      "walletBalance": "Your ZEC balance, available funds and exact fee are checked in ZUULI. Your 2Z balance is separate.",
+      "loadingDestination": "Loading the author’s ZEC destination…",
+      "failedDestination": "The author’s ZEC destination could not be verified. Reload the article to try again."
     }
   },
   "error": {
