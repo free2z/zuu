@@ -1,4 +1,4 @@
-"""Self-service, private full-account exports (free2z/tuzi#2658)."""
+"""Self-service account export tests for free2z/zuu#1304."""
 from __future__ import annotations
 
 import io
