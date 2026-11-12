@@ -270,3 +270,61 @@ def test_account_deletion_serializes_before_consent_for_a_self_owned_app(
     assert not F2ZApplication.objects.filter(pk=app.pk).exists()
     user.refresh_from_db()
     assert not user.is_active
+
+
+def test_consent_admission_serializes_with_app_transfer(user, developer, web_app, creator_factory, monkeypatch):
+    recipient = creator_factory(username="grant_recipient")
+    flow = Flow(_client(user), user, web_app, redirect_uri=WEB_REDIRECT, scope="openid profile")
+    evaluated = flow.evaluate().json()
+    made = _client(developer).post(f"/api/oauth/apps/{web_app.pk}/transfer/", {
+        "recipient": recipient.username, "expected_actor_id": developer.pk,
+    }, format="json")
+    assert made.status_code == 201, made.content
+    transfer_id = made.json()["id"]
+    locked, release, finished = threading.Event(), threading.Event(), threading.Event()
+    original = consent._lock_application_for_consent
+    result = {}
+
+    def lock(application):
+        found = original(application)
+        locked.set()
+        assert release.wait(10)
+        return found
+
+    monkeypatch.setattr(consent, "_lock_application_for_consent", lock)
+
+    def admit():
+        try:
+            result["grant"] = _client(user).post(
+                "/api/oauth/authorize", _decision(flow, evaluated), format="json",
+            )
+        finally:
+            connection.close()
+
+    def accept():
+        try:
+            result["transfer"] = _client(recipient).post(
+                f"/api/oauth/app-transfers/{transfer_id}/accept/",
+                {"expected_actor_id": recipient.pk}, format="json",
+            )
+        finally:
+            finished.set()
+            connection.close()
+
+    first, second = threading.Thread(target=admit), threading.Thread(target=accept)
+    first.start()
+    try:
+        assert locked.wait(10)
+        second.start()
+        assert not finished.wait(0.25)
+    finally:
+        release.set()
+        first.join(15)
+        if second.ident:
+            second.join(15)
+    assert not first.is_alive() and not second.is_alive()
+    assert result["grant"].status_code == 200, result["grant"].content
+    assert result["transfer"].status_code == 200, result["transfer"].content
+    assert AppAuthorization.objects.filter(application=web_app, user=user).exists()
+    web_app.refresh_from_db()
+    assert web_app.user_id == recipient.pk
