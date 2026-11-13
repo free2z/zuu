@@ -71,6 +71,7 @@ pub struct WalletRestored {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WalletStatus {
+    pub custody_state: String,
     pub initialized: bool,
     pub has_seed: bool,
     pub synced_height: Option<u64>,
@@ -238,6 +239,7 @@ mod legacy_app_data_tests {
             "{:?}",
             RestoreWalletArgs {
                 seed_phrase: private_input.to_owned(),
+                recovery_plan: None,
                 birthday_height: Some(2_600_000),
                 name: Some("Recovered identity".to_owned()),
             }
@@ -369,6 +371,8 @@ pub struct CreateWalletArgs {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RestoreWalletArgs {
+    #[serde(default)]
+    pub recovery_plan: Option<crate::wallet::phone::RecoveryPlan>,
     pub seed_phrase: String,
     pub birthday_height: Option<u64>,
     pub name: Option<String>,
@@ -608,4 +612,22 @@ pub struct AddressValidation {
     pub can_receive_memo: bool,
     #[serde(default)]
     pub error: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PhoneRecoveryArgs {
+    #[serde(default)]
+    pub locale: PhoneLocale,
+    pub wallet_id: Option<String>,
+    pub plan: crate::wallet::phone::RecoveryPlan,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PhoneLocale {
+    #[default]
+    En,
+    Es,
+    Fr,
 }

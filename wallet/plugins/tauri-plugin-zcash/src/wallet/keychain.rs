@@ -45,7 +45,19 @@ pub enum SecureStoreError {
 
 impl From<SecureStoreError> for Error {
     fn from(value: SecureStoreError) -> Self {
-        Error::KeyError(value.to_string())
+        let code = match value {
+            SecureStoreError::NotFound => "missing",
+            SecureStoreError::AuthCancelled => "cancelled",
+            SecureStoreError::AuthenticationFailed => "authentication_failed",
+            SecureStoreError::Locked => "locked",
+            SecureStoreError::Corrupt => "corrupt",
+            SecureStoreError::Unavailable => "unavailable",
+            SecureStoreError::Backend(_) => "backend_failed",
+            SecureStoreError::Migration(_) => {
+                "identity validation rejected recovery; original data preserved"
+            }
+        };
+        Error::KeyError(format!("secure custody: {code}"))
     }
 }
 
@@ -55,6 +67,14 @@ impl From<SecureStoreError> for Error {
 /// permission to inspect legacy storage; locked, cancelled, corrupt, and
 /// unavailable stores fail closed.
 pub trait SecureStore: Send + Sync {
+    fn inventory(&self) -> &'static str {
+        "unchecked"
+    }
+    /// Side-effect-free metadata probe: never prompts, generates keys or reads a seed.
+    fn inspect(&self, _wallet_id: &str) -> &'static str {
+        "unchecked"
+    }
+
     fn store(&self, wallet_id: &str, phrase: &str) -> std::result::Result<(), SecureStoreError>;
     fn get(&self, wallet_id: &str) -> std::result::Result<Zeroizing<String>, SecureStoreError>;
     fn delete(&self, wallet_id: &str) -> std::result::Result<(), SecureStoreError>;
@@ -93,6 +113,38 @@ impl SeedStore {
 
     pub fn new(data_dir: PathBuf, backend: Arc<dyn SecureStore>) -> Self {
         Self { data_dir, backend }
+    }
+
+    pub fn has_orphaned_custody(&self) -> bool {
+        // A missing manifest is not evidence of an empty installation when
+        // recovery files or native ciphertext remain. Never inspect contents.
+        self.data_dir.join(".seeds").exists()
+            || !matches!(self.backend.inventory(), "empty" | "unchecked")
+    }
+
+    pub fn inspect(&self, wallet_id: &str) -> &'static str {
+        if validate_wallet_id(wallet_id).is_err() {
+            return "corrupt";
+        }
+        self.backend.inspect(wallet_id)
+    }
+
+    /// Re-link device-only custody without replacing an existing native record.
+    /// iOS has no encrypted-file archive path: an incompatible/corrupt native
+    /// record must stay intact for recovery on a clean destination. Reads still
+    /// pass through the backend's native authentication policy.
+    pub fn relink_seed_preserving_existing(
+        &self,
+        wallet_id: &str,
+        canonical_phrase: &str,
+    ) -> Result<()> {
+        validate_wallet_id(wallet_id)?;
+        match self.backend.get(wallet_id) {
+            Ok(existing) if existing.as_str() == canonical_phrase => Ok(()),
+            Ok(_) => Err(SecureStoreError::Corrupt.into()),
+            Err(SecureStoreError::NotFound) => self.store_seed_phrase(wallet_id, canonical_phrase),
+            Err(error) => Err(error.into()),
+        }
     }
 
     /// Persist a seed only in native secure storage, then read it back before

@@ -43,7 +43,23 @@ private final class SensitiveDisplayInvocation: @unchecked Sendable {
     }
 }
 
+private struct PhonePhraseArgs: Decodable { let phrase: String; let locale: String }
+private struct PhoneLocaleArgs: Decodable { let locale: String }
+private final class PhoneInvocation: @unchecked Sendable {
+    let plugin: ZcashPlugin
+    let invoke: Invoke
+    let phrase: String?
+    let locale: String
+    init(_ plugin: ZcashPlugin, _ invoke: Invoke, _ phrase: String?, _ locale: String) {
+        self.plugin = plugin; self.invoke = invoke; self.phrase = phrase; self.locale = locale
+    }
+}
+
 final class ZcashPlugin: Plugin {
+    private var phoneDialogView: UIAlertController?
+    private var phoneInvocation: PhoneInvocation?
+    private var phoneObservers: [NSObjectProtocol] = []
+    private var phoneProtectionToken: String?
     private var sensitiveDisplayToken: String?
     private var obscuringViews: [ObjectIdentifier: UIView] = [:]
     private var sensitiveLifecycleObserversInstalled = false
@@ -322,6 +338,130 @@ final class ZcashPlugin: Plugin {
             return
         }
         invoke.resolve(["phrase": phrase])
+    }
+
+    @objc func seedInventoryStatus(_ invoke: Invoke) throws {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "cash.free2z.zuuli.seed.v1",
+            kSecAttrSynchronizable as String: false,
+            kSecReturnAttributes as String: true,
+            kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail
+        ]
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // An unavailable/locked inventory is unknown, never a new empty wallet.
+        invoke.resolve(["state": status == errSecItemNotFound ? "empty" : "present"])
+    }
+
+    @objc func seedStatus(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(SeedKeyArgs.self)
+        var query = baseQuery(walletId: args.walletId)
+        query[kSecReturnAttributes as String] = true
+        query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        let state: String
+        switch status {
+        case errSecSuccess, errSecInteractionNotAllowed: state = "present"
+        case errSecItemNotFound: state = "missing"
+        case errSecNotAvailable: state = "locked"
+        default: state = "unavailable"
+        }
+        invoke.resolve(["state": state])
+    }
+
+    @objc func phoneRecoveryInput(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(PhoneLocaleArgs.self)
+        let request = PhoneInvocation(self, invoke, nil, args.locale)
+        DispatchQueue.main.async { request.plugin.phoneDialog(request) }
+    }
+
+    @objc func phoneRecoveryDisplay(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(PhonePhraseArgs.self)
+        let request = PhoneInvocation(self, invoke, args.phrase, args.locale)
+        DispatchQueue.main.async { request.plugin.phoneDialog(request) }
+    }
+
+    @MainActor private func phoneDialog(_ request: PhoneInvocation) {
+        guard phoneInvocation == nil, sensitiveDisplayToken == nil,
+              UIApplication.shared.applicationState == .active,
+              let window = sensitiveAppWindows().first(where: { $0.isKeyWindow }),
+              !window.screen.isCaptured,
+              let root = window.rootViewController, root.presentedViewController == nil else {
+            request.invoke.reject("open ZUULI privately in the foreground", code: "locked"); return
+        }
+        // Reuse the existing per-window cover/lease authority. A native phrase
+        // must not depend on a text-clear painting before an OS snapshot.
+        let protectionToken = UUID().uuidString
+        phoneProtectionToken = protectionToken
+        sensitiveDisplayToken = protectionToken
+        installSensitiveLifecycleObservers()
+        guard prepareSensitiveCovers(obscureAll: false) else {
+            phoneProtectionToken = nil
+            sensitiveDisplayToken = nil
+            removeSensitiveLifecycleObservers()
+            removeSensitiveCovers()
+            request.invoke.reject("native recovery display protection unavailable", code: "unavailable"); return
+        }
+        let display = request.phrase != nil
+        let copy: [String]
+        switch request.locale {
+        case "es": copy = ["Recuperar cartera ZUULI", "Copia de recuperación sin conexión", "Introduce tu frase sin conexión. Solo autoriza la recuperación nativa. No se admiten contraseñas BIP39. Cancela si no lo has solicitado.", "Escribe las palabras en papel, en privado. Nunca las fotografíes ni subas. Verifica la recuperación antes de retirar este teléfono.", "Continuar", "Cancelar"]
+        case "fr": copy = ["Récupérer le portefeuille ZUULI", "Sauvegarde de récupération hors ligne", "Saisissez votre phrase hors ligne. Cela autorise uniquement la récupération native. Les mots de passe BIP39 ne sont pas pris en charge. Annulez si vous ne l’avez pas demandé.", "Écrivez les mots sur papier en privé. Ne les photographiez et ne les envoyez jamais. Vérifiez la récupération avant de retirer ce téléphone.", "Continuer", "Annuler"]
+        default: copy = ["Recover ZUULI wallet", "Offline ZUULI recovery backup", "Enter your offline recovery phrase. This authorizes native wallet recovery only. No BIP39 passphrase is supported. Cancel if you did not request this.", "Write the words privately on paper. Never photograph or upload them. Verify recovery before retiring this phone.", "Continue", "Cancel"]
+        }
+        let dialog = UIAlertController(title: copy[display ? 1 : 0],
+            message: copy[display ? 3 : 2] + (display ? "\n\n" + (request.phrase ?? "") : ""), preferredStyle: .alert)
+        if !display {
+            dialog.addTextField { field in
+                field.isSecureTextEntry = true
+                field.autocorrectionType = .no
+                field.autocapitalizationType = .none
+                field.spellCheckingType = .no
+                field.textContentType = .oneTimeCode
+            }
+        }
+        phoneInvocation = request
+        phoneDialogView = dialog
+        // Token-owned observers must not remove the existing sensitive-display
+        // observers on this plugin when a phone ceremony finishes.
+        phoneObservers = [UIApplication.willResignActiveNotification, UIApplication.didEnterBackgroundNotification, UIScreen.capturedDidChangeNotification].map { name in
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { _ in
+                MainActor.assumeIsolated { request.plugin.finishPhoneRecovery(accepted: false, obscureUntilForeground: true) }
+            }
+        }
+        dialog.addAction(UIAlertAction(title: copy[4], style: .default) { [weak self] _ in self?.finishPhoneRecovery(accepted: true) })
+        dialog.addAction(UIAlertAction(title: copy[5], style: .cancel) { [weak self] _ in self?.finishPhoneRecovery(accepted: false) })
+        root.present(dialog, animated: true)
+    }
+
+    @MainActor private func finishPhoneRecovery(accepted: Bool, obscureUntilForeground: Bool = false) {
+        guard let request = phoneInvocation else { return }
+        let phrase = phoneDialogView?.textFields?.first?.text ?? ""
+        phoneDialogView?.textFields?.first?.text = nil
+        phoneDialogView?.message = nil
+        phoneDialogView?.dismiss(animated: false)
+        phoneDialogView = nil
+        phoneInvocation = nil
+        phoneObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        phoneObservers.removeAll()
+        if let token = phoneProtectionToken, sensitiveDisplayToken == token {
+            sensitiveDisplayToken = nil
+            if UIApplication.shared.applicationState == .active && !obscureUntilForeground {
+                removeSensitiveLifecycleObservers()
+                removeSensitiveCovers()
+            } else {
+                // willResignActive can arrive while applicationState still says
+                // active. Keep the covers until the audited foreground observer
+                // sees the cleared/dismissed native view on return.
+                showSensitiveCovers()
+            }
+        }
+        phoneProtectionToken = nil
+        if !accepted { request.invoke.reject("native recovery cancelled; original data preserved", code: "auth_cancelled") }
+        else if request.phrase != nil { request.invoke.resolve() }
+        else { request.invoke.resolve(["phrase": phrase]) }
     }
 
     @objc func deleteSeed(_ invoke: Invoke) throws {

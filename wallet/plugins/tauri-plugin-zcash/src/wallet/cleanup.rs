@@ -1240,6 +1240,214 @@ mod tests {
         assert_eq!(report.pending_operations, 0);
     }
 
+    struct PublishedNativeCustody {
+        wallet_id: String,
+        phrase: zeroize::Zeroizing<String>,
+        reads: std::sync::atomic::AtomicUsize,
+    }
+
+    impl super::super::keychain::SecureStore for PublishedNativeCustody {
+        fn inventory(&self) -> &'static str {
+            "present"
+        }
+
+        fn store(&self, _: &str, _: &str) -> Result<(), super::super::keychain::SecureStoreError> {
+            panic!("startup must not replace published native custody")
+        }
+
+        fn get(
+            &self,
+            wallet_id: &str,
+        ) -> Result<zeroize::Zeroizing<String>, super::super::keychain::SecureStoreError> {
+            assert_eq!(wallet_id, self.wallet_id);
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(self.phrase.clone())
+        }
+
+        fn delete(&self, _: &str) -> Result<(), super::super::keychain::SecureStoreError> {
+            panic!("startup must not delete published native custody")
+        }
+    }
+
+    fn published_constructor_fixture(
+        data_dir: &Path,
+    ) -> (
+        WalletEntry,
+        super::super::phone::RecoveryPlan,
+        std::sync::Arc<PublishedNativeCustody>,
+    ) {
+        use super::super::{keys, phone, storage};
+        use zcash_client_backend::data_api::{AccountBirthday, chain::ChainState};
+        use zcash_primitives::block::BlockHash;
+        use zcash_protocol::consensus::{BlockHeight, Network};
+
+        let mut entry = wallet();
+        entry.birthday_height = Some(419200);
+        entry.backup_required = true;
+        let authorization = schedule_staged_wallet_rollback(data_dir, &entry).unwrap();
+        let mnemonic = keys::generate_mnemonic();
+        let seed = keys::mnemonic_to_seed(&mnemonic);
+        let mut db =
+            storage::init_wallet_db(&data_dir.join(&entry.db_filename), Network::MainNetwork)
+                .unwrap();
+        let birthday = |height: u32| {
+            AccountBirthday::from_parts(
+                ChainState::empty(BlockHeight::from_u32(height - 1), BlockHash([0; 32])),
+                Some(BlockHeight::from_u32(height + 100)),
+            )
+        };
+        phone::import_accounts(
+            &mut db,
+            &seed,
+            &[(0, birthday(419200)), (7, birthday(419220))],
+        )
+        .unwrap();
+        let plan = phone::read_plan(
+            &db,
+            &data_dir.join(&entry.db_filename),
+            Network::MainNetwork,
+        )
+        .unwrap();
+        drop(db);
+        let native = std::sync::Arc::new(PublishedNativeCustody {
+            wallet_id: entry.id.clone(),
+            phrase: zeroize::Zeroizing::new(mnemonic.phrase().to_owned()),
+            reads: std::sync::atomic::AtomicUsize::new(0),
+        });
+        protect_staged_wallet_custody(data_dir, &authorization).unwrap();
+        assert!(
+            empty_manifest()
+                .commit_wallet(data_dir, entry.clone())
+                .unwrap()
+        );
+        (entry, plan, native)
+    }
+
+    #[tokio::test]
+    async fn constructor_recovers_protected_publication_before_orphan_classification() {
+        use super::super::{WalletState, keychain::SecureStore, phone};
+        use zcash_client_backend::data_api::WalletRead;
+        use zcash_protocol::consensus::Network;
+
+        for lost_manifest in [true, false] {
+            let dir = TestDir::new("constructor-published-recovery");
+            let (entry, expected, native) = published_constructor_fixture(&dir.0);
+            assert_eq!(native.inventory(), "present");
+            if lost_manifest {
+                std::fs::remove_file(dir.0.join("wallets.json")).unwrap();
+            } else {
+                std::fs::write(
+                    dir.0.join("wallets.json"),
+                    serde_json::to_vec(&empty_manifest()).unwrap(),
+                )
+                .unwrap();
+            }
+            for _ in 0..2 {
+                let state = WalletState::new(
+                    dir.0.clone(),
+                    Network::MainNetwork,
+                    SeedStore::new(dir.0.clone(), native.clone()),
+                )
+                .unwrap();
+                assert!(!state.startup_blocked);
+                assert!(state.is_initialized().await);
+                assert!(state.seed.lock().await.is_none());
+                assert_eq!(native.reads.load(std::sync::atomic::Ordering::SeqCst), 0);
+                let manifest = state.manifest.lock().await;
+                assert_eq!(manifest.wallets.len(), 1);
+                assert_eq!(
+                    manifest.active_wallet_id.as_deref(),
+                    Some(entry.id.as_str())
+                );
+                assert_eq!(
+                    serde_json::to_value(&manifest.wallets[0]).unwrap(),
+                    serde_json::to_value(&entry).unwrap()
+                );
+                let db = state.read_db.lock().await;
+                let db = db.as_ref().unwrap();
+                assert_eq!(db.get_account_ids().unwrap().len(), 2);
+                assert!(
+                    expected.matches(
+                        &phone::read_plan(
+                            db,
+                            &dir.0.join(&entry.db_filename),
+                            Network::MainNetwork
+                        )
+                        .unwrap()
+                    )
+                );
+                let persisted = WalletManifest::load(&dir.0).unwrap();
+                assert_eq!(persisted.wallets.len(), 1);
+                assert_eq!(persisted.active_wallet_id, manifest.active_wallet_id);
+                assert!(load(&dir.0).unwrap().operations.is_empty());
+            }
+            // No startup authentication, seed replacement or deletion occurred.
+            // The exact original native record remains usable after both opens.
+            let phrase = native.get(&entry.id).unwrap();
+            assert!(phrase.as_str() == native.phrase.as_str());
+            assert_eq!(
+                std::fs::read_dir(&dir.0)
+                    .unwrap()
+                    .filter(|path| path
+                        .as_ref()
+                        .unwrap()
+                        .path()
+                        .extension()
+                        .is_some_and(|e| e == "sqlite"))
+                    .count(),
+                1
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn constructor_preserves_corrupt_or_unbound_publication_without_adoption() {
+        use super::super::WalletState;
+        use zcash_protocol::consensus::Network;
+
+        for case in ["corrupt manifest", "corrupt journal", "unbound journal"] {
+            let dir = TestDir::new("constructor-unbound-publication");
+            let (entry, _, native) = published_constructor_fixture(&dir.0);
+            match case {
+                "corrupt manifest" => {
+                    std::fs::write(dir.0.join("wallets.json"), b"corrupt manifest").unwrap();
+                }
+                "corrupt journal" => {
+                    std::fs::remove_file(dir.0.join("wallets.json")).unwrap();
+                    std::fs::write(journal_path(&dir.0), b"corrupt journal").unwrap();
+                }
+                _ => {
+                    std::fs::remove_file(dir.0.join("wallets.json")).unwrap();
+                    let mut journal = load(&dir.0).unwrap();
+                    journal.operations[0].wallet_name = None;
+                    save_durable(&dir.0, &journal).unwrap();
+                }
+            }
+            let original_manifest = std::fs::read(dir.0.join("wallets.json")).ok();
+            let original_journal = std::fs::read(journal_path(&dir.0)).unwrap();
+            let original_db = std::fs::read(dir.0.join(&entry.db_filename)).unwrap();
+            let state = WalletState::new(
+                dir.0.clone(),
+                Network::MainNetwork,
+                SeedStore::new(dir.0.clone(), native.clone()),
+            )
+            .unwrap();
+            assert!(state.startup_blocked);
+            assert!(!state.is_initialized().await);
+            assert!(state.manifest.lock().await.wallets.is_empty());
+            assert_eq!(native.reads.load(std::sync::atomic::Ordering::SeqCst), 0);
+            assert_eq!(
+                std::fs::read(dir.0.join("wallets.json")).ok(),
+                original_manifest
+            );
+            assert_eq!(
+                std::fs::read(journal_path(&dir.0)).unwrap(),
+                original_journal
+            );
+            assert!(std::fs::read(dir.0.join(&entry.db_filename)).unwrap() == original_db);
+        }
+    }
+
     #[test]
     fn unpublished_wallet_rearms_every_custody_stage_after_manifest_failure() {
         let dir = TestDir::new("unpublished-rearm");

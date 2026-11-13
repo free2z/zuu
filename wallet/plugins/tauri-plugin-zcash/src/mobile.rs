@@ -73,6 +73,42 @@ pub struct Zcash<R: Runtime> {
 }
 
 impl<R: Runtime> Zcash<R> {
+    pub async fn read_phone_recovery_phrase(
+        &self,
+        locale: crate::models::PhoneLocale,
+    ) -> crate::Result<Zeroizing<String>> {
+        let handle = self.mobile_plugin.clone();
+        tokio::task::spawn_blocking(move || {
+            handle.run_mobile_plugin::<SeedValue>(
+                "phoneRecoveryInput",
+                serde_json::json!({ "locale": locale }),
+            )
+        })
+        .await
+        .map_err(|_| {
+            crate::error::Error::Other("native recovery interrupted; preserve original data".into())
+        })?
+        .map(|value| Zeroizing::new(value.phrase))
+        .map_err(|error| crate::error::Error::from(map_mobile_error(error)))
+    }
+
+    pub async fn show_phone_backup(
+        &self,
+        phrase: Zeroizing<String>,
+        locale: crate::models::PhoneLocale,
+    ) -> crate::Result<()> {
+        let handle = self.mobile_plugin.clone();
+        tokio::task::spawn_blocking(move || {
+            handle.run_mobile_plugin::<()>(
+                "phoneRecoveryDisplay",
+                serde_json::json!({ "phrase": phrase.as_str(), "locale": locale }),
+            )
+        })
+        .await
+        .map_err(|_| crate::error::Error::Other("native recovery interrupted".into()))?
+        .map_err(|error| crate::error::Error::from(map_mobile_error(error)))
+    }
+
     pub fn set_sensitive_display(&self, active: bool, token: &str) -> crate::Result<()> {
         self.mobile_plugin
             .run_mobile_plugin::<()>(
@@ -97,6 +133,43 @@ struct SensitiveDisplayArgs<'a> {
 struct MobileSecretStore<R: Runtime>(PluginHandle<R>);
 
 impl<R: Runtime> SecureStore for MobileSecretStore<R> {
+    fn inventory(&self) -> &'static str {
+        #[derive(Deserialize)]
+        struct Status {
+            state: String,
+        }
+        match self
+            .0
+            .run_mobile_plugin::<Status>("seedInventoryStatus", ())
+        {
+            Ok(value) if value.state == "empty" => "empty",
+            Ok(_) => "present",
+            Err(_) => "unavailable",
+        }
+    }
+
+    fn inspect(&self, wallet_id: &str) -> &'static str {
+        #[derive(Deserialize)]
+        struct Status {
+            state: String,
+        }
+        match self
+            .0
+            .run_mobile_plugin::<Status>("seedStatus", SeedKeyArgs { wallet_id })
+            .map(|s| s.state)
+        {
+            Ok(state) => match state.as_str() {
+                "present" => "present",
+                "missing" => "missing",
+                "missingKey" => "missingKey",
+                "corrupt" => "corrupt",
+                "locked" => "locked",
+                _ => "unavailable",
+            },
+            Err(_) => "unavailable",
+        }
+    }
+
     fn store(&self, wallet_id: &str, phrase: &str) -> Result<(), SecureStoreError> {
         self.0
             .run_mobile_plugin("storeSeed", StoreSeedArgs { wallet_id, phrase })
@@ -144,6 +217,7 @@ struct SeedValue {
 fn map_mobile_error(error: PluginInvokeError) -> SecureStoreError {
     match error {
         PluginInvokeError::InvokeRejected(response) => match response.code.as_deref() {
+            Some("missing_key") => SecureStoreError::Corrupt,
             Some("not_found") => SecureStoreError::NotFound,
             Some("auth_cancelled") => SecureStoreError::AuthCancelled,
             Some("auth_failed") => SecureStoreError::AuthenticationFailed,
