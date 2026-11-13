@@ -458,6 +458,7 @@ export default function AiFeature() {
             </div>
             <div className="min-w-0">
               <h1 className="text-sm font-semibold leading-tight">AI Studio</h1>
+              {import.meta.env.VITE_LOCAL_DRAFT_EVALUATION === "1" ? <a className="text-xs underline" href="/local-draft.html">Evaluate on-device drafts</a> : null}
               <p className="hidden text-xs leading-tight text-muted-foreground sm:block">
                 Anonymous, multi-provider — metered in 2Zs
               </p>

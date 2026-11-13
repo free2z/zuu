@@ -1,7 +1,32 @@
+import { readFileSync } from "node:fs";
 import { defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+const localDraftEvaluation = process.env.VITE_LOCAL_DRAFT_EVALUATION === "1";
+const workerCsp = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://huggingface.co https://raw.githubusercontent.com https://cas-bridge.xethub.hf.co https://us.aws.cdn.hf.co";
+const localDraftAssets: Plugin = {
+  name: "free2z-local-draft-evaluation",
+  configureServer(server: import("vite").ViteDevServer) {
+    server.middlewares.use((request, response, next) => {
+      if (request.url?.includes("inference.worker")) response.setHeader("Content-Security-Policy", workerCsp);
+      next();
+    });
+  },
+  configurePreviewServer(server: import("vite").PreviewServer) {
+    server.middlewares.use((request, response, next) => {
+      if (request.url?.includes("inference.worker")) response.setHeader("Content-Security-Policy", workerCsp);
+      next();
+    });
+  },
+  generateBundle() {
+    if (localDraftEvaluation) {
+      this.emitFile({ type: "asset", fileName: "webllm.LICENSE.txt", source: readFileSync(path.resolve(__dirname, "node_modules/@mlc-ai/web-llm/LICENSE")) });
+    }
+  },
+};
 
 const host = process.env.TAURI_DEV_HOST;
 // Where the dev/`tauri dev` proxy forwards /api and /uploadz. Defaults to
@@ -29,7 +54,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // for real. `.github/workflows/zuuli.yml` installs this project's dependencies
 // in the protected `frontend` job for exactly that reason.
 export default defineConfig({
-  plugins: [react()],
+  build: { rollupOptions: { input: { main: path.resolve(__dirname, "index.html"),
+    ...(localDraftEvaluation ? { localDraft: path.resolve(__dirname, "local-draft.html") } : {}),
+  } } },
+  plugins: [react(), localDraftAssets],
   test: {
     // Workers must not inherit a contributor's locale or timezone. LC_ALL is
     // pinned with LANG because it takes precedence on POSIX systems.
@@ -47,6 +75,7 @@ export default defineConfig({
     // otherwise Vite discovers them on the first diagram and reloads the app
     // while the disposable worker is still rendering.
     include: ["linkedom/worker", "mermaid"],
+    exclude: ["@mlc-ai/web-llm"],
     esbuildOptions: {
       define: {
         PACKAGE_VERSION: JSON.stringify("3.2.1"),
