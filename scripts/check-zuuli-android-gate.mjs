@@ -27,8 +27,10 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // No Android target, toolchain, build command, cache boundary, or gate needs
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
+// Re-derived for #784's shared Free2Z producer input: surfaces only. The
+// actions policy binds its mixed outputs and per-file behavior with real Git.
 const changeDetectorDigest =
-  "426c1966a4b7378315b6d364dd9f8f438c977a85d3500d9c2de2f9b799c9b4f3";
+  "d106a72dce8c7ccf3e42bd2dc53827178aac207ca864b153d76feb02fd0bc9a0";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
