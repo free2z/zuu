@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 
 import { converseStreamPageOne } from "./converse-stream-fixture.mjs";
 import { TRANSLATABLE_LANGUAGES } from "../../src/lib/zpage-language.js";
+import { NULL_URL_STATES, nullUrlFixtures } from "./null-url-fixture.mjs";
 
 // No default port. playwright.config.ts resolves the suite's ports (a pair
 // derived from the worktree path unless PLAYWRIGHT_MOCK_API_PORT says
@@ -1151,12 +1152,25 @@ async function readJson(request) {
 
 const converseDeadlineState = { started: false, closed: false };
 const ssrEnrichmentStallState = new Map();
+let nullUrlFixture;
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host}`);
 
   response.setHeader("content-type", "application/json");
   response.setHeader("cache-control", "no-store");
+
+  if (url.pathname === "/__null-url-fixture" && request.method === "POST") {
+    const { state } = await readJson(request);
+    if (state !== "off" && !NULL_URL_STATES.includes(state)) {
+      response.statusCode = 400;
+    } else {
+      nullUrlFixture =
+        state === "off" ? undefined : nullUrlFixtures(state, trustedAppOrigin);
+    }
+    response.end(JSON.stringify({ ok: response.statusCode === 200 }));
+    return;
+  }
 
   if (url.pathname === "/api/economy/capabilities/") {
     response.end(
@@ -1301,6 +1315,15 @@ const server = createServer(async (request, response) => {
 
   if (url.pathname === "/healthz") {
     response.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  const nullUrlPayload = nullUrlFixture?.(url);
+  if (nullUrlPayload !== undefined) {
+    // Force the conversation's client-only reply render to occur after load.
+    if (url.pathname === "/api/comments/null-url-conversation/replies/")
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    response.end(JSON.stringify(nullUrlPayload));
     return;
   }
 
