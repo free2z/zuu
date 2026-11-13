@@ -44,5 +44,38 @@
       "label": "Ancien portefeuille conservé",
       "title": "Ancien portefeuille conservé"
     }
+  },
+  "phone": {
+    "title": "Changer de téléphone",
+    "limitation": "Avant de commencer : le transfert authentifié entre téléphones et les fichiers de sauvegarde chiffrée portables ne sont pas pris en charge. Quick Start, Smart Switch et la sauvegarde des apps ne récupèrent pas les clés du portefeuille. Ce parcours utilise votre phrase de récupération hors ligne dans l’application native iPhone ou Android, y compris entre plateformes. Les mots de passe BIP39 et les comptes de consultation ne sont pas pris en charge. Le portefeuille natif actuel exige le compte ZIP32 zéro comme compte principal ; les comptes HD supplémentaires à indices non consécutifs sont aussi récupérés. Les portefeuilles sans compte zéro ne doivent pas utiliser ce parcours.",
+    "preserve": "Conservez le téléphone d’origine, les fichiers de récupération et les paiements en attente. Ne réinitialisez, ne désinstallez et n’effacez aucune installation pendant la récupération.",
+    "old": "1. Sur l’ancien téléphone",
+    "oldSteps": "Pour chaque portefeuille, relevez les métadonnées ci-dessous et vérifiez que sa phrase hors ligne est disponible. Authentifiez-vous pour voir les mots en privé dans l’application native. Gardez les métadonnées avec la sauvegarde hors ligne : elles contiennent des adresses et identifiants d’historique, ne les publiez pas.",
+    "inventory": "Lire les métadonnées du portefeuille",
+    "backup": "S’authentifier pour la sauvegarde native hors ligne",
+    "new": "2. Sur le nouveau téléphone",
+    "newSteps": "Installez ZUULI, ouvrez cet écran et saisissez les métadonnées attendues de l’ancien téléphone ou du relevé hors ligne. Récupérez chaque phrase une fois. Si le portefeuille existe déjà, sélectionnez-le et récupérez ses clés sur place ; n’importez pas une seconde copie. La récupération native demande vos mots sans les envoyer à cette page.",
+    "unavailable": "Ancien téléphone indisponible ? Il faut la bonne phrase hors ligne et un inventaire des comptes, adresses et hauteurs de naissance. Sans phrase, ZUULI et Free2Z ne peuvent pas récupérer les fonds. Sans métadonnées, la découverte de tous les comptes n’est pas vérifiée : conservez les sauvegardes et demandez de l’aide avant de continuer. Hors ligne ou interrompu ? Gardez les données et réessayez une fois connecté.",
+    "metadata": "Métadonnées attendues (jamais les mots de récupération)",
+    "metadataNote": "Comparez le réseau, chaque indice de compte ZIP32, hauteur et adresse au relevé hors ligne de confiance. Ces instructions ne sont pas une sauvegarde authentifiée et ne prouvent pas seules la récupération.",
+    "consent": "J’ai vérifié les métadonnées attendues et souhaite ouvrir la récupération native. Je conserverai l’ancien téléphone et les sauvegardes.",
+    "recover": "Ouvrir la récupération native",
+    "checks": "3. Vérifier sur le nouveau téléphone",
+    "checkSteps": "Redémarrez ZUULI, comparez tous les comptes et adresses attendus, puis authentifiez-vous ci-dessous. Les vérifications natives exigent des clés utilisables pour chaque dérivation, des hauteurs concordantes, une pointe de chaîne récente, la synchronisation complète et l’historique attendu. En synchronisation ou hors ligne, un solde nul n’est pas vérifié. Résolvez les paiements en attente ou incertains dans le portefeuille d’origine sans refaire le paiement.",
+    "verify": "S’authentifier et vérifier le portefeuille natif",
+    "scope": "{count, plural, one {# portefeuille sur cette installation. Vérifiez chaque phrase séparément.} other {# portefeuilles sur cette installation. Vérifiez chaque phrase séparément.}}",
+    "checked": "Vérifications natives réussies pour ce portefeuille à cet instant. Les vérifications sur appareil et de paiement restent en attente.",
+    "incomplete": "Récupération non vérifiée. Continuez la synchronisation et comparez l’historique d’origine ; une app copiée ou un solde vide ne sont pas une preuve.",
+    "error": "Impossible de vérifier la récupération. Aucun succès enregistré. Gardez les deux installations et les sauvegardes. Déverrouillez l’appareil et réessayez ; vérifiez la phrase, le réseau et les métadonnées. Une clé d’appareil absente ou incompatible exige la récupération hors ligne. La saisie native est disponible sur iPhone et Android uniquement.",
+    "external": "N’effacez pas l’ancien téléphone sur la foi de cet écran. Le redémarrage réel, la migration du système, la sauvegarde de récupération et un paiement de test explicitement autorisé doivent encore être vérifiés séparément.",
+    "family": "4. Free2Z et e2e2z",
+    "familySteps": "La connexion Free2Z est distincte des clés du portefeuille : reconnectez-vous. e2e2z exige un nouvel enrôlement via ZUULI avec approbation native ; la sauvegarde système ne doit pas cloner l’autorisation. Les clés d’appareil, l’historique des messages, les files et les brouillons locaux ne se récupèrent pas avec la phrase. Gardez l’ancienne installation de messagerie et examinez séparément sa révocation ; aucune révocation ni suppression automatique ici.",
+    "separate": "Cette phrase appartient à un autre portefeuille. Ajouter une identité distincte et conserver les portefeuilles existants.",
+    "source": "Métadonnées de ce téléphone",
+    "wallet": "Identité du portefeuille",
+    "missing": "Des données du portefeuille sont présentes sans clés d’appareil utilisables. Utilisez ici la sauvegarde hors ligne ; gardez l’ancien téléphone et les fichiers d’origine. Le remplacement automatique est bloqué.",
+    "corrupt": "Le relevé chiffré n’a pas pu être authentifié. Vérifiez la phrase hors ligne et les métadonnées. Gardez les données d’origine ; si les erreurs de clé persistent, récupérez sur une destination vierge sans effacer cette installation.",
+    "locked": "L’authentification native a été annulée ou n’a pas abouti. Déverrouillez cet appareil, revenez à ZUULI et réessayez. Si le démarrage reste bloqué, redémarrez ZUULI après déverrouillage. Les données de récupération d’origine sont conservées.",
+    "files": "Les fichiers ou l’inventaire des clés n’ont pas pu être vérifiés. Déverrouillez et redémarrez ZUULI une fois. Si le blocage persiste, gardez cette installation et utilisez la sauvegarde hors ligne avec les métadonnées sur une destination vierge ; n’effacez jamais les données pour contourner cet écran."
   }
 }
