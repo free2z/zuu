@@ -23,15 +23,30 @@ expiry, replay, rotation ambiguity and real queue/HTTP privacy/abuse controls.
 
 - Server/protocol/lifecycle tests: 19 passed, including the real-HTTP lost-reply
   case and eight native engine cases compiling the exact production source.
+- Standalone native plugin: eight lifecycle tests passed against its own locked
+  dependency graph, including delayed bootstrap, restart, cancellation and
+  rotation ambiguity.
+- Server/protocol, standalone native-plugin and full shipping-wallet Clippy:
+  passed with all targets and `-D warnings` on Rust 1.97.1.
 - Actual Kotlin `NotificationRecord.kt`: seven shared persisted-record fixtures
   passed under Kotlin 1.9.25/JVM with checksum-pinned compiler artifacts. This
   executes the production transition code; it does not execute Android Keystore
   or claim Android SDK/device acceptance. The same fixtures run against the
   production Swift Foundation transition code in the Apple CI lane.
 - Focused frontend/locale/session/wallet-identity suite: 114 passed, one worker.
+- Full Vitest suite: 1,018 passed with five existing skips, one worker; no skip
+  or test expectation changed for this validation.
+- Native authority/session/copy source contracts: 53 passed. The mobile
+  authority fixture now includes the exact five named notification commands;
+  negative controls reject missing commands, blanket/helper authority and URL
+  scope data. The production allowlist and CSP restrictions were preserved.
+- Shipping-wallet incoming-payment observation test: passed against the full
+  native app graph; only new mined incoming history after the baseline can
+  request a generic local notice.
 - Full project-boundary audit: passed across five projects, 532 source files,
   2,411 module references and three constrained production Vite builds after
-  installing the sibling dependencies.
+  installing the sibling dependencies. All 92 project-boundary source/build
+  contract cases also passed.
 - Full shipping ZUULI Linux build: passed on Ubuntu 24.04.4 and Rust 1.97.1.
   The target began empty; a missing `Manager` import was fixed when the clean
   graph reached the wallet-deletion fence. Exact bounded build command:
@@ -47,19 +62,31 @@ cargo build --locked --manifest-path wallet/zuuli/src-tauri/Cargo.toml \
 This is an Ubuntu host build, not a container verdict. No compiler/toolchain pin,
 shipping dependency version, advisory suppression or CI waiver changed.
 
-The required native CI paths also compile the real notification Swift package
-against the iOS SDK and the real Kotlin/Tauri/Firebase adapter against Android
-SDK APIs, without signing, launch, provider enrollment or keys. Local SDKs are
+The required native CI paths are configured to compile the real notification
+Swift package against the iOS SDK and the real Kotlin/Tauri/Firebase adapter
+against Android SDK APIs, without signing, launch, provider enrollment or keys. Local SDKs are
 unavailable, so those results are not claimed in advance. Required Android Rust
 checking retains the pinned NDK 27.0.12077973/API-29 command binding.
 
 ## Broad validation
 
+All **102 Playwright browser tests passed** on the clean implementation commit
+`03e9b80604f5f309f9888b49f9919597e0f4e9db`, with one worker and matched Chromium.
+This includes the unchanged About/source-SHA assertion, fonts, mobile authority,
+navigation, touch targets, every viewport case and all three notification cases.
+The delayed native token case completes the consent UI without a second tap.
+Tracing was disabled to bound diagnostic disk use; no test, assertion or timeout
+was weakened or skipped.
+
 The first browser run was not green: 81 observed passes, 11 observed failures,
 then stopped. It included a dirty-checkout About/source-SHA assertion and Chromium
-resource errors/timeouts during concurrent builds. The source identity assertion
-was preserved. Broad browser checks are being repeated serially on the committed
-implementation, with their final verdict recorded separately below.
+resource errors/timeouts during concurrent builds. The complete isolated run
+above resolves those validation failures without source or guard exemptions.
+
+The initial combined source-contract run caught three authority fixture failures
+because its fixture omitted the five commands already required by the production
+allowlist. The corrected 53-test authority/session/copy run passed, including the
+new notification negative controls; no authority or CSP restriction was weakened.
 
 An initial concurrent locale source-policy run hit six original 5-second test
 timeouts; its isolated rerun passed all 114 focused tests without changing any
@@ -67,13 +94,17 @@ assertion or timeout. Earlier disk-exhausted native attempts remain failed evide
 not passing checks. The full shipping build and full boundary gaps are now closed.
 
 Raw evidence is retained under `/tmp/zuu384-r2-*.log`, notably `shipping2.log`,
-`core2.log`, `kotlin.log`, `frontend-tests2.log` and `boundary.log`. No raw provider
+`wallet-test.log`, `core2.log`, `kotlin.log`, `frontend-tests2.log`,
+`browser-all.log`, `vitest-all.log`, `wallet-clippy.log`, `native-clippy.log`,
+`node-contracts-fixed.log` and `boundary.log`. No raw provider
 credentials, device tokens, signed-device artifact identifiers or account data
 are published here.
 
 ## External acceptance still open
 
 - Physical signed iOS/Android background delivery and OS/device/runtime evidence.
+- Mobile-target Rust and real Swift/Kotlin SDK compilation results from CI;
+  these tools/targets are unavailable locally.
 - Provider credentials, APNs entitlement/topic, Firebase resources and private
   no-log ingress acceptance; none was provisioned or uploaded here.
 - OS permission/token/cold-start/logout/reset behavior and real secure-store
@@ -82,5 +113,5 @@ are published here.
 - A separately reviewed payment wake trigger/detection design. The service has
   no viewing key or other authority to detect shielded payments.
 
-The PR must use Refs #384 and leave the issue open. Public enrollment and rollout
+#384 remains open pending external acceptance. Public enrollment and rollout
 remain disabled; no real funds or real device pushes are used in this validation.

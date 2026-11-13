@@ -234,8 +234,10 @@ approval after the physical acceptance below; no deployment manifest enables it.
   force-stop/force-quit, foreground/background/cold-start behavior on each OS.
 - Actual provider credential/entitlement/topic/project acceptance, expired/stale
   credential/token handling, private ingress limits and no-log deployment audit.
-- Native Swift/Kotlin compilation against actual SDKs and shipping-wallet clean
-  Linux build; a controlled Rust seam or browser fixture is not that evidence.
+- Mobile-target Rust checks and native Swift/Kotlin compilation against actual
+  SDKs; a controlled Rust seam or browser fixture is not that evidence. The full
+  shipping-wallet Linux build
+  passed on Ubuntu 24.04.4 with Rust 1.97.1; see [VALIDATION.md](./VALIDATION.md).
 - Verify native local activity notices from wallet sync on an owned fixture,
   without transferring real funds; confirm reset/logout race behavior on-device.
 - Privacy owner review: specifically accept residual token/IP/timing correlation.
@@ -246,4 +248,4 @@ provider environment, runtime/library versions, opt-in state, start/background/
 callback/open times, observed signature validation, negative controls and result.
 Do not publish tokens, accounts, credentials, raw device logs or precise user
 activity. An emulator, fixture or provider HTTP 2xx is not physical acceptance.
-Final PR wording must use **Refs #384**, never close the issue with these open.
+Refs #384. These open acceptance requirements leave the issue unresolved.
