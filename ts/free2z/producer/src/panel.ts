@@ -39,7 +39,8 @@ export function mountProducer(
     audio = false,
     video = true;
   let devices: MediaDeviceInfo[] = [],
-    timer: ReturnType<typeof setTimeout> | undefined;
+    timer: ReturnType<typeof setTimeout> | undefined,
+    presenceTimer: ReturnType<typeof setTimeout> | undefined;
   let storage: Storage | undefined;
   try {
     storage = sessionStorage;
@@ -194,6 +195,11 @@ export function mountProducer(
   function render() {
     if (stopped) return;
     const s = client.stream;
+    // A snapshot can arrive between heartbeat ticks. Expire its indication at
+    // its own deadline, even while the next HTTP request remains in flight.
+    clearTimeout(presenceTimer);
+    if (s?.state === "live" && client.fresh)
+      presenceTimer = setTimeout(render, Math.ceil(client.freshFor));
     const presence =
       navigator.onLine && client.fresh && s?.participants !== null;
     status.textContent =
@@ -542,6 +548,7 @@ export function mountProducer(
     if (
       stopped ||
       !client.stream ||
+      client.stream.owner !== client.owner ||
       !["ready", "live"].includes(client.stream.state)
     )
       return;
@@ -554,6 +561,7 @@ export function mountProducer(
   }
   const visibility = () => {
     if (document.visibilityState === "hidden") interrupt();
+    else render();
   };
   document.addEventListener("visibilitychange", visibility);
   window.addEventListener("online", render);
@@ -611,6 +619,7 @@ export function mountProducer(
     stopped = true;
     client.dispose();
     clearTimeout(timer);
+    clearTimeout(presenceTimer);
     document.removeEventListener("visibilitychange", visibility);
     window.removeEventListener("online", render);
     window.removeEventListener("pagehide", interrupt);

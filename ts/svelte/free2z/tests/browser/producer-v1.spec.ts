@@ -212,49 +212,70 @@ test("a read-only tab expires presence and observes the other host ending withou
 }) => {
   await page.clock.install();
   let mode: "live" | "unreachable" | "ended" = "live";
+  let releaseInitial: (() => Promise<void>) | undefined;
+  let releasePending: (() => Promise<void>) | undefined;
+  let initial = true;
+  let failures = 0;
   const writes: unknown[] = [];
+  const unavailable = { status: 503, json: { code: "provider_unavailable" } };
+  const history = () => [
+    {
+      id,
+      owner: id,
+      state: mode === "ended" ? "cleaned_up" : "live",
+      version: 8,
+      title: "Other host",
+      description: "Persisted metadata",
+      audience: "public",
+      access: "free",
+      room_id: id,
+      participants: mode === "ended" ? null : 3,
+      error_code: "",
+      ended_at: mode === "ended" ? new Date().toISOString() : null,
+    },
+  ];
   await page.route("**/api/dyte/producer/v1**", (route) => {
     if (route.request().method() === "POST")
       writes.push(route.request().postDataJSON());
     if (route.request().url().endsWith("history")) {
-      if (mode === "unreachable")
-        return route.fulfill({
-          status: 503,
-          json: { code: "provider_unavailable" },
-        });
-      return route.fulfill({
-        json: [
-          {
-            id,
-            owner: id,
-            state: mode === "ended" ? "cleaned_up" : "live",
-            version: 8,
-            title: "Other host",
-            description: "Persisted metadata",
-            audience: "public",
-            access: "free",
-            room_id: id,
-            participants: mode === "ended" ? null : 3,
-            error_code: "",
-            ended_at: mode === "ended" ? new Date().toISOString() : null,
-          },
-        ],
-      });
+      if (initial) {
+        initial = false;
+        releaseInitial = () => route.fulfill({ json: history() });
+        return;
+      }
+      if (mode === "unreachable") {
+        if (failures++ === 0) return route.fulfill(unavailable);
+        // Keep later network completion from accidentally rendering expiry.
+        releasePending = () => route.fulfill(unavailable);
+        return;
+      }
+      return route.fulfill({ json: history() });
     }
     return route.fulfill({ json: { ready: true, eligible: true } });
   });
   await page.goto(path, { waitUntil: "domcontentloaded" });
   await expect(page.locator(".f2z-producer")).toBeVisible({ timeout: 20000 });
+  await expect.poll(() => Boolean(releaseInitial)).toBe(true);
+  // Observation deliberately occurs between the panel's 15-second ticks.
+  await page.clock.runFor(5000);
+  await releaseInitial!();
   await expect(page.getByRole("status")).toContainText("Participants: 3");
   mode = "unreachable";
-  await page.clock.runFor(65000);
+  await page.clock.runFor(15001);
   await expect(page.getByRole("alert")).toContainText("could not be confirmed");
+  // A refused refresh must not invent absence while the snapshot is fresh.
+  await expect(page.getByRole("status")).toContainText("Participants: 3");
+  await page.clock.runFor(49999);
+  await expect.poll(() => Boolean(releasePending)).toBe(true);
   await expect(page.getByRole("status")).toContainText(
     "Participants: Unavailable",
   );
   await expect(page.getByRole("status")).not.toContainText(
     "Live (server confirmed)",
   );
+  await releasePending!();
+  await expect(page.getByRole("alert")).toContainText("could not be confirmed");
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   mode = "ended";
   await page.clock.runFor(15001);
   await expect(page.getByRole("status")).toContainText(

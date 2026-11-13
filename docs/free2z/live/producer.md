@@ -13,7 +13,9 @@ for `wallet/free2z`; seed-holder and protocol packages gain no host authority.
 The content app maps the shared label inventory to exact typed `MESSAGE_KEYS`
 consumers, preserving locale/source policy checks.
 The web image uses a repository-root context with a Dockerfile-specific
-allowlist admitting the web app and its declared producer package.
+allowlist admitting the web app and its declared producer package. Both install
+stages retain the nested application/package layout so the locked local link
+keeps its canonical identity; `/app/build` remains the asset export path.
 The existing viewer, PPV admission, private-invite and legacy host surfaces
 remain compatible. An outstanding v1 stream blocks legacy public host starts.
 The v1 API refuses paid/private/subscriber creation before provider I/O; it
@@ -108,8 +110,10 @@ Counts expire after 60 seconds without confirmation. Recording and settlement
 availability are not inferred from room existence or state.
 Read-only tabs refresh the owning host's state without sending ownership
 heartbeats. Displayed presence also expires locally after a minute without a
-successful snapshot, and is unavailable offline; a stale snapshot cannot keep
-an old count or live confirmation visible indefinitely.
+successful snapshot, and is unavailable offline. A separate timer renders each
+snapshot's own deadline even between heartbeat ticks or during a pending
+request. Read-only interruption sends no ownership mutation. A stale snapshot
+cannot keep an old count or live confirmation visible indefinitely.
 
 The client stores only actor-scoped ownership and an outstanding instruction
 in session storage **before** sending it. Lost replies/reloads retain the exact

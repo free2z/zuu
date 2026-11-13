@@ -146,7 +146,10 @@ export class ProducerClient {
     return this.pending !== null;
   }
   get fresh() {
-    return performance.now() - this.observedAt < 60_000;
+    return this.freshFor > 0;
+  }
+  get freshFor() {
+    return Math.max(0, this.observedAt + 60_000 - performance.now());
   }
   async load() {
     const rows = await this.transport("GET", "/api/dyte/producer/v1/history");
