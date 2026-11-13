@@ -157,3 +157,28 @@ test("narrow viewport and keyboard controls remain accessible (viewport emulatio
   await page.getByRole("link", { name: "Switch to server completion" }).focus();
   await expect(page.getByRole("link", { name: "Switch to server completion" })).toBeFocused();
 });
+
+test("AI Studio evaluation link performs document navigation and fallback returns to server chat", async ({ page }) => {
+  const navigations: string[] = [];
+  const externalOrProvider: string[] = [];
+  page.on("request", (request) => {
+    if (request.isNavigationRequest()) navigations.push(request.url());
+    const url = new URL(request.url());
+    if (request.method() !== "GET" || url.pathname.startsWith("/api/") ||
+      /huggingface|githubusercontent/.test(url.hostname)) externalOrProvider.push(request.url());
+  });
+  await page.goto("/ai");
+  const link = page.getByRole("link", { name: "Evaluate on-device drafts" });
+  await expect(link).toHaveAttribute("href", "/local-draft.html");
+  await link.click();
+  await expect(page).toHaveURL(/\/local-draft.html$/);
+  await expect(page.getByRole("heading", { name: "On-device draft evaluation", exact: true })).toBeVisible();
+  expect(navigations.some((url) => url.endsWith("/local-draft.html"))).toBe(true);
+  expect(page.workers()).toHaveLength(0);
+  await expect(page.getByRole("button", { name: "Opt in: download or load model" })).toBeDisabled();
+  await page.getByRole("link", { name: "Switch to server completion" }).click();
+  await expect(page).toHaveURL(/\/ai$/);
+  await expect(page.getByRole("heading", { name: "AI Studio" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message", exact: true })).toHaveValue("");
+  expect(externalOrProvider).toEqual([]);
+});

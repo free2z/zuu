@@ -4,6 +4,7 @@ import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { htmlBuildInputs } from "./html-build-inputs.ts";
 
 const localDraftEvaluation = process.env.VITE_LOCAL_DRAFT_EVALUATION === "1";
 const workerCsp = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://huggingface.co https://raw.githubusercontent.com https://cas-bridge.xethub.hf.co https://us.aws.cdn.hf.co";
@@ -54,9 +55,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // for real. `.github/workflows/zuuli.yml` installs this project's dependencies
 // in the protected `frontend` job for exactly that reason.
 export default defineConfig({
-  build: { rollupOptions: { input: { main: path.resolve(__dirname, "index.html"),
-    ...(localDraftEvaluation ? { localDraft: path.resolve(__dirname, "local-draft.html") } : {}),
-  } } },
+  build: {
+    rollupOptions: {
+      input: Object.fromEntries(Object.entries(htmlBuildInputs(localDraftEvaluation))
+        .map(([name, file]) => [name, path.resolve(__dirname, file)])),
+    },
+  },
   plugins: [react(), localDraftAssets],
   test: {
     // Workers must not inherit a contributor's locale or timezone. LC_ALL is
