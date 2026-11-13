@@ -39,7 +39,8 @@ export const ALLOWED_STRIPE_CHECKOUT_HOSTS = stripeCheckoutHosts(
 /**
  * Validate a backend-provided hosted Checkout URL before handing it to the OS.
  * Matching is an exact normalized hostname comparison; suffixes, credentials,
- * explicit ports, fragments and non-HTTPS schemes are rejected.
+ * explicit ports and non-HTTPS schemes are rejected. Stripe may supply an
+ * opaque fragment as part of its hosted Session URL; it cannot change origin.
  */
 export function validateStripeCheckoutUrl(
   value: unknown,
@@ -66,7 +67,6 @@ export function validateStripeCheckoutUrl(
   if (url.protocol !== "https:") throw new CheckoutLinkError("insecure");
   if (url.username || url.password) throw new CheckoutLinkError("credentials");
   if (url.port) throw new CheckoutLinkError("port");
-  if (url.hash) throw new CheckoutLinkError("malformed");
   if (authority.toLowerCase() !== url.hostname.toLowerCase()) {
     throw new CheckoutLinkError("malformed");
   }

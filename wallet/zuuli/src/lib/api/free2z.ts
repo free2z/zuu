@@ -1,3 +1,4 @@
+import { parseCardPurchase, type CardPurchase, type PendingCardPurchase } from "@/lib/checkout/card-purchase";
 // The free2z API surface ZUULI uses, mapping the REAL production endpoints
 // (tuzi/f2z.yaml / free2z.cash) into stable internal types the features
 // depend on. Field names here match production; the returned objects match
@@ -43,7 +44,6 @@ import type {
   SocialProvidersStatus,
   TuziTransaction,
 } from "./types";
-import { validateStripeCheckoutUrl } from "./checkout";
 import { parseSocialProvidersStatus } from "./social-providers";
 import {
   parseCheckoutPaymentStatus,
@@ -550,6 +550,8 @@ export const auth = {
 };
 
 // ─── Tuzi (2Z) economy ───────────────────────────────────────────────────────
+const mockCardOrders = new Map<string, CardPurchase>();
+
 export const tuzi = {
   async transactions(): Promise<TuziTransaction[]> {
     if (useMock()) {
@@ -577,23 +579,44 @@ export const tuzi = {
   async buyCheckout(
     tuzis: number,
     returnMode: CheckoutReturnMode = "web",
-  ): Promise<{ url: string }> {
+    pending?: PendingCardPurchase,
+  ): Promise<CardPurchase> {
+    if (!pending) throw new Error("Review a card purchase before checkout.");
     if (useMock()) {
       await delay(400);
-      return {
-        url: validateStripeCheckoutUrl(
-          `https://checkout.stripe.com/mock?q=${tuzis}`,
-        ),
-      };
+      const existing = mockCardOrders.get(pending.key);
+      if (existing) return existing;
+      const order = parseCardPurchase(
+        {
+          id: "cs_test_mockcheckout",
+          url: "https://checkout.stripe.com/c/pay/cs_test_mockcheckout",
+          expires_at: Math.floor(Date.now() / 1000) + 1800,
+          status_token: "mock-status-token-for-checkout",
+          quote: {
+            checkout_intent_id: pending.key,
+            tuzis,
+            amount_cents: tuzis + Math.max(50, Math.ceil(tuzis / 10)),
+            currency: "usd",
+            pricing_version: "card-v3",
+          },
+        },
+        tuzis,
+      );
+      mockCardOrders.set(pending.key, order);
+      return order;
     }
-    const r = await request<{ id?: unknown; url?: unknown }>(
-      "/api/stripe/create-checkout-session/",
-      {
-        method: "POST",
-        body: { quantity: tuzis, currentPath: "/wallet/fund", returnMode },
+    const r = await request<unknown>("/api/stripe/create-checkout-session/", {
+      method: "POST",
+      headers: { "Idempotency-Key": pending.key },
+      body: {
+        quantity: tuzis,
+        currentPath: "/wallet/fund",
+        returnMode,
+        expected_actor_id: pending.actorId,
       },
-    );
-    return { url: validateStripeCheckoutUrl(r?.url) };
+      signal: AbortSignal.timeout(NATIVE_RETURN_TIMEOUT_MS),
+    });
+    return parseCardPurchase(r, tuzis);
   },
 
   // The recovery loop is only bounded if each request is. Without a deadline a
