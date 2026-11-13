@@ -1,10 +1,10 @@
 // Shared constants + helpers for the 2Z platform-credit feature.
 //
 // 2Z ("Tuzi") is a prepaid platform credit, not a currency — it has a
-// purchase price but no cash-out or exchange value. Buying credits the
-// session balance; spending (tips/donations) debits it. The "pay with ZEC"
-// cost is fetched live from the backend pricing service (pricing.quote) —
-// there is no client-side rate.
+// purchase price but no cash-out or exchange value. Real purchases take place
+// on the Free2Z account website. This client reads
+// the resulting account balance; it does not infer credit from a payment or
+// browser return. Pack and quote helpers below support the explicit dev demo.
 
 import { parseZecToZatoshis, TUZIS_PER_USD } from "@/lib/format";
 import type { PricingQuote, TuziTransaction } from "@/lib/api/types";

@@ -25,6 +25,13 @@ const DEFAULT_API = IS_DEV ? "" : "https://free2z.cash";
 /** Base URL of the free2z API (no trailing slash; "" means same-origin/proxied). */
 export const API_BASE = readEnv("VITE_F2Z_API", DEFAULT_API).replace(/\/$/, "");
 
+/** Account website must match the API account realm, including the dev proxy.
+ * ZUULI uses Knox, not a registered SDK client; do not invent a client_id. */
+export const ACCOUNT_ORIGIN = API_BASE || readEnv(
+  "VITE_F2Z_PROXY",
+  IS_DEV ? "https://stage.free2z.cash" : "https://free2z.cash",
+);
+
 /** Host that serves uploaded media (relative `/uploadz/...` paths hang off this). */
 export const MEDIA_BASE = readEnv("VITE_F2Z_MEDIA", DEFAULT_API).replace(/\/$/, "");
 
