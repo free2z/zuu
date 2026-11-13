@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "free2z content surface \u2014 articles, live, AI, creator and search. Holds no Zcash seed and no messaging keys (see #904).",
+  "description": "free2z content surface — articles, live, AI, creator and search. Holds no Zcash seed and no messaging keys (see #904).",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
