@@ -202,6 +202,7 @@ allow = [
 # unattended for other people, it links a runtime, it is deliberately absent
 # from rs.yml's wasm32 line, and no client links it.
 exceptions = [
+  { name = "f2z-notify", allow = ["AGPL-3.0-only"] },
   # Zcash Payment Hooks resolves these CC0 dependencies through the released
   # Zcash libraries. Measured on this graph; scope to exact crate versions,
   # without admitting CC0 for every Rust service or changing advisory ignores.

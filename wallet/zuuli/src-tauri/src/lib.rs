@@ -3,6 +3,7 @@ mod directory_publish;
 pub mod intent;
 mod messaging;
 mod oauth;
+mod payment_notifications;
 mod session;
 
 fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
@@ -30,6 +31,7 @@ const WRAP_KEY_NAMESPACE: &str = "cash.free2z.zuuli.f2zmsg.wrap.v1";
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notify::init())
         // Native payment confirmation is intentionally available only to Rust.
         // No dialog permission is granted to the privileged webview.
         .plugin(tauri_plugin_dialog::init())
@@ -133,6 +135,7 @@ pub fn run() {
         // IPC name.
         .setup(|app| {
             bridge::install(app.handle());
+            payment_notifications::install(app.handle());
             Ok(())
         })
         .run(app_context())

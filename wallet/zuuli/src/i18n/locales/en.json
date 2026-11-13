@@ -44,5 +44,24 @@
       "label": "Preserved legacy wallet",
       "title": "Earlier wallet preserved"
     }
+  },
+  "notifications": {
+    "title": "Private wake notifications",
+    "privacy": "Off by default. Enabling shares a stable device token, your IP address and notification timing with the operator and Apple (iOS) or Google (Android). Separate queues do not prevent correlation. No account, wallet address, amount, memo or sender is sent.",
+    "limit": "Silent wakes do not prove a payment. Delivery and background execution are not guaranteed. Open ZUULI for its authorized wallet sync to verify payments. Registration expires within 24 hours; disabling offline leaves server expiry pending.",
+    "unsupported": "Remote push is unavailable in this browser or desktop build. Desktop local notifications are separate.",
+    "unconfigured": "Private device acceptance is not configured. Public rollout remains disabled.",
+    "off": "Notifications are off.",
+    "denied": "Notification permission is denied or revoked. Review OS settings before trying again.",
+    "waiting": "Waiting for the OS device token. Registration will finish automatically; no second consent tap is needed.",
+    "enabled": "Private wake registration is enabled. This is not payment detection.",
+    "queued": "A test wake was queued for this device. Delivery has not been confirmed.",
+    "expired": "Registration expired. Disable it and obtain fresh private acceptance provisioning.",
+    "revoking": "Disabled locally. Server revocation is pending; reopen online or wait up to 24 hours for expiry.",
+    "unavailable": "The notification service is unavailable. No delivery is confirmed.",
+    "verified": "A signed wake was verified. Payment status still comes from wallet sync.",
+    "enable": "Enable with this privacy cost",
+    "disable": "Disable and revoke",
+    "test": "Test this device only"
   }
 }
