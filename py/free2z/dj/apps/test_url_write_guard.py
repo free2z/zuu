@@ -487,6 +487,14 @@ ALLOWED_METADATA_IN_WRITE = {
        "there so an older tab cannot spend it again -- which moves no 2Z "
        "and persists nothing the header supplied.",
     (
+        "dj/apps/ztripe/views.py::create_checkout_session",
+        "request.headers['Idempotency-Key']",
+    ): "Optional checkout retry identity, declared as an OpenApiParameter in "
+       "f2z.yaml with 400 invalid-request and 409 changed/unresolved-term failures. "
+       "It selects only the authenticated owner's exact request-bound retry "
+       "receipt; quantity and charge terms come from the validated body and "
+       "server quote. No stale takeover or replacement payment is authorized.",
+    (
         "dj/apps/tuzis/views.py::CreatorSubscribeView.post -> dj/apps/tuzis/models.py::request_key",
         "request.headers['Idempotency-Key']",
     ): "Idempotency-Key on the money path; documented in f2z.yaml as of "
@@ -2114,6 +2122,56 @@ def test_request_metadata_never_reaches_a_write(index, routed):
         ),
     )
     assert not message, message
+
+
+def test_checkout_retry_exception_is_header_and_route_specific():
+    synthetic = index_sources({"dj.apps.ztripe.views": """
+@api_view(['POST'])
+def create_checkout_session(request):
+    key = request.headers.get('Idempotency-Key')
+    Thing.objects.create(amount=request.headers.get('X-Credit-Amount'),
+                         quantity=request.GET.get('quantity'))
+
+@api_view(['POST'])
+def another_checkout(request):
+    Thing.objects.create(key=request.headers.get('Idempotency-Key'))
+"""})
+    found = set(_findings(synthetic, "metadata", "is_write_context"))
+    allowed = set(ALLOWED_METADATA_IN_WRITE)
+    assert found & allowed == {
+        ('dj/apps/ztripe/views.py::create_checkout_session',
+         "request.headers['Idempotency-Key']"),
+    }
+    assert found - allowed == {
+        ('dj/apps/ztripe/views.py::create_checkout_session', "request.headers['X-Credit-Amount']"),
+        ('dj/apps/ztripe/views.py::create_checkout_session', "request.GET['quantity']"),
+        ('dj/apps/ztripe/views.py::another_checkout', "request.headers['Idempotency-Key']"),
+    }
+
+
+def test_checkout_retry_exception_matches_the_declared_schema_and_failures():
+    import yaml
+    source = ast.parse((PY_ROOT / 'dj/apps/ztripe/views.py').read_text())
+    handler = next(node for node in source.body
+                   if isinstance(node, ast.FunctionDef) and node.name == 'create_checkout_session')
+    parameters = [node for decorator in handler.decorator_list for node in ast.walk(decorator)
+                  if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+                  and node.func.id == 'OpenApiParameter'
+                  and any(key.arg == 'name' and isinstance(key.value, ast.Constant)
+                          and key.value.value == 'Idempotency-Key' for key in node.keywords)]
+    assert len(parameters) == 1
+    declaration = {key.arg: key.value for key in parameters[0].keywords}
+    assert ast.unparse(declaration['location']) == 'OpenApiParameter.HEADER'
+    assert declaration['required'].value is False
+    spec = yaml.safe_load((PY_ROOT / 'dj/free2z/openapi/f2z.yaml').read_text())
+    operation = spec['paths']['/api/stripe/create-checkout-session/']['post']
+    header, = [value for value in operation['parameters']
+               if value.get('name') == 'Idempotency-Key' and value.get('in') == 'header']
+    assert not header.get('required', False)
+    assert header['description'] == declaration['description'].value
+    assert '16-128' in header['description'] and '409' in header['description']
+    assert 'unresolved' in header['description']
+    assert {'400', '409'} <= set(operation['responses'])
 
 
 def test_mcp_capability_exception_does_not_allow_query_content_writes():
