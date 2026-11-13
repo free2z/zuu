@@ -544,3 +544,11 @@ are not changes — the deep-link plugin regenerates the Android manifest's
 intent-filters and leaves whitespace-only lines behind, and xcodegen requotes
 build settings and drops trailing newlines — and the release proves the
 committed project is the one that was built with `git diff --exit-code`.
+
+## On-device draft evaluation (default off)
+
+The browser-only prototype for #1295 is an explicit evaluation entry, with real
+WebLLM inference in a worker and no automatic server fallback. It is excluded
+from default builds and its remote policy defaults to disabled. See
+[setup, artifact pins and privacy controls](docs/local-draft/README.md) and the
+[measured report and open physical-device matrix](docs/local-draft/REPORT.md).

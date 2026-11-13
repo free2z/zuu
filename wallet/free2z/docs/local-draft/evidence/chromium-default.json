@@ -1,0 +1,273 @@
+{
+  "date": "2026-11-13T11:38:01.064Z",
+  "browser": "151.0.7922.34",
+  "softwareAdapterFlags": false,
+  "physicalGPU": "NOT ESTABLISHED",
+  "runs": [],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:1445/local-draft.html",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/localDraft-DcKX9vyI.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-CNDQMJ6R.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-BfJJ1_5b.css",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/ibm-plex-sans-latin-wght-normal-IvpUvPa2.woff2",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/inference.worker-cVBThBLz.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/ai",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/main-ZwTWedCP.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-CNDQMJ6R.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-BfJJ1_5b.css",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/en-CJlTuTOl.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-Dyf3BAPi.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/badge-Bql4JMfL.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/skeleton-BOd9tG-T.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/textarea-CM7zrTzi.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/Markdown-C2owyGo0.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/RemoteMedia-BEsiKEG7.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/usePaidIntent-L0bxZQAY.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/Markdown-BY-C1-kZ.css",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/zap-C_pCEs9I.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/switch-Bwcu7UVn.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/users-D8l43qDk.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/trash-2-s08TJDso.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/triangle-alert-CrIFiMnd.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/ibm-plex-sans-latin-wght-normal-IvpUvPa2.woff2",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://free2z.cash/api/ai/models/",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://free2z.cash/api/ai/personalities/",
+      "method": "GET",
+      "body": null
+    }
+  ],
+  "memory": [
+    {
+      "label": "page before probe",
+      "summedProcessRssKiB": 372792,
+      "limitation": "Linux snapshots, shared pages double-counted; not a peak or GPU allocation measure"
+    }
+  ],
+  "statuses": [],
+  "errors": [],
+  "capability": "No WebGPU adapter available App-owned model cache removed. HTTP caches and browser/OS copies cannot be guaranteed erased.",
+  "outcome": "UNSUPPORTED; no download/generation attempted",
+  "fallback": {
+    "url": "http://127.0.0.1:1445/ai",
+    "prompt": "",
+    "requests": [
+      {
+        "url": "http://127.0.0.1:1445/ai",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/main-ZwTWedCP.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/index-CNDQMJ6R.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/index-BfJJ1_5b.css",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/en-CJlTuTOl.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/index-Dyf3BAPi.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/badge-Bql4JMfL.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/skeleton-BOd9tG-T.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/textarea-CM7zrTzi.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/Markdown-C2owyGo0.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/RemoteMedia-BEsiKEG7.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/usePaidIntent-L0bxZQAY.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/Markdown-BY-C1-kZ.css",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/zap-C_pCEs9I.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/switch-Bwcu7UVn.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/users-D8l43qDk.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/trash-2-s08TJDso.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/triangle-alert-CrIFiMnd.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/ibm-plex-sans-latin-wght-normal-IvpUvPa2.woff2",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "https://free2z.cash/api/ai/models/",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "https://free2z.cash/api/ai/personalities/",
+        "method": "GET",
+        "body": null
+      }
+    ]
+  },
+  "heat": "NOT MEASURABLE on VM",
+  "battery": "NOT MEASURABLE on VM"
+}
