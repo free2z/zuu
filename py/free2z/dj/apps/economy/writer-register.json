@@ -71,6 +71,13 @@
       "disposition": "financial model identified; per-path review required"
     },
     {
+      "model": "dyte.ProducerActorClaim",
+      "table": "dyte_produceractorclaim",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
       "model": "dyte.ProducerOperation",
       "table": "dyte_produceroperation",
       "source": "py/free2z/dj/apps/dyte/models.py",
@@ -1700,8 +1707,8 @@
     "py/free2z/dj/apps/comments/management/commands/aiscore_comments.py": "8f798a223965b4841822bb239cb040e81c71dcad89c1cfdff072e4314966a902",
     "py/free2z/dj/apps/comments/models.py": "81a006d2e2f57d1e40e79a4a70b8793ecf6f0d36948bc2eb2d2cb3a0bd6ad140",
     "py/free2z/dj/apps/comments/views.py": "06477a05cfecc35dab620ea1a0dc73b3c7df10602ecfbe23dfcf748d459d359c",
-    "py/free2z/dj/apps/dyte/models.py": "f5df01ecdaff9af27b1d6c726612d6b553925878736e3d3de6a9df185463d3fb",
-    "py/free2z/dj/apps/dyte/views.py": "954ebb34f3a4f2c91a1e7430e8dfd6cd0105a4db3c4d131f76b7f63778b9ad5f",
+    "py/free2z/dj/apps/dyte/models.py": "093daa80f5b13d9605b9e9fe381b6c440383c2500b810f0420ac4eb3ce2af951",
+    "py/free2z/dj/apps/dyte/views.py": "cdfeccc614d8e2ccf66d3b45894a964819453c0c8cb7e614a3151f3d86f63e17",
     "py/free2z/dj/apps/e2ee/models.py": "87bd06bb8461ef9d283f96f6e05b4c67576d7d0e0318bcaf9a8a679fc9b9717d",
     "py/free2z/dj/apps/e2ee/views.py": "7533ddb3d6fa9ad0f96e2044d98b270ae80b9495fd45c953ab06d35011addf5c",
     "py/free2z/dj/apps/economy/models.py": "234673203a0ebcbea06c5d690ecaaee3c2ad64054fd1a097ec953e53012f9725",

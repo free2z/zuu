@@ -112,6 +112,9 @@ ERRORS = {
 
 
 class ProducerView(APIView):
+    # Marker/claim transactions must commit before provider I/O, not at the
+    # response boundary imposed by AtomicMiddleware.
+    non_atomic_methods = frozenset({"POST"})
     permission_classes = [IsAuthenticated]
     parser_classes = [JSONParser]
 

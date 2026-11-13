@@ -414,6 +414,21 @@ class RecordingDelivery(models.Model):
         return str(self.idempotency_key)
 
 
+class ProducerActorClaim(models.Model):
+    """Committed fencing ownership; never a connection/session lock."""
+
+    creator = models.OneToOneField('g12f.Creator', on_delete=models.PROTECT)
+    token = models.UUIDField(null=True, editable=False)
+    expires_at = models.DateTimeField(null=True, db_index=True, editable=False)
+
+    class Meta:
+        constraints = [models.CheckConstraint(
+            condition=(models.Q(token__isnull=True, expires_at__isnull=True)
+                       | models.Q(token__isnull=False, expires_at__isnull=False)),
+            name='dyte_producer_claim_pair',
+        )]
+
+
 class ProducerStream(models.Model):
     """Historical, immutable room generation; one outstanding stream per owner."""
 

@@ -44,12 +44,31 @@ Responses are snapshots, not historical success assertions.
 The independent stream UUID is the historical generation; a reusable
 `CreatorMeeting` is only the legacy public discovery projection. One unresolved
 stream per creator is enforced by a PostgreSQL partial unique constraint.
-The actor advisory lock also serializes legacy public starts. Competing
-requests return 409 `operation_in_progress`; they do not queue unbounded work.
-Versions reject stale updates. Provider I/O is outside database transactions;
-write-ahead state survives process death. Final provision/publish commits
+An actor-scoped UUID claim is committed independently of provider I/O. Short
+transaction advisory locks coordinate claim/state decisions with legacy host
+starts; no session lock or database transaction spans provider calls. Competing
+requests return 409 `operation_in_progress`. Every state write verifies the
+claim under the creator/claim row locks, so a stale worker cannot finalize or
+clear a successor's ownership. Versions reject stale updates. Producer POSTs
+opt out of the request-wide transaction middleware: write-ahead create/token
+markers commit before each POST and survive process death. Final provision/publish commits
 recheck authentication under the account row lock. A revoked account cannot
 publish or replay an old host credential.
+
+The claim deadline is at least 120 seconds and renews at fenced checkpoints.
+Expiry never admits another create/mint. Only recovery reclaims expired
+ownership, terminates its unresolved generation, and reconciles/cleans the
+provider outcome before a new generation is allowed. Even a process that died
+before creating its stream has a recoverable claim. An empty ambiguous-create
+search still cannot authorize recreation. This also works with a transaction
+pool having a single backend; no second pinned connection is required.
+
+Account deactivation revokes stored host tickets and claim ownership and marks
+unfinished streams for cleanup. Purge scrubs title, description and the content
+fingerprint (an open account moderation report instead keeps that content
+hidden for staff, following the existing deletion policy). Room/participant/operation UUIDs and content-free results remain
+attached to the pseudonymized account for cleanup and historical billing;
+pending workers cannot restore scrubbed data after losing their fence.
 
 | State | Allowed next states |
 | --- | --- |
@@ -119,7 +138,8 @@ ambiguous search never authorizes another create. Known rooms are set INACTIVE.
 Cleanup is repeatable, has capped exponential backoff and at most 20 attempts;
 `cleanup_manual_review` preserves the unresolved generation and blocks new
 provisioning. Each sweep examines at most 20 due records and has a five-second
-admission budget, plus the final in-flight bounded provider request. Database
+admission budget, plus the final provider cleanup sequence and its individual
+connect/read timeouts. Database
 state/history exposes pending/failed/manual-review outcomes without secrets.
 No public configuration or operator infrastructure details belong in evidence.
 
@@ -173,6 +193,12 @@ dialog-unmount case verifies late capture disposal. The Django browser flow
 also interrupts a pending join, verifies durable interruption, and requires an
 explicit reconnect before publication. These are controlled lifecycle proofs,
 not signed-device or deployed SDK acceptance.
+Pool transport tests opt into `LEDGER_TEST_POOLER_PORT`, verify transaction mode
+and the single-backend limit, and use independent clients and real process
+exits after controlled provider acceptance. They cover committed create/token
+markers, overlap/refusal, stale-worker fencing, crash reconciliation and replay.
+The local transport fixture used PgBouncer 1.22.0; CI's owned fixture is pinned
+to 1.25.2. Neither is deployed-provider acceptance.
 
 OPEN external acceptance before calling the feature ready:
 

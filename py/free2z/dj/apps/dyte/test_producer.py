@@ -18,7 +18,7 @@ from .models import (
 )
 from .producer_provider import ProviderUnavailable
 
-pytestmark = pytest.mark.django_db
+pytestmark = pytest.mark.django_db(transaction=True)
 
 
 @pytest.fixture
@@ -307,7 +307,8 @@ def test_transition_table_exhaustive(host):
         for destination in producer.TRANSITIONS:
             stream.state = source
             if destination in targets:
-                producer.transition(stream, destination)
+                with producer.actor_lock(host.pk):
+                    producer.transition(stream, destination)
                 assert stream.state == destination
             else:
                 with pytest.raises(producer.Refusal):

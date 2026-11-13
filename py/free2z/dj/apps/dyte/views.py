@@ -2475,8 +2475,9 @@ class DyteMeeting(APIView):
                         return Response({'code': 'livestream_compensation_integration_unavailable',
                             'error': 'Paid livestream compensation is unavailable.'}, status=409)
             _lock_host_seat(creator)
-            from .models import ProducerStream
-            if ProducerStream.objects.filter(creator=creator).exclude(state='cleaned_up').exists():
+            from .models import ProducerStream, ProducerActorClaim
+            if (ProducerActorClaim.objects.filter(creator=creator, token__isnull=False).exists()
+                    or ProducerStream.objects.filter(creator=creator).exclude(state='cleaned_up').exists()):
                 return Response({'code': 'versioned_producer_active'}, status=409)
             if (not settings.DYTE_HOST_EVICTION_JOBS_ENABLED
                     and CreatorMeeting.objects.filter(creator=creator).filter(

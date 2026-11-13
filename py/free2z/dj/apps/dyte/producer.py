@@ -4,6 +4,8 @@ import base64
 import hashlib
 import json
 import time
+import uuid
+from contextvars import ContextVar
 from contextlib import contextmanager
 from datetime import timedelta
 
@@ -11,9 +13,11 @@ from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
 from django.db import connection, transaction, models, DatabaseError
 from django.utils import timezone
+from django.db.models.functions import Now
 from dj.apps.g12f.models import Creator
 from .models import (
     CreatorMeeting,
+    ProducerActorClaim,
     ProducerOperation,
     ProducerStream,
     ProviderRoomCleanup,
@@ -40,20 +44,145 @@ class Refusal(Exception):
         self.code, self.status = code, status
 
 
+CLAIM_TTL = timedelta(
+    seconds=max(
+        120,
+        4 * (settings.DYTE_CONNECT_TIMEOUT_SECONDS + settings.DYTE_READ_TIMEOUT_SECONDS)
+        + 30,
+    )
+)
+_current_claim = ContextVar("free2z_producer_claim", default=None)
+
+
 @contextmanager
-def actor_lock(creator_id):
-    # Session lock spans short committed write-ahead transactions and bounded
-    # provider I/O. Same key as legacy hosts: no simultaneous legacy producer.
-    key = f"dyte-host-seat:{creator_id}"
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_try_advisory_lock(hashtext(%s)::bigint)", [key])
-        if not cursor.fetchone()[0]:
-            raise Refusal("operation_in_progress")
-    try:
-        yield
-    finally:
+def seat_decision(creator_id):
+    # Shared with legacy host decisions, but held for one short transaction.
+    with transaction.atomic():
         with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_unlock(hashtext(%s)::bigint)", [key])
+            cursor.execute(
+                "SELECT pg_try_advisory_xact_lock(hashtext(%s)::bigint)",
+                [f"dyte-host-seat:{creator_id}"],
+            )
+            if not cursor.fetchone()[0]:
+                raise Refusal("operation_in_progress")
+        # Same lock order as account deletion: creator before claim/state.
+        creator = Creator.objects.select_for_update().get(pk=creator_id)
+        yield creator
+
+
+class ActorClaim:
+    def __init__(self, creator_id, token, recovery, reclaimed):
+        self.creator_id, self.token = creator_id, token
+        self.recovery, self.reclaimed = recovery, reclaimed
+        self.depth = 0
+
+    @contextmanager
+    def atomic(self):
+        if self.depth:
+            yield
+            return
+        with seat_decision(self.creator_id) as creator:
+            if not creator.is_active and not self.recovery:
+                raise Refusal("actor_authentication_changed", 401)
+            row = ProducerActorClaim.objects.select_for_update().get(
+                creator_id=self.creator_id
+            )
+            if row.token != self.token:
+                raise Refusal("operation_in_progress")
+            row.expires_at = Now() + CLAIM_TTL
+            row.save(update_fields=["expires_at"])
+            self.depth += 1
+            try:
+                yield
+            finally:
+                self.depth -= 1
+
+
+@contextmanager
+def actor_lock(creator_id, *, recovery=False):
+    # A request-wide transaction would make every pre-I/O marker a savepoint.
+    # Refuse it instead of silently losing claims/markers on a later rollback.
+    if connection.in_atomic_block:
+        raise Refusal("producer_requires_autocommit", 503)
+    nonce = uuid.uuid4()
+    with seat_decision(creator_id) as creator:
+        if not creator.is_active and not recovery:
+            raise Refusal("actor_authentication_changed", 401)
+        row, _ = ProducerActorClaim.objects.select_for_update().get_or_create(
+            creator_id=creator_id
+        )
+        reclaimed = row.token is not None
+        if reclaimed and (
+            not recovery
+            or ProducerActorClaim.objects.filter(
+                pk=row.pk, expires_at__gt=Now()
+            ).exists()
+        ):
+            raise Refusal("operation_in_progress")
+        row.token, row.expires_at = nonce, Now() + CLAIM_TTL
+        row.save(update_fields=["token", "expires_at"])
+    claim = ActorClaim(creator_id, nonce, recovery, reclaimed)
+    context = _current_claim.set(claim)
+    try:
+        yield claim
+    finally:
+        _current_claim.reset(context)
+        # A stale worker cannot release a successor's ownership.
+        ProducerActorClaim.objects.filter(creator_id=creator_id, token=nonce).update(
+            token=None, expires_at=None
+        )
+
+
+@contextmanager
+def fenced():
+    claim = _current_claim.get()
+    if claim is None:
+        raise Refusal("producer_claim_required", 503)
+    with claim.atomic():
+        yield
+
+
+def _save(instance, **kwargs):
+    with fenced():
+        instance.save(**kwargs)
+
+
+def revoke_producers(creator_id, *, purge=False):
+    """Account deletion owns the creator row, before any claim/state locks.
+
+    No provider I/O belongs in the deletion transaction. Revoke capabilities
+    and fencing ownership now; retain immutable room/operation identities so
+    recovery and historical billing can still attribute and deactivate rooms.
+    """
+    with transaction.atomic():
+        Creator.objects.select_for_update().get(pk=creator_id)
+        ProducerActorClaim.objects.filter(creator_id=creator_id).update(
+            token=None, expires_at=None
+        )
+        streams = ProducerStream.objects.filter(creator_id=creator_id)
+        streams.filter(state="draft").update(
+            state="ended", ended_at=Now(), version=models.F("version") + 1
+        )
+        streams.exclude(state__in=("ended", "ending", "cleaned_up")).update(
+            state="ending", version=models.F("version") + 1
+        )
+        streams.update(
+            token_ciphertext="",
+            token_expires_at=None,
+            participants=None,
+            confirmed_at=None,
+            next_cleanup_at=Now(),
+        )
+        CreatorMeeting.objects.filter(pk__in=streams.values("meeting_id")).update(
+            live_now=False
+        )
+        if purge:
+            streams.update(title="", description="")
+            # Only hashes of user metadata are removed. UUID keys, action,
+            # accepted version and retirement receipt are content-free proof.
+            ProducerOperation.objects.filter(creator_id=creator_id).update(
+                fingerprint=""
+            )
 
 
 def transition(stream, state):
@@ -61,7 +190,7 @@ def transition(stream, state):
         raise Refusal("invalid_transition")
     stream.state = state
     stream.version += 1
-    stream.save()
+    _save(stream)
 
 
 def authenticate(actor, expected):
@@ -139,8 +268,9 @@ def readiness(actor):
 
 
 def hide(stream):
-    if stream.meeting_id:
-        CreatorMeeting.objects.filter(pk=stream.meeting_id).update(live_now=False)
+    with fenced():
+        if stream.meeting_id:
+            CreatorMeeting.objects.filter(pk=stream.meeting_id).update(live_now=False)
 
 
 def retire_previous_room(stream, provider):
@@ -159,14 +289,15 @@ def retire_previous_room(stream, provider):
     if receipt.status == "complete":
         return
     receipt.attempts += 1
-    receipt.save(update_fields=["attempts"])
+    _save(receipt, update_fields=["attempts"])
     provider.disable(receipt.provider_meeting_id)
     receipt.status = "complete"
     receipt.completed_at = timezone.now()
     receipt.next_attempt_at = None
     receipt.last_error = ""
-    receipt.save(
-        update_fields=["status", "completed_at", "next_attempt_at", "last_error"]
+    _save(
+        receipt,
+        update_fields=["status", "completed_at", "next_attempt_at", "last_error"],
     )
 
 
@@ -174,13 +305,13 @@ def cleanup(stream, provider):
     """Never re-create after an ambiguous create, even after an empty search."""
     if stream.cleanup_attempts >= 20:
         stream.error_code = "cleanup_manual_review"
-        stream.save()
+        _save(stream)
         return
     stream.cleanup_attempts += 1
     stream.next_cleanup_at = timezone.now() + timedelta(
         seconds=min(3600, 15 * 2**stream.cleanup_attempts)
     )
-    stream.save()
+    _save(stream)
     try:
         retire_previous_room(stream, provider)
         if stream.create_attempted and not stream.room_id:
@@ -188,10 +319,10 @@ def cleanup(stream, provider):
             if len(matches) != 1:
                 raise ProviderUnavailable()
             stream.room_id = matches[0]
-            stream.save()
+            _save(stream)
         if stream.room_id:
             provider.disable(str(stream.room_id))
-        with transaction.atomic():
+        with fenced():
             hide(stream)
             stream.token_ciphertext = ""
             stream.participants = None
@@ -208,7 +339,7 @@ def cleanup(stream, provider):
             transition(stream, "cleaned_up")
     except (ProviderUnavailable, ValueError, KeyError, TypeError):
         stream.error_code = "cleanup_pending"
-        stream.save()
+        _save(stream)
 
 
 def execute(actor, stream_id, payload):
@@ -233,7 +364,10 @@ def execute(actor, stream_id, payload):
             if stream.account_epoch != actor.kt_account_epoch:
                 raise Refusal("actor_authentication_changed", 401)
             # Read-only replay: never repeats provisioning, notifications or token mint.
-            return reply(stream, prior.status, prior.result, payload["owner"])
+            with fenced():
+                authenticate(actor, actor.pk)
+                stream.refresh_from_db()
+                return reply(stream, prior.status, prior.result, payload["owner"])
         action = payload["action"]
         if stream_id is None:
             if action != "draft":
@@ -333,8 +467,8 @@ def execute(actor, stream_id, payload):
             previous = CreatorMeeting.objects.filter(
                 creator=actor, meeting_type="broadcast", is_public=True
             ).first()
-        with transaction.atomic():
-            stream.save()
+        with fenced():
+            _save(stream)
             op = ProducerOperation.objects.create(
                 creator=actor,
                 key=key,
@@ -362,10 +496,10 @@ def execute(actor, stream_id, payload):
                     ):
                         raise Refusal("legacy_room_unresolved", 503)
                     op.result["retired_room_id"] = receipt.pk
-                    op.save(update_fields=["result"])
+                    _save(op, update_fields=["result"])
                     # Late legacy start callbacks cannot revive this room.
                     previous.handshake_managed = True
-                    previous.save(update_fields=["handshake_managed"])
+                    _save(previous, update_fields=["handshake_managed"])
                     stream.meeting = previous
                 transition(stream, "provisioning")
             elif action == "end" and stream.state not in (
@@ -389,12 +523,14 @@ def execute(actor, stream_id, payload):
             )
             if action == "provision":
                 retire_previous_room(stream, provider)
-                stream.create_attempted = True
-                stream.save(update_fields=["create_attempted"])
+                with fenced():
+                    authenticate(actor, actor.pk)
+                    stream.create_attempted = True
+                    _save(stream, update_fields=["create_attempted"])
                 stream.room_id = provider.create(f"f2z-producer-{stream.pk}")
                 # Persist provider ID before any auth/ownership finalization.
-                stream.save()
-                with transaction.atomic():
+                _save(stream)
+                with fenced():
                     authenticate(actor, actor.pk)
                     cm, _ = CreatorMeeting.objects.get_or_create(
                         creator=actor, meeting_type="broadcast", is_public=True
@@ -409,7 +545,8 @@ def execute(actor, stream_id, payload):
                     cm.last_seen_at = None
                     cm.zero_probe_since = None
                     cm.price_per_minute = 0
-                    cm.save(
+                    _save(
+                        cm,
                         update_fields=[
                             "meeting_id",
                             "handshake_managed",
@@ -421,7 +558,7 @@ def execute(actor, stream_id, payload):
                             "last_seen_at",
                             "zero_probe_since",
                             "price_per_minute",
-                        ]
+                        ],
                     )
                     stream.meeting = cm
                     transition(stream, "ready")
@@ -445,9 +582,11 @@ def execute(actor, stream_id, payload):
                         transition(stream, "interrupted")
                     hide(stream)
                 # If interrupted during mint, only room deactivation is safe.
-                stream.token_attempted = True
-                stream.token_ciphertext = ""
-                stream.save()
+                with fenced():
+                    authenticate(actor, actor.pk)
+                    stream.token_attempted = True
+                    stream.token_ciphertext = ""
+                    _save(stream)
                 participant, token = provider.token(
                     str(stream.room_id), f"producer:{key}", actor
                 )
@@ -456,7 +595,7 @@ def execute(actor, stream_id, payload):
                 stream.token_expires_at = timezone.now() + timedelta(minutes=10)
                 stream.token_attempted = False
                 stream.version += 1
-                stream.save()
+                _save(stream)
                 authenticate(actor, actor.pk)
             elif action == "publish":
                 if not stream.participant_id or stream.token_attempted:
@@ -464,7 +603,7 @@ def execute(actor, stream_id, payload):
                 session, count = provider.live(
                     str(stream.room_id), str(stream.participant_id)
                 )
-                with transaction.atomic():
+                with fenced():
                     authenticate(actor, actor.pk)
                     stream.session_id, stream.participants = session, count
                     stream.error_code = ""
@@ -474,7 +613,7 @@ def execute(actor, stream_id, payload):
                     if stream.state != "live":
                         transition(stream, "live")
                     else:
-                        stream.save()
+                        _save(stream)
                     CreatorMeeting.objects.filter(pk=stream.meeting_id).update(
                         live_now=True,
                         last_seen_at=stream.confirmed_at,
@@ -489,7 +628,7 @@ def execute(actor, stream_id, payload):
                 hide(stream)
             elif action == "heartbeat":
                 stream.heartbeat_at = timezone.now()
-                stream.save()
+                _save(stream)
             elif action == "end" and stream.state != "cleaned_up":
                 cleanup(stream, provider)
                 status = 200 if stream.state == "cleaned_up" else 202
@@ -506,12 +645,15 @@ def execute(actor, stream_id, payload):
                 stream.error_code = (
                     exc.code if isinstance(exc, Refusal) else "provider_unavailable"
                 )
-            stream.save()
+            _save(stream)
             status = exc.status if isinstance(exc, Refusal) else 503
         op.status = status
         op.result["accepted_version"] = stream.version
-        op.save()
-        return reply(stream, status, op.result, payload["owner"])
+        _save(op)
+        with fenced():
+            authenticate(actor, actor.pk)
+            stream.refresh_from_db()
+            return reply(stream, status, op.result, payload["owner"])
 
 
 def reply(stream, status, result, owner):
@@ -544,22 +686,47 @@ def reply(stream, status, result, owner):
 def recover(limit=20, budget_seconds=5):
     """Bounded periodic recovery; no client callback is needed to end grace."""
     deadline = time.monotonic() + budget_seconds
-    ids = (
+    expired = list(
+        ProducerActorClaim.objects.filter(token__isnull=False, expires_at__lte=Now())
+        .order_by("expires_at")
+        .values_list("creator_id", flat=True)[:limit]
+    )
+    due = list(
         ProducerStream.objects.exclude(state="cleaned_up")
         .filter(next_cleanup_at__lte=timezone.now())
+        .exclude(creator_id__in=expired)
         .order_by("next_cleanup_at")
-        .values_list("pk", flat=True)[:limit]
+        .values_list("creator_id", flat=True)[: max(0, limit - len(expired))]
     )
-    for pk in list(ids):
+    for creator_id in expired + due:
         if time.monotonic() >= deadline:
             break
-        stream = ProducerStream.objects.get(pk=pk)
         try:
-            with actor_lock(stream.creator_id):
-                stream.refresh_from_db()
+            with actor_lock(creator_id, recovery=True) as claim:
+                stream = (
+                    ProducerStream.objects.filter(creator_id=creator_id)
+                    .exclude(state="cleaned_up")
+                    .first()
+                )
+                if stream is None:
+                    continue
+                if claim.reclaimed and stream.state not in (
+                    "ending",
+                    "ended",
+                    "failed",
+                ):
+                    transition(stream, "ended" if stream.state == "draft" else "ending")
+                    hide(stream)
+                if stream.token_attempted and stream.state in (
+                    "ready",
+                    "live",
+                    "interrupted",
+                ):
+                    transition(stream, "ending")
+                    hide(stream)
                 now = timezone.now()
                 stream.next_cleanup_at = now + timedelta(seconds=15)
-                stream.save(update_fields=["next_cleanup_at"])
+                _save(stream, update_fields=["next_cleanup_at"])
                 actor = Creator.objects.get(pk=stream.creator_id)
                 if (
                     not actor.is_active
