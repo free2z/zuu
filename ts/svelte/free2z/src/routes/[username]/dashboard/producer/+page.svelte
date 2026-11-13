@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { get } from "svelte/store";
-  import { mountProducer } from "$lib/producer/panel";
-  import { ProducerFailure } from "$lib/producer/client";
-  import { producerLabelKeys } from "$lib/producer/labels";
+  import {
+    mountProducer,
+    ProducerFailure,
+    producerLabelKeys,
+  } from "@free2z/producer";
   import { customInstance, ApiError } from "$lib/api/mutator";
   import { authStore, currentUser } from "$lib/stores/auth";
   import { tStore } from "$lib/i18n";

@@ -4,7 +4,7 @@ import {
   ProducerClient,
   ProducerFailure,
   parseProducer,
-} from "../src/lib/producer/client";
+} from "@free2z/producer";
 const id = "49aa6f7c-d27e-47f4-a28e-8685af4ea4e9";
 const stream = (owner: string, state = "draft", version = 1) => ({
   id,

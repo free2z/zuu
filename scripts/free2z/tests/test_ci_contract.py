@@ -2,6 +2,7 @@ from pathlib import Path
 import importlib.util
 import unittest
 import re
+import tempfile
 import yaml
 
 ROOT=Path(__file__).resolve().parents[3]
@@ -19,6 +20,61 @@ class CIContract(unittest.TestCase):
     def check(self):policy.validate(self.ci,self.release,self.docker,self.ruff)
 
     def test_actual_contract(self):self.check()
+
+    def test_backend_browser_setup_cannot_lose_shard_or_version_binding(self):
+        changes = (
+            ('id', 'backend-browser', 'if', 'matrix.group == 1'),
+            ('run', 'npm ci', 'if', 'matrix.group == 1'),
+            ('run', 'npx --no-install playwright install --with-deps chromium', 'continue-on-error', True),
+            ('run', 'npx --no-install playwright install --with-deps chromium', 'working-directory', 'wallet/free2z'),
+            ('run', 'npx --no-install playwright install --with-deps chromium', 'run', 'npx playwright install chromium'),
+            ('run', 'python ../../scripts/free2z/test-select-backend-browser.py', 'if', 'false'),
+        )
+        for selector, value, key, replacement in changes:
+            with self.subTest(value=value, key=key):
+                self.setUp()
+                step = next(s for s in self.ci['jobs']['backend']['steps'] if s.get(selector) == value)
+                step[key] = replacement
+                with self.assertRaises(ValueError): self.check()
+        self.setUp()
+        node = next(s for s in self.ci['jobs']['backend']['steps'] if s.get('uses', '').startswith('actions/setup-node@'))
+        node['if'] = 'matrix.group == 1'
+        with self.assertRaises(ValueError): self.check()
+        self.setUp()
+        steps = self.ci['jobs']['backend']['steps']
+        browser = next(s for s in steps if s.get('run') == 'npx --no-install playwright install --with-deps chromium')
+        steps.remove(browser)
+        steps.append(browser)
+        with self.assertRaises(ValueError): self.check()
+
+    def test_actual_producer_web_build_inputs(self):
+        policy.validate_producer_build_inputs(ROOT)
+
+    def test_web_producer_input_and_context_removal_controls(self):
+        files = ('.github/workflows/free2z-web-ci.yml', 'build/free2z/compose.yml',
+                 'build/free2z/web.Dockerfile', 'build/free2z/web.Dockerfile.dockerignore')
+        mutations = (
+            (files[0], 'context: .\n', 'context: ts/svelte/free2z\n'),
+            (files[1], 'context: ../..\n      dockerfile: build/free2z/web.Dockerfile',
+             'context: ../../ts/svelte/free2z\n      dockerfile: build/free2z/web.Dockerfile'),
+            (files[2], 'COPY ts/free2z/producer/ /src/ts/free2z/producer/\n', ''),
+            (files[2], 'COPY ts/free2z/producer/ /free2z/producer/\n', ''),
+            (files[3], '!ts/free2z/producer/**\n', ''),
+            (files[3], '**/.env.*\n', ''),
+            (files[3], '!ts/free2z/producer/**\n', '!ts/free2z/**\n'),
+        )
+        for relative, before, after in mutations:
+            with self.subTest(relative=relative, before=before), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                for name in files:
+                    target = root / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text((ROOT / name).read_text())
+                target = root / relative
+                self.assertIn(before, target.read_text())
+                target.write_text(target.read_text().replace(before, after))
+                with self.assertRaises(ValueError):
+                    policy.validate_producer_build_inputs(root)
 
     def test_omitted_shard_fails(self):
         for job,key in [('backend','group'),('ui-browser','shard')]:

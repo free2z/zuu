@@ -71,7 +71,7 @@ export default defineConfig({
     fs: {
       allow: [
         __dirname,
-        path.resolve(__dirname, "../../ts/svelte/free2z/src/lib/producer"),
+        path.resolve(__dirname, "../../ts/free2z/producer"),
       ],
     },
     watch: {

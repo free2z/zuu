@@ -626,16 +626,26 @@ jobs:
         run: python ../../scripts/free2z/check-pytest-durations.py .test_durations
       - name: pytest-split 0.11.0 duration allocation contract
         run: python ../../scripts/free2z/test-pytest-split-durations.py
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+      - name: Select browser dependencies from this shard's collected tests
+        id: backend-browser
+        run: python ../../scripts/free2z/select-backend-browser.py
+      - name: Browser dependency allocation controls
         if: matrix.group == 1
+        run: python ../../scripts/free2z/test-select-backend-browser.py
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        if: matrix.group == 1 || steps.backend-browser.outputs.required == 'true'
         with:
           node-version: 24.22.2
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
-      - name: Install renderer dependencies for the translation oracle
-        if: matrix.group == 1
+      - name: Install renderer dependencies for the translation oracle and producer browser
+        if: matrix.group == 1 || steps.backend-browser.outputs.required == 'true'
         run: npm ci
         working-directory: ts/svelte/free2z
+      - name: Install version-matched Chromium and OS dependencies for producer integration
+        if: steps.backend-browser.outputs.required == 'true'
+        working-directory: ts/svelte/free2z
+        run: npx --no-install playwright install --with-deps chromium
       - name: Render Markdown and check payment-address bypasses
         if: matrix.group == 1
         run: '"$GITHUB_WORKSPACE/scripts/free2z/check-translation-url-oracle.py"'
@@ -899,7 +909,7 @@ jobs:
       - name: Build application image without publishing credentials
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # reviewed immutable repository pin
         with:
-          context: ${{ matrix.kind == 'web' && 'ts/svelte/free2z' || '.' }}
+          context: .
           file: build/free2z/${{ matrix.kind }}.Dockerfile
           platforms: linux/amd64
           provenance: false

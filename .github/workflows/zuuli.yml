@@ -238,7 +238,7 @@ jobs:
             # src-tauri input remain selected. Rust embeds bridge.ts directly;
             # the policy checker audits literal include_str!/include_bytes!
             # inputs so another embedded frontend file cannot silently skip.
-            if [[ "$file" == ts/svelte/free2z/src/lib/producer/* ]]; then
+            if [[ "$file" == ts/free2z/producer/* ]]; then
               surfaces=true
               continue
             fi

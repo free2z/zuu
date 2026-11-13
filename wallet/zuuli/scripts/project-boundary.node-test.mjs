@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   realpath,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -184,6 +185,130 @@ async function addMinimalViteEntries(root) {
     );
   }
 }
+
+async function withProducerFixture(assertion) {
+  const container = await mkdtemp(path.join(os.tmpdir(), "free2z-producer-boundary-"));
+  const root = path.join(container, "wallet");
+  await rename(await fixture(), root);
+  const producer = path.join(container, "ts/free2z/producer");
+  try {
+    await mkdir(path.join(producer, "src"), { recursive: true });
+    await writeFile(path.join(producer, "package.json"), JSON.stringify({
+      name: "@free2z/producer", version: "0.1.0", private: true, type: "module",
+      exports: { ".": "./src/index.ts" },
+    }));
+    await writeFile(path.join(producer, "src/index.ts"), 'export { mountProducer } from "./panel";\n');
+    await writeFile(path.join(producer, "src/panel.ts"), 'export const mountProducer = () => "producer";\n');
+    await mkdir(path.join(root, "free2z/src"), { recursive: true });
+    await writeFile(path.join(root, "free2z/package.json"), JSON.stringify({
+      name: "free2z", private: true, type: "module", dependencies: {
+        ...SHARED_DEPENDENCY, "@free2z/producer": "file:../../ts/free2z/producer",
+      },
+    }));
+    await writeFile(path.join(root, "free2z/package-lock.json"), JSON.stringify({ packages: {
+      "node_modules/@free2z/producer": { link: true, resolved: "../../ts/free2z/producer" },
+    } }));
+    await writeFile(path.join(root, "free2z/vite.config.ts"), "export default {};\n");
+    await writeFile(path.join(root, "free2z/index.html"), '<script type="module" src="/src/main.ts"></script>\n');
+    await writeFile(path.join(root, "free2z/src/main.ts"), 'import { mountProducer } from "@free2z/producer"; console.log(mountProducer());\n');
+    await mkdir(path.join(root, "free2z/node_modules/@free2z"), { recursive: true });
+    await symlink(producer, path.join(root, "free2z/node_modules/@free2z/producer"));
+    await addMinimalViteEntries(root);
+    await assertion(root, producer);
+  } finally {
+    await rm(container, { recursive: true, force: true });
+  }
+}
+
+test("declared producer package builds inside the content-app constrained graph", async () => {
+  await withProducerFixture(async (root) => {
+    const result = await assertProjectBoundaries(root, { verifyViteBuildGraph: true });
+    assert.equal(result.viteBuildsVerified, 3);
+  });
+});
+
+test("producer authority cannot be declared by the seed holder", async () => {
+  await withProducerFixture(async (root) => {
+    const p = path.join(root, "zuuli/package.json");
+    const manifest = JSON.parse(await readFile(p, "utf8"));
+    manifest.dependencies["@free2z/producer"] = "file:../../ts/free2z/producer";
+    await writeFile(p, JSON.stringify(manifest));
+    await writeFile(path.join(root, "zuuli/src/producer.ts"), 'import { mountProducer } from "@free2z/producer"; mountProducer();\n');
+    await assert.rejects(assertProjectBoundaries(root), /producer authority requires the exact Free2Z content-app dependency/);
+  });
+});
+
+for (const specifier of ["@free2z/producer/src/panel", "@free2z/producer/../other", "../../../ts/free2z/producer/src/panel"]) {
+  test(`producer boundary rejects unexported or escaping import ${specifier}`, async () => {
+    await withProducerFixture(async (root) => {
+      await writeFile(path.join(root, "free2z/src/main.ts"), `import ${JSON.stringify(specifier)};\n`);
+      await assert.rejects(assertProjectBoundaries(root), /exposes only its package root|relative import escapes/);
+    });
+  });
+}
+
+for (const [label, mutate] of [
+  ["public package", (m) => { m.private = false; }],
+  ["wrong identity", (m) => { m.name = "@free2z/other"; }],
+  ["extra export", (m) => { m.exports["./panel"] = "./src/panel.ts"; }],
+  ["escaping export", (m) => { m.exports["."] = "../../other.ts"; }],
+  ["runtime dependency", (m) => { m.dependencies = { other: "*" }; }],
+  ["install script", (m) => { m.scripts = { prepare: "node other.js" }; }],
+]) {
+  test(`producer boundary rejects ${label}`, async () => {
+    await withProducerFixture(async (root, producer) => {
+      const p = path.join(producer, "package.json");
+      const manifest = JSON.parse(await readFile(p, "utf8"));
+      mutate(manifest); await writeFile(p, JSON.stringify(manifest));
+      await assert.rejects(assertProjectBoundaries(root), /private dependency-free source package/);
+    });
+  });
+}
+
+test("producer boundary requires the exact declared dependency and lock link", async () => {
+  await withProducerFixture(async (root) => {
+    const p = path.join(root, "free2z/package-lock.json");
+    await writeFile(p, JSON.stringify({ packages: {} }));
+    await assert.rejects(assertProjectBoundaries(root), /exact producer source package as a local link/);
+    const manifestPath = path.join(root, "free2z/package.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    delete manifest.dependencies["@free2z/producer"];
+    await writeFile(manifestPath, JSON.stringify(manifest));
+    await assert.rejects(assertProjectBoundaries(root), /must declare the exact Free2Z producer source package/);
+  });
+});
+
+test("producer package cannot import back into an application", async () => {
+  await withProducerFixture(async (root, producer) => {
+    await writeFile(path.join(producer, "src/panel.ts"), 'export * from "../../../../wallet/zuuli/src/local";\n');
+    await assert.rejects(assertProjectBoundaries(root), /producer source import escapes its package/);
+  });
+});
+
+test("producer package cannot be shadowed by a TypeScript path alias", async () => {
+  await withProducerFixture(async (root) => {
+    await writeFile(path.join(root, "free2z/tsconfig.json"), JSON.stringify({ compilerOptions: {
+      baseUrl: ".", paths: { "@free2z/producer": ["./src/main.ts"] },
+    }, include: ["src"] }));
+    await assert.rejects(assertProjectBoundaries(root), /producer package import may not be shadowed/);
+  });
+});
+
+test("producer package cannot be shadowed by a Vite alias", async () => {
+  await withProducerFixture(async (root) => {
+    await writeFile(path.join(root, "free2z/vite.config.ts"), `export default {resolve:{alias:{"@free2z/producer":${JSON.stringify(path.join(root, "free2z/src/main.ts"))}}}};\n`);
+    await assert.rejects(assertProjectBoundaries(root), /producer import must resolve to its exact exported entry/);
+  });
+});
+
+test("declaring producer does not grant reads of sibling TypeScript packages", async () => {
+  await withProducerFixture(async (root, producer) => {
+    const sibling = path.resolve(producer, "../other.ts");
+    await writeFile(sibling, "private sibling fixture\n");
+    await writeFile(path.join(root, "free2z/vite.config.ts"), `import fs from "node:fs";\nfs.readFileSync(${JSON.stringify(sibling)});\nexport default {};\n`);
+    await assert.rejects(assertProjectBoundaries(root), /Vite build configuration is not auditable/);
+  });
+});
 
 test("current wallet source graph has no undeclared project crossing", async () => {
   const walletRoot = path.resolve(

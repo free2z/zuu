@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "free2z content surface — articles, live, AI, creator and search. Holds no Zcash seed and no messaging keys (see #904).",
+  "description": "free2z content surface \u2014 articles, live, AI, creator and search. Holds no Zcash seed and no messaging keys (see #904).",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.build.json && vite build",
@@ -63,7 +63,8 @@
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
     "unist-util-visit": "^5.0.0",
-    "zustand": "^5.0.0"
+    "zustand": "^5.0.0",
+    "@free2z/producer": "file:../../ts/free2z/producer"
   },
   "devDependencies": {
     "@playwright/test": "1.62.1",

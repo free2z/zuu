@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -20,7 +21,7 @@ export function ProducerDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button size="lg">{t("producer.heading")}</Button>
+        <Button size="lg">{t(MESSAGE_KEYS.producerHeading)}</Button>
       </DialogTrigger>
       <DialogContent
         className="max-h-[95dvh] overflow-y-auto max-w-3xl"
@@ -28,7 +29,7 @@ export function ProducerDialog() {
         aria-describedby={undefined}
       >
         <DialogHeader>
-          <DialogTitle>{t("producer.heading")}</DialogTitle>
+          <DialogTitle>{t(MESSAGE_KEYS.producerHeading)}</DialogTitle>
         </DialogHeader>
         <ProducerPanel />
       </DialogContent>

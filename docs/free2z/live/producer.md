@@ -5,8 +5,15 @@ Free2Z content hosting (`wallet/free2z`), never ZUULI seed-holder authority.
 
 The web creator dashboard links to `/<username>/dashboard/producer`; the
 content app's Live page has **Producer controls**. Both mount
-`ts/svelte/free2z/src/lib/producer/panel.ts` and use the same HTTP/state/replay implementation.
-This is a source module owned by Free2Z, with no independent package or release.
+`@free2z/producer` from `ts/free2z/producer` and use the same HTTP/state/replay implementation.
+This private source package exports only `src/index.ts` and is compiled by each
+consumer; it has no SDK dependency or independent release. Both apps declare
+locked local package dependencies. The content-app boundary permits it only
+for `wallet/free2z`; seed-holder and protocol packages gain no host authority.
+The content app maps the shared label inventory to exact typed `MESSAGE_KEYS`
+consumers, preserving locale/source policy checks.
+The web image uses a repository-root context with a Dockerfile-specific
+allowlist admitting the web app and its declared producer package.
 The existing viewer, PPV admission, private-invite and legacy host surfaces
 remain compatible. An outstanding v1 stream blocks legacy public host starts.
 The v1 API refuses paid/private/subscriber creation before provider I/O; it
@@ -184,7 +191,13 @@ partial token creation, takeover, grace expiry, provider failure and end/history
 discovery. `test_controlled_browser_real_django_flow` launches Chromium with
 synthetic capture and the actual shared panel against Django and PostgreSQL;
 only the provider and SDK are controlled fixtures. It **does not** establish
-real SDK broadcast acceptance. Run it after installing web frontend dependencies.
+real SDK broadcast acceptance. Run it after installing the locked web frontend
+dependencies and its matching Playwright Chromium. Backend CI collects each
+configured pytest-split group with the test runner's exact arguments, then
+installs the renderer lock and Chromium plus OS dependencies only for groups
+that collect either producer browser node. Missing dependencies fail the test;
+they do not skip integration coverage. This follows the
+[Playwright CI setup](https://playwright.dev/docs/ci).
 The framework Playwright suites separately cover the mounted entry points,
 unsupported modes, recovered authoritative state, focus and touch geometry.
 Delayed-promise browser cases exercise the actual shared panel with real

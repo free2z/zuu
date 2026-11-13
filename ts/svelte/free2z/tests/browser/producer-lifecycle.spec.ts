@@ -219,7 +219,7 @@ async function mount(page: Page, stage: string, draft = false) {
       stage,
       draft,
       labels: labels.producer,
-      moduleUrl: "/src/lib/producer/panel.ts",
+      moduleUrl: "/tests/producer-module.ts",
     },
   );
   await expect(page.getByRole("status")).toContainText("Backend ready");

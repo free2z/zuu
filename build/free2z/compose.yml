@@ -80,8 +80,8 @@ services:
   web:
     platform: linux/amd64
     build:
-      context: ../../ts/svelte/free2z
-      dockerfile: ../../../build/free2z/web.Dockerfile
+      context: ../..
+      dockerfile: build/free2z/web.Dockerfile
       args:
         PUBLIC_BUILD_SHA: local-development
     environment:

@@ -361,15 +361,14 @@ def test_controlled_browser_real_django_flow(
 
     root = Path(__file__).resolve().parents[5]
     esbuild = root / "ts/svelte/free2z/node_modules/.bin/esbuild"
-    if not esbuild.exists():
-        pytest.skip(
-            "Install the web frontend dependencies for the controlled browser contract"
-        )
+    assert esbuild.is_file(), (
+        "Install the locked web frontend dependencies for the controlled browser contract"
+    )
     bundle = tmp_path / "producer.js"
     subprocess.run(
         [
             str(esbuild),
-            str(root / "ts/svelte/free2z/src/lib/producer/panel.ts"),
+            str(root / "ts/free2z/producer/src/index.ts"),
             "--bundle",
             "--format=iife",
             "--global-name=Free2zProducer",

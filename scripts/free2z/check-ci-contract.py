@@ -6,6 +6,34 @@ import re
 import yaml
 
 
+def validate_producer_build_inputs(root):
+    """The web image must carry the same local source package as npm/CI."""
+    ci = yaml.safe_load((root / '.github/workflows/free2z-web-ci.yml').read_text())
+    compose = yaml.safe_load((root / 'build/free2z/compose.yml').read_text())
+    builds = [s for s in ci['jobs']['images']['steps'] if s.get('uses', '').startswith('docker/build-push-action@')]
+    if len(builds) != 1 or builds[0]['with']['context'] != '.':
+        raise ValueError('web image requires the repository context for its declared producer package')
+    if compose['services']['web']['build']['context'] != '../..' or compose['services']['web']['build']['dockerfile'] != 'build/free2z/web.Dockerfile':
+        raise ValueError('local web image must use the same repository context')
+    docker = (root / 'build/free2z/web.Dockerfile').read_text()
+    for instruction in (
+        'WORKDIR /src/ts/svelte/free2z',
+        'COPY ts/svelte/free2z/package*.json ./',
+        'COPY ts/free2z/producer/ /src/ts/free2z/producer/',
+        'COPY ts/svelte/free2z/ ./',
+        'COPY ts/free2z/producer/ /free2z/producer/',
+        'COPY --from=builder /src/ts/svelte/free2z/build ./build',
+    ):
+        if instruction not in docker.splitlines():
+            raise ValueError('web producer build input is missing: ' + instruction)
+    expected = ('**', '!ts/', '!ts/svelte/', '!ts/svelte/free2z/', '!ts/svelte/free2z/**',
+                '!ts/free2z/', '!ts/free2z/producer/', '!ts/free2z/producer/**',
+                '**/node_modules', '**/.svelte-kit', '**/build', '**/.vite', '**/.env', '**/.env.*', '**/npm-debug.log*')
+    ignore = tuple((root / 'build/free2z/web.Dockerfile.dockerignore').read_text().splitlines())
+    if ignore != expected:
+        raise ValueError('web context must admit only application/producer source and exclude local dependencies and secrets')
+
+
 def validate(ci, release, dockerfile, ruff):
     jobs = ci['jobs']
     if ci['permissions'] != {'contents': 'read'}:
@@ -56,6 +84,27 @@ def validate(ci, release, dockerfile, ruff):
     triggers = ci.get('on', ci.get(True, {}))
     if 'merge_group' not in triggers:
         raise ValueError('merge queue must run the required website gate')
+    backend_steps = jobs['backend']['steps']
+    selection = [s for s in backend_steps if s.get('id') == 'backend-browser']
+    if len(selection) != 1 or selection[0].get('run') != 'python ../../scripts/free2z/select-backend-browser.py' or any(k in selection[0] for k in ('if', 'continue-on-error')):
+        raise ValueError('every backend shard must collect its exact browser dependency selection')
+    browser_if = "steps.backend-browser.outputs.required == 'true'"
+    node_if = "matrix.group == 1 || " + browser_if
+    node = [s for s in backend_steps if s.get('uses', '').startswith('actions/setup-node@')]
+    renderer = [s for s in backend_steps if s.get('run') == 'npm ci' and s.get('working-directory') == 'ts/svelte/free2z']
+    browser = [s for s in backend_steps if s.get('run') == 'npx --no-install playwright install --with-deps chromium']
+    controls = [s for s in backend_steps if s.get('run') == 'python ../../scripts/free2z/test-select-backend-browser.py']
+    if len(node) != 1 or node[0].get('if') != node_if or node[0].get('with', {}).get('cache-dependency-path') != 'ts/svelte/free2z/package-lock.json':
+        raise ValueError('browser-selected backend shards require the renderer Node/lock setup')
+    if len(renderer) != 1 or renderer[0].get('if') != node_if or 'continue-on-error' in renderer[0]:
+        raise ValueError('browser-selected backend shards must install the exact renderer lock')
+    if len(browser) != 1 or browser[0].get('if') != browser_if or browser[0].get('working-directory') != 'ts/svelte/free2z' or 'continue-on-error' in browser[0]:
+        raise ValueError('backend producer integration requires matching Chromium and OS dependencies')
+    if len(controls) != 1 or controls[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in controls[0]:
+        raise ValueError('backend browser selection must execute its real allocation controls')
+    runner = next(s for s in backend_steps if 'scripts/free2z/ci-backend-pytest.sh' in s.get('run', ''))
+    if not backend_steps.index(selection[0]) < backend_steps.index(node[0]) < backend_steps.index(renderer[0]) < backend_steps.index(browser[0]) < backend_steps.index(runner):
+        raise ValueError('browser selection/setup must precede the real backend test runner')
     exports = [s for s in jobs['backend']['steps'] if 'export-task-registry.py' in s.get('run', '')]
     if len(exports) != 1 or exports[0].get('if') != 'matrix.group == 1' or 'continue-on-error' in exports[0] or jobs['backend']['steps'].index(exports[0]) <= jobs['backend']['steps'].index(parity[0]):
         raise ValueError('source-bound inventory must follow successful live registry parity')
@@ -168,6 +217,7 @@ def validate(ci, release, dockerfile, ruff):
 
 
 def check(root):
+    validate_producer_build_inputs(root)
     validate(yaml.safe_load((root/'.github/workflows/free2z-web-ci.yml').read_text()),yaml.safe_load((root/'.github/workflows/free2z-web-release.yml').read_text()),(root/'build/free2z/backend.Dockerfile').read_text(),(root/'ruff.toml').read_text())
 
 

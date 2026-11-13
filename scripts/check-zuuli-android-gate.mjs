@@ -30,7 +30,7 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // Re-derived for #784's shared Free2Z producer input: surfaces only. The
 // actions policy binds its mixed outputs and per-file behavior with real Git.
 const changeDetectorDigest =
-  "d106a72dce8c7ccf3e42bd2dc53827178aac207ca864b153d76feb02fd0bc9a0";
+  "692247f9accb79f55a89c242c169c682c6ebae79451682ab8490e4d80bb73b6c";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";

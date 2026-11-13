@@ -1,3 +1,5 @@
+# Build context: repository root; web.Dockerfile.dockerignore admits only the
+# web application and its declared Free2Z producer source package.
 # Build the adapter-node output separately from its native runtime dependencies.
 # SvelteKit is bundled into build/, so the security audit includes development
 # dependencies even though the runtime install uses --omit=dev. Native resvg
@@ -32,12 +34,13 @@ FROM node:24.22.2-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee
 RUN apk add --no-cache 'ca-certificates>=20261020-r0' 'musl>=1.2.6-r3' 'musl-utils>=1.2.6-r3' 'zlib>=1.3.2-r1'
 ENV NODE_OPTIONS=--use-openssl-ca
 
-WORKDIR /app
+WORKDIR /src/ts/svelte/free2z
 
-COPY package*.json ./
+COPY ts/svelte/free2z/package*.json ./
+COPY ts/free2z/producer/ /src/ts/free2z/producer/
 RUN npm ci
 
-COPY . .
+COPY ts/svelte/free2z/ ./
 
 # SvelteKit embeds this deterministic revision in its version endpoint. The
 # runtime deployment also exposes the same value through PUBLIC_BUILD_SHA for
@@ -69,7 +72,8 @@ COPY --from=og-fonts /og-fonts/ /usr/share/fonts/free2z/
 # `--ignore-scripts` is safe today (this package.json declares no prepare /
 # postinstall) and stops a transitive dependency's install script from reaching
 # for a devDependency that no longer exists in this stage.
-COPY package*.json ./
+COPY ts/svelte/free2z/package*.json ./
+COPY ts/free2z/producer/ /free2z/producer/
 # The server starts with node directly. Remove inherited package managers and
 # their dependency trees after installation; none are needed to serve requests.
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force \
@@ -79,11 +83,11 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force \
 # adapter-node output: build/index.js (what `node build` resolves to),
 # build/handler.js, build/server/, and build/client/ — which already contains
 # everything from static/.
-COPY --from=builder /app/build ./build
+COPY --from=builder /src/ts/svelte/free2z/build ./build
 
 # Exercise the native rasterizer and runtime fonts in the deployed image.
-COPY scripts/check-og-runtime.mjs ./scripts/check-og-runtime.mjs
-COPY scripts/og-script-samples.mjs ./scripts/og-script-samples.mjs
+COPY ts/svelte/free2z/scripts/check-og-runtime.mjs ./scripts/check-og-runtime.mjs
+COPY ts/svelte/free2z/scripts/og-script-samples.mjs ./scripts/og-script-samples.mjs
 RUN node scripts/check-og-runtime.mjs
 
 # ORIGIN is intentionally absent: Kubernetes supplies HOST_HEADER and

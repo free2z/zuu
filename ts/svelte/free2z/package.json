@@ -88,7 +88,8 @@
     "marked-gfm-heading-id": "^4.1.4",
     "mermaid": "^10.9.8",
     "qrcode": "^1.5.4",
-    "sharp": "0.35.5"
+    "sharp": "0.35.5",
+    "@free2z/producer": "file:../../free2z/producer"
   },
   "overrides": {
     "minimatch": "11.0.1",
