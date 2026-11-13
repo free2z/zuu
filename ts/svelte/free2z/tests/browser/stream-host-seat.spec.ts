@@ -70,7 +70,7 @@ async function openDashboard(page: Page) {
   const hydratedAuth = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/auth/user/",
   );
-  await page.goto(`${STREAM_URL}?lang=en`);
+  await page.goto(`${STREAM_URL}?lang=en`, { waitUntil: "domcontentloaded" });
   expect((await hydratedAuth).status()).toBe(200);
   await expect(page.getByTestId("stream-audience-grid")).toBeVisible();
 }
@@ -212,6 +212,12 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
 
   await page.goto(`/${OWNER}/broadcast?lang=en`);
 
+  // The SSR shell can finish loading before the viewer's dynamic modules
+  // hydrate on a cold server. Wait for the existing owner affordance, then
+  // assert the exact viewer-only admission contract.
+  await expect(page.getByTestId("owner-viewer-notice")).toBeVisible({
+    timeout: 20000,
+  });
   await expect.poll(() => joins.length).toBeGreaterThan(0);
   for (const body of joins) {
     expect(body).toEqual({ role: "viewer" });
@@ -227,6 +233,10 @@ test("public recovery observes disconnected state without an error and connected
   page,
 }) => {
   test.setTimeout(90_000);
+  // Freeze browser timers before hydration so the one-second admission
+  // retry cannot race source-module loading on a cold development server.
+  await page.clock.install({ time: new Date("2026-11-13T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2026-11-13T00:00:01Z"));
   const owner = "recoveryfixture";
   let joins = 0;
   await page.route(`**/api/dyte/${owner}/broadcast`, (route) => {
@@ -246,7 +256,7 @@ test("public recovery observes disconnected state without an error and connected
       await page.waitForTimeout(1_000);
     }
   }
-  await expect.poll(() => joins).toBe(1);
+  await expect.poll(() => joins, { timeout: 20000 }).toBe(1);
 
   const store = async (status: "connected" | "disconnected") =>
     page.evaluate(
@@ -259,10 +269,10 @@ test("public recovery observes disconnected state without an error and connected
     );
 
   await store("connected");
-  await page.waitForTimeout(2_000);
+  await page.clock.runFor(2_000);
   expect(joins).toBe(1);
 
   await store("disconnected");
-  await page.waitForTimeout(22_000);
+  await page.clock.runFor(22_000);
   await expect.poll(() => joins).toBe(2);
 });
