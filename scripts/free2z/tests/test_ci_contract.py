@@ -50,6 +50,12 @@ class CIContract(unittest.TestCase):
     def test_actual_producer_web_build_inputs(self):
         policy.validate_producer_build_inputs(ROOT)
 
+    def test_flat_runtime_cannot_preserve_the_producer_lock_identity(self):
+        policy.validate_producer_lock_identity('/src/ts/svelte/free2z', '/src/ts/free2z/producer')
+        policy.validate_producer_lock_identity('/app/ts/svelte/free2z', '/app/ts/free2z/producer')
+        with self.assertRaisesRegex(ValueError, 'canonical producer lock identity'):
+            policy.validate_producer_lock_identity('/app', '/free2z/producer')
+
     def test_web_producer_input_and_context_removal_controls(self):
         files = ('.github/workflows/free2z-web-ci.yml', 'build/free2z/compose.yml',
                  'build/free2z/web.Dockerfile', 'build/free2z/web.Dockerfile.dockerignore')
@@ -58,7 +64,9 @@ class CIContract(unittest.TestCase):
             (files[1], 'context: ../..\n      dockerfile: build/free2z/web.Dockerfile',
              'context: ../../ts/svelte/free2z\n      dockerfile: build/free2z/web.Dockerfile'),
             (files[2], 'COPY ts/free2z/producer/ /src/ts/free2z/producer/\n', ''),
-            (files[2], 'COPY ts/free2z/producer/ /free2z/producer/\n', ''),
+            (files[2], 'COPY ts/free2z/producer/ /app/ts/free2z/producer/\n', ''),
+            (files[2], 'WORKDIR /app/ts/svelte/free2z\n', 'WORKDIR /app\n'),
+            (files[2], 'RUN ln -s ts/svelte/free2z/build /app/build\n', ''),
             (files[3], '!ts/free2z/producer/**\n', ''),
             (files[3], '**/.env.*\n', ''),
             (files[3], '!ts/free2z/producer/**\n', '!ts/free2z/**\n'),

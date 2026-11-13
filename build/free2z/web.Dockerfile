@@ -57,7 +57,10 @@ FROM node:24.22.2-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee
 
 ARG PUBLIC_BUILD_SHA
 ENV PUBLIC_BUILD_SHA=$PUBLIC_BUILD_SHA
-WORKDIR /app
+# Preserve the lockfile's ../../free2z/producer identity in both stages.
+# Flattening this install at /app normalizes the link to ../free2z/producer,
+# which npm correctly refuses because that target is absent from the lock.
+WORKDIR /app/ts/svelte/free2z
 
 # Resvg cannot draw any text without system fonts. The minimal Node Alpine
 # image has none; install a sans-serif fallback for the social-card renderer.
@@ -73,7 +76,7 @@ COPY --from=og-fonts /og-fonts/ /usr/share/fonts/free2z/
 # postinstall) and stops a transitive dependency's install script from reaching
 # for a devDependency that no longer exists in this stage.
 COPY ts/svelte/free2z/package*.json ./
-COPY ts/free2z/producer/ /free2z/producer/
+COPY ts/free2z/producer/ /app/ts/free2z/producer/
 # The server starts with node directly. Remove inherited package managers and
 # their dependency trees after installation; none are needed to serve requests.
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force \
@@ -84,6 +87,8 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force \
 # build/handler.js, build/server/, and build/client/ — which already contains
 # everything from static/.
 COPY --from=builder /src/ts/svelte/free2z/build ./build
+# Keep the release asset export path stable while retaining the install tree.
+RUN ln -s ts/svelte/free2z/build /app/build
 
 # Exercise the native rasterizer and runtime fonts in the deployed image.
 COPY ts/svelte/free2z/scripts/check-og-runtime.mjs ./scripts/check-og-runtime.mjs

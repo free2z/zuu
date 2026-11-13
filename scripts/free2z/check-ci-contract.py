@@ -3,6 +3,7 @@
 from pathlib import Path
 import argparse
 import re
+import posixpath
 import yaml
 
 
@@ -18,20 +19,29 @@ def validate_producer_build_inputs(root):
     docker = (root / 'build/free2z/web.Dockerfile').read_text()
     for instruction in (
         'WORKDIR /src/ts/svelte/free2z',
+        'WORKDIR /app/ts/svelte/free2z',
         'COPY ts/svelte/free2z/package*.json ./',
         'COPY ts/free2z/producer/ /src/ts/free2z/producer/',
         'COPY ts/svelte/free2z/ ./',
-        'COPY ts/free2z/producer/ /free2z/producer/',
+        'COPY ts/free2z/producer/ /app/ts/free2z/producer/',
         'COPY --from=builder /src/ts/svelte/free2z/build ./build',
+        'RUN ln -s ts/svelte/free2z/build /app/build',
     ):
         if instruction not in docker.splitlines():
             raise ValueError('web producer build input is missing: ' + instruction)
+    validate_producer_lock_identity('/src/ts/svelte/free2z', '/src/ts/free2z/producer')
+    validate_producer_lock_identity('/app/ts/svelte/free2z', '/app/ts/free2z/producer')
     expected = ('**', '!ts/', '!ts/svelte/', '!ts/svelte/free2z/', '!ts/svelte/free2z/**',
                 '!ts/free2z/', '!ts/free2z/producer/', '!ts/free2z/producer/**',
                 '**/node_modules', '**/.svelte-kit', '**/build', '**/.vite', '**/.env', '**/.env.*', '**/npm-debug.log*')
     ignore = tuple((root / 'build/free2z/web.Dockerfile.dockerignore').read_text().splitlines())
     if ignore != expected:
         raise ValueError('web context must admit only application/producer source and exclude local dependencies and secrets')
+
+
+def validate_producer_lock_identity(app, producer):
+    if posixpath.relpath(producer, app) != '../../free2z/producer':
+        raise ValueError('web install layout changes the canonical producer lock identity')
 
 
 def validate(ci, release, dockerfile, ruff):
