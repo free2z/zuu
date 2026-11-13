@@ -440,6 +440,20 @@ export const ApplicationStatusEnum = {
 } as const;
 
 /**
+ * * `public` - public
+ * * `private` - private
+ * * `subscribers` - subscribers
+ */
+export type AudienceEnum = typeof AudienceEnum[keyof typeof AudienceEnum];
+
+
+export const AudienceEnum = {
+  public: 'public',
+  private: 'private',
+  subscribers: 'subscribers',
+} as const;
+
+/**
  * The public half of the handle authority, for configuring a log.
  */
 export interface AuthorityInfo {
@@ -4318,6 +4332,135 @@ export interface Pricing {
   /** True if this is a cold-start estimate (no live/cached price yet); show it as an estimate. */
   bootstrap: boolean;
   card: CardFees;
+}
+
+/**
+ * * `free` - free
+ * * `paid` - paid
+ */
+export type ProducerAccessEnum = typeof ProducerAccessEnum[keyof typeof ProducerAccessEnum];
+
+
+export const ProducerAccessEnum = {
+  free: 'free',
+  paid: 'paid',
+} as const;
+
+export type ProducerErrorOperation = {[key: string]: unknown};
+
+/**
+ * * `draft` - draft
+ * * `provisioning` - provisioning
+ * * `ready` - ready
+ * * `live` - live
+ * * `interrupted` - interrupted
+ * * `ending` - ending
+ * * `ended` - ended
+ * * `failed` - failed
+ * * `cleaned_up` - cleaned_up
+ */
+export type ProducerStateEnum = typeof ProducerStateEnum[keyof typeof ProducerStateEnum];
+
+
+export const ProducerStateEnum = {
+  draft: 'draft',
+  provisioning: 'provisioning',
+  ready: 'ready',
+  live: 'live',
+  interrupted: 'interrupted',
+  ending: 'ending',
+  ended: 'ended',
+  failed: 'failed',
+  cleaned_up: 'cleaned_up',
+} as const;
+
+export interface ProducerStatus {
+  id: string;
+  state: ProducerStateEnum;
+  version: number;
+  title: string;
+  description: string;
+  audience: string;
+  access: string;
+  owner: string;
+  /** @nullable */
+  room_id: string | null;
+  /** @nullable */
+  participants: number | null;
+  error_code: string;
+  /** @nullable */
+  ended_at: string | null;
+  heartbeat_seconds: number;
+  grace_seconds: number;
+}
+
+export interface ProducerError {
+  code: string;
+  stream?: ProducerStatus;
+  operation?: ProducerErrorOperation;
+  /** @nullable */
+  auth_token?: string | null;
+}
+
+/**
+ * * `draft` - draft
+ * * `update` - update
+ * * `provision` - provision
+ * * `refresh` - refresh
+ * * `publish` - publish
+ * * `heartbeat` - heartbeat
+ * * `interrupt` - interrupt
+ * * `takeover` - takeover
+ * * `end` - end
+ */
+export type ProducerInstructionActionEnum = typeof ProducerInstructionActionEnum[keyof typeof ProducerInstructionActionEnum];
+
+
+export const ProducerInstructionActionEnum = {
+  draft: 'draft',
+  update: 'update',
+  provision: 'provision',
+  refresh: 'refresh',
+  publish: 'publish',
+  heartbeat: 'heartbeat',
+  interrupt: 'interrupt',
+  takeover: 'takeover',
+  end: 'end',
+} as const;
+
+export interface ProducerInstruction {
+  action: ProducerInstructionActionEnum;
+  idempotency_key: string;
+  /** @minimum 1 */
+  expected_actor_id: number;
+  owner: string;
+  /** @minimum 1 */
+  version: number;
+  /** @maxLength 120 */
+  title: string;
+  /** @maxLength 2000 */
+  description: string;
+  audience: AudienceEnum;
+  access: ProducerAccessEnum;
+}
+
+export interface ProducerReadiness {
+  eligible: boolean;
+  ready: boolean;
+  provider_configured: boolean;
+  provider_reachable: boolean;
+  supported_audiences: string[];
+  supported_access: string[];
+  contract_version: number;
+}
+
+export type ProducerResultOperation = {[key: string]: unknown};
+
+export interface ProducerResult {
+  stream: ProducerStatus;
+  operation: ProducerResultOperation;
+  /** @nullable */
+  auth_token: string | null;
 }
 
 /**

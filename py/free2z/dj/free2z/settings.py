@@ -1614,6 +1614,10 @@ SPECTACULAR_SETTINGS = {
     # Pinning the old names keeps the published names stable; new enums
     # namespace themselves as they should.
     'ENUM_NAME_OVERRIDES': {
+        'AccessEnum': ['private', 'members', 'public'],
+        'ProducerAccessEnum': ['free', 'paid'],
+        'ProducerStateEnum': ['draft', 'provisioning', 'ready', 'live', 'interrupted', 'ending', 'ended', 'failed', 'cleaned_up'],
+        'StateEnum': ['requested', 'approved', 'signing', 'broadcast_unknown', 'broadcast', 'confirmed', 'rejected'],
         'StatusEnum': ('queued', 'delivered', 'refunded'),
         # dj.apps.g12f.account_deletion.BLOCKERS: a named enum rather than
         # the generic `BlockersEnum` drf-spectacular would otherwise derive.
@@ -3327,3 +3331,10 @@ if os.getenv('ENABLE_DEBUG_TOOLBAR', False):
 
 # Enable only after dedicated mcp-ai workers register oidc.invoke_mcp_ai.
 MCP_AI_ENABLED = _boolean_env("MCP_AI_ENABLED", False)
+
+# Versioned producer API uses Cloudflare's current, documented REST surface.
+# Empty by default; compatibility viewer and producer app identities must agree.
+RTK_PRODUCER_ACCOUNT_ID = os.environ.get('RTK_PRODUCER_ACCOUNT_ID', '')
+RTK_PRODUCER_APP_ID = os.environ.get('RTK_PRODUCER_APP_ID', '')
+RTK_PRODUCER_API_TOKEN = os.environ.get('RTK_PRODUCER_API_TOKEN', '')
+RTK_PRODUCER_HOST_PRESET = os.environ.get('RTK_PRODUCER_HOST_PRESET', '')

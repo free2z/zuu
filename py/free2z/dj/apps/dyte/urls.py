@@ -2,6 +2,7 @@ from django.urls import include, path, register_converter
 from dj.free2z.routers import Free2zRouter
 
 from . import views
+from .producer_api import ProducerView, ProducerDetail, ProducerHistory
 from .recording_control import (RecordingControl, RecordingStopControl,
                                 PrivateRecordingControl, PrivateRecordingStopControl,
                                 PrivateRecordingVisibility)
@@ -16,6 +17,9 @@ router = Free2zRouter()
 router.register(r'public', views.PublicMeetingViewSet, basename='public-meeting')
 
 urlpatterns = [
+    path('producer/v1', ProducerView.as_view(), name='producer_v1'),
+    path('producer/v1/history', ProducerHistory.as_view(), name='producer_v1_history'),
+    path('producer/v1/<uuid:stream_id>', ProducerDetail.as_view(), name='producer_v1_detail'),
     path('<str:username>/private/<uuid:secret>/recording/stop', PrivateRecordingStopControl.as_view(), name='private_recording_stop'),
     path('<str:username>/private/<uuid:secret>/recording-visibility', PrivateRecordingVisibility.as_view(), name='private_recording_visibility'),
     path('<str:username>/private/<uuid:secret>/recording', PrivateRecordingControl.as_view(), name='private_recording_control'),

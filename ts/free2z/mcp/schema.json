@@ -4636,6 +4636,657 @@
         }
       }
     },
+    "/api/dyte/producer/v1": {
+      "get": {
+        "operationId": "dyte_producer_v1_readiness",
+        "tags": [
+          "dyte"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerReadiness"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "dyte_producer_v1_draft",
+        "tags": [
+          "dyte"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProducerInstruction"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerResult"
+                }
+              }
+            },
+            "description": ""
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerResult"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/dyte/producer/v1/{stream_id}": {
+      "get": {
+        "operationId": "dyte_producer_v1_status",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "dyte"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerStatus"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      },
+      "post": {
+        "operationId": "dyte_producer_v1_action",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stream_id",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "dyte"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProducerInstruction"
+              }
+            }
+          },
+          "required": true
+        },
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerResult"
+                }
+              }
+            },
+            "description": ""
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerResult"
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
+    "/api/dyte/producer/v1/history": {
+      "get": {
+        "operationId": "dyte_producer_v1_history",
+        "tags": [
+          "dyte"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProducerStatus"
+                  }
+                }
+              }
+            },
+            "description": ""
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProducerError"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/dyte/public/": {
       "get": {
         "operationId": "dyte_public_list",
@@ -15736,6 +16387,15 @@
         "type": "string",
         "description": "* `NEW` - New\n* `PENDING` - Pending\n* `APPROVED` - Approved\n* `REJECTED` - Rejected"
       },
+      "AudienceEnum": {
+        "enum": [
+          "public",
+          "private",
+          "subscribers"
+        ],
+        "type": "string",
+        "description": "* `public` - public\n* `private` - private\n* `subscribers` - subscribers"
+      },
       "AuthorityInfo": {
         "type": "object",
         "description": "The public half of the handle authority, for configuring a log.",
@@ -22693,6 +23353,248 @@
           "usd_per_tuzi",
           "zec_promotion",
           "zec_usd"
+        ]
+      },
+      "ProducerAccessEnum": {
+        "enum": [
+          "free",
+          "paid"
+        ],
+        "type": "string",
+        "description": "* `free` - free\n* `paid` - paid"
+      },
+      "ProducerError": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "stream": {
+            "$ref": "#/components/schemas/ProducerStatus"
+          },
+          "operation": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "auth_token": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "ProducerInstruction": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ProducerInstructionActionEnum"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_actor_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "owner": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 120
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "audience": {
+            "$ref": "#/components/schemas/AudienceEnum"
+          },
+          "access": {
+            "$ref": "#/components/schemas/ProducerAccessEnum"
+          }
+        },
+        "required": [
+          "access",
+          "action",
+          "audience",
+          "description",
+          "expected_actor_id",
+          "idempotency_key",
+          "owner",
+          "title",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "ProducerInstructionActionEnum": {
+        "enum": [
+          "draft",
+          "update",
+          "provision",
+          "refresh",
+          "publish",
+          "heartbeat",
+          "interrupt",
+          "takeover",
+          "end"
+        ],
+        "type": "string",
+        "description": "* `draft` - draft\n* `update` - update\n* `provision` - provision\n* `refresh` - refresh\n* `publish` - publish\n* `heartbeat` - heartbeat\n* `interrupt` - interrupt\n* `takeover` - takeover\n* `end` - end"
+      },
+      "ProducerReadiness": {
+        "type": "object",
+        "properties": {
+          "eligible": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "provider_configured": {
+            "type": "boolean"
+          },
+          "provider_reachable": {
+            "type": "boolean"
+          },
+          "supported_audiences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supported_access": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contract_version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "contract_version",
+          "eligible",
+          "provider_configured",
+          "provider_reachable",
+          "ready",
+          "supported_access",
+          "supported_audiences"
+        ]
+      },
+      "ProducerResult": {
+        "type": "object",
+        "properties": {
+          "stream": {
+            "$ref": "#/components/schemas/ProducerStatus"
+          },
+          "operation": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "auth_token": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "auth_token",
+          "operation",
+          "stream"
+        ]
+      },
+      "ProducerStateEnum": {
+        "enum": [
+          "draft",
+          "provisioning",
+          "ready",
+          "live",
+          "interrupted",
+          "ending",
+          "ended",
+          "failed",
+          "cleaned_up"
+        ],
+        "type": "string",
+        "description": "* `draft` - draft\n* `provisioning` - provisioning\n* `ready` - ready\n* `live` - live\n* `interrupted` - interrupted\n* `ending` - ending\n* `ended` - ended\n* `failed` - failed\n* `cleaned_up` - cleaned_up"
+      },
+      "ProducerStatus": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProducerStateEnum"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "access": {
+            "type": "string"
+          },
+          "owner": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "room_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "participants": {
+            "type": "integer",
+            "nullable": true
+          },
+          "error_code": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "heartbeat_seconds": {
+            "type": "integer"
+          },
+          "grace_seconds": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "access",
+          "audience",
+          "description",
+          "ended_at",
+          "error_code",
+          "grace_seconds",
+          "heartbeat_seconds",
+          "id",
+          "owner",
+          "participants",
+          "room_id",
+          "state",
+          "title",
+          "version"
         ]
       },
       "PromptRequest": {

@@ -10,6 +10,7 @@ export type Operation = {
   path: string;
   spec: Schema;
   sessionOnly?: boolean;
+  unsupported?: string;
 };
 export const document: Schema = JSON.parse(
   readFileSync(new URL("../schema.json", import.meta.url), "utf8"),
@@ -34,6 +35,12 @@ for (const [path, item] of Object.entries(document.paths) as [
       throw new Error("Duplicate API operation ID");
     operations.set(spec.operationId, {
       id: spec.operationId,
+      ...(spec.operationId.startsWith("dyte_producer_v1_")
+        ? {
+            unsupported:
+              "Producer v1 requires the interactive Free2Z broadcast client and explicit lifecycle ownership; schema discovery does not enable MCP execution.",
+          }
+        : {}),
       method: method.toUpperCase(),
       path,
       spec: {
@@ -122,6 +129,7 @@ export function summary(op: Operation) {
     tags: op.spec.tags ?? [],
     description: (op.spec.summary ?? op.spec.description ?? "").split("\n")[0],
     session_only: op.sessionOnly ?? false,
+    ...(op.unsupported ? { supported: false, reason: op.unsupported } : {}),
   };
 }
 export function describe(op: Operation) {

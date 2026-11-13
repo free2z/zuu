@@ -412,3 +412,60 @@ class RecordingDelivery(models.Model):
 
     def __str__(self):
         return str(self.idempotency_key)
+
+
+class ProducerStream(models.Model):
+    """Historical, immutable room generation; one outstanding stream per owner."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    creator = models.ForeignKey('g12f.Creator', on_delete=models.PROTECT)
+    account_epoch = models.PositiveIntegerField()
+    title = models.CharField(max_length=120)
+    description = models.CharField(max_length=2000, blank=True)
+    audience = models.CharField(max_length=24, default='public')
+    access = models.CharField(max_length=24, default='free')
+    state = models.CharField(max_length=24, default='draft', db_index=True)
+    version = models.PositiveIntegerField(default=1)
+    owner = models.UUIDField()
+    room_id = models.UUIDField(null=True)
+    # Durable write-ahead markers. A crash after either POST never permits
+    # another create/mint; only reconciliation or room deactivation is safe.
+    create_attempted = models.BooleanField(default=False)
+    token_attempted = models.BooleanField(default=False)
+    participant_id = models.UUIDField(null=True)
+    token_ciphertext = models.TextField(blank=True)
+    token_expires_at = models.DateTimeField(null=True)
+    session_id = models.UUIDField(null=True)
+    participants = models.PositiveIntegerField(null=True)
+    confirmed_at = models.DateTimeField(null=True)
+    heartbeat_at = models.DateTimeField(default=timezone.now)
+    interrupted_at = models.DateTimeField(null=True)
+    ended_at = models.DateTimeField(null=True)
+    cleanup_attempts = models.PositiveIntegerField(default=0)
+    next_cleanup_at = models.DateTimeField(default=timezone.now)
+    error_code = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    meeting = models.ForeignKey(CreatorMeeting, null=True, on_delete=models.PROTECT)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['creator'], condition=~models.Q(state='cleaned_up'),
+            name='dyte_one_outstanding_producer',
+        )]
+
+
+class ProducerOperation(models.Model):
+    creator = models.ForeignKey('g12f.Creator', on_delete=models.PROTECT)
+    key = models.UUIDField()
+    fingerprint = models.CharField(max_length=64)
+    stream = models.ForeignKey(ProducerStream, on_delete=models.PROTECT)
+    # Operation/version and optional private legacy-retirement receipt ID;
+    # never a host token. The HTTP reply exposes only operation/version.
+    result = models.JSONField(default=dict)
+    status = models.PositiveSmallIntegerField(default=202)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['creator', 'key'], name='dyte_producer_actor_key',
+        )]
