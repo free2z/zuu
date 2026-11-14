@@ -261,7 +261,7 @@ CONFIGURED_MODES = ('auto',) + AUTH_MODES
 V4_API_ROOT = 'https://api.cloudflare.com/client/v4'
 
 #: ``jsonPayload.event`` of every failed provider request. An alerting
-#: contract (free2z/tuzi monitoring) -- do not rename it or its fields.
+#: contract (production log-based alerting) -- do not rename it or its fields.
 PROVIDER_FAILURE_EVENT = 'rtk_provider_request_failed'
 #: ``jsonPayload.event`` of the once-per-process credential-mode line.
 MODE_SELECTED_EVENT = 'rtk_api_mode_selected'
