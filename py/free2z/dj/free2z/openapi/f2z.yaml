@@ -12493,10 +12493,21 @@ components:
           description: Optional fee set by Creator
         e2ee:
           type: boolean
+        participant_count:
+          type: integer
+          nullable: true
+          readOnly: true
+        participant_count_as_of:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
       required:
       - creator
       - id
       - meeting_id
+      - participant_count
+      - participant_count_as_of
     CreatorPasswordChange:
       type: object
       properties:
@@ -16472,9 +16483,20 @@ components:
           format: decimal
           pattern: ^-?\d{0,4}(?:\.\d{0,2})?$
           description: Optional fee set by Creator
+        participant_count:
+          type: integer
+          nullable: true
+          readOnly: true
+        participant_count_as_of:
+          type: string
+          format: date-time
+          nullable: true
+          readOnly: true
       required:
       - avatar
       - meeting_type
+      - participant_count
+      - participant_count_as_of
       - username
     PublicMeetingListMeetingTypeEnum:
       enum:

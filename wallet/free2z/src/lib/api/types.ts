@@ -176,7 +176,8 @@ export interface AIModel {
   output_price: string; // USD per token
   markup: string; // multiplier above cost
   /** Convenience: provider family inferred from the model name. */
-  provider?: "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
+  provider?:
+    "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
 }
 
 export interface PromptResponse {
@@ -358,6 +359,7 @@ export interface LiveStatus {
   live: boolean;
   /** Authoritative hydrated count, or null while the count is unavailable. */
   participants: number | null;
+  participants_as_of: string | null;
   kind: StreamKind;
 }
 
@@ -372,6 +374,7 @@ export interface Livestream {
   live: boolean;
   /** Authoritative hydrated count, or null while the count is unavailable. */
   participants: number | null;
+  participants_as_of?: string | null;
   /** 2Z price to join (0 for free broadcast). */
   price_tuzis: number;
   thumbnail?: string | null;
@@ -518,10 +521,7 @@ export type KycTaxFormKind = "W-9" | "W-8BEN" | "W-8BEN-E";
 
 /** The four identity-document upload slots /api/kyc/identity-documents accepts. */
 export type KycIdentityDocType =
-  | "id_front"
-  | "id_back"
-  | "additional_document"
-  | "live_photo";
+  "id_front" | "id_back" | "additional_document" | "live_photo";
 
 /** GET /api/kyc/identity-documents → `{ <doctype>_url }` per uploaded slot. */
 export type KycIdentityDocuments = Partial<

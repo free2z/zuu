@@ -110,6 +110,23 @@ export function Room() {
     return { streams: await live.listPublic(), inviteTicket: null };
   }, [justStarted, inviteSecret, privateInviteAttempt, username]);
 
+  // Refresh the same authoritative listing while visible so snapshot age is
+  // bounded on a room kept open for longer than the server freshness window.
+  useEffect(() => {
+    if (justStarted || inviteSecret) return;
+    const interval = window.setInterval(() => {
+      if (!document.hidden) reload();
+    }, 15_000);
+    const onVisible = () => {
+      if (!document.hidden) reload();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [justStarted, inviteSecret, reload]);
+
   // Resolve the stream: prefer the public listing; otherwise synthesize one
   // from the just-started host session (creator's own stream isn't public
   // until it's discoverable).
@@ -290,7 +307,9 @@ export function Room() {
             {stream.live ? (
               <div className="absolute end-4 top-4 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
                 <Users className="h-3.5 w-3.5" aria-hidden />
-                <span className="bidi-number tabular-nums">{participants.watching}</span>
+                <span className="bidi-number tabular-nums">
+                  {participants.watching}
+                </span>
               </div>
             ) : null}
 
@@ -380,24 +399,22 @@ export function Room() {
                 }}
               />
             )
+          ) : entryState === "checking-session" ? (
+            <ViewerIdentityCheck />
+          ) : entryState === "creator-blocked" ? (
+            <CreatorViewerGuard />
           ) : (
-            entryState === "checking-session" ? (
-              <ViewerIdentityCheck />
-            ) : entryState === "creator-blocked" ? (
-              <CreatorViewerGuard />
-            ) : (
-              <JoinPanel
-                stream={stream}
-                tuzis={tuzis}
-                onJoined={(t, secret) => {
-                  setActiveJoinSecret(secret);
-                  setTicket(t);
-                  if (stream.kind === "ppv" && stream.price_tuzis > 0) {
-                    adjustTuzis(-stream.price_tuzis);
-                  }
-                }}
-              />
-            )
+            <JoinPanel
+              stream={stream}
+              tuzis={tuzis}
+              onJoined={(t, secret) => {
+                setActiveJoinSecret(secret);
+                setTicket(t);
+                if (stream.kind === "ppv" && stream.price_tuzis > 0) {
+                  adjustTuzis(-stream.price_tuzis);
+                }
+              }}
+            />
           )}
         </div>
       </div>
@@ -1171,7 +1188,9 @@ function HostControls({
         </Badge>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Users className="h-3.5 w-3.5" aria-hidden />
-          <span className="bidi-number tabular-nums">{participants.watching}</span>
+          <span className="bidi-number tabular-nums">
+            {participants.watching}
+          </span>
         </span>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
@@ -1226,9 +1245,7 @@ function ParticipantStrip({ count }: { count: number | null }) {
   const copy = participantCountCopy(count);
   return (
     <div>
-      <div className="mb-2 eyebrow text-muted-foreground">
-        In the room
-      </div>
+      <div className="mb-2 eyebrow text-muted-foreground">In the room</div>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Users className="h-3.5 w-3.5" aria-hidden />
         <span className="bidi-number tabular-nums font-medium text-foreground">

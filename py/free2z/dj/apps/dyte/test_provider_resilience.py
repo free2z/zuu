@@ -9,6 +9,8 @@ import requests
 from django.core.cache import cache
 from dj.apps.dyte.client import (
     DyteClient, _count_cache_keys, _count_generation, _write_count_if_current,
+    _count_snapshot_key, PARTICIPANT_COUNT_TTL,
+    PARTICIPANT_COUNT_SNAPSHOT_TTL,
 )
 from dj.apps.dyte.models import PRIVATE, CreatorMeeting
 
@@ -27,19 +29,26 @@ class _ProcessSharedCache:
     def make_key(self, key):
         return key
 
+
     def eval(self, script, key_count, *args):
         with self.lock:
-            if key_count == 2:
-                generation_key, current_key, token, *_ = args
+            if key_count == 3:
+                generation_key, current_key, snapshot_key, token, *_ = args
                 generation = self.values.get(generation_key, 0) + 1
                 self.values[generation_key] = generation
                 self.values[current_key] = f"{generation}:{token}"
+                self.values.pop(snapshot_key, None)
                 return generation
-            current_key, recent_key, stale_key, generation, count, *_ = args
+            current_key, recent_key, stale_key, snapshot_key, generation, count, *rest = args
             if self.values.get(current_key) != generation:
                 return 0
             self.values[recent_key] = int(count)
             self.values[stale_key] = int(count)
+            if len(rest) >= 2 and rest[-2]:
+                import json
+                self.values[snapshot_key] = json.loads(rest[-2])
+            else:
+                self.values.pop(snapshot_key, None)
             return 1
 
     def get(self, key, default=None):
@@ -71,6 +80,65 @@ class _ProcessSharedCache:
     def delete(self, key):
         with self.lock:
             return self.values.pop(key, None) is not None
+
+@pytest.mark.django_db
+def test_successful_host_alone_observation_writes_timestamped_snapshot(mocker):
+    room = "snapshot-host-alone"
+    session = uuid.uuid4()
+    cache.delete(_count_snapshot_key(room))
+    mocker.patch.object(DyteClient, "get_participants_count", return_value=1)
+
+    assert DyteClient("org").get_cached_participants_count(room, session) == 1
+    snapshot = DyteClient("org").get_cached_participant_snapshot(room, session)
+    assert snapshot["count"] == 1
+    assert snapshot["provider_session_id"] == str(session)
+    assert snapshot["room_id"] == room
+    assert timezone.datetime.fromisoformat(snapshot["observed_at"]).tzinfo
+
+
+@pytest.mark.django_db
+def test_snapshot_reader_rejects_legacy_malformed_expired_future_and_other_session(mocker):
+    from django.utils import timezone
+
+    room = "snapshot-invalid"
+    key = _count_snapshot_key(room)
+    session = uuid.uuid4()
+    cache.set(_count_cache_keys(room)[0], 1, PARTICIPANT_COUNT_TTL)
+    cache.delete(key)
+    client = DyteClient("org")
+    assert client.get_cached_participant_snapshot(room, session) is None
+    now = timezone.now()
+    base = {"version": 1, "count": 1, "room_id": room,
+            "provider_session_id": str(session), "observed_at": now.isoformat()}
+    for value in ("legacy", {**base, "observed_at": "bad"},
+                  {**base, "observed_at": (now - timezone.timedelta(seconds=PARTICIPANT_COUNT_SNAPSHOT_TTL + 1)).isoformat()},
+                  {**base, "observed_at": (now + timezone.timedelta(seconds=1)).isoformat()},
+                  {**base, "provider_session_id": str(uuid.uuid4())}):
+        cache.set(key, value, PARTICIPANT_COUNT_TTL)
+        assert client.get_cached_participant_snapshot(room, session) is None
+
+
+@pytest.mark.django_db
+def test_provider_failure_does_not_refresh_snapshot(mocker):
+    room = "snapshot-failed-observation"
+    session = uuid.uuid4()
+    key = _count_snapshot_key(room)
+    old = {"version": 1, "count": 1, "room_id": room,
+           "provider_session_id": str(session),
+           "observed_at": "2026-01-01T00:00:00+00:00"}
+    cache.set(key, old, PARTICIPANT_COUNT_TTL)
+    cache.delete(_count_cache_keys(room)[0])
+    mocker.patch.object(DyteClient, "get_participants_count", side_effect=requests.Timeout())
+    with pytest.raises(requests.Timeout):
+        DyteClient("org").get_cached_participants_count(room, session)
+    # Beginning a replacement probe invalidates the prior public snapshot;
+    # the later failed observation cannot republish the stale integer.
+    assert cache.get(key) is None
+    assert DyteClient("org").get_cached_participant_snapshot(room, session) is None
+
+
+from django.utils import timezone
+
 
 
 def _run_count_probe_worker(shared_cache, first_started, release_first,
@@ -180,6 +248,7 @@ def test_older_probe_from_another_worker_cannot_overwrite_shared_cache():
 
         assert shared_backend.get(recent_key) == 9
         assert shared_backend.get(stale_key) == 9
+        assert shared_backend.get(_count_snapshot_key(meeting_id))["count"] == 9
 
 
 def test_expired_writer_token_cannot_partially_update_count_snapshots(mocker):
@@ -197,6 +266,22 @@ def test_expired_writer_token_cannot_partially_update_count_snapshots(mocker):
 
     assert shared.get(recent_key) == 11
     assert shared.get(stale_key) == 11
+    assert shared.get(_count_snapshot_key(meeting_id)) is None
+
+
+def test_new_generation_invalidates_snapshot_before_late_old_writer(mocker):
+    meeting_id = "pre-invalidation-snapshot"
+    shared = _ProcessSharedCache({}, threading.RLock())
+    mocker.patch("dj.apps.dyte.client.cache", shared)
+    old = _count_generation(meeting_id)
+    snapshot = {"version": 1, "count": 1, "observed_at": "old",
+                "room_id": meeting_id, "provider_session_id": "old-session"}
+    _write_count_if_current(meeting_id, old, 1, snapshot)
+    assert shared.get(_count_snapshot_key(meeting_id)) == snapshot
+
+    _count_generation(meeting_id)  # invalidates current snapshot atomically
+    _write_count_if_current(meeting_id, old, 1, snapshot)
+    assert shared.get(_count_snapshot_key(meeting_id)) is None
 
 
 @pytest.mark.django_db
@@ -272,6 +357,12 @@ def test_live_status_exposes_public_provider_session_for_ppv_key_scope(
         "dj.apps.dyte.views.DyteClient.get_cached_participants_count",
         return_value=2,
     )
+    cache.set(_count_snapshot_key("ppv-session-room"), {
+        "version": 1, "count": 2,
+        "observed_at": timezone.now().isoformat(),
+        "room_id": "ppv-session-room",
+        "provider_session_id": str(session_id),
+    }, PARTICIPANT_COUNT_TTL)
 
     result = api_client.get(f"/api/dyte/{host.username}/live-status")
 

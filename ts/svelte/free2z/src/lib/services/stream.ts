@@ -126,7 +126,12 @@ export const streamInfoSchema = z.object({
   type: streamTypeSchema,
   // Public discovery (the bounded live rail) omits the viewer count, so this
   // stays optional rather than becoming a false zero in the UI.
-  participant_count: z.number().optional(),
+  participant_count: z.number().nullable().optional(),
+  participant_count_as_of: z
+    .string()
+    .datetime({ offset: true })
+    .nullable()
+    .optional(),
   // True while the host's recording control has an active capture. Omitted
   // by older payloads and by discovery lists that do not know.
   recording: z.boolean().optional(),
@@ -144,13 +149,18 @@ const normalizedLiveStatusResponseSchema = z.object({
   is_live: z.boolean(),
   // Public discovery cannot provide a viewer count. Preserve an omitted count
   // as unavailable instead of turning it into a false zero in the UI.
-  participant_count: z.number().optional(),
+  participant_count: z.number().nullable().optional(),
+  participant_count_as_of: z
+    .string()
+    .datetime({ offset: true })
+    .nullable()
+    .optional(),
   streams: z.array(streamInfoSchema).default([]),
 });
 
 const legacyStreamInfoSchema = z.object({
   meeting_type: streamTypeSchema,
-  participants: z.number(),
+  participants: z.number().nullable(),
   price_per_minute: z.union([z.string(), z.number()]).nullable().optional(),
   meeting_id: z.string().optional(),
   session_id: z.string().uuid().optional(),

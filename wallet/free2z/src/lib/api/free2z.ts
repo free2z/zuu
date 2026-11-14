@@ -219,13 +219,15 @@ interface RawZPage {
   is_subscriber_only?: boolean;
   get_url?: string;
 }
-interface RawDyteMeeting {
+export interface RawDyteMeeting {
   id: number;
   creator: RawCreator;
   meeting_id: string;
   meeting_type: unknown;
   live_now: boolean;
   price_per_minute?: unknown;
+  participant_count?: unknown;
+  participant_count_as_of?: unknown;
 }
 
 // ─── Mappers ────────────────────────────────────────────────────────────────
@@ -724,7 +726,7 @@ function ppvPrice(pricePerMinute: unknown): number {
   return Number((hundredths * 30n + 99n) / 100n + 15n);
 }
 
-function mapLivestream(m: RawDyteMeeting): Livestream {
+export function mapLivestream(m: RawDyteMeeting): Livestream {
   const kind = streamKindFromType(m.meeting_type);
   const creator = mapCreator(m.creator);
   return {
@@ -735,14 +737,40 @@ function mapLivestream(m: RawDyteMeeting): Livestream {
     title: `${creator.display_name} is live`,
     kind,
     live: !!m.live_now,
-    // The public meeting listing does not carry an authoritative count. #265
-    // will hydrate one; until then the only truthful client value is unknown.
-    participants: null,
+    participants: normalizeFreshParticipantCount(
+      m.participant_count,
+      m.participant_count_as_of,
+    ).count,
+    participants_as_of: normalizeFreshParticipantCount(
+      m.participant_count,
+      m.participant_count_as_of,
+    ).asOf,
     price_tuzis: kind === "ppv" ? ppvPrice(m.price_per_minute) : 0,
     thumbnail: creator.image ?? null,
     started_at: undefined,
     category: undefined,
   };
+}
+
+const PARTICIPANT_SNAPSHOT_MAX_AGE_MS = 90_000;
+export function normalizeFreshParticipantCount(
+  count: unknown,
+  asOf: unknown,
+  now = Date.now(),
+): { count: number | null; asOf: string | null } {
+  const normalized = normalizeParticipantCount(count);
+  if (normalized === null || typeof asOf !== "string") {
+    return { count: null, asOf: null };
+  }
+  const timestamp = Date.parse(asOf);
+  if (
+    !Number.isFinite(timestamp) ||
+    timestamp > now ||
+    now - timestamp > PARTICIPANT_SNAPSHOT_MAX_AGE_MS
+  ) {
+    return { count: null, asOf: null };
+  }
+  return { count: normalized, asOf };
 }
 
 function inferProvider(model: string): AIModel["provider"] {

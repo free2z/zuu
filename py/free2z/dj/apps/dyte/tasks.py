@@ -622,7 +622,9 @@ def sweep_live_meetings(timestamp: int):
     """
     # Imported lazily so autodiscovery of this module never drags in the
     # Django ORM / app models before the app registry is ready.
-    from dj.apps.dyte.client import DyteClient
+    from dj.apps.dyte.client import (
+        DyteClient, _count_generation, _write_count_if_current,
+    )
     from dj.apps.dyte.models import CreatorMeeting
 
     _enqueue_deferred_host_evictions()
@@ -676,6 +678,7 @@ def sweep_live_meetings(timestamp: int):
             last_seen_at=cm.last_seen_at,
             zero_probe_since=cm.zero_probe_since,
         )
+        count_generation = _count_generation(cm.meeting_id)
         try:
             count = dc.get_participants_count(cm.meeting_id)
         except Exception as exc:
@@ -694,6 +697,22 @@ def sweep_live_meetings(timestamp: int):
             else:
                 observed.update(zero_probe_since=None)
             continue
+
+        # Cache only this successful observation. The generation token fences
+        # late workers; the timestamp marks the provider result, never a stale
+        # integer fallback or the later list response time.
+        count_snapshot = {
+            "version": 1,
+            "count": count,
+            "observed_at": timezone.now().isoformat(),
+            "room_id": cm.meeting_id,
+            "provider_session_id": (
+                str(cm.provider_session_id) if cm.provider_session_id else None
+            ),
+        }
+        _write_count_if_current(
+            cm.meeting_id, count_generation, count, count_snapshot,
+        )
 
         if count > 0:
             refreshed += observed.update(
