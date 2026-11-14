@@ -627,8 +627,14 @@ class DyteClient(object):
                              reason='invalid_response') from None
         if (not isinstance(body, dict) or body.get('success') is not True
                 or 'error' in body or body.get('errors')):
+            # A 2xx that reports failure may still have created what it
+            # names: keep the same sanitized facts as an error status does.
+            facts = ({'provider_code': _provider_code_of(body),
+                      'provider_envelope': True,
+                      'provider_resource_id': _resource_id_of(body)}
+                     if isinstance(body, dict) else {})
             raise self._fail(ProviderInvalidResponse, operation, status,
-                             reason='invalid_response')
+                             reason='invalid_response', **facts)
         if allow_ack and 'data' not in body:
             # Documented mutation acknowledgements have optional data. Read
             # operations and token/meeting creation still require their data.
@@ -636,7 +642,8 @@ class DyteClient(object):
         if (not isinstance(body.get('data'), (dict, list))
                 or (allow_ack and not isinstance(body.get('data'), dict))):
             raise self._fail(ProviderInvalidResponse, operation, status,
-                             reason='invalid_response')
+                             reason='invalid_response', provider_envelope=True,
+                             provider_resource_id=_resource_id_of(body))
         return ProviderResponse(body, status)
 
     def webhook_public_key(self):

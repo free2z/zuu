@@ -187,3 +187,27 @@ def test_refused_create_without_a_room_id_leaves_nothing(api_client, provider, h
     assert response.status_code == 503, response.data
     assert response.data['failure'].get('provider_status') == 401
     assert ProviderRoomCleanup.objects.count() == 0
+
+
+@pytest.mark.parametrize('status_code', [200, 207])
+def test_failed_2xx_room_create_keeps_its_named_room(api_client, provider, host, status_code):
+    named = str(uuid.uuid4())
+    provider.create_meeting.side_effect = _client_error(
+        status_code, {'success': False, 'error': {'code': 500}, 'data': {'id': named}})
+
+    response = _start(api_client, host, uuid.uuid4())
+
+    assert response.status_code == 503, response.data
+    assert ProviderRoomCleanup.objects.get().provider_meeting_id == named
+
+
+def test_failed_2xx_private_room_create_keeps_its_named_room(api_client, provider, host):
+    named = str(uuid.uuid4())
+    provider.create_meeting.side_effect = _client_error(
+        200, {'success': False, 'error': {'code': 500}, 'data': {'id': named}})
+    api_client.force_authenticate(user=host)
+
+    response = api_client.post(f'/api/dyte/{host.username}/private', {}, format='json')
+
+    assert response.status_code == 503, response.data
+    assert ProviderRoomCleanup.objects.get().provider_meeting_id == named
