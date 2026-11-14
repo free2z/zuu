@@ -79,7 +79,7 @@ from dj.apps.tuzis.serializers import (
     InsufficientFundsErrorSerializer,
     StreamEntitlementErrorSerializer,
 )
-from .client import DyteClient, ProviderError, ProviderNotFoundError, ProviderResponse
+from .client import DyteClient, ProviderError
 
 import logging
 
@@ -89,22 +89,46 @@ logger = logging.getLogger(__name__)
 VIEWER_PROVIDER_RETRY_AFTER = "5"
 
 
-def _provider_refused(exc):
-    """True when the provider answered with an HTTP 4xx: it refused the
-    request, so nothing was created and no reconciliation is needed.
+class _ProviderAnswer:
+    """Response-shaped view of a typed provider failure the provider ANSWERED.
 
-    A transport error, timeout, 5xx or unreadable 2xx is different -- the
-    provider may have acted -- and keeps the "outcome unknown" path. 408 is a
-    timeout, so it stays ambiguous too.
+    Host start classifies raw responses (``_host_room_response``,
+    ``_host_participant_response``, ``_settle_failed_room_create``), while
+    DyteClient raises typed errors instead of returning error responses. This
+    carries only what the error kept -- the HTTP status, the integer provider
+    code and whether the body was a JSON object -- so a 4xx stays a definitive
+    refusal, a JSON 404 stays "room gone", and a non-JSON body stays
+    unverifiable. It never holds a provider body.
     """
-    if not isinstance(exc, ProviderError):
-        return False
-    if exc.request_sent is False:
-        # Refused locally (credentials unusable): nothing reached the provider.
-        return True
-    status_code = exc.status
-    return (isinstance(status_code, int) and 400 <= status_code < 500
-            and status_code != 408)
+
+    def __init__(self, exc):
+        self.status_code = exc.status
+        self._code = exc.provider_code
+        self._envelope = exc.provider_envelope
+
+    def json(self):
+        if not self._envelope:
+            raise ValueError('provider error body was not a JSON object')
+        body = {'success': False}
+        if self._code is not None:
+            body['error'] = {'code': self._code}
+        return body
+
+
+def _provider_answer(exc):
+    """A ``_ProviderAnswer`` when the typed failure carries an HTTP status;
+    None for a transport failure or a request that was never sent."""
+    status_code = getattr(exc, 'status', None)
+    if (isinstance(exc, ProviderError) and isinstance(status_code, int)
+            and not isinstance(status_code, bool) and 100 <= status_code <= 599):
+        return _ProviderAnswer(exc)
+    return None
+
+
+def _provider_never_sent(exc):
+    """The client refused locally (credentials unusable): nothing reached
+    the provider, so nothing can have been created there."""
+    return isinstance(exc, ProviderError) and exc.request_sent is False
 
 
 def _provider_retry_response():
@@ -1752,9 +1776,12 @@ def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting
     try:
         resp = dc.create_meeting(cm.creator.username)
     except requests.RequestException as exc:
-        raise ProviderRoomCreateFailed(_host_provider_diagnostic(
-            getattr(exc, 'response', None), 'create_private_room', 'transport_error',
-        )) from None
+        resp = _provider_answer(exc)
+        if resp is None:
+            raise ProviderRoomCreateFailed(_host_provider_diagnostic(
+                None, 'create_private_room',
+                'not_configured' if _provider_never_sent(exc) else 'transport_error',
+            )) from None
     room_id, failure = _host_room_response(resp, 'create_private_room')
     if failure:
         # Raised inside the caller's transaction: nothing about this row,
@@ -2189,16 +2216,7 @@ class PrivateMeetingManage(APIView):
                     or target.meeting_type != PRIVATE or target.is_public
                 ):
                     return Response({'error': 'Private room ownership could not be confirmed.'}, status=503)
-            try:
-                cm = _create_meeting(cm)
-            except ProviderError:
-                # Returning would COMMIT this atomic block, including a row
-                # get_or_create just inserted with the empty meeting_id, which
-                # is globally unique and would block every other creator's
-                # next room create. Roll back exactly as an escaping
-                # exception did before typed provider errors.
-                transaction.set_rollback(True)
-                return _provider_retry_response()
+            cm = _create_meeting(cm)
             cm.e2ee = request.data.get('e2ee', False)
             cm.recycle_secret()
         return Response(data={
@@ -2740,16 +2758,24 @@ class DyteMeeting(APIView):
             try:
                 response = dc.create_meeting(creator.username)
             except requests.RequestException as exc:
-                room_reconciliation.last_error = (
-                    'Room create outcome is unknown; inspect RealtimeKit meetings '
-                    'for this creator/title and reconcile manually'
-                )
-                room_reconciliation.save(update_fields=['last_error'])
-                _abandon_host_start(creator, row_id, host_session, start_claim,
-                                    keep_cleanup=False)
-                return _host_provider_retry_response(
-                    getattr(exc, 'response', None), 'create_room', 'transport_error',
-                )
+                # A typed failure the provider answered is classified below
+                # exactly like a raw response; only a transport failure (or a
+                # request never sent) is handled here.
+                response = _provider_answer(exc)
+                if response is None and _provider_never_sent(exc):
+                    room_reconciliation.delete()
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'create_room', 'not_configured')
+                if response is None:
+                    room_reconciliation.last_error = (
+                        'Room create outcome is unknown; inspect RealtimeKit meetings '
+                        'for this creator/title and reconcile manually'
+                    )
+                    room_reconciliation.save(update_fields=['last_error'])
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'create_room', 'transport_error')
             except Exception:
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
@@ -2813,11 +2839,15 @@ class DyteMeeting(APIView):
             resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
                                       custom_participant_id=participant_id)
         except requests.RequestException as exc:
-            _abandon_host_start(creator, row_id, host_session, start_claim,
-                                keep_cleanup=True)
-            return _host_provider_retry_response(
-                getattr(exc, 'response', None), 'add_participant', 'transport_error',
-            )
+            resp = _provider_answer(exc)
+            if resp is None:
+                never_sent = _provider_never_sent(exc)
+                # A request never sent created no participant to clean up.
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=not never_sent)
+                return _host_provider_retry_response(
+                    None, 'add_participant', 'not_configured' if never_sent else 'transport_error',
+                )
         except Exception:
             _abandon_host_start(creator, row_id, host_session, start_claim,
                                 keep_cleanup=True)
@@ -2843,16 +2873,21 @@ class DyteMeeting(APIView):
             try:
                 room_response = dc.create_meeting(creator.username)
             except requests.RequestException as exc:
-                room_reconciliation.last_error = (
-                    'Replacement room create outcome is unknown; inspect '
-                    'RealtimeKit meetings for this creator/title and reconcile manually'
-                )
-                room_reconciliation.save(update_fields=['last_error'])
-                _abandon_host_start(creator, row_id, host_session, start_claim,
-                                    keep_cleanup=False)
-                return _host_provider_retry_response(
-                    getattr(exc, 'response', None), 'rotate_room', 'transport_error',
-                )
+                room_response = _provider_answer(exc)
+                if room_response is None and _provider_never_sent(exc):
+                    room_reconciliation.delete()
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'rotate_room', 'not_configured')
+                if room_response is None:
+                    room_reconciliation.last_error = (
+                        'Replacement room create outcome is unknown; inspect '
+                        'RealtimeKit meetings for this creator/title and reconcile manually'
+                    )
+                    room_reconciliation.save(update_fields=['last_error'])
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'rotate_room', 'transport_error')
             except Exception:
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
@@ -2913,11 +2948,15 @@ class DyteMeeting(APIView):
                 resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
                                           custom_participant_id=participant_id)
             except requests.RequestException as exc:
-                _abandon_host_start(creator, row_id, host_session, start_claim,
-                                    keep_cleanup=True)
-                return _host_provider_retry_response(
-                    getattr(exc, 'response', None), 'add_participant_after_rotation', 'transport_error',
-                )
+                resp = _provider_answer(exc)
+                if resp is None:
+                    never_sent = _provider_never_sent(exc)
+                    # A request never sent created no participant to clean up.
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=not never_sent)
+                    return _host_provider_retry_response(
+                        None, 'add_participant_after_rotation', 'not_configured' if never_sent else 'transport_error',
+                    )
             except Exception:
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=True)

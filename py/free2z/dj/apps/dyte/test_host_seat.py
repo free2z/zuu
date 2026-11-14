@@ -347,7 +347,7 @@ def test_missing_room_replacement_resets_provider_session_and_keeps_host_seat(
         provider_session_started_at=timezone.now() - timedelta(hours=1),
     )
     from dj.apps.dyte.client import ProviderNotFoundError
-    gone = ProviderNotFoundError()
+    gone = ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True)
     provider.add_participant.side_effect = [
         gone, _FakeResponse({'data': {'token': 'auth-token', 'id': 'p-new'}}),
     ]
@@ -573,7 +573,7 @@ def test_a_missing_room_is_still_replaced(api_client, provider, host):
     CreatorMeeting.objects.create(
         creator=host, meeting_id='gone', meeting_type=BROADCAST, live_now=True)
     from dj.apps.dyte.client import ProviderNotFoundError
-    gone = ProviderNotFoundError()
+    gone = ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True)
     ok = _FakeResponse({'data': {'token': 'auth-token', 'id': 'p-new'}})
     provider.add_participant.side_effect = [gone, ok]
 
