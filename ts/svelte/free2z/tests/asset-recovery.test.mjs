@@ -21,7 +21,7 @@ function storage() {
   };
 }
 
-function inlineRecoveryHarness(state = storage()) {
+function inlineRecoveryHarness(state = storage(), path = "/free2z") {
   const appHtml = readFileSync(
     new URL("../src/app.html", import.meta.url),
     "utf8",
@@ -42,7 +42,8 @@ function inlineRecoveryHarness(state = storage()) {
       listeners.set(type, listener);
     },
     location: {
-      href: "https://free2z.cash/free2z?tag=latest",
+      pathname: path,
+      href: `https://free2z.cash${path}#code=fixture-proof`,
       reload() {
         reloads += 1;
       },
@@ -155,4 +156,15 @@ test("inline recovery removes a corrupt marker instead of disabling itself", () 
     src: "https://free2z.cash/_app/immutable/entry/start.js",
   });
   assert.equal(document.reloads(), 1);
+});
+
+test("OAuth callbacks never persist proof fragments in recovery markers or reload", () => {
+  const state = storage();
+  const harness = inlineRecoveryHarness(state, "/oauth/reauth-callback");
+  harness.dispatchError({
+    tagName: "SCRIPT",
+    src: "https://free2z.cash/_app/immutable/start.js",
+  });
+  assert.equal(harness.reloads(), 0);
+  assert.equal(state.getItem(ASSET_RECOVERY_STORAGE_KEY), null);
 });

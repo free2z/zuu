@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
 
+// Include cold dev-module hydration as well as the deliberate toast-lifetime wait.
+test.setTimeout(60_000);
+
 const USER = "fixtureowner";
 const SETTINGS = `/${USER}/dashboard/settings`;
 const CHALLENGE = {
@@ -309,6 +312,7 @@ for (const method of [
       if (method === "bad-state" || method === "x-invalid-provider") {
         await expect(popup.getByTestId("reauth-callback-status")).toContainText(
           "invalid or expired",
+          { timeout: 30_000 },
         );
         expect(proofs).toBe(0);
         expect(recent).toBe(false);

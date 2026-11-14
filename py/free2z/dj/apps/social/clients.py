@@ -1,6 +1,6 @@
 """
 Lazy, per-provider OAuth2 (authorization-code + PKCE S256) clients for social
-login: X (Twitter), Google, GitHub.
+login: X (Twitter), Google, GitHub, Apple (web-only OIDC).
 
 CRITICAL boot-safety (the  lesson): importing this module must NOT read any
 secret or import any provider SDK at module scope. Every provider's credentials
@@ -9,7 +9,8 @@ unset -- only when a request actually exercises that provider. A provider whose
 client id/secret is blank is "not configured": the views return 503 (never 500,
 never a boot failure), and the URLconf imports cleanly with ZERO env vars set.
 
-Each client can:
+Apple uses a nonce-bound confidential web flow; the other providers keep their
+existing PKCE/state flow. Each client can:
   * ``is_configured()``            -> bool (both id and secret present)
   * ``build_authorize_url(...)``   -> the provider's consent URL (PKCE S256)
   * ``login(code, verifier, uri)`` -> {"uid", "handle", "avatar_url"}
@@ -20,7 +21,10 @@ handle.
 """
 import base64
 import hashlib
+import ipaddress
 import secrets as _secrets
+import time
+from functools import lru_cache
 from urllib.parse import urlencode, urlparse
 
 import requests
@@ -28,7 +32,7 @@ from django.conf import settings
 
 # Providers this app knows about. A provider being listed here does NOT mean it
 # is configured -- see ``is_configured()``.
-PROVIDER_KEYS = ("x", "google", "github")
+PROVIDER_KEYS = ("x", "google", "github", "apple")
 ZUULI_MOBILE_PKCE_PROVIDERS = frozenset({"x", "google"})
 ZUULI_MOBILE_RELAY_HOSTS = frozenset({
     "free2z.cash",
@@ -255,10 +259,126 @@ class GitHubProvider(BaseProvider):
         }
 
 
+class AppleProvider(BaseProvider):
+    """Confidential web client. No email/name scope; identity is ONLY ``sub``.
+
+    Apple supports code + fragment with no scopes. This keeps authorization
+    codes out of HTTP URLs/access logs and avoids a cross-site form POST/CSRF
+    exception. The server-held verifier slot binds an independent OIDC nonce;
+    it is not sent as PKCE (Apple does not document PKCE support).
+    """
+    key = "apple"
+    supports_pkce = False
+    authorize_endpoint = "https://appleid.apple.com/auth/authorize"
+    token_endpoint = "https://appleid.apple.com/auth/token"
+    client_id_setting = "APPLE_CLIENT_ID"
+
+    def is_configured(self) -> bool:
+        return bool(
+            self.client_id()
+            and all(getattr(settings, key, "") for key in (
+                "APPLE_TEAM_ID", "APPLE_KEY_ID", "APPLE_PRIVATE_KEY",
+            ))
+            and apple_redirect_uris()
+        )
+
+    def build_authorize_url(self, redirect_uri, state, code_challenge):
+        return f"{self.authorize_endpoint}?{urlencode({
+            'response_type': 'code', 'response_mode': 'fragment',
+            'client_id': self.client_id(), 'redirect_uri': redirect_uri,
+            'state': state, 'nonce': code_challenge,
+        })}"
+
+    def client_secret(self):
+        import jwt
+        now = int(time.time())
+        return jwt.encode(
+            {'iss': settings.APPLE_TEAM_ID, 'sub': self.client_id(),
+             'aud': 'https://appleid.apple.com', 'iat': now, 'exp': now + 300},
+            settings.APPLE_PRIVATE_KEY, algorithm='ES256',
+            headers={'kid': settings.APPLE_KEY_ID},
+        )
+
+    def login(self, code, code_verifier, redirect_uri):
+        import jwt
+        if redirect_uri not in apple_redirect_uris() or not code_verifier:
+            raise ProviderError("Invalid Apple authorization binding")
+        try:
+            response = requests.post(
+                self.token_endpoint, timeout=_HTTP_TIMEOUT,
+                headers={"Accept": "application/json"}, allow_redirects=False,
+                data={
+                    'client_id': self.client_id(),
+                    'client_secret': self.client_secret(), 'code': code,
+                    'grant_type': 'authorization_code', 'redirect_uri': redirect_uri,
+                },
+            )
+            if response.status_code != 200:
+                raise ProviderError("Apple code exchange failed")
+            token = response.json().get('id_token')
+            if not isinstance(token, str) or len(token) > 16384:
+                raise ProviderError("Invalid Apple identity token")
+            key = _apple_jwks().get_signing_key_from_jwt(token)
+            claims = jwt.decode(
+                token, key.key, algorithms=['RS256'],
+                issuer='https://appleid.apple.com', audience=self.client_id(),
+                options={'require': ['iss', 'aud', 'exp', 'iat', 'sub', 'nonce'],
+                         'strict_aud': True},
+            )
+            if not isinstance(claims['nonce'], str) or not _secrets.compare_digest(
+                claims['nonce'], pkce_challenge(code_verifier),
+            ):
+                raise ProviderError("Invalid Apple nonce")
+            uid = claims['sub']
+            if not isinstance(uid, str) or not uid or len(uid) > 191:
+                raise ProviderError("Invalid Apple subject")
+        except Exception:
+            # No provider body, JWT, key, authorization code or exception chain
+            # can reach logs or public errors. Discard access/refresh tokens.
+            raise ProviderError("Apple authorization failed") from None
+        return {'uid': uid, 'handle': '', 'avatar_url': ''}
+
+
+@lru_cache(maxsize=1)
+def _apple_jwks():
+    import jwt
+    # PyJWT caches the set for five minutes and refreshes an unknown kid
+    # after its 30-second cooldown (bounds attacker-triggered key fetches).
+    # No token-supplied jku/x5u/issuer URL is ever fetched; no per-key cache that
+    # could keep a removed key alive indefinitely.
+    return jwt.PyJWKClient('https://appleid.apple.com/auth/keys',
+                           lifespan=300, timeout=_HTTP_TIMEOUT)
+
+
+def apple_redirect_uris():
+    """Exact operator-registered HTTPS web callbacks only; never native URIs."""
+    result = set()
+    for uri in getattr(settings, 'APPLE_REDIRECT_URIS', ()):
+        try:
+            parsed = urlparse(uri)
+            try:
+                ipaddress.ip_address(parsed.hostname)
+                continue
+            except ValueError:
+                pass
+            if (uri == uri.strip() and parsed.scheme == 'https' and parsed.hostname
+                    and parsed.hostname != 'localhost'
+                    and not parsed.hostname.endswith('.localhost')
+                    and not parsed.username and not parsed.password
+                    and parsed.port is None and not parsed.query
+                    and not parsed.fragment and not parsed.params
+                    and parsed.path == '/oauth/reauth-callback'):
+                result.add(uri)
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
 _REGISTRY = {
     "x": XProvider,
     "google": GoogleProvider,
     "github": GitHubProvider,
+    "apple": AppleProvider,
 }
 
 

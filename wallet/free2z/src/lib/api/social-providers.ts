@@ -61,15 +61,38 @@ export function parseSocialProvidersStatus(
     github: false,
   };
   const seen = new Set<SocialProvider>();
+  let seenApple = false;
 
   for (const entry of value.providers) {
     if (
       !isPlainRecord(entry) ||
-      !hasExactKeys(entry, ["provider", "configured"])
+      !Reflect.ownKeys(entry).every((key) =>
+        ["provider", "configured", "web_reauthentication", "web_only"].includes(
+          String(key),
+        ),
+      ) ||
+      (isPlainRecord(entry) &&
+        (("web_reauthentication" in entry &&
+          typeof entry.web_reauthentication !== "boolean") ||
+          ("web_only" in entry && typeof entry.web_only !== "boolean")))
     ) {
       return contractError(
-        "each entry must contain exactly `provider` and boolean `configured` fields.",
+        "entries require `provider`, boolean `configured`, and only known boolean web metadata.",
       );
+    }
+    // Apple uses a registered HTTPS web callback and is deliberately not a
+    // native loopback/PKCE provider. Accept its discovery row without enabling
+    // a button or rejecting the other providers. Old servers may omit it.
+    if (entry.provider === "apple") {
+      if (
+        seenApple ||
+        typeof entry.configured !== "boolean" ||
+        (entry.configured && entry.web_only !== true)
+      ) {
+        return contractError("invalid or duplicate web-only Apple provider.");
+      }
+      seenApple = true;
+      continue;
     }
     if (!isSocialProvider(entry.provider)) {
       return contractError("an entry named an unsupported provider.");
@@ -81,7 +104,7 @@ export function parseSocialProvidersStatus(
       return contractError("a provider appeared more than once.");
     }
     seen.add(entry.provider);
-    status[entry.provider] = entry.configured;
+    status[entry.provider] = entry.configured && entry.web_only !== true;
   }
 
   if (seen.size !== SOCIAL_PROVIDERS.length) {

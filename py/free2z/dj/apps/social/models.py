@@ -6,6 +6,7 @@ PROVIDER_CHOICES = (
     ("x", "X (Twitter)"),
     ("google", "Google"),
     ("github", "GitHub"),
+    ("apple", "Apple"),
 )
 
 
@@ -15,7 +16,7 @@ class SocialIdentity(models.Model):
     ownership of via an OAuth2 authorization-code + PKCE flow.
 
     ``provider_uid`` is the provider's STABLE identifier for the account
-    (X numeric id / Google ``sub`` / GitHub numeric id) -- never the
+    (X numeric id / Google/Apple ``sub`` / GitHub numeric id) -- never the
     handle, which can change. A Creator may link one identity per
     provider (and several across providers); each ``(provider,
     provider_uid)`` belongs to exactly one Creator.

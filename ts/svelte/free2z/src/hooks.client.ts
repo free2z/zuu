@@ -29,6 +29,7 @@ let recoveryStarted = false;
  * @param {string} [asset]
  */
 async function recoverFromAssetFailure(asset?: string) {
+  if (window.location.pathname === "/oauth/reauth-callback") return;
   if (recoveryStarted || !recoveryStorage) return;
 
   if (!claimAssetRecovery(recoveryStorage, window.location.href)) return;

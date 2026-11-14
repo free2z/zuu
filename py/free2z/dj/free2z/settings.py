@@ -3242,6 +3242,16 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 GITHUB_CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "")
 GITHUB_CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
+# Apple web Services ID and server-only Sign in with Apple P-256 key. No
+# credentials are read at import time by social.clients; missing values 503.
+APPLE_CLIENT_ID = os.environ.get("APPLE_CLIENT_ID", "")
+APPLE_TEAM_ID = os.environ.get("APPLE_TEAM_ID", "")
+APPLE_KEY_ID = os.environ.get("APPLE_KEY_ID", "")
+APPLE_PRIVATE_KEY = os.environ.get("APPLE_PRIVATE_KEY", "")
+APPLE_REDIRECT_URIS = tuple(
+    uri.strip() for uri in os.environ.get("APPLE_REDIRECT_URIS", "").split(",")
+    if uri.strip()
+)
 
 # Providers redirect mobile authorization to this owned HTTPS endpoint. It
 # consumes the provider-facing state and relays only to ZUULI's fixed private
@@ -3262,7 +3272,7 @@ ZUULI_MOBILE_OAUTH_PROVIDER_REDIRECT_URI = os.environ.get(
 SOCIAL_WEB_REAUTH_PROVIDERS = frozenset(
     "x" if p.strip() == "twitter" else p.strip()
     for p in os.environ.get("SOCIAL_WEB_REAUTH_PROVIDERS", "").split(",")
-    if p.strip() in {"google", "github", "x", "twitter"}
+    if p.strip() in {"google", "github", "x", "twitter", "apple"}
 )
 
 SOCIAL_REDIRECT_URI_ALLOWLIST = [
