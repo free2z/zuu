@@ -425,7 +425,9 @@ def test_idle_recording_confirmation_uses_short_deadline_and_circuit():
     from django.core.cache import cache
     from . import recording_control as rc
     cache.delete(rc.PROVIDER_CIRCUIT)
-    t = transport(response(404), response(data={'id': ROOM}))
+    idle = lambda: response(404, error={  # noqa: E731
+        'code': 404, 'message': f'No active recording for meeting {ROOM}'})
+    t = transport(idle(), response(data={'id': ROOM}))
     original = module._SESSION
     module._SESSION = t
     try:
@@ -433,7 +435,7 @@ def test_idle_recording_confirmation_uses_short_deadline_and_circuit():
                            allow_empty=True) is None
         assert [c.kwargs['timeout'] for c in t.request.call_args_list] == [
             rc.PROVIDER_TIMEOUT, rc.PROVIDER_TIMEOUT]
-        t.request.side_effect = [response(404), requests.ReadTimeout('x')]
+        t.request.side_effect = [idle(), requests.ReadTimeout('x')]
         with pytest.raises(rc.ProviderUnavailable):
             rc.provider('GET', f'recordings/active-recording/{ROOM}', allow_empty=True)
         assert cache.get(rc.PROVIDER_CIRCUIT)
@@ -454,3 +456,40 @@ def test_error_records_whether_the_provider_answered_an_envelope(json_body, enve
         DyteClient(transport=transport(body)).create_meeting('creator')
     assert caught.value.provider_envelope is envelope
     assert caught.value.provider_code == code
+
+
+@pytest.mark.parametrize('body,idle', [
+    ({'success': False, 'error': {'code': 404, 'message': f'No active recording for meeting {ROOM}'}}, True),
+    ({'success': False, 'error': {'code': 404, 'message': f'No active session found for meeting id: {ROOM}'}}, True),
+    ({'success': False, 'errors': [{'code': 7003, 'message': 'No active recording'}]}, True),
+    ({'success': False, 'error': {'code': 404, 'message': 'Not found'}}, False),
+    ({'success': False, 'error': {'code': 404}}, False),
+])
+def test_idle_answer_is_derived_without_keeping_the_message(body, idle, caplog):
+    with pytest.raises(ProviderNotFoundError) as caught:
+        DyteClient(transport=transport(SimpleNamespace(
+            status_code=404, json=lambda: body))).create_meeting('creator')
+    assert caught.value.provider_idle is idle
+    assert 'No active' not in repr(vars(caught.value)) + caplog.text
+
+
+@pytest.mark.parametrize('rid,kept', [(ROOM, ROOM), ('room_1-a', 'room_1-a'),
+                                      ('x' * 129, None), ('bad id!', None), (17, None)])
+def test_failed_response_keeps_only_a_validated_resource_id(rid, kept, caplog):
+    body = {'success': False, 'error': {'code': 422},
+            'data': {'id': rid, 'token': V4_TOKEN}}
+    with pytest.raises(module.ProviderRejectedError) as caught:
+        DyteClient(transport=transport(SimpleNamespace(
+            status_code=422, json=lambda: body))).create_meeting('creator')
+    assert caught.value.provider_resource_id == kept
+    assert V4_TOKEN not in repr(vars(caught.value)) + caplog.text
+
+
+def test_unusable_2xx_participant_keeps_its_id_but_not_its_token(caplog):
+    body = {'success': True, 'data': {'id': ROOM, 'token': ''}}
+    with pytest.raises(ProviderInvalidResponse) as caught:
+        DyteClient(transport=transport(SimpleNamespace(status_code=201, json=lambda: body))).add_participant(
+            SimpleNamespace(is_authenticated=True, username='u', avatar_image=None), ROOM,
+            role='host', cm=SimpleNamespace(creator_id=1, creator=SimpleNamespace(username='u')))
+    assert caught.value.provider_resource_id == ROOM
+    assert caught.value.provider_envelope is True and caught.value.status == 201

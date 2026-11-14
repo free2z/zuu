@@ -204,11 +204,20 @@ class ProviderError(requests.RequestException):
     """
 
     def __init__(self, *, status=None, provider_code=None,
-                 provider_envelope=False, request_sent=True):
+                 provider_envelope=False, request_sent=True,
+                 provider_idle=False, provider_resource_id=None):
         super().__init__(type(self).__name__)
         self.status = status
         self.provider_code = provider_code
         self.provider_envelope = provider_envelope
+        # True only when the provider's own error says "no active
+        # session/recording" -- a boolean derived from its message; the
+        # message itself is never kept.
+        self.provider_idle = provider_idle
+        # A validated id the failed response still named (data.id): a room
+        # or participant that may exist and must stay reconcilable. Never a
+        # token or any other body field.
+        self.provider_resource_id = provider_resource_id
         # False only when the client refused locally (credentials unusable,
         # invalid path): nothing reached the provider, so nothing can have
         # been created there.
@@ -407,24 +416,54 @@ _EXPECTED_404 = frozenset({
 })
 
 
+_SAFE_ID = re.compile(r'[A-Za-z0-9_-]{1,128}')
+_IDLE_MESSAGES = ('No active recording', 'No active session')
+
+
+def _resource_id_of(body):
+    data = body.get('data') if isinstance(body, dict) else None
+    value = data.get('id') if isinstance(data, dict) else None
+    return value if isinstance(value, str) and _SAFE_ID.fullmatch(value) else None
+
+
+def _idle_message_of(body):
+    messages = []
+    error = body.get('error')
+    if isinstance(error, dict):
+        messages.append(error.get('message'))
+    errors = body.get('errors')
+    if isinstance(errors, list) and errors and isinstance(errors[0], dict):
+        messages.append(errors[0].get('message'))
+    return any(isinstance(m, str) and m.startswith(_IDLE_MESSAGES) for m in messages)
+
+
 def _error_envelope(response):
-    """``(provider_code, is_json_object)`` for an error response.
+    """Safe facts about an error response, as keyword arguments for a
+    ProviderError: the integer provider code, whether the body was a JSON
+    object, whether the provider said "no active session/recording", and a
+    validated ``data.id``.
 
     v2 answers ``{"success": false, "error": {"code": 401, ...}}``; the
     Cloudflare v4 envelope is ``{"errors": [{"code": 10000, ...}]}``. Only an
-    integer code is ever returned, so nothing provider-authored reaches a log.
+    integer code, two booleans and a pattern-checked id are returned, so
+    nothing provider-authored reaches a log.
     """
     try:
         body = response.json()
     except Exception:  # noqa: BLE001 -- classification must never raise
-        return None, False
+        return {'provider_code': None, 'provider_envelope': False}
     if not isinstance(body, dict):
-        return None, False
-    return _provider_code_of(body), True
+        return {'provider_code': None, 'provider_envelope': False}
+    return {
+        'provider_code': _provider_code_of(body),
+        'provider_envelope': True,
+        'provider_idle': _idle_message_of(body),
+        'provider_resource_id': _resource_id_of(body),
+    }
 
 
 def _provider_code(response):
-    return _error_envelope(response)[0]
+    return _error_envelope(response)['provider_code']
 
 
 def _provider_code_of(body):
@@ -539,13 +578,13 @@ class DyteClient(object):
         )
 
     def _fail(self, error, operation, status, *, reason, provider_code=None,
-              provider_envelope=False):
+              **facts):
         """Report a failed provider operation and return its typed error."""
         report_provider_failure(operation, status, self.auth_mode,
                                 reason=reason, provider_code=provider_code)
         return error(status=status, provider_code=provider_code,
-                     provider_envelope=provider_envelope,
-                     request_sent=reason not in ('not_configured', 'invalid_request'))
+                     request_sent=reason not in ('not_configured', 'invalid_request'),
+                     **facts)
 
     def request(self, method, path, *, payload=None, params=None, timeout=None,
                 allow_ack=False, operation=None):
@@ -571,17 +610,16 @@ class DyteClient(object):
             raise self._fail(ProviderInvalidResponse, operation, 0,
                              reason='invalid_response')
         if not 200 <= status < 300:
-            code, envelope = _error_envelope(response)
+            facts = _error_envelope(response)
             error = _STATUS_ERRORS.get(status)
             if error is None:
                 error = (ProviderUnavailableError
                          if status >= 500 or 300 <= status < 400
                          else ProviderRejectedError)
             if status == 404 and operation in _EXPECTED_404:
-                raise error(status=status, provider_code=code,
-                            provider_envelope=envelope)
+                raise error(status=status, **facts)
             raise self._fail(error, operation, status, reason='http_status',
-                             provider_code=code, provider_envelope=envelope)
+                             **facts)
         try:
             body = response.json()
         except (ValueError, TypeError):
@@ -632,10 +670,21 @@ class DyteClient(object):
         return key
 
     def _invalid(self, response, operation):
-        """A 2xx whose consumed data is unusable: report and return the error."""
+        """A 2xx whose consumed data is unusable: report and return the error.
+
+        The validated envelope is kept as a JSON object, with any usable
+        ``data.id`` (a room or participant that may now exist), so callers
+        can still reconcile it.
+        """
+        try:
+            body = response.json()
+        except Exception:  # noqa: BLE001 -- classification must never raise
+            body = None
         return self._fail(ProviderInvalidResponse, operation,
                           getattr(response, 'status_code', 0) or 0,
-                          reason='invalid_response')
+                          reason='invalid_response',
+                          provider_envelope=isinstance(body, dict),
+                          provider_resource_id=_resource_id_of(body))
 
     def _meeting(self, response, operation='get_meeting'):
         data = response.json()['data']

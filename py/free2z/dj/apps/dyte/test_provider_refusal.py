@@ -149,3 +149,41 @@ def test_intermediary_404_on_add_participant_does_not_rotate(api_client, provide
     assert response.status_code == 503, response.data
     assert provider.create_meeting.call_count == 0
     assert CreatorMeeting.objects.get(creator=host).meeting_id == 'old-room'
+
+
+def _client_error(status, body):
+    """The typed error the REAL client raises for this provider answer."""
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from dj.apps.dyte.client import DyteClient, ProviderError
+    transport = Mock()
+    transport.request.return_value = SimpleNamespace(status_code=status, json=lambda: body)
+    try:
+        DyteClient(transport=transport, account_id='a' * 32, app_id='app',
+                   api_token='t').create_meeting('x')
+    except ProviderError as exc:
+        return exc
+    raise AssertionError('expected a provider error')
+
+
+def test_refused_create_that_names_a_room_keeps_it_reconcilable(api_client, provider, host):
+    named = str(uuid.uuid4())
+    provider.create_meeting.side_effect = _client_error(
+        422, {'success': False, 'error': {'code': 422}, 'data': {'id': named, 'token': 'secret'}})
+
+    response = _start(api_client, host, uuid.uuid4())
+
+    assert response.status_code == 503, response.data
+    record = ProviderRoomCleanup.objects.get()
+    assert record.provider_meeting_id == named
+
+
+def test_refused_create_without_a_room_id_leaves_nothing(api_client, provider, host):
+    provider.create_meeting.side_effect = _client_error(
+        401, {'success': False, 'error': {'code': 401, 'message': 'Basic auth failed for org: x'}})
+
+    response = _start(api_client, host, uuid.uuid4())
+
+    assert response.status_code == 503, response.data
+    assert response.data['failure'].get('provider_status') == 401
+    assert ProviderRoomCleanup.objects.count() == 0

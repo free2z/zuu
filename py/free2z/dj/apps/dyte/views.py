@@ -96,15 +96,17 @@ class _ProviderAnswer:
     ``_host_participant_response``, ``_settle_failed_room_create``), while
     DyteClient raises typed errors instead of returning error responses. This
     carries only what the error kept -- the HTTP status, the integer provider
-    code and whether the body was a JSON object -- so a 4xx stays a definitive
-    refusal, a JSON 404 stays "room gone", and a non-JSON body stays
-    unverifiable. It never holds a provider body.
+    code, whether the body was a JSON object, and a validated ``data.id`` --
+    so a 4xx stays a definitive refusal unless it named a room, a JSON 404
+    stays "room gone", and a non-JSON body stays unverifiable. It never holds
+    a provider body or token.
     """
 
     def __init__(self, exc):
         self.status_code = exc.status
         self._code = exc.provider_code
         self._envelope = exc.provider_envelope
+        self._resource_id = exc.provider_resource_id
 
     def json(self):
         if not self._envelope:
@@ -112,6 +114,10 @@ class _ProviderAnswer:
         body = {'success': False}
         if self._code is not None:
             body['error'] = {'code': self._code}
+        if self._resource_id is not None:
+            # A room/participant the failed response still named stays
+            # reconcilable (#1582 keeps returned ids for operators).
+            body['data'] = {'id': self._resource_id}
         return body
 
 

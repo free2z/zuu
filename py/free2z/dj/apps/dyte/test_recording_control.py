@@ -133,7 +133,8 @@ def test_stop_and_poll_upload(room, mocker):
 def test_provider_only_accepts_empty_recording_after_confirming_meeting(mocker):
     from .client import ProviderNotFoundError, ProviderResponse
     def gone():
-        return ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True)
+        return ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True,
+                                     provider_idle=True)
 
     request = mocker.patch.object(rc.DyteClient, "request", side_effect=[
         gone(),
@@ -153,6 +154,14 @@ def test_provider_only_accepts_empty_recording_after_confirming_meeting(mocker):
     with pytest.raises(rc.ProviderUnavailable) as caught:
         rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
     assert not isinstance(caught.value, rc.ProviderRejected)
+    # A generic provider JSON 404 (not "No active recording") leaves the
+    # recording state unknown, even when the meeting itself exists.
+    request.side_effect = [
+        ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True),
+        ProviderResponse({'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}, 200),
+    ]
+    with pytest.raises(rc.ProviderUnavailable):
+        rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
     # A provider 404 whose own code disagrees is not proof either.
     request.side_effect = [
         ProviderNotFoundError(status=404, provider_code=7003, provider_envelope=True),

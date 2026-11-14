@@ -80,6 +80,10 @@ def provider(method, path, *, payload=None, allow_empty=False):
         if not exc.provider_not_found:
             raise ProviderUnavailable() from None
         if allow_empty and path.startswith('recordings/active-recording/'):
+            if not exc.provider_idle:
+                # Only the provider's explicit "No active recording" answer
+                # means idle; any other 404 leaves the state unknown.
+                raise ProviderUnavailable() from None
             # An idle 404 counts as "no recording" only once the meeting is
             # confirmed to exist -- under the same short deadline and the
             # same circuit breaker as every other recording-control call.
