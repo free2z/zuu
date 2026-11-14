@@ -1996,6 +1996,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-notify-proto"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek 3.0.0",
+ "hex",
+ "serde",
+]
+
+[[package]]
 name = "f2z-relay-proto"
 version = "0.1.0"
 dependencies = [
@@ -7386,6 +7395,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-notify"
+version = "0.1.0"
+dependencies = [
+ "f2z-notify-proto",
+ "getrandom 0.3.4",
+ "hex",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tokio",
+]
+
+[[package]]
 name = "tauri-plugin-opener"
 version = "2.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -9821,6 +9845,7 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-f2zmsg",
  "tauri-plugin-http",
+ "tauri-plugin-notify",
  "tauri-plugin-opener",
  "tauri-plugin-zcash",
  "tempfile",

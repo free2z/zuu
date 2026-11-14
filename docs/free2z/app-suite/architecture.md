@@ -90,7 +90,7 @@ authority **nor** messaging keys.
 | Role | wallet authority | content | messaging |
 | Holds | master seed, spending keys, account-level messaging keys | Knox token, 2Z balance | device keys + device credential |
 | Renders remote content | never | **yes** — articles, creator, live, AI, search | never |
-| Privileged plugins | `zcash` | **none** | `f2zmsg` |
+| Privileged plugins | `zcash`, `notify` (private, off-by-default wake transport) | **none** | `f2zmsg` |
 | Bundle `active` | `true` | `true` (native layer landed in [#942](https://github.com/free2z/zuu/pull/942), closing #918) | `true` |
 
 ### 3.1 What makes the content surface safe

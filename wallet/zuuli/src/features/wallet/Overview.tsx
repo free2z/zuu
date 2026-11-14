@@ -14,6 +14,8 @@ import { useWallet } from "@/store/wallet";
 import { AmountDisplay } from "./shared";
 import { AddressCard, SyncBar, TxRow, ViewAllLink } from "./components";
 
+import { Notifications } from "./Notifications";
+
 export function Overview() {
   const balance = useWallet((s) => s.balance);
   const sync = useWallet((s) => s.sync);
@@ -38,6 +40,7 @@ export function Overview() {
 
   return (
     <div className="space-y-6">
+      <Notifications />
       <div className="grid gap-6 lg:grid-cols-3">
         {/* Balance hero */}
         <Card className="relative overflow-hidden rounded-xl lg:col-span-2">

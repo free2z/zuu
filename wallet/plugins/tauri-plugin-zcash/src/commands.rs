@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use tauri::{AppHandle, Runtime, command};
+use tauri::{AppHandle, Manager, Runtime, command};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use secrecy::ExposeSecret;
@@ -1637,6 +1637,9 @@ pub(crate) async fn delete_wallet<R: Runtime>(
         let manifest = zcash.state.manifest.lock().await;
         manifest.active_wallet_id.as_deref() == Some(&args.wallet_id)
     };
+    if deleting_active && let Some(hook) = app.try_state::<crate::WalletDisconnectHook<R>>() {
+        (hook.0)(app.clone()).await.map_err(Error::Other)?;
+    }
     let mut sync_recovery = if deleting_active {
         Some(StoppedSyncRecovery::stop(app.clone()).await)
     } else {

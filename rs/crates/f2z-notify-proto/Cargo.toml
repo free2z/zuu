@@ -1,0 +1,11 @@
+[package]
+name = "f2z-notify-proto"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "MIT"
+publish = false
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+ed25519-dalek = { workspace = true }
+hex = "0.4"
