@@ -272,6 +272,69 @@ def test_the_fast_sync_checkpoint_is_the_lower_of_two_barriers(mocker):
 # ------------------------------------------------------------------ end of support
 
 
+@pytest.mark.parametrize('tip,halt,seconds', [
+    # Entirely before activation: each remaining block is 75 seconds.
+    (3_543_403, 3_543_404, 75),
+    # The activation block itself is already on 25-second spacing.
+    (3_543_404, 3_543_405, 25),
+    # Cross the boundary: one pre-activation, then one activation block.
+    (3_543_403, 3_543_405, 100),
+    # Entirely after activation.
+    (3_543_405, 3_543_407, 50),
+    # The node halts at the reported height, so a passed height has no runway.
+    (3_543_406, 3_543_405, 0),
+])
+def test_support_runway_uses_mainnet_spacing_by_height(tip, halt, seconds):
+    assert nodewatch._support_seconds_remaining(tip, halt) == seconds
+
+
+@pytest.mark.parametrize('tip,halt', [
+    # New spacing puts these within 14 days; 75s for every block would not.
+    (3_543_405, 3_543_405 + 50_000),
+    (3_543_404, 3_543_405 + 50_000),
+])
+def test_evaluate_warns_on_short_nu7_runway_and_keeps_healthy_heartbeat(
+        tip, halt):
+    lines, _ = nodewatch.evaluate(
+        _sample(tip_height=tip, network_height=tip,
+                deprecation_height=halt), {}, _table())
+    warning = next(line for line in lines
+                   if line.startswith(nodewatch.SUPPORT_EXPIRING_SIGNAL))
+    assert 'days left' in warning
+    assert 'halts at height %d' % halt in warning
+    assert any(line.startswith(nodewatch.CYCLE_SIGNAL) for line in lines)
+
+
+@pytest.mark.parametrize('distance,should_warn', [
+    (14 * 24 * 60 * 60 // 25, True),
+    (14 * 24 * 60 * 60 // 25 + 1, True),
+    (14 * 24 * 60 * 60 // 25 - 1, True),
+    (14 * 24 * 60 * 60 // 25 + 40_000, False),
+])
+def test_evaluate_preserves_whole_day_warning_threshold(distance, should_warn):
+    tip = nodewatch.MAINNET_NU7_ACTIVATION_HEIGHT
+    lines, _ = nodewatch.evaluate(
+        _sample(tip_height=tip, network_height=tip,
+                deprecation_height=tip + distance), {}, _table())
+    warns = any(line.startswith(nodewatch.SUPPORT_EXPIRING_SIGNAL)
+                for line in lines)
+    assert warns is should_warn
+    assert any(line.startswith(nodewatch.CYCLE_SIGNAL) for line in lines)
+
+
+@pytest.mark.parametrize('tip,halt', [
+    (3_543_405, 3_543_405),
+    (3_543_406, 3_543_405),
+])
+def test_evaluate_warns_with_zero_runway_at_or_past_halt(tip, halt):
+    lines, _ = nodewatch.evaluate(
+        _sample(tip_height=tip, network_height=tip,
+                deprecation_height=halt), {}, _table())
+    warning = next(line for line in lines
+                   if line.startswith(nodewatch.SUPPORT_EXPIRING_SIGNAL))
+    assert '0 days left' in warning or 'halt height passed' in warning
+
+
 def test_probe_deprecation_returns_none_when_the_node_lacks_the_rpc(mocker):
     """Zakura 1.0.0 predates this RPC.
 
