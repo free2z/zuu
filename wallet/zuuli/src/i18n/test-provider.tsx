@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { createInstance } from "i18next";
 import ICU from "i18next-icu";
-import { I18nextProvider } from "react-i18next";
+import { initReactI18next, I18nextProvider } from "react-i18next";
 import en from "./locales/en.json";
 import es from "./locales/es.json";
 import fr from "./locales/fr.json";
@@ -15,13 +15,15 @@ export function createTestI18n(
   locale: SupportedLocale = "en",
   catalog: TestCatalog = catalogs[locale],
 ) {
-  const instance = createInstance().use(
-    new ICU({
-      parseErrorHandler(error, key) {
-        throw new Error(`invalid ICU message for ${key}: ${error.message}`);
-      },
-    }),
-  );
+  const instance = createInstance()
+    .use(initReactI18next)
+    .use(
+      new ICU({
+        parseErrorHandler(error, key) {
+          throw new Error(`invalid ICU message for ${key}: ${error.message}`);
+        },
+      }),
+    );
   void instance.init({
     fallbackLng: false,
     initAsync: false,

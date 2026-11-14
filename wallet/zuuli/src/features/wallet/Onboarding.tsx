@@ -1,3 +1,8 @@
+import { translate } from "@/i18n/translate";
+import { errorKey, localizedError, useMessageError } from "@/i18n/errors";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { Trans } from "react-i18next";
 // Create / restore onboarding, shown when no wallet is initialized.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -29,6 +34,8 @@ import {
 import { useSensitiveMnemonicEntry } from "@/lib/wallet/sensitive-entry";
 
 export function Onboarding() {
+  const { t: uiT } = useUiTranslation();
+
   const bootstrap = useWallet((s) => s.bootstrap);
   const status = useWallet((s) => s.status);
   const activeWallet = useWallet((s) => s.activeWallet);
@@ -45,7 +52,9 @@ export function Onboarding() {
   const backupWallet = created ?? resumableCreated;
 
   if (backupWallet) {
-    return <SeedReveal created={backupWallet} onDone={() => void bootstrap()} />;
+    return (
+      <SeedReveal created={backupWallet} onDone={() => void bootstrap()} />
+    );
   }
 
   // Never offer another create/restore operation over a native wallet that
@@ -54,15 +63,22 @@ export function Onboarding() {
     return (
       <Card className="mx-auto max-w-lg rounded-xl">
         <CardHeader>
-          <CardTitle className="text-base">Wallet backup unavailable</CardTitle>
+          <CardTitle className="text-base">
+            {uiT(MESSAGE_KEYS.featuresWalletOnboardingWalletBackupUnavailable)}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            ZUULI could not verify which wallet needs backup. Reload the wallet
-            identity before continuing.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletOnboardingZUULICouldNotVerifyWhichWalletNeeds,
+            )}
           </p>
-          <Button type="button" variant="outline" onClick={() => void bootstrap()}>
-            Retry wallet identity
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void bootstrap()}
+          >
+            {uiT(MESSAGE_KEYS.featuresWalletOnboardingRetryWalletIdentity)}
           </Button>
         </CardContent>
       </Card>
@@ -77,15 +93,24 @@ export function Onboarding() {
     return (
       <Card className="mx-auto max-w-lg rounded-xl">
         <CardHeader>
-          <CardTitle className="text-base">Wallet identity unavailable</CardTitle>
+          <CardTitle className="text-base">
+            {uiT(
+              MESSAGE_KEYS.featuresWalletOnboardingWalletIdentityUnavailable,
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            ZUULI could not verify whether a wallet already exists. Create and
-            restore stay unavailable until the wallet identity is verified.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletOnboardingZUULICouldNotVerifyWhetherAWallet,
+            )}
           </p>
-          <Button type="button" variant="outline" onClick={() => void bootstrap()}>
-            Retry wallet identity
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => void bootstrap()}
+          >
+            {uiT(MESSAGE_KEYS.featuresWalletOnboardingRetryWalletIdentity)}
           </Button>
         </CardContent>
       </Card>
@@ -96,18 +121,23 @@ export function Onboarding() {
     <div className="mx-auto max-w-lg space-y-6">
       <div className="space-y-2 text-center">
         <h1 className="text-2xl font-bold tracking-tight md:text-3xl">
-          Set up your Zcash wallet
+          {uiT(MESSAGE_KEYS.featuresWalletOnboardingSetUpYourZcashWallet)}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Create a brand-new shielded wallet, or restore one from a seed phrase.
-          Your keys never leave this device.
+          {uiT(
+            MESSAGE_KEYS.featuresWalletOnboardingCreateABrandNewShieldedWalletOr,
+          )}
         </p>
       </div>
 
       <Tabs defaultValue="create">
         <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="create">Create new</TabsTrigger>
-          <TabsTrigger value="restore">Restore</TabsTrigger>
+          <TabsTrigger value="create">
+            {uiT(MESSAGE_KEYS.featuresWalletOnboardingCreateNew)}
+          </TabsTrigger>
+          <TabsTrigger value="restore">
+            {uiT(MESSAGE_KEYS.featuresWalletOnboardingRestore)}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="create">
@@ -122,6 +152,8 @@ export function Onboarding() {
 }
 
 function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
+  const { t: uiT } = useUiTranslation();
+
   const [busy, setBusy] = useState(false);
 
   const onCreate = useCallback(async () => {
@@ -131,7 +163,12 @@ function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
       onCreated(w);
       await useWallet.getState().refreshWalletIdentity(w.walletId);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Couldn't create wallet");
+      toast.error(
+        localizedError(
+          e,
+          translate(MESSAGE_KEYS.featuresWalletOnboardingCouldnTCreateWallet),
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -140,12 +177,13 @@ function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
   return (
     <Card className="rounded-xl">
       <CardHeader>
-        <CardTitle className="text-base">Create a new wallet</CardTitle>
+        <CardTitle className="text-base">
+          {uiT(MESSAGE_KEYS.featuresWalletOnboardingCreateANewWallet)}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
         <p className="text-sm text-muted-foreground">
-          New wallets always use a 24-word recovery phrase generated by the
-          native wallet engine.
+          {uiT(MESSAGE_KEYS.featuresWalletOnboardingNewWalletsAlwaysUseA24Word)}
         </p>
 
         <Button
@@ -156,12 +194,20 @@ function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
           onClick={onCreate}
           disabled={busy}
         >
-          {busy ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <PlusCircle className="h-4 w-4" />
-          )}
-          Create wallet
+          <Trans
+            i18nKey={MESSAGE_KEYS.featuresWalletOnboardingCreateWallet}
+            components={{
+              part1: (
+                <>
+                  {busy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <PlusCircle className="h-4 w-4" />
+                  )}
+                </>
+              ),
+            }}
+          />
         </Button>
       </CardContent>
     </Card>
@@ -169,6 +215,8 @@ function CreatePane({ onCreated }: { onCreated: (w: WalletCreated) => void }) {
 }
 
 export function RestorePane({ onRestored }: { onRestored: () => void }) {
+  const { t: uiT } = useUiTranslation();
+
   const [seed, setSeed] = useState("");
   const [birthday, setBirthday] = useState("");
   const [reveal, setReveal] = useState(false);
@@ -189,12 +237,20 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
   const onRestore = useCallback(async () => {
     const phrase = seed.trim().replace(/\s+/g, " ");
     if (!validWordCount) {
-      toast.error("A recovery phrase must have 12, 15, 18, 21, or 24 words");
+      toast.error(
+        translate(
+          MESSAGE_KEYS.featuresWalletOnboardingARecoveryPhraseMustHave1215,
+        ),
+      );
       return;
     }
     const height = birthday.trim() ? Number(birthday.trim()) : undefined;
     if (height !== undefined && (!Number.isFinite(height) || height < 0)) {
-      toast.error("Birthday height must be a positive number");
+      toast.error(
+        translate(
+          MESSAGE_KEYS.featuresWalletOnboardingBirthdayHeightMustBeAPositiveNumber,
+        ),
+      );
       return;
     }
     setBusy(true);
@@ -203,13 +259,22 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
       if (res.success) {
         void sensitiveEntry.clear();
         await useWallet.getState().refreshWalletIdentity(res.walletId);
-        toast.success("Wallet restored");
+        toast.success(
+          translate(MESSAGE_KEYS.featuresWalletOnboardingWalletRestored),
+        );
         onRestored();
       } else {
-        toast.error("Restore failed");
+        toast.error(
+          translate(MESSAGE_KEYS.featuresWalletOnboardingRestoreFailed),
+        );
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Restore failed");
+      toast.error(
+        localizedError(
+          e,
+          translate(MESSAGE_KEYS.featuresWalletOnboardingRestoreFailed),
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -218,12 +283,16 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
   return (
     <Card className="rounded-xl">
       <CardHeader>
-        <CardTitle className="text-base">Restore from seed phrase</CardTitle>
+        <CardTitle className="text-base">
+          {uiT(MESSAGE_KEYS.featuresWalletOnboardingRestoreFromSeedPhrase)}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
-            <Label htmlFor="seed">Recovery phrase</Label>
+            <Label htmlFor="seed">
+              {uiT(MESSAGE_KEYS.featuresWalletOnboardingRecoveryPhrase)}
+            </Label>
             <button
               type="button"
               onClick={() => setReveal((r) => !r)}
@@ -233,11 +302,13 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
             >
               {reveal ? (
                 <>
-                  <EyeOff className="h-3.5 w-3.5" /> Hide
+                  <EyeOff className="h-3.5 w-3.5" />{" "}
+                  {uiT(MESSAGE_KEYS.featuresWalletOnboardingHide)}
                 </>
               ) : (
                 <>
-                  <Eye className="h-3.5 w-3.5" /> Show
+                  <Eye className="h-3.5 w-3.5" />{" "}
+                  {uiT(MESSAGE_KEYS.featuresWalletOnboardingShow)}
                 </>
               )}
             </button>
@@ -247,7 +318,9 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
             disabled={!sensitiveEntry.editable || busy}
-            placeholder="Enter your recovery phrase, separated by spaces"
+            placeholder={uiT(
+              MESSAGE_KEYS.featuresWalletOnboardingEnterYourRecoveryPhraseSeparatedBySpaces,
+            )}
             spellCheck={false}
             autoComplete="off"
             autoCapitalize="none"
@@ -262,7 +335,11 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
           {!sensitiveEntry.editable ? (
             <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
               <span>
-                {sensitiveEntry.error ?? "Securing recovery-phrase entry…"}
+                {sensitiveEntry.error
+                  ? uiT(MESSAGE_KEYS.errorRequest)
+                  : uiT(
+                      MESSAGE_KEYS.featuresWalletOnboardingSecuringRecoveryPhraseEntry,
+                    )}
               </span>
               {sensitiveEntry.error ? (
                 <button
@@ -270,14 +347,16 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
                   className="min-tap rounded-md underline"
                   onClick={() => void sensitiveEntry.retry()}
                 >
-                  Retry
+                  {uiT(MESSAGE_KEYS.featuresWalletOnboardingRetry)}
                 </button>
               ) : null}
             </div>
           ) : null}
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">
-              Words are never sent anywhere but the local wallet engine.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletOnboardingWordsAreNeverSentAnywhereButThe,
+              )}
             </span>
             {seed.trim() ? (
               <span
@@ -286,7 +365,7 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
                   validWordCount ? "text-success" : "text-muted-foreground",
                 )}
               >
-                {wordCount} words
+                {uiT(MESSAGE_KEYS.wordCount, { count: wordCount })}
               </span>
             ) : null}
           </div>
@@ -294,20 +373,27 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
 
         <div className="space-y-1.5">
           <Label htmlFor="birthday">
-            Birthday height{" "}
-            <span className="text-muted-foreground">(optional)</span>
+            <Trans
+              i18nKey={
+                MESSAGE_KEYS.featuresWalletOnboardingBirthdayHeightOptional
+              }
+              components={{
+                part1: <span className="text-muted-foreground"></span>,
+              }}
+            />
           </Label>
           <Input
             id="birthday"
             value={birthday}
             onChange={(e) => setBirthday(e.target.value.replace(/[^\d]/g, ""))}
             inputMode="numeric"
-            placeholder="e.g. 2600000"
+            placeholder={uiT(MESSAGE_KEYS.featuresWalletOnboardingEG2600000)}
             className="bidi-number tabular-nums"
           />
           <p className="text-xs text-muted-foreground">
-            The block height the wallet was created at. Speeds up the initial
-            scan — leave blank to scan from the sapling activation.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletOnboardingTheBlockHeightTheWalletWasCreated,
+            )}
           </p>
         </div>
 
@@ -319,12 +405,20 @@ export function RestorePane({ onRestored }: { onRestored: () => void }) {
           onClick={onRestore}
           disabled={busy || !sensitiveEntry.editable || !validWordCount}
         >
-          {busy ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RotateCcw className="h-4 w-4" />
-          )}
-          Restore wallet
+          <Trans
+            i18nKey={MESSAGE_KEYS.featuresWalletOnboardingRestoreWallet}
+            components={{
+              part1: (
+                <>
+                  {busy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="h-4 w-4" />
+                  )}
+                </>
+              ),
+            }}
+          />
         </Button>
       </CardContent>
     </Card>
@@ -338,10 +432,12 @@ function SeedReveal({
   created: WalletCreated;
   onDone: () => void;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   const [seedPhrase, setSeedPhrase] = useState<string | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageError();
   // React state is not a synchronous exclusion primitive: two clicks in the
   // same render can both observe `busy === false`. Keep the native reveal and
   // acknowledgement ceremonies globally single-flight for this view.
@@ -386,9 +482,10 @@ function SeedReveal({
       );
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "Couldn't reveal recovery phrase",
+        errorKey(
+          cause,
+          MESSAGE_KEYS.featuresWalletOnboardingCouldnTRevealRecoveryPhrase,
+        ),
       );
     } finally {
       operationInFlight.current = false;
@@ -406,9 +503,10 @@ function SeedReveal({
       onDone();
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "Couldn't save backup confirmation",
+        errorKey(
+          cause,
+          MESSAGE_KEYS.featuresWalletOnboardingCouldnTSaveBackupConfirmation,
+        ),
       );
     } finally {
       operationInFlight.current = false;
@@ -423,11 +521,12 @@ function SeedReveal({
           <ShieldAlert className="h-6 w-6" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight">
-          Back up your recovery phrase
+          {uiT(MESSAGE_KEYS.featuresWalletOnboardingBackUpYourRecoveryPhrase)}
         </h1>
         <p className="text-sm text-muted-foreground">
-          Authenticate, then write the recovery words down in order and store
-          them offline.
+          {uiT(
+            MESSAGE_KEYS.featuresWalletOnboardingAuthenticateThenWriteTheRecoveryWordsDown,
+          )}
         </p>
       </div>
 
@@ -436,9 +535,12 @@ function SeedReveal({
           <div className="flex items-start gap-3 rounded-lg border border-zec/30 bg-zec/10 p-3 text-sm">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-zec" />
             <p className="text-foreground/90">
-              This phrase is the <strong>only</strong> backup of your funds.
-              Anyone who sees it can take your ZEC. ZUULI can never recover it
-              for you.
+              <Trans
+                i18nKey={
+                  MESSAGE_KEYS.featuresWalletOnboardingThisPhraseIsTheOnlyBackupOf
+                }
+                components={{ part1: <strong></strong> }}
+              />
             </p>
           </div>
 
@@ -473,21 +575,30 @@ function SeedReveal({
                   ) : (
                     <Eye className="h-4 w-4" />
                   )}
-                  {busy ? "Authenticating…" : "Authenticate to reveal phrase"}
+                  {busy
+                    ? uiT(MESSAGE_KEYS.featuresWalletOnboardingAuthenticating)
+                    : uiT(
+                        MESSAGE_KEYS.featuresWalletOnboardingAuthenticateToRevealPhrase,
+                      )}
                 </span>
               </button>
             ) : null}
           </div>
 
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Birthday height {formatHeight(created.birthdayHeight)}</span>
+            <span>
+              {uiT(MESSAGE_KEYS.featuresWalletOnboardingBirthdayHeight, {
+                value1: formatHeight(created.birthdayHeight),
+              })}
+            </span>
             {seedPhrase ? (
               <button
                 type="button"
                 onClick={hide}
                 className="min-tap inline-flex items-center gap-1"
               >
-                <EyeOff className="h-3.5 w-3.5" /> Hide phrase
+                <EyeOff className="h-3.5 w-3.5" />{" "}
+                {uiT(MESSAGE_KEYS.featuresWalletOnboardingHidePhrase)}
               </button>
             ) : null}
           </div>
@@ -507,7 +618,9 @@ function SeedReveal({
               className="mt-0.5 h-4 w-4 accent-zec"
             />
             <span>
-              I've written down my recovery phrase and stored it somewhere safe.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletOnboardingIVeWrittenDownMyRecoveryPhrase,
+              )}
             </span>
           </label>
 
@@ -519,7 +632,7 @@ function SeedReveal({
             disabled={!confirmed || busy}
             onClick={() => void finish()}
           >
-            I've saved it — open my wallet
+            {uiT(MESSAGE_KEYS.featuresWalletOnboardingIVeSavedItOpenMyWallet)}
           </Button>
         </CardContent>
       </Card>

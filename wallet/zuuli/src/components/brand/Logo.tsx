@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,12 +35,18 @@ export function LogoMark({ className }: { className?: string }) {
 }
 
 export function Wordmark({ className }: { className?: string }) {
+  const { t: uiT } = useUiTranslation();
+
   return (
     <div className={cn("flex items-center gap-2.5", className)}>
       <LogoMark className="h-9 w-9" />
       <div className="leading-none">
-        <div className="text-lg font-semibold leading-6 tracking-[0.12em]">ZUULI</div>
-        <div className="eyebrow text-muted-foreground">by 2Z Inc</div>
+        <div className="text-lg font-semibold leading-6 tracking-[0.12em]">
+          ZUULI
+        </div>
+        <div className="eyebrow text-muted-foreground">
+          {uiT(MESSAGE_KEYS.componentsBrandLogoBy2ZInc)}
+        </div>
       </div>
     </div>
   );

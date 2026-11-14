@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // The showpiece — Login with Zcash, rendered as an animated stepper.
 //
 // One <ZcashLoginFlow> owns the whole primary panel and swaps its body by
@@ -65,6 +67,8 @@ export function ZcashLoginFlow({
   loginDestination?: LoginDestination;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   const flow = useZcashLogin(loginDestination);
   const {
     phase,
@@ -103,7 +107,9 @@ export function ZcashLoginFlow({
             <Fingerprint aria-hidden />
           </span>
           <p className="text-sm text-muted-foreground">
-            Your key signs a one-time challenge and never leaves this device.
+            {uiT(
+              MESSAGE_KEYS.featuresAuthZcashLoginFlowYourKeySignsAOneTimeChallenge,
+            )}
           </p>
         </div>
         <Button
@@ -115,7 +121,7 @@ export function ZcashLoginFlow({
           }}
         >
           <Sparkles className="h-5 w-5" aria-hidden />
-          Continue
+          {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowContinue)}
         </Button>
       </div>
     );
@@ -125,10 +131,16 @@ export function ZcashLoginFlow({
     const loading = phase === "loadingSeed";
     return (
       <div className="animate-slide-up space-y-5">
-        <Callout icon={ShieldAlert} title="Back up your recovery phrase">
+        <Callout
+          icon={ShieldAlert}
+          title={uiT(
+            MESSAGE_KEYS.featuresAuthZcashLoginFlowBackUpYourRecoveryPhrase,
+          )}
+        >
           <p className="text-muted-foreground">
-            This identity was created, but its required backup was not
-            confirmed. Finish that step before logging in.
+            {uiT(
+              MESSAGE_KEYS.featuresAuthZcashLoginFlowThisIdentityWasCreatedButItsRequired,
+            )}
           </p>
         </Callout>
         {error && (
@@ -150,7 +162,9 @@ export function ZcashLoginFlow({
           ) : (
             <Fingerprint className="h-5 w-5" aria-hidden />
           )}
-          {loading ? "Opening secure backup…" : "Reveal recovery phrase"}
+          {loading
+            ? uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowOpeningSecureBackup)
+            : uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowRevealRecoveryPhrase)}
         </Button>
       </div>
     );
@@ -177,10 +191,14 @@ export function ZcashLoginFlow({
       <div className="animate-slide-up space-y-4">
         <div className="rounded-lg border border-border bg-background/40 p-3">
           <p className="text-sm font-medium">
-            No Zcash identity on this device
+            {uiT(
+              MESSAGE_KEYS.featuresAuthZcashLoginFlowNoZcashIdentityOnThisDevice,
+            )}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            Restore the key already linked to your account.
+            {uiT(
+              MESSAGE_KEYS.featuresAuthZcashLoginFlowRestoreTheKeyAlreadyLinkedToYour,
+            )}
           </p>
         </div>
         <Button
@@ -190,19 +208,22 @@ export function ZcashLoginFlow({
           disabled={creating}
         >
           <Fingerprint className="h-5 w-5" aria-hidden />
-          Use existing identity
+          {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowUseExistingIdentity)}
         </Button>
 
         <div className="flex items-center gap-3" aria-hidden>
           <span className="h-px flex-1 bg-border" />
-          <span className="eyebrow text-muted-foreground">or</span>
+          <span className="eyebrow text-muted-foreground">
+            {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowOr)}
+          </span>
           <span className="h-px flex-1 bg-border" />
         </div>
 
         <div className="space-y-3 rounded-lg border border-warning/30 bg-warning/10 p-3">
           <p className="text-sm text-warning">
-            A new key creates a distinct identity and may open a different
-            account.
+            {uiT(
+              MESSAGE_KEYS.featuresAuthZcashLoginFlowANewKeyCreatesADistinctIdentity,
+            )}
           </p>
           <Button
             size="lg"
@@ -219,7 +240,9 @@ export function ZcashLoginFlow({
             ) : (
               <Sparkles className="h-5 w-5" aria-hidden />
             )}
-            {creating ? "Creating identity…" : "Create new identity"}
+            {creating
+              ? uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowCreatingIdentity)
+              : uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowCreateNewIdentity)}
           </Button>
         </div>
       </div>
@@ -250,9 +273,11 @@ export function ZcashLoginFlow({
           <Check className="h-7 w-7" aria-hidden />
         </span>
         <div>
-          <p className="text-lg font-semibold">Identity verified</p>
+          <p className="text-lg font-semibold">
+            {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowIdentityVerified)}
+          </p>
           <p className="text-sm text-muted-foreground">
-            Logging you in to ZUULI…
+            {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowLoggingYouInToZUULI)}
           </p>
         </div>
       </div>
@@ -264,7 +289,9 @@ export function ZcashLoginFlow({
     <div className="animate-slide-up space-y-5">
       {address && (
         <div className="flex items-center justify-between rounded-lg border border-border bg-background/40 px-4 py-2.5">
-          <span className="eyebrow text-muted-foreground">Signing as</span>
+          <span className="eyebrow text-muted-foreground">
+            {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowSigningAs)}
+          </span>
           <BidiIdentifier
             value={address}
             shorten
@@ -273,7 +300,10 @@ export function ZcashLoginFlow({
         </div>
       )}
 
-      <ol className="space-y-1" aria-label="Login progress">
+      <ol
+        className="space-y-1"
+        aria-label={uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowLoginProgress)}
+      >
         {STEP_ORDER.map((key, i) => {
           const status = steps[key];
           const meta = STEP_META[key];
@@ -308,7 +338,7 @@ export function ZcashLoginFlow({
               </div>
               {status === "active" && (
                 <Badge variant="default" className="h-fit self-start">
-                  working
+                  {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowWorking)}
                 </Badge>
               )}
             </li>
@@ -323,7 +353,12 @@ export function ZcashLoginFlow({
             className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
           >
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
-            <span>{error ?? "The login could not be completed."}</span>
+            <span>
+              {error ??
+                uiT(
+                  MESSAGE_KEYS.featuresAuthZcashLoginFlowTheLoginCouldNotBeCompleted,
+                )}
+            </span>
           </div>
           <Button
             className="w-full"
@@ -333,7 +368,7 @@ export function ZcashLoginFlow({
             }}
           >
             <RotateCw className="h-4 w-4" aria-hidden />
-            Try again
+            {uiT(MESSAGE_KEYS.featuresAuthZcashLoginFlowTryAgain)}
           </Button>
         </div>
       )}

@@ -1,10 +1,10 @@
+import { PSEUDO_ABOUT_MESSAGES } from "@/i18n/about-pseudo.test-support";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { AboutBuildCard } from ".";
 import {
   ABOUT_MESSAGES,
   ABOUT_MESSAGE_KEYS,
-  PSEUDO_ABOUT_MESSAGES,
   createAboutMessages,
   resolveAboutMessages,
   validateAboutMessages,
@@ -46,13 +46,15 @@ describe("About build identity", () => {
     expect(new Set(ABOUT_MESSAGE_KEYS).size).toBe(
       Object.keys(ABOUT_MESSAGES).length,
     );
-    expect(ABOUT_MESSAGE_KEYS.every((key) => ABOUT_MESSAGES[key].length > 0)).toBe(
-      true,
-    );
+    expect(
+      ABOUT_MESSAGE_KEYS.every((key) => ABOUT_MESSAGES[key].length > 0),
+    ).toBe(true);
   });
 
   it("rejects malformed catalogs and resolves exact, language, and English fallbacks", () => {
-    expect(() => validateAboutMessages({ ...ABOUT_MESSAGES, extra: "no" })).toThrow();
+    expect(() =>
+      validateAboutMessages({ ...ABOUT_MESSAGES, extra: "no" }),
+    ).toThrow();
     const missing = { ...ABOUT_MESSAGES } as Record<string, string>;
     delete missing.copyAction;
     expect(() => validateAboutMessages(missing)).toThrow();

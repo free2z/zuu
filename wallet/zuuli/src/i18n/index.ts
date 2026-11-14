@@ -51,6 +51,9 @@ export async function createAppI18n(locale: SupportedLocale): Promise<i18n> {
       returnEmptyString: false,
       returnNull: false,
     });
+  instance.on("languageChanged", (language) => {
+    configureFormattingLocale(language, instance.t(MESSAGE_KEYS.commonPending));
+  });
   return instance;
 }
 
@@ -96,5 +99,8 @@ export async function initializeAppI18n(
   );
   const documentElement = options.documentElement ?? document.documentElement;
   documentElement.lang = instance.resolvedLanguage ?? DEFAULT_LOCALE;
+  instance.on("languageChanged", () => {
+    documentElement.lang = instance.resolvedLanguage ?? DEFAULT_LOCALE;
+  });
   return instance;
 }

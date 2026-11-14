@@ -118,4 +118,23 @@ describe("i18n runtime", () => {
       }
     },
   );
+  it("updates pending/date formatting and document language on a live instance change", async () => {
+    const documentElement = { lang: "" };
+    try {
+      const instance = await initializeAppI18n({
+        savedLocale: null,
+        browserLocale: "en",
+        documentElement,
+      });
+      instance.addResourceBundle("fr", "translation", await loadCatalog("fr"));
+      await instance.changeLanguage("fr");
+      expect(documentElement.lang).toBe("fr");
+      expect(formatDate(null)).toBe("En attente");
+      expect(formatDate(Date.parse("2025-01-31T12:00:00Z") / 1000)).toBe(
+        formatDate(Date.parse("2025-01-31T12:00:00Z") / 1000, "fr"),
+      );
+    } finally {
+      configureFormattingLocale("en-US", "Pending");
+    }
+  });
 });

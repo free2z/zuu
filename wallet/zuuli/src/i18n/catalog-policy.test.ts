@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import en from "./locales/en.json";
 import es from "./locales/es.json";
 import fr from "./locales/fr.json";
-import { validateCatalog } from "./catalog-policy";
+import { validateCatalog, validateTranslationContract } from "./catalog-policy";
 import { DECLARED_MESSAGE_KEYS } from "./messages";
 
 const catalogs = { en, es, fr } as const;
@@ -72,5 +72,33 @@ describe("catalog policy", () => {
     expect(() =>
       validateCatalog("en", en, ["common.loading", "common.loading"]),
     ).toThrow(/declared message keys must be unique/);
+  });
+});
+
+describe("translation contracts", () => {
+  it("preserves ICU arguments, selects and markup in every locale", () => {
+    for (const [locale, catalog] of Object.entries(catalogs)) {
+      expect(() =>
+        validateTranslationContract(
+          en,
+          catalog,
+          locale as keyof typeof catalogs,
+        ),
+      ).not.toThrow();
+    }
+  });
+  it.each([
+    ["Hello {name}", "Bonjour"],
+    ["{count, plural, one {# word} other {# words}}", "{count}"],
+    ["Hello <name>{name}</name>", "Bonjour {name}"],
+    ["Hello <name>{name}</name>", 'Bonjour <name href="evil">{name}</name>'],
+  ])("rejects dropped or changed arguments/markup", (source, target) => {
+    expect(() =>
+      validateTranslationContract(
+        { test: { message: source } },
+        { test: { message: target } },
+        "fr",
+      ),
+    ).toThrow();
   });
 });

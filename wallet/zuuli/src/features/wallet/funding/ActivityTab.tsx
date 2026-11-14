@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { LogIn, Receipt, TrendingUp, TrendingDown } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +17,8 @@ import { useSession } from "@/store/session";
 import { kindMeta, kindIconClass } from "./lib";
 
 export function ActivityTab() {
+  const { t: uiT } = useUiTranslation();
+
   const navigate = useNavigate();
   const user = useSession((state) => state.user);
   const sessionLoading = useSession((state) => state.loading);
@@ -46,8 +50,12 @@ export function ActivityTab() {
     return (
       <EmptyState
         icon={Receipt}
-        title="Sign in to view activity"
-        description="Card purchase history belongs to your account."
+        title={uiT(
+          MESSAGE_KEYS.featuresWalletFundingActivityTabSignInToViewActivity,
+        )}
+        description={uiT(
+          MESSAGE_KEYS.featuresWalletFundingActivityTabCardPurchaseHistoryBelongsToYourAccount,
+        )}
         action={
           <Button
             onClick={() =>
@@ -57,7 +65,7 @@ export function ActivityTab() {
             }
           >
             <LogIn className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
-            Sign in
+            {uiT(MESSAGE_KEYS.featuresWalletFundingActivityTabSignIn)}
           </Button>
         }
       />
@@ -67,8 +75,12 @@ export function ActivityTab() {
   if (error && txns === null) {
     return (
       <SectionLoadError
-        title="Couldn't load purchase history"
-        description="Your card purchase history is temporarily unavailable."
+        title={uiT(
+          MESSAGE_KEYS.featuresWalletFundingActivityTabCouldnTLoadPurchaseHistory,
+        )}
+        description={uiT(
+          MESSAGE_KEYS.featuresWalletFundingActivityTabYourCardPurchaseHistoryIsTemporarilyUnavailable,
+        )}
         retry={reload}
         retrying={loading}
       />
@@ -82,8 +94,12 @@ export function ActivityTab() {
       <div className="space-y-3">
         {error ? (
           <SectionLoadError
-            title="Couldn't refresh purchase history"
-            description="Showing the last card purchase history loaded on this device."
+            title={uiT(
+              MESSAGE_KEYS.featuresWalletFundingActivityTabCouldnTRefreshPurchaseHistory,
+            )}
+            description={uiT(
+              MESSAGE_KEYS.featuresWalletFundingActivityTabShowingTheLastCardPurchaseHistoryLoaded,
+            )}
             retry={reload}
             retrying={loading}
             stale
@@ -91,8 +107,12 @@ export function ActivityTab() {
         ) : null}
         <EmptyState
           icon={Receipt}
-          title="No card purchases yet"
-          description="Your available card purchase history will show up here."
+          title={uiT(
+            MESSAGE_KEYS.featuresWalletFundingActivityTabNoCardPurchasesYet,
+          )}
+          description={uiT(
+            MESSAGE_KEYS.featuresWalletFundingActivityTabYourAvailableCardPurchaseHistoryWillShow,
+          )}
         />
       </div>
     );
@@ -109,8 +129,12 @@ export function ActivityTab() {
     <div className="space-y-4">
       {error ? (
         <SectionLoadError
-          title="Couldn't refresh purchase history"
-          description="Showing the last card purchase history loaded on this device."
+          title={uiT(
+            MESSAGE_KEYS.featuresWalletFundingActivityTabCouldnTRefreshPurchaseHistory,
+          )}
+          description={uiT(
+            MESSAGE_KEYS.featuresWalletFundingActivityTabShowingTheLastCardPurchaseHistoryLoaded,
+          )}
           retry={reload}
           retrying={loading}
           stale
@@ -122,14 +146,14 @@ export function ActivityTab() {
       <div className={cn("grid gap-3", spent > 0 && "sm:grid-cols-2")}>
         <SummaryChip
           icon={TrendingUp}
-          label="Total bought"
+          label={uiT(MESSAGE_KEYS.featuresWalletFundingActivityTabTotalBought)}
           tuzis={bought}
           tone="credit"
         />
         {spent > 0 ? (
           <SummaryChip
             icon={TrendingDown}
-            label="Total spent"
+            label={uiT(MESSAGE_KEYS.featuresWalletFundingActivityTabTotalSpent)}
             tuzis={spent}
             tone="debit"
           />
@@ -144,7 +168,10 @@ export function ActivityTab() {
             const Icon = meta.icon;
             const credit = t.tuzis_credited > 0;
             const label =
-              t.counterparty ?? (t.kind === "buy" ? "Added 2Zs" : meta.label);
+              t.counterparty ??
+              (t.kind === "buy"
+                ? uiT(MESSAGE_KEYS.featuresWalletFundingActivityTabAdded2Zs)
+                : meta.label);
             return (
               <div key={t.id} className="flex items-center gap-3 px-4 py-3.5">
                 <div

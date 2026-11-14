@@ -1,4 +1,6 @@
-import { Toaster as Sonner } from "sonner";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { useEffect } from "react";
+import { Toaster as Sonner, toast } from "sonner";
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
@@ -10,6 +12,15 @@ const viewportOffsets = {
 
 /** App-wide toast host. Import { toast } from "sonner" to fire toasts. */
 const Toaster = ({ ...props }: ToasterProps) => {
+  const { i18n } = useUiTranslation();
+  useEffect(() => {
+    const dismissStaleSnapshots = () => toast.dismiss();
+    i18n.on("languageChanged", dismissStaleSnapshots);
+    return () => {
+      i18n.off("languageChanged", dismissStaleSnapshots);
+    };
+  }, [i18n]);
+
   return (
     <Sonner
       theme="dark"

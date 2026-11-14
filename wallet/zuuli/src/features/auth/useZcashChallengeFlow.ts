@@ -1,3 +1,11 @@
+import { errorKey, useMessageError } from "@/i18n/errors";
+import { UiError } from "@/i18n/errors";
+import { translate } from "@/i18n/translate";
+import {
+  DECLARED_MESSAGE_KEYS,
+  MESSAGE_KEYS,
+  type MessageKey,
+} from "@/i18n/messages";
 // The shared Login-with-Zcash state machine.
 //
 // Drives the challenge/response flow end-to-end:
@@ -67,10 +75,11 @@ const freshSteps = (): Steps => ({
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function errMessage(e: unknown): string {
-  if (e instanceof Error && e.message) return e.message;
-  if (typeof e === "string" && e) return e;
-  return "Something went wrong. Please try again.";
+function errMessage(e: unknown): MessageKey {
+  return errorKey(
+    e,
+    MESSAGE_KEYS.featuresAuthUseZcashChallengeFlowSomethingWentWrongPleaseTryAgain,
+  );
 }
 
 export interface ZcashChallengeFlowState {
@@ -124,28 +133,31 @@ export interface ChallengeVerification {
   token?: string;
 }
 
-// A friendly, step-aware message for the user. We NEVER surface the raw
-// backend string (e.g. "Challenge is missing, expired or does not match") —
-// it leaks server internals and doesn't tell the user what to do. Local
-// wallet/key errors ("prepare"/"sign") carry actionable messages we author,
-// so we keep those; server errors ("challenge"/"verify") get a clean, generic
-// message. The raw error is always logged for debugging.
+// Frontend preconditions carry typed UiError keys. HTTP/native failures use a
+// caller-authored localized fallback; raw diagnostic text is never UI copy.
 function friendlyError(
   stage: StepKey,
   e: unknown,
   verifyErrorMessage: string,
-): string {
+): MessageKey {
   console.error(`Zcash challenge flow failed at "${stage}":`, e);
   switch (stage) {
     case "prepare":
     case "sign":
       return errMessage(e);
     case "challenge":
-      return "Couldn't reach free2z to start the Zcash challenge. Check your connection and try again.";
+      return errorKey(
+        e,
+        MESSAGE_KEYS.featuresAuthUseZcashChallengeFlowCouldnTReachFree2zToStartThe,
+      );
     case "verify":
-      // `verify` errors (e.g. a 409 conflict) already carry a caller-authored,
-      // user-safe message (see auth.zcashAssociate) — surface it as-is.
-      return errMessage(e) || verifyErrorMessage;
+      // Keep verification failures behind the same safe display boundary.
+      return errorKey(
+        e,
+        DECLARED_MESSAGE_KEYS.includes(verifyErrorMessage as MessageKey)
+          ? (verifyErrorMessage as MessageKey)
+          : MESSAGE_KEYS.errorRequest,
+      );
   }
 }
 
@@ -159,7 +171,7 @@ export function useZcashChallengeFlow(
   const [address, setAddress] = useState<string | null>(null);
   const [seedPhrase, setSeedPhrase] = useState<string | null>(null);
   const [backupWalletId, setBackupWalletId] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageError();
   const sensitiveSeed = useRef<SensitiveSeedSession | null>(null);
   if (!sensitiveSeed.current) {
     sensitiveSeed.current = new SensitiveSeedSession(
@@ -219,9 +231,7 @@ export function useZcashChallengeFlow(
             status.activeWalletId !== expectedWalletId ||
             status.backupRequired
           ) {
-            throw new Error(
-              "The selected Zcash identity is no longer active. Try again.",
-            );
+            throw new UiError(MESSAGE_KEYS.errorWalletIdentity);
           }
         }
 
@@ -247,9 +257,7 @@ export function useZcashChallengeFlow(
             status.activeWalletId !== expectedWalletId ||
             status.backupRequired
           ) {
-            throw new Error(
-              "The selected Zcash identity is no longer active. Try again.",
-            );
+            throw new UiError(MESSAGE_KEYS.errorWalletIdentity);
           }
         }
         setAddress(addr);
@@ -275,9 +283,7 @@ export function useZcashChallengeFlow(
         const signed = await wallet.signChallenge(challenge);
         if (!isCurrent()) return;
         if (signed.address !== addr || signed.challenge !== challenge) {
-          throw new Error(
-            "The active Zcash identity changed before signing. No login was sent.",
-          );
+          throw new UiError(MESSAGE_KEYS.errorSignerChanged);
         }
         setStep("sign", "done");
 
@@ -328,7 +334,7 @@ export function useZcashChallengeFlow(
         return;
       }
       if (!status.activeWalletId) {
-        throw new Error("The active Zcash identity is unavailable.");
+        throw new UiError(MESSAGE_KEYS.errorWalletIdentity);
       }
       if (status.backupRequired) {
         runningRef.current = false;
@@ -380,7 +386,9 @@ export function useZcashChallengeFlow(
         const restoration = wallet.restoreWallet(
           seedPhrase,
           birthdayHeight,
-          "Recovered identity",
+          translate(
+            MESSAGE_KEYS.featuresAuthUseZcashChallengeFlowRecoveredIdentity,
+          ),
         );
         // Drop this flow-local binding before waiting on native I/O. JavaScript
         // strings cannot be zeroized, and the IPC argument object may retain its
@@ -403,7 +411,7 @@ export function useZcashChallengeFlow(
       } catch (error) {
         if (!isCurrent()) return;
         if (error instanceof WalletIdentityError) {
-          setError(error.message);
+          setError(MESSAGE_KEYS.errorWalletIdentity);
           setPhase("restoreIdentity");
           return;
         }
@@ -412,7 +420,7 @@ export function useZcashChallengeFlow(
         // while acknowledging that words, birthday, network, or native custody
         // can each prevent restoration.
         setError(
-          "Couldn't restore this identity. Check the recovery words, birthday, and connection, then try again.",
+          MESSAGE_KEYS.featuresAuthUseZcashChallengeFlowCouldnTRestoreThisIdentityCheckThe,
         );
         setPhase("restoreIdentity");
       } finally {
@@ -456,7 +464,7 @@ export function useZcashChallengeFlow(
       const status = await wallet.getWalletStatus();
       if (!isCurrent()) return;
       if (!status.initialized || !status.activeWalletId) {
-        throw new Error("The Zcash identity is no longer available.");
+        throw new UiError(MESSAGE_KEYS.errorWalletIdentity);
       }
       if (!status.backupRequired) {
         setStep("prepare", "done");

@@ -1,15 +1,18 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Composite wallet UI pieces: sync bar, address card, transaction row.
 import { QRCodeSVG } from "qrcode.react";
 import { Link } from "react-router-dom";
-import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Loader2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { BidiIdentifier } from "@/components/common/BidiIdentifier";
-import {
-  formatDate,
-  formatHeight,
-  formatZecDisplay,
-} from "@/lib/format";
+import { formatDate, formatHeight, formatZecDisplay } from "@/lib/format";
 import type { SyncStatus, TransactionEntry } from "@/lib/wallet/types";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./shared";
@@ -28,6 +31,8 @@ import { CopyButton } from "./shared";
  * a dead end; it clears automatically on the next successful pass.
  */
 export function SyncBar({ sync }: { sync: SyncStatus | null }) {
+  const { t: uiT } = useUiTranslation();
+
   const pct = sync ? Math.min(100, Math.max(0, sync.progressPercent)) : 0;
   const connecting = sync === null || sync.chainTip === 0;
   const caughtUp =
@@ -43,22 +48,26 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
         {caughtUp ? (
           <>
             <span className="h-2 w-2 rounded-full bg-success" aria-hidden />
-            <span>Synced</span>
+            <span>{uiT(MESSAGE_KEYS.featuresWalletComponentsSynced)}</span>
           </>
         ) : hasError ? (
           <>
             <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden />
-            <span className="text-warning">Sync trouble — retrying</span>
+            <span className="text-warning">
+              {uiT(MESSAGE_KEYS.featuresWalletComponentsSyncTroubleRetrying)}
+            </span>
           </>
         ) : connecting ? (
           <>
             <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-            <span className="text-muted-foreground">Connecting</span>
+            <span className="text-muted-foreground">
+              {uiT(MESSAGE_KEYS.featuresWalletComponentsConnecting)}
+            </span>
           </>
         ) : (
           <>
             <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-            <span>Syncing</span>
+            <span>{uiT(MESSAGE_KEYS.featuresWalletComponentsSyncing)}</span>
             <span className="ms-auto text-xs bidi-number tabular-nums text-muted-foreground">
               {pct.toFixed(1)}%
             </span>
@@ -71,13 +80,17 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
           "mt-0.5 text-xs bidi-number tabular-nums text-muted-foreground",
           hasError && "text-warning/80",
         )}
-        title={hasError ? errorMsg : undefined}
+        title={
+          hasError
+            ? uiT(MESSAGE_KEYS.featuresWalletComponentsSyncTroubleRetrying)
+            : undefined
+        }
       >
         {hasError
-          ? errorMsg
+          ? uiT(MESSAGE_KEYS.featuresWalletComponentsSyncTroubleRetrying)
           : sync && !connecting
             ? `${formatHeight(sync.syncedHeight)} / ${formatHeight(sync.chainTip)}`
-            : "Waiting for chain tip…"}
+            : uiT(MESSAGE_KEYS.featuresWalletComponentsWaitingForChainTip)}
       </p>
 
       {!caughtUp ? (
@@ -92,7 +105,9 @@ export function SyncBar({ sync }: { sync: SyncStatus | null }) {
             aria-valuenow={Math.round(pct)}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label="Chain sync progress"
+            aria-label={uiT(
+              MESSAGE_KEYS.featuresWalletComponentsChainSyncProgress,
+            )}
           />
         </div>
       ) : null}
@@ -108,6 +123,8 @@ export function AddressCard({
   address: string;
   compact?: boolean;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   return (
     <Card className="flex items-center gap-4 rounded-xl p-4">
       <div className="shrink-0 rounded-lg bg-white p-2">
@@ -117,12 +134,14 @@ export function AddressCard({
           bgColor="#ffffff"
           fgColor="#1a1206"
           level="M"
-          aria-label="Unified address QR code"
+          aria-label={uiT(
+            MESSAGE_KEYS.featuresWalletComponentsUnifiedAddressQRCode,
+          )}
         />
       </div>
       <div className="min-w-0 flex-1 space-y-1">
         <div className="eyebrow text-muted-foreground">
-          Your unified address
+          {uiT(MESSAGE_KEYS.featuresWalletComponentsYourUnifiedAddress)}
         </div>
         <BidiIdentifier
           value={address}
@@ -133,8 +152,10 @@ export function AddressCard({
           <CopyButton
             value={address}
             size="sm"
-            label="Address copied"
-            ariaLabel="Copy unified address"
+            label={uiT(MESSAGE_KEYS.featuresWalletComponentsAddressCopied)}
+            ariaLabel={uiT(
+              MESSAGE_KEYS.featuresWalletComponentsCopyUnifiedAddress,
+            )}
           />
         </div>
       </div>
@@ -144,6 +165,8 @@ export function AddressCard({
 
 /** A single transaction row. */
 export function TxRow({ tx }: { tx: TransactionEntry }) {
+  const { t: uiT } = useUiTranslation();
+
   const incoming = tx.incoming;
   return (
     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 rounded-lg px-3 py-3 transition-colors hover:bg-secondary/40 sm:flex sm:gap-3">
@@ -166,11 +189,13 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">
-            {incoming ? "Received" : "Sent"}
+            {incoming
+              ? uiT(MESSAGE_KEYS.featuresWalletComponentsReceived)
+              : uiT(MESSAGE_KEYS.featuresWalletComponentsSent)}
           </span>
           {tx.blockHeight === null ? (
             <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
-              Pending
+              {uiT(MESSAGE_KEYS.featuresWalletComponentsPending)}
             </span>
           ) : null}
         </div>
@@ -207,9 +232,13 @@ export function TxRow({ tx }: { tx: TransactionEntry }) {
 
 /** "See all" style link back to history. */
 export function ViewAllLink() {
+  const { t: uiT } = useUiTranslation();
+
   return (
     <Button asChild variant="ghost" size="sm">
-      <Link to="/wallet/history">View all</Link>
+      <Link to="/wallet/history">
+        {uiT(MESSAGE_KEYS.featuresWalletComponentsViewAll)}
+      </Link>
     </Button>
   );
 }

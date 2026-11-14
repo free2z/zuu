@@ -5,10 +5,13 @@ const RECIPIENT =
 
 async function openSend(page: Page, delayMs = 0) {
   await page.setViewportSize({ width: 320, height: 568 });
-  await page.addInitScript(({ delay }) => {
-    localStorage.setItem("zuuli.knox.token", "mock-knox-token");
-    localStorage.setItem("zuuli.mock.send-proposal-delay-ms", String(delay));
-  }, { delay: delayMs });
+  await page.addInitScript(
+    ({ delay }) => {
+      localStorage.setItem("zuuli.knox.token", "mock-knox-token");
+      localStorage.setItem("zuuli.mock.send-proposal-delay-ms", String(delay));
+    },
+    { delay: delayMs },
+  );
   await page.goto("/wallet/send");
 }
 
@@ -17,10 +20,14 @@ async function fillPayment(page: Page, memo = "immutable private memo") {
   await expect(page.getByText(/Valid unified address/)).toBeVisible();
   await page.getByLabel("Amount").fill("0.0001");
   await page.getByLabel(/^Memo/).fill(memo);
-  await expect(page.getByRole("button", { name: "Review payment" })).toBeEnabled();
+  await expect(
+    page.getByRole("button", { name: "Review payment" }),
+  ).toBeEnabled();
 }
 
-test("a proposal resolving after unmount is discarded and cannot reopen review", async ({ page }) => {
+test("a proposal resolving after unmount is discarded and cannot reopen review", async ({
+  page,
+}) => {
   await openSend(page, 600);
   await fillPayment(page);
   await page.getByRole("button", { name: "Review payment" }).click();
@@ -32,17 +39,23 @@ test("a proposal resolving after unmount is discarded and cannot reopen review",
   await page.getByRole("link", { name: "Zcash wallet", exact: true }).click();
   await expect(page).toHaveURL(/\/wallet$/);
   await page.waitForTimeout(750);
-  await expect(page.getByRole("dialog", { name: "Confirm payment" })).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Confirm payment" }),
+  ).toHaveCount(0);
 
   const persistedSecrets = await page.evaluate(() =>
-    [...Object.entries(localStorage), ...Object.entries(sessionStorage)].filter(
-      ([key, value]) => /send|proposal|digest|confirmation/i.test(`${key}:${value}`),
-    ).filter(([key]) => key !== "zuuli.mock.send-proposal-delay-ms"),
+    [...Object.entries(localStorage), ...Object.entries(sessionStorage)]
+      .filter(([key, value]) =>
+        /send|proposal|digest|confirmation/i.test(`${key}:${value}`),
+      )
+      .filter(([key]) => key !== "zuuli.mock.send-proposal-delay-ms"),
   );
   expect(persistedSecrets).toEqual([]);
 });
 
-test("an input race invalidates a proposal even when UI disabling is bypassed", async ({ page }) => {
+test("an input race invalidates a proposal even when UI disabling is bypassed", async ({
+  page,
+}) => {
   await openSend(page, 600);
   await fillPayment(page);
   await page.getByRole("button", { name: "Review payment" }).click();
@@ -52,15 +65,24 @@ test("an input race invalidates a proposal even when UI disabling is bypassed", 
   // Simulate a stale renderer/event race below the visual disabled control.
   // The generation lease, not HTML disabling, is the integrity boundary.
   await amount.evaluate((element, value) => {
-    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    const setter = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      "value",
+    )?.set;
     setter?.call(element, value);
-    element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText" }));
+    element.dispatchEvent(
+      new InputEvent("input", { bubbles: true, inputType: "insertText" }),
+    );
   }, "0.0002");
 
   await expect(amount).toHaveValue("0.0002");
   await page.waitForTimeout(750);
-  await expect(page.getByRole("dialog", { name: "Confirm payment" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Review payment" })).toBeEnabled();
+  await expect(
+    page.getByRole("dialog", { name: "Confirm payment" }),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("button", { name: "Review payment" }),
+  ).toBeEnabled();
 });
 
 test("a multi-payment URI never selects its first payment or preserves stale intent", async ({
@@ -77,7 +99,9 @@ test("a multi-payment URI never selects its first payment or preserves stale int
   await expect(page.getByLabel("Recipient address")).toHaveValue("");
   await expect(page.getByLabel("Amount")).toHaveValue("");
   await expect(page.getByLabel(/^Memo/)).toHaveValue("");
-  await expect(page.getByRole("button", { name: "Review payment" })).toBeDisabled();
+  await expect(
+    page.getByRole("button", { name: "Review payment" }),
+  ).toBeDisabled();
 });
 
 test("a snackbar clears native insets, mobile navigation, and viewport resizes", async ({
@@ -124,7 +148,8 @@ test("a snackbar clears native insets, mobile navigation, and viewport resizes",
       page.evaluate(() => ({
         width: document.documentElement.clientWidth,
         height:
-          window.visualViewport?.height ?? document.documentElement.clientHeight,
+          window.visualViewport?.height ??
+          document.documentElement.clientHeight,
       })),
     ]);
     if (!toastRect || !navRect) {
@@ -160,7 +185,9 @@ test("a snackbar clears native insets, mobile navigation, and viewport resizes",
     expect(measured.toasterLeft).toBe(29);
     expect(measured.toasterRight).toBe(29);
     expect(measured.toast.left).toBeGreaterThanOrEqual(29);
-    expect(measured.toast.right).toBeLessThanOrEqual(measured.viewportWidth - 29);
+    expect(measured.toast.right).toBeLessThanOrEqual(
+      measured.viewportWidth - 29,
+    );
     expect(measured.toast.bottom).toBeLessThanOrEqual(measured.navTop - 16);
     expect(measured.toast.top).toBeGreaterThanOrEqual(23);
     expect(measured.toast.bottom).toBeLessThanOrEqual(
@@ -187,7 +214,9 @@ test("the 320px dialog renders only the immutable native review and locks editin
   await expect(page.getByLabel(/^Memo/)).toBeDisabled();
   await expect(page.getByTestId("send-review-recipient")).toHaveText(RECIPIENT);
   await expect(page.getByTestId("send-review-amount")).toHaveText("0.0001 ZEC");
-  await expect(page.getByTestId("send-review-memo")).toHaveText("immutable private memo");
+  await expect(page.getByTestId("send-review-memo")).toHaveText(
+    "immutable private memo",
+  );
   await expect(dialog.getByText("mainnet", { exact: true })).toBeVisible();
   await expect(page.getByTestId("send-review-change-policy")).toHaveAttribute(
     "title",
@@ -216,13 +245,18 @@ test("the 320px dialog renders only the immutable native review and locks editin
 
   const leaked = await page.evaluate(() =>
     [...Object.entries(localStorage), ...Object.entries(sessionStorage)].filter(
-      ([key, value]) => /reviewDigest|confirmationToken|immutable private memo/i.test(`${key}:${value}`),
+      ([key, value]) =>
+        /reviewDigest|confirmationToken|immutable private memo/i.test(
+          `${key}:${value}`,
+        ),
     ),
   );
   expect(leaked).toEqual([]);
 });
 
-test("renderer approval cannot send when native confirmation is cancelled", async ({ page }) => {
+test("renderer approval cannot send when native confirmation is cancelled", async ({
+  page,
+}) => {
   await page.addInitScript(() => {
     localStorage.setItem("zuuli.mock.send-confirmation-result", "cancel");
   });
@@ -232,12 +266,19 @@ test("renderer approval cannot send when native confirmation is cancelled", asyn
   await page.getByRole("button", { name: "Confirm & send" }).click();
 
   await expect(page).toHaveURL(/\/wallet\/send$/);
-  await expect(page.getByText("Native payment confirmation was cancelled")).toBeVisible();
-  await expect(page.getByRole("dialog", { name: "Confirm payment" })).toHaveCount(0);
+  await expect(page.getByText("Send failed", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Native payment confirmation was cancelled"),
+  ).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Confirm payment" }),
+  ).toHaveCount(0);
   await expect(page.getByLabel("Amount")).toBeEnabled();
 });
 
-test("long canonical review fields remain fully inspectable on a short phone", async ({ page }) => {
+test("long canonical review fields remain fully inspectable on a short phone", async ({
+  page,
+}) => {
   const longMemo = "private review words ".repeat(18).trim();
   await openSend(page);
   await fillPayment(page, longMemo);
@@ -246,7 +287,9 @@ test("long canonical review fields remain fully inspectable on a short phone", a
   const dialog = page.getByRole("dialog", { name: "Confirm payment" });
   await expect(page.getByTestId("send-review-recipient")).toHaveText(RECIPIENT);
   await expect(page.getByTestId("send-review-memo")).toHaveText(longMemo);
-  await expect(page.getByRole("button", { name: "Confirm & send" })).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Confirm & send" }),
+  ).toBeVisible();
 
   const geometry = await dialog.evaluate((element) => {
     const rect = element.getBoundingClientRect();
@@ -264,17 +307,27 @@ test("long canonical review fields remain fully inspectable on a short phone", a
   expect(geometry.top).toBeGreaterThanOrEqual(0);
   expect(geometry.bottom).toBeLessThanOrEqual(568);
   expect(geometry.scrollHeight).toBeGreaterThan(geometry.clientHeight);
-  await page.getByRole("button", { name: "Confirm & send" }).scrollIntoViewIfNeeded();
-  await expect(page.getByRole("button", { name: "Confirm & send" })).toBeInViewport();
+  await page
+    .getByRole("button", { name: "Confirm & send" })
+    .scrollIntoViewIfNeeded();
+  await expect(
+    page.getByRole("button", { name: "Confirm & send" }),
+  ).toBeInViewport();
 });
 
-test("cancel discards the exact proposal and requires a fresh review", async ({ page }) => {
+test("cancel discards the exact proposal and requires a fresh review", async ({
+  page,
+}) => {
   await openSend(page);
   await fillPayment(page, "first review");
   await page.getByRole("button", { name: "Review payment" }).click();
-  await expect(page.getByRole("dialog", { name: "Confirm payment" })).toBeVisible();
+  await expect(
+    page.getByRole("dialog", { name: "Confirm payment" }),
+  ).toBeVisible();
   await page.getByRole("button", { name: "Cancel" }).click();
-  await expect(page.getByRole("dialog", { name: "Confirm payment" })).toHaveCount(0);
+  await expect(
+    page.getByRole("dialog", { name: "Confirm payment" }),
+  ).toHaveCount(0);
   await expect(page.getByLabel("Amount")).toBeEnabled();
 
   await page.getByLabel("Amount").fill("0.0002");
