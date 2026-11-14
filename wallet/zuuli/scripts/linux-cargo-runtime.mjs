@@ -184,7 +184,7 @@ function parseCargoTree(output) {
   return packages;
 }
 
-function expectedRuntimeGraph({
+export function expectedRuntimeGraph({
   cargoLock,
   cargoManifest,
   target,
@@ -412,11 +412,31 @@ function extractEvidence(executable, execute) {
   if (!Buffer.isBuffer(compressed) || compressed.length === 0) {
     throw new Error("shipping Linux executable has empty Cargo audit evidence");
   }
+  return decodeCargoAuditEvidence(compressed);
+}
+
+// Shared with the bounded Mach-O reader. The bytes must come from the binary's
+// section table, never a source/build sidecar.
+export function decodeCargoAuditEvidence(compressed) {
+  if (
+    !Buffer.isBuffer(compressed) ||
+    compressed.length === 0 ||
+    compressed.length > MAX_EVIDENCE_BYTES
+  ) {
+    throw new Error(
+      "embedded Cargo audit evidence has invalid compressed size",
+    );
+  }
   let jsonBytes;
   try {
-    jsonBytes = inflateSync(compressed, {
+    const result = inflateSync(compressed, {
       maxOutputLength: MAX_EVIDENCE_JSON_BYTES,
+      info: true,
     });
+    if (result.engine.bytesWritten !== compressed.length) {
+      throw new Error("trailing compressed data");
+    }
+    jsonBytes = result.buffer;
   } catch {
     throw new Error(
       "embedded Cargo audit evidence is not bounded valid zlib data",
@@ -424,7 +444,9 @@ function extractEvidence(executable, execute) {
   }
   let document;
   try {
-    document = JSON.parse(jsonBytes.toString("utf8"));
+    document = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true }).decode(jsonBytes),
+    );
   } catch {
     throw new Error("embedded Cargo audit evidence is not valid UTF-8 JSON");
   }
@@ -441,7 +463,7 @@ function identity(entry) {
   return `${entry.name}\0${entry.version}\0${entry.source}`;
 }
 
-function reconcileRuntimePackages(evidence, expected) {
+export function reconcileRuntimePackages(evidence, expected) {
   const actual = new Map();
   for (const entry of evidence.document.packages) {
     if (entry.kind === "build") continue;
