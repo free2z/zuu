@@ -141,6 +141,11 @@ def _assert_fresh(context, amr, acr):
     assert context is not None, "no AuthContext was recorded"
     assert context.amr == sorted(amr)
     assert context.acr == acr
+    if 'otp' in amr:
+        from dj.apps.otp.utils import factor_binding
+        assert context.otp_binding == factor_binding(OTPSecret.objects.get(user_id=context.creator_id))
+    else:
+        assert context.otp_binding == ''
     assert timezone.now() - context.auth_time < timedelta(seconds=30)
 
 
@@ -635,15 +640,21 @@ def test_password_reset_records_pwd(api_client, creator_factory, with_totp):
     assert _session_context(api_client, user).account_epoch == _fresh(user).kt_account_epoch
 
 
-def test_password_change_records_pwd(api_client, creator_factory):
+@pytest.mark.parametrize("with_totp", [False, True])
+def test_password_change_records_pwd(api_client, creator_factory, with_totp):
     user = creator_factory(password=PASSWORD)
     assert _password_login(api_client, user).status_code == 204
 
-    response = api_client.post("/api/emails/change-password", {
-        "old_password": PASSWORD, "new_password": "a-new-Passw0rd!"}, format="json")
+    body = {"old_password": PASSWORD, "new_password": "a-new-Passw0rd!"}
+    if with_totp:
+        _enable_totp(user)
+        body['otp_token'] = _totp()
+    response = api_client.post("/api/emails/change-password", body, format="json")
 
     assert response.status_code == 200, response.content
-    _assert_fresh(_session_context(api_client, user), ["pwd"], ACR_1FA)
+    _assert_fresh(_session_context(api_client, user),
+                  ["pwd", "otp", "mfa"] if with_totp else ["pwd"],
+                  ACR_MFA if with_totp else ACR_1FA)
     assert AuthContext.objects.filter(creator=user).count() == 2  # old row is inert
     assert AuthContext.objects.filter(
         creator=user, account_epoch=_fresh(user).kt_account_epoch).count() == 1

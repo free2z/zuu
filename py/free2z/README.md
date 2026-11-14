@@ -277,3 +277,63 @@ queueing locks so delayed work cannot hold back a newly actionable eviction.
 Disabling the gate again stops execution and retries without
 clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
 to worker code without the task registration while queued jobs can still exist.
+
+### Free2Z TOTP token issuance and rollout ([#369](https://github.com/free2z/zuu/issues/369))
+
+The mounted password contract is `POST /api/auth/login[/]` with password,
+CAPTCHA and `otp_token` in the same request. It issues a session only after
+consuming the code; there is no password-only challenge credential to replay,
+expire or exchange across users. `/api/otp/login/` likewise checks password
+and TOTP together. Basic headers authenticate neither route nor the normal
+Knox endpoint. `/api/token/login/` exchanges an authenticated credential; for
+an enrolled account it now requires that credential's current, user-bound,
+unexpired AuthContext to carry `otp` and the binding earned by verifying
+the currently enrolled seed. Disable/re-enrolment or seed rotation cannot
+upgrade an old session or token to the new factor. It inherits that context without
+refreshing its authentication time. OTP login routes share a five-attempt,
+five-minute account budget, fail closed on cache failure, and burn the accepted
+time step under the account-then-OTP row locks. The account lock also
+serializes absent and pending enrolment through credential issuance. Production uses the shared Redis cache.
+
+Historical Knox rows have no reliable “OTP completed” marker. Their source
+field `knox_authtoken.created` permits conservative retirement of all tokens
+created before a fixed rollout cutoff for currently enrolled accounts:
+
+1. Deploy the enforcement release to **all** serving pods and verify health.
+   Record the deployed source SHA and the aware UTC time at which the last
+   old pod stopped serving. Do not run revocation during `migrate` or a mixed
+   fleet, and do not infer that a source commit timestamp is a deployment time.
+2. Dry-run `manage.py revoke_pre_totp_tokens --before <recorded-UTC-time>`.
+3. Under the existing deployment approval, add `--apply`; each invocation
+   retires at most 500 rows (configurable from 1 to 5000). Repeat with the
+   **same cutoff** until `Retired 0 tokens`. The command prints counts only.
+   A rollback does not restore retired credentials; users must sign in again.
+
+This is idempotent bounded cleanup, not an ownership event: it also forgets
+those tokens' AuthContexts, preserves newer and unenrolled accounts' tokens,
+and does not bump account epochs, remove sessions, recovery codes or OAuth
+grants. No production mutation is part of development or tests. Legacy
+sessions without OTP context cannot mint replacement bearers for enrolled
+accounts. Existing tests cover the other session issuers and deletion gates;
+[`otp/test_token_issuance.py`](dj/apps/otp/test_token_issuance.py) covers
+the public password/Knox chain;
+[`otp/test_enrollment_issuance_races.py`](dj/apps/otp/test_enrollment_issuance_races.py)
+proves PostgreSQL enrolment serialization, factor replacement refusal and
+concurrent bounded cleanup. Password, OTP, social, Zcash and email password
+change/reset issuers retain these locks through issuance in the request-wide
+POST transaction; the legacy Twitter GET callback retains its explicit
+transaction. The binding follows the proved factor, including when password
+recovery reauthenticates a fresh user object.
+
+The additive AuthContext column has a database default for old-pod inserts.
+Legacy contexts have no binding and require fresh OTP login to exchange a
+token. Revocation tests and local implementation do not establish production
+acceptance; keep #369 open until the approved rollout is verified.
+
+Enrollment membership is read by each cleanup batch, not frozen at the
+cutoff. Accounts disabled at that snapshot are excluded, and enrollment
+changes between batches can change membership. `Retired 0` describes that
+invocation only. Capture counts and enrollment conditions in the deployment
+record and repeat the approved fixed-cutoff audit after concurrent enrollment
+changes settle. Cleanup does not claim to revoke every historic credential
+of accounts that are no longer enrolled.

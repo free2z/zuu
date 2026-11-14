@@ -306,7 +306,7 @@ class AuthContextQuerySet(models.QuerySet):
 
 class AuthContextManager(models.Manager.from_queryset(AuthContextQuerySet)):
     def record(self, creator, *, kind: str, key: str, auth_time, amr,
-               acr: str = "", account_epoch: int, credential_expires_at):
+               acr: str = "", account_epoch: int, credential_expires_at, otp_binding=""):
         """Create or replace the context for one credential.
 
         ``account_epoch`` must be the epoch the authentication itself was
@@ -328,6 +328,7 @@ class AuthContextManager(models.Manager.from_queryset(AuthContextQuerySet)):
                 "creator": creator,
                 "auth_time": auth_time,
                 "amr": amr,
+                "otp_binding": otp_binding,
                 "acr": acr,
                 "account_epoch": account_epoch,
                 "expires_at": expires_at,
@@ -410,6 +411,8 @@ class AuthContext(models.Model):
     credential_hash = models.CharField(max_length=64, editable=False)
     auth_time = models.DateTimeField()
     amr = models.JSONField(default=list, blank=True)
+    # Empty for legacy/unproved contexts; only a verified seed earns a binding.
+    otp_binding = models.CharField(max_length=64, default="", db_default="", blank=True)
     acr = models.CharField(max_length=64, blank=True)
     account_epoch = models.PositiveIntegerField()
     created_at = models.DateTimeField(auto_now_add=True)
