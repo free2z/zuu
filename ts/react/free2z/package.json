@@ -30,7 +30,7 @@
     "@types/node": "^16.18.126",
     "@types/react": "^18.3.23",
     "@types/react-dom": "^18.3.7",
-    "@uiw/react-md-editor": "3.24.1",
+    "@uiw/react-md-editor": "3.25.6",
     "ajv": "^8.18.0",
     "axios": "^0.34.0",
     "buffer": "^6.0.3",
