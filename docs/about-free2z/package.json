@@ -26,14 +26,14 @@
     "prism-react-renderer": "^2.4.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "^0.186.1"
+    "three": "^0.187.0"
   },
   "devDependencies": {
     "@docusaurus/module-type-aliases": "3.10.2",
     "@docusaurus/tsconfig": "3.10.2",
     "@docusaurus/types": "3.10.2",
     "@types/react": "^18.3.5",
-    "@types/three": "0.186.0",
+    "@types/three": "0.187.0",
     "typescript": "~7.0.2"
   },
   "browserslist": {
