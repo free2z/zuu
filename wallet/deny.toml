@@ -52,6 +52,20 @@ ignore = [
   # reach it from the committed lockfiles.
   # ---------------------------------------------------------------------------
 
+  # Bundled SQLite < 3.54.0 (libsqlite3-sys 0.35.0 via rusqlite 0.37.0). The fix
+  # is libsqlite3-sys >= 0.39 (rusqlite >= 0.41), but the intermediate crate has
+  # to move first: upstream zcash_client_sqlite requires rusqlite 0.37, and
+  # libsqlite3-sys `links = "sqlite3"` forbids a second copy in any graph that
+  # links tauri-plugin-zcash. Affected roots (free2z/zuu#1531):
+  # wallet/e2e2z/src-tauri, wallet/plugins/tauri-plugin-f2zmsg,
+  # wallet/plugins/tauri-plugin-zcash, wallet/zuuallet/src-tauri and
+  # wallet/zuuli/src-tauri. Exploiting it requires the app to open its database
+  # next to an attacker-crafted -wal file with a mismatched page size, i.e. an
+  # attacker who already has local write access to the app's data directory.
+  # Remove this entry when upstream zcash_client_sqlite allows rusqlite >= 0.41 /
+  # libsqlite3-sys >= 0.39.
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.35.0 bundles SQLite < 3.54.0 via rusqlite 0.37.0 in wallet/e2e2z/src-tauri, wallet/plugins/tauri-plugin-f2zmsg, wallet/plugins/tauri-plugin-zcash, wallet/zuuallet/src-tauri and wallet/zuuli/src-tauri; needs an intermediate crate to move first: upstream zcash_client_sqlite pins rusqlite 0.37 and libsqlite3-sys links = sqlite3 allows one copy. Exploit needs the app to open its DB beside an attacker-crafted WAL with a mismatched page size, i.e. local write access to the app's data directory. Remove when upstream zcash_client_sqlite allows rusqlite >=0.41 / libsqlite3-sys >=0.39. free2z/zuu#1531" },
+
   # ---------------------------------------------------------------------------
   # Unmaintained. None of these has a fixed version to move to — the advisory is
   # that the crate is no longer developed. Clearing them means the *dependent*
