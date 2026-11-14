@@ -32,6 +32,26 @@ const productionResponse = {
 };
 
 describe("social-provider discovery contract", () => {
+  it("normalizes reordered discovery with optional backend reauthentication metadata", () => {
+    const status = parseSocialProvidersStatus({ providers: [
+      { provider: "github", configured: false, web_reauthentication: true },
+      { provider: "google", configured: false },
+      { provider: "x", configured: true, web_reauthentication: false },
+    ] });
+    expect(status).toEqual({ x: true, google: false, github: false });
+    expect(configuredSocialProviders(status)).toEqual(["x"]);
+  });
+
+  it.each([null, "true", 1, {}, []])("rejects malformed optional metadata %j", (metadata) => {
+    expect(() => parseSocialProvidersStatus({ providers: productionResponse.providers.map(
+      (entry) => ({ ...entry, web_reauthentication: metadata }),
+    ) })).toThrow(SocialProvidersContractError);
+  });
+
+  it("never enables providers from truthy internal values", () => {
+    expect(configuredSocialProviders({ x: "true", google: 1, github: {} } as never)).toEqual([]);
+  });
+
   beforeEach(() => {
     vi.mocked(request).mockReset();
     vi.mocked(oauthCallbackTransport).mockReset();
@@ -104,6 +124,17 @@ describe("social-provider discovery contract", () => {
     expect(() => parseSocialProvidersStatus(response)).toThrow(
       SocialProvidersContractError,
     );
+  });
+
+  it.each([
+    { provider: "future-provider", configured: false },
+    { provider: "x", configured: true },
+    { provider: "x", configured: 1 },
+    { provider: "x", configured: null },
+  ])("rejects ambiguous records alongside a complete valid response: %j", (entry) => {
+    expect(() => parseSocialProvidersStatus({ providers: [
+      ...productionResponse.providers, entry,
+    ] })).toThrow(SocialProvidersContractError);
   });
 
   it("parses at the HTTP boundary instead of returning trusted JSON", async () => {
