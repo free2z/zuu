@@ -46,8 +46,8 @@ class Command(BaseCommand):
             'auth_mode': client.auth_mode,
             'operation': 'list_meetings',
         }
-        report['credentials_present'] = report[
-            f'{client.auth_mode}_credentials_present']
+        report['keys_present'] = report[
+            f'{client.auth_mode}_keys_present']
         try:
             response = client.list_meetings(per_page=1)
         except ProviderError as exc:

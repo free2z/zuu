@@ -324,8 +324,8 @@ def test_startup_line_has_no_secret_values(settings, caplog):
     settings.DYTE_ORG, settings.DYTE_KEY = ORG, V2_KEY
     report = log_auth_mode()
     assert report == {'configured_mode': 'auto', 'auth_mode': 'v4',
-                      'v4_credentials_present': True, 'v2_credentials_present': True,
-                      'credentials_present': True}
+                      'v4_keys_present': True, 'v2_keys_present': True,
+                      'keys_present': True}
     [(record, payload)] = events(caplog, MODE_SELECTED_EVENT)
     assert record.levelno == logging.INFO and payload['severity'] == 'INFO'
     for secret in (V4_TOKEN, V2_KEY, ORG, ROOM, 'a' * 32):

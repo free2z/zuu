@@ -326,9 +326,9 @@ def mode_report():
     return {
         'configured_mode': raw if raw in CONFIGURED_MODES else 'invalid',
         'auth_mode': auth_mode,
-        'v4_credentials_present': v4,
-        'v2_credentials_present': v2,
-        'credentials_present': v4 if auth_mode == AUTH_MODE_V4 else v2,
+        'v4_keys_present': v4,
+        'v2_keys_present': v2,
+        'keys_present': v4 if auth_mode == AUTH_MODE_V4 else v2,
     }
 
 
@@ -340,13 +340,13 @@ def log_auth_mode(log=None):
     """
     log = log or logger
     report = mode_report()
-    healthy = report['credentials_present'] and report['configured_mode'] != 'invalid'
+    healthy = report['keys_present'] and report['configured_mode'] != 'invalid'
     payload = {
         'severity': 'INFO' if healthy else 'WARNING',
         'message': (
             f"RealtimeKit API mode {report['auth_mode']} "
             f"(RTK_API_MODE={report['configured_mode']}, credentials "
-            f"{'present' if report['credentials_present'] else 'MISSING'})"
+            f"{'present' if report['keys_present'] else 'MISSING'})"
         ),
         'event': MODE_SELECTED_EVENT,
         **report,
@@ -443,8 +443,8 @@ def report_provider_failure(operation, status, auth_mode, *, reason,
     missing), WARNING for everything else. Fields are integers or fixed
     vocabulary only -- never a body, header, URL, token or provider text.
     """
-    credential_failure = status in (401, 403) or reason == 'not_configured'
-    severity = 'ERROR' if credential_failure else 'WARNING'
+    auth_failure = status in (401, 403) or reason == 'not_configured'
+    severity = 'ERROR' if auth_failure else 'WARNING'
     payload = {
         'severity': severity,
         'message': (
@@ -460,7 +460,7 @@ def report_provider_failure(operation, status, auth_mode, *, reason,
     if provider_code is not None:
         payload['provider_code'] = provider_code
     (log or logger).log(
-        logging.ERROR if credential_failure else logging.WARNING,
+        logging.ERROR if auth_failure else logging.WARNING,
         json.dumps(payload, separators=(',', ':')),
     )
 
