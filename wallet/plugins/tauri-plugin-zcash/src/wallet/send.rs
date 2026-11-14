@@ -1368,6 +1368,9 @@ pub async fn ensure_sapling_params(state: &WalletState) -> Result<SaplingParamsS
         if let Some(prover) = LocalTxProver::with_default_location() {
             return Ok(prover);
         }
+        let _network = zuuli_transport::global().direct_now().map_err(|_| {
+            Error::NetworkError("parameter download unavailable in Tor mode".into())
+        })?;
         zcash_proofs::download_sapling_parameters(Some(300)).map_err(|error| {
             Error::SendError(format!(
                 "failed to download Sapling proving parameters: {error}"

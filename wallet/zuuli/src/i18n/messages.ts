@@ -5,6 +5,24 @@
  * hard failure in every locale.
  */
 export const MESSAGE_KEYS = {
+  torTitle: "tor.title",
+  torScope: "tor.scope",
+  torEnable: "tor.enable",
+  torDisable: "tor.disable",
+  torReconnect: "tor.reconnect",
+  torAdvanced: "tor.advanced",
+  torDetails: "tor.details",
+  torMobile: "tor.mobile",
+  torEpoch: "tor.epoch",
+  torDirect: "tor.direct",
+  torWaiting: "tor.waiting",
+  torProxyConnected: "tor.proxyConnected",
+  torDegraded: "tor.degraded",
+  torSuspended: "tor.suspended",
+  torWeb: "tor.web",
+  torLoading: "tor.loading",
+  torError: "tor.error",
+
   commonLoading: "common.loading",
   commonPending: "common.pending",
   commonRetry: "common.retry",

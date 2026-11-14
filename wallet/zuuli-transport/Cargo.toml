@@ -1,0 +1,33 @@
+[package]
+name = "zuuli-transport"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+publish = false
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["net", "io-util", "sync", "time", "rt", "macros"] }
+tokio-socks = "0.5.3"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tonic = { version = "0.14", default-features = false, features = ["transport", "tls-webpki-roots"] }
+http = "1"
+hyper-util = { version = "0.1", features = ["tokio"] }
+tower = { version = "0.5", features = ["util"] }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+hyper = { version = "1", features = ["server", "http2"] }
+http-body-util = "0.1"
+bytes = "1"
+
+[profile.dev]
+opt-level = 0
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
+[profile.release]
+lto = "thin"
+codegen-units = 1

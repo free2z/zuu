@@ -1,4 +1,4 @@
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openNetworkUrl as openUrl } from "@/lib/network";
 import { ApiError } from "@/lib/api/http";
 import { CheckoutLinkError } from "@/lib/api/checkout";
 import { isTauri } from "@/lib/platform";

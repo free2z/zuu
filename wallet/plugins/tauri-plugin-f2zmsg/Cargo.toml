@@ -42,6 +42,8 @@ tauri-build = "2"
 blake2 = { version = "0.10", default-features = false }
 
 [dependencies]
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+zuuli-transport = { path = "../../zuuli-transport" }
 tauri = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

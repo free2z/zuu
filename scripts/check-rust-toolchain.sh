@@ -52,6 +52,7 @@ TOOLCHAIN_FILE=rust-toolchain.toml
 # invocation, including the bare one the required gate runs, which passes no
 # flags at all and would fail on anything registered only elsewhere.
 MANIFESTS=(
+  wallet/zuuli-transport/Cargo.toml
   rs/zcash-payment-hooks/Cargo.toml
   wallet/zuuli/wasm-spike/Cargo.toml
   wallet/zuuli/crypto-target-spike/Cargo.toml

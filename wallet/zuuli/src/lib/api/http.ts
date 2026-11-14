@@ -6,10 +6,11 @@
 //
 // CORS: the free2z backend only whitelists a handful of web origins, so the
 // Tauri webview's own origin is NOT allowed. On desktop we therefore route
-// every request through `@tauri-apps/plugin-http` — a native Rust HTTP client
+// every request through the app-owned native policy command — a native Rust HTTP client
 // that is not subject to browser CORS. In a plain browser we use window.fetch
 // (which works from a CORS-allowed origin, or via a dev proxy).
 
+import { nativeApiFetch } from "../network";
 import { API_BASE, MEDIA_BASE } from "../env";
 import { isTauri } from "../platform";
 
@@ -113,23 +114,13 @@ export class ApiError extends Error {
   }
 }
 
-// The native fetch (browser or tauri-plugin-http), resolved lazily once.
+// The native fetch (browser or app-owned native policy), resolved lazily once.
 type FetchLike = typeof fetch;
 let fetchImpl: FetchLike | null = null;
 async function getFetch(): Promise<FetchLike> {
   if (fetchImpl) return fetchImpl;
-  // `tauri dev` is served by the Vite dev server, whose proxy forwards /api and
-  // /uploadz to the backend (same-origin localhost:1423 → backend, no CORS). Use
-  // window.fetch there so that proxy is honored. Only production builds (no dev
-  // server, absolute API_BASE like https://free2z.cash) need tauri-plugin-http
-  // to dodge browser CORS from the webview's own origin.
-  const isDev = Boolean(
-    (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
-  );
-  const useNativeHttp = isTauri() && !isDev;
-  if (useNativeHttp) {
-    const mod = await import("@tauri-apps/plugin-http");
-    fetchImpl = mod.fetch as unknown as FetchLike;
+  if (isTauri()) {
+    fetchImpl = nativeApiFetch;
   } else {
     fetchImpl = window.fetch.bind(window);
   }
@@ -150,7 +141,10 @@ interface RequestOpts {
 }
 
 function buildUrl(path: string, query?: RequestOpts["query"]): string {
-  const abs = path.startsWith("http") ? path : `${API_BASE}${path}`;
+  // Native dev must never use the browser/Vite proxy as an alternate
+  // transport. Preserve its reviewed staging default through the native seam.
+  const apiBase = isTauri() && !API_BASE ? "https://stage.free2z.cash" : API_BASE;
+  const abs = path.startsWith("http") ? path : `${apiBase}${path}`;
   // When API_BASE is "" (dev proxy), `abs` is a same-origin relative path;
   // resolve it against the current origin so URLSearchParams works.
   const base =

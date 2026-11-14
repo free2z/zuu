@@ -2,12 +2,19 @@
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "mobile",
   "description": "Exact least-privilege mobile capability for the main ZUULI webview. Carries no f2zmsg:* permission: #904 phase 3 moved messaging to wallet/e2e2z and phase 4 left this app with no messaging frontend on any platform (#916).",
-  "platforms": ["iOS", "android"],
-  "windows": ["main"],
+  "platforms": [
+    "iOS",
+    "android"
+  ],
+  "windows": [
+    "main"
+  ],
   "permissions": [
     "core:default",
+    "core:window:deny-create",
+    "core:webview:deny-create-webview",
+    "core:webview:deny-create-webview-window",
     "deep-link:default",
-    "opener:default",
     "zcash:allow-create-wallet",
     "zcash:allow-restore-wallet",
     "zcash:allow-get-wallet-status",
@@ -37,14 +44,6 @@
     "zcash:allow-get-transaction-history",
     "zcash:allow-parse-payment-uri",
     "zcash:allow-validate-address",
-    "zcash:allow-sign-challenge",
-    {
-      "identifier": "http:default",
-      "allow": [
-        { "url": "https://free2z.cash/*" },
-        { "url": "https://*.free2z.cash/*" },
-        { "url": "https://stage.free2z.cash/*" }
-      ]
-    }
+    "zcash:allow-sign-challenge"
   ]
 }

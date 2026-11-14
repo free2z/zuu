@@ -141,6 +141,9 @@ async fn deliver<R: Runtime>(app: &AppHandle<R>, request: Vec<u8>) {
 
 /// Open the reply link carrying one answer.
 fn send_answer<R: Runtime>(app: &AppHandle<R>, outcome: &IntentOutcome) {
+    let Ok(_network) = zuuli_transport::global().direct_now() else {
+        return;
+    };
     let url = reply_url(outcome);
     if let Err(error) = app.opener().open_url(url, None::<&str>) {
         // The caller is left waiting on a request that will expire on its own

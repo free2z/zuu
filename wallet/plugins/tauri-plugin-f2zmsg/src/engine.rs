@@ -627,7 +627,7 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
         // not a `false` that only means "nothing has asked yet". Then learn
         // whether this device's own submission has merged (ADR 0017 §6).
         let directory = Arc::clone(&self.directory);
-        match tokio::task::spawn_blocking(move || directory.refresh()).await {
+        match zuuli_transport::spawn_blocking_direct(move || directory.refresh()).await {
             Ok(Ok(())) => {}
             // `lastError` is where the UI learns that the directory is
             // unusable — `directory-unvouched`, `directory-state-invalid` —
@@ -680,6 +680,17 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
         let status = inner.status(&*self.directory)?;
         self.sink.engine_state(&status);
         Ok(status)
+    }
+
+    /// Privacy transition: disconnect even if durable alarm storage has failed.
+    /// Does not erase enrollment or attempt network work.
+    pub async fn disconnect_for_privacy(&self) {
+        let mut inner = self.inner.lock().await;
+        // Drop sockets immediately. A graceful WebSocket close may wait for
+        // a hostile/offline relay and must not delay the privacy boundary.
+        inner.connections.clear();
+        inner.state = EngineState::Locked;
+        self.directory.attach_checkpoints(None);
     }
 
     /// Tear down without emitting: the process is going away.
@@ -1128,9 +1139,10 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
         let handle = identity.handle.clone();
         let directory = Arc::clone(&self.directory);
         let lookup = handle.clone();
-        let predecessor = tokio::task::spawn_blocking(move || directory.lookup_entry(&lookup))
-            .await
-            .map_err(|_| Error::internal("the directory lookup task panicked"))??;
+        let predecessor =
+            zuuli_transport::spawn_blocking_direct(move || directory.lookup_entry(&lookup))
+                .await
+                .map_err(|_| Error::internal("the directory lookup task panicked"))??;
         Ok(DirectoryPublication {
             handle,
             identity_pk: decode_key(&identity.identity_pk)?,
@@ -1171,9 +1183,10 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
             entry_digest,
         };
         let directory = Arc::clone(&self.directory);
-        let outcome = tokio::task::spawn_blocking(move || directory.submit(&envelope, &expected))
-            .await
-            .map_err(|_| Error::internal("the directory submit task panicked"))?;
+        let outcome =
+            zuuli_transport::spawn_blocking_direct(move || directory.submit(&envelope, &expected))
+                .await
+                .map_err(|_| Error::internal("the directory submit task panicked"))?;
         let receipt = match outcome {
             Ok(receipt) => receipt,
             Err(error) => {
@@ -1250,7 +1263,7 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
     pub async fn lookup_published_entry(&self, handle: &str) -> Result<Option<VerifiedEntry>> {
         let directory = Arc::clone(&self.directory);
         let handle = handle.to_owned();
-        tokio::task::spawn_blocking(move || directory.lookup_entry(&handle))
+        zuuli_transport::spawn_blocking_direct(move || directory.lookup_entry(&handle))
             .await
             .map_err(|_| Error::internal("the directory lookup task panicked"))?
     }
@@ -1274,9 +1287,10 @@ impl<B: StorageBackend + Send + Sync + 'static> Engine<B> {
         expected: SubmissionExpectation,
     ) -> Result<f2z_kt_core::receipt::SubmissionReceipt> {
         let directory = Arc::clone(&self.directory);
-        let receipt = tokio::task::spawn_blocking(move || directory.submit(&envelope, &expected))
-            .await
-            .map_err(|_| Error::internal("the directory submit task panicked"))??;
+        let receipt =
+            zuuli_transport::spawn_blocking_direct(move || directory.submit(&envelope, &expected))
+                .await
+                .map_err(|_| Error::internal("the directory submit task panicked"))??;
         let encoded = f2z_codec::canonical::Canonical::encode_canonical(&receipt)
             .map_err(|error| Error::internal(format!("encoding a receipt: {error}")))?;
         let inner = self.inner.lock().await;
@@ -3296,9 +3310,10 @@ impl<B: StorageBackend> Inner<B> {
         };
         let lookup = Arc::clone(directory);
         let handle = identity.handle.clone();
-        let Some(published) = tokio::task::spawn_blocking(move || lookup.lookup_entry(&handle))
-            .await
-            .map_err(|_| Error::internal("the directory lookup task panicked"))??
+        let Some(published) =
+            zuuli_transport::spawn_blocking_direct(move || lookup.lookup_entry(&handle))
+                .await
+                .map_err(|_| Error::internal("the directory lookup task panicked"))??
         else {
             return Ok(());
         };
