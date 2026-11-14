@@ -70,6 +70,8 @@ def webhook_boundaries(mocker, keypair):
 
 
 class _FakeResponse:
+    status_code = 200
+
     def __init__(self, payload):
         self._payload = payload
 

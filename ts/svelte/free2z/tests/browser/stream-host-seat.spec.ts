@@ -66,14 +66,185 @@ async function captureStarts(
   return bodies;
 }
 
-async function openDashboard(page: Page) {
+async function openDashboard(page: Page, language = "en") {
   const hydratedAuth = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/auth/user/",
   );
-  await page.goto(`${STREAM_URL}?lang=en`);
+  await page.goto(`${STREAM_URL}?lang=${language}`);
   expect((await hydratedAuth).status()).toBe(200);
   await expect(page.getByTestId("stream-audience-grid")).toBeVisible();
 }
+
+for (const [language, expected] of [
+  [
+    "en",
+    "Your account no longer meets the requirements to start a stream. Refresh your balance and try again.",
+  ],
+  [
+    "es",
+    "Tu cuenta ya no cumple los requisitos para iniciar una transmisión. Actualiza tu saldo e inténtalo de nuevo.",
+  ],
+]) {
+  test(`host eligibility changes are shown safely in ${language}`, async ({
+    page,
+  }) => {
+    await seatStatus(page, { active: false });
+    const starts: Record<string, unknown>[] = [];
+    await page.route(`**/api/dyte/${USER}/subscribers-only`, (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      starts.push(route.request().postDataJSON() ?? {});
+      return route.fulfill({
+        status: 400,
+        contentType: "text/plain",
+        body: "You need at least 150 to go live!",
+      });
+    });
+
+    await openDashboard(page, language);
+    await page.locator('label[for="stream-audience-subscribers-only"]').click();
+    await page.getByTestId("stream-start").click();
+
+    await expect.poll(() => starts.length).toBe(1);
+    expect(starts[0]).toMatchObject({ role: "host" });
+    await expect(page.getByText(expected, { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("You need at least 150 to go live!"),
+    ).toHaveCount(0);
+    await expect(page.getByText("Failed to start the stream.")).toHaveCount(0);
+    await expect(page.locator("rtk-meeting")).toHaveCount(0);
+  });
+}
+
+test("known host maintenance failures are actionable and safe to retry", async ({
+  page,
+}) => {
+  await seatStatus(page, { active: false });
+  const starts: Record<string, unknown>[] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning") warnings.push(message.text());
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    starts.push(route.request().postDataJSON() ?? {});
+    return route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "provider_unavailable",
+        retryable: true,
+        failure: {
+          stage: "create_room",
+          code: "transport_error",
+          provider_status: 503,
+          request_id: "f63f2b7e2a1e4bb0a092de91c8ac7bd4",
+        },
+        error: "provider detail and credentials must not be exposed",
+      }),
+    });
+  });
+
+  await openDashboard(page);
+  await page.getByTestId("stream-start").click();
+  await expect(
+    page.getByText(
+      "Stream startup is temporarily unavailable. Please try again shortly.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByTestId("stream-start")).toBeEnabled();
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => starts.length).toBe(2);
+  expect(starts[0].host_session).toBe(starts[1].host_session);
+  await expect.poll(() => warnings.length).toBeGreaterThanOrEqual(2);
+  expect(warnings.join("\n")).toContain(
+    "code: provider_unavailable, status: 503, request_id: f63f2b7e2a1e4bb0a092de91c8ac7bd4",
+  );
+  expect(warnings.join("\n")).not.toContain("credentials");
+  expect(errors.join("\n")).not.toContain("API request failed");
+  await expect(
+    page.getByText("provider detail and credentials must not be exposed"),
+  ).toHaveCount(0);
+  await expect(page.locator("rtk-meeting")).toHaveCount(0);
+});
+
+test("an unknown backend 500 does not assume a provider failure", async ({
+  page,
+}) => {
+  await seatStatus(page, { active: false });
+  const warnings: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning") warnings.push(message.text());
+  });
+  await page.route(`**/api/dyte/${USER}/subscribers-only`, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "text/html",
+      body: "<h1>raw-unknown-backend-exception</h1>",
+    }),
+  );
+  await openDashboard(page);
+  await page.locator('label[for="stream-audience-subscribers-only"]').click();
+  await page.getByTestId("stream-start").click();
+  await expect(
+    page
+      .getByText(
+        "Stream startup is temporarily unavailable. Please try again shortly.",
+        { exact: true },
+      )
+      .first(),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      warnings.some(
+        (message) =>
+          message.includes("code: admission_unavailable") &&
+          message.includes("status: 500"),
+      ),
+    )
+    .toBe(true);
+  expect(warnings.join("\n")).not.toContain("provider_unavailable");
+  expect(warnings.join("\n")).not.toContain("raw-unknown-backend-exception");
+  await expect(page.getByText("raw-unknown-backend-exception")).toHaveCount(0);
+  await expect(page.locator("rtk-meeting")).toHaveCount(0);
+});
+
+test("an unrelated 400 is treated as invalid settings, not lost eligibility", async ({
+  page,
+}) => {
+  await seatStatus(page, { active: false });
+  let posted: Record<string, unknown> | null = null;
+  await page.route(`**/api/dyte/${USER}/ppv`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posted = route.request().postDataJSON() ?? {};
+    return route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "invalid_price",
+        error: "Price must be positive",
+      }),
+    });
+  });
+
+  await openDashboard(page);
+  await page.locator('label[for="stream-audience-ppv"]').click();
+  await page.getByTestId("stream-start").click();
+
+  await expect.poll(() => posted).not.toBeNull();
+  expect(posted).toMatchObject({ role: "host", price_per_minute: "1" });
+  await expect(
+    page.getByText("Check the stream settings and try again.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByText(/no longer meets the requirements/i)).toHaveCount(
+    0,
+  );
+  await expect(page.getByText("Price must be positive")).toHaveCount(0);
+});
 
 test.beforeEach(async ({ page }) => {
   await authenticate(page);

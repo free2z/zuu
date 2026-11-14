@@ -9,6 +9,7 @@
   import { goto } from "$app/navigation";
   import {
     AlreadyLiveElsewhereError,
+    HostStreamStartError,
     StreamService,
     type PublicStreamType,
   } from "$lib/services/stream";
@@ -715,6 +716,21 @@
     }
   });
 
+  function logHostStartFailure(
+    err: unknown,
+    stage: "admission" | "meeting_setup",
+  ) {
+    const failure = err instanceof HostStreamStartError ? err : null;
+    console.warn("Host stream startup failed", {
+      stage,
+      code:
+        failure?.failureCode ??
+        (stage === "meeting_setup" ? "sdk_init_failed" : "admission_rejected"),
+      status: failure?.status ?? null,
+      request_id: failure?.requestId ?? null,
+    });
+  }
+
   async function startStream({ takeover = false } = {}) {
     const owner = captureOwner();
     if (!owner || !user || loading) return;
@@ -756,6 +772,7 @@
       operationNotice.isCurrent() &&
       startController === controller;
     let recoveryPending = false;
+    let hostStartStage: "admission" | "meeting_setup" = "admission";
 
     try {
       if (startType === "private") {
@@ -829,6 +846,7 @@
       beginSeat(startType, takeover, owner, session);
 
       // 2. Initialize RealtimeKit Meeting
+      hostStartStage = "meeting_setup";
       const { cleanup: cleanupFn, meeting: meetingInstance } =
         await initRtkMeeting({
           authToken: auth_token,
@@ -945,14 +963,25 @@
       startController = null;
     } catch (err: any) {
       if (!isCurrentStart() || controller.signal.aborted) return;
-      console.error("Failed to start stream:", err);
+      if (startType === "private") {
+        console.error("Failed to start private stream:", err);
+      } else {
+        logHostStartFailure(err, hostStartStage);
+      }
       // The seat may have been taken before the room join failed; this tab is
       // not broadcasting, so give it back rather than lock out a retry.
       endSeat();
       error =
-        startType === "private" && err instanceof LocalizedError
+        err instanceof LocalizedError
           ? err.message
-          : $t("dashboard.stream.startFailed", "Failed to start the stream.");
+          : $t(
+              startType === "private"
+                ? "dashboard.stream.startFailed"
+                : "dashboard.stream.hostUnavailable",
+              startType === "private"
+                ? "Failed to start the stream."
+                : "Stream startup is temporarily unavailable. Please try again shortly.",
+            );
       privateResumeAvailable =
         startType === "private" &&
         err instanceof LocalizedError &&
@@ -995,6 +1024,7 @@
     cleanup = null;
     ownedMeeting = null;
     let waitingForRoomJoin = false;
+    let hostStartStage: "admission" | "meeting_setup" = "admission";
     try {
       if (oldCleanup) await oldCleanup();
       if (!isCurrentReconnect()) return;
@@ -1010,6 +1040,7 @@
         },
       );
       if (!isCurrentReconnect()) return;
+      hostStartStage = "meeting_setup";
       const initialized = await initRtkMeeting({
         authToken: auth_token,
         streamType: type,
@@ -1112,7 +1143,7 @@
       liveStreamStore.setError(null, null);
     } catch (err) {
       if (!isCurrentReconnect()) return;
-      console.error("Failed to reconnect host stream:", err);
+      logHostStartFailure(err, hostStartStage);
       endSeat();
       hostReconnectFailed = true;
       startController = null;
@@ -1856,7 +1887,7 @@
                the public page from the broadcaster's own browser is one more
                way to put a second copy of them into the room. -->
             {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
-              <div class="flex shrink-0 items-center gap-2">
+              <div class="flex min-w-0 flex-wrap items-center gap-2">
                 <Button
                   variant="secondary"
                   size="sm"
