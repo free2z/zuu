@@ -135,6 +135,17 @@
     "title": "Add 2Zs"
   },
   "live": {
+    "balanceRefreshed": "Balance refreshed from your account. PPV settlement can take a little time to post.",
+    "balanceRefreshPending": "You left the stream. Balance refresh failed; PPV settlement may still be processing.",
+    "joinTicketIssued": "Join accepted. Metered PPV settlement is processed after the provider reports you left.",
+    "ppv": {
+      "rate": "Rate",
+      "rateUnit": "2Z / minute",
+      "join": "Join (minimum balance {reserve})",
+      "confirm": "Joining checks a minimum balance of {minimum}; it does not debit that amount. Actual metered usage is settled after the provider reports you left, which may be delayed.",
+      "minimumBalance": "Minimum balance to join",
+      "confirmButton": "Join stream"
+    },
     "failure": {
       "endedRoom": "This stream has ended or is no longer accepting viewers.",
       "expiredTicket": "The join ticket expired before the connection started. Try again.",

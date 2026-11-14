@@ -78,7 +78,9 @@ def test_owner_can_start_each_public_meeting_type(
     api_client, dyte_client, streamer, meeting_type,
 ):
     api_client.force_authenticate(user=streamer)
-    body = {'price_per_minute': '1.00'} if meeting_type == PAY_PER_VIEW else {}
+    body = {'title': '  My live show  '}
+    if meeting_type == PAY_PER_VIEW:
+        body['price_per_minute'] = '1.25'
 
     response = api_client.post(_url(streamer.username, meeting_type), body)
 
@@ -89,7 +91,24 @@ def test_owner_can_start_each_public_meeting_type(
     cm = CreatorMeeting.objects.get(creator=streamer, is_public=True)
     assert cm.meeting_type == meeting_type
     assert cm.live_now is True
+    assert cm.title == 'My live show'
+    if meeting_type == PAY_PER_VIEW:
+        assert cm.price_per_minute == Decimal('1.25')
     assert dyte_client.create_meeting.call_count == 1
+
+
+@pytest.mark.parametrize('title', ['', 'x' * 256, ['not-a-string']])
+def test_host_start_rejects_invalid_title_before_room_creation(
+    api_client, dyte_client, streamer, title,
+):
+    api_client.force_authenticate(user=streamer)
+    response = api_client.post(
+        _url(streamer.username, 'broadcast'), {'title': title},
+        format='json',
+    )
+    assert response.status_code == 400
+    assert not CreatorMeeting.objects.filter(creator=streamer).exists()
+    dyte_client.create_meeting.assert_not_called()
 
 
 def test_uppercase_type_is_still_accepted_and_normalized(

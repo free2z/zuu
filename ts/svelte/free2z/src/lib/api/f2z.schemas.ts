@@ -1900,6 +1900,8 @@ export interface CreatorMeeting {
      * @pattern ^-?\d{0,4}(?:\.\d{0,2})?$
      */
   price_per_minute?: string;
+  /** @maxLength 255 */
+  title?: string;
   e2ee?: boolean;
 }
 
@@ -3372,6 +3374,13 @@ export const RoleEnum = {
 export interface MeetingJoinRequestSchema {
   /** Original viewer account ID; required for a first-party paid PPV join under the active economic policy. */
   expected_actor_id?: number;
+  /** @maxLength 255 */
+  title?: string;
+  /**
+     * Host only, PPV only. Ignored when resuming or taking over a live session: a live stream's price never changes mid-session.
+     * @pattern ^-?\d{0,4}(?:\.\d{0,2})?$
+     */
+  price_per_minute?: string;
   /** Stable UUID for one paid PPV join attempt. Reuse it when retrying an ambiguous provider response; generate a new one for a new join. */
   admission_idempotency_key?: string;
   /**
@@ -3385,11 +3394,6 @@ export interface MeetingJoinRequestSchema {
   host_session?: string;
   /** Host only. Deliberately move the broadcaster seat to this tab when another tab or device holds it. The other tab is told on its next heartbeat and leaves the room. The live room is kept, so viewers stay connected. */
   takeover?: boolean;
-  /**
-     * Host only, PPV only. Ignored when resuming or taking over a live session: a live stream's price never changes mid-session.
-     * @pattern ^-?\d{0,4}(?:\.\d{0,2})?$
-     */
-  price_per_minute?: string;
 }
 
 export interface MeetingJoinResponse {
@@ -4344,6 +4348,10 @@ export interface PublicMeetingList {
      * @pattern ^-?\d{0,4}(?:\.\d{0,2})?$
      */
   price_per_minute?: string;
+  /** @maxLength 255 */
+  title?: string;
+  /** @nullable */
+  readonly admission_minimum_tuzis: number | null;
 }
 
 /**

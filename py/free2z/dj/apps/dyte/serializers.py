@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from drf_spectacular.utils import extend_schema_field
 from dj.apps.economy.serializers import ActorIDField
 from .models import CreatorMeeting, PUBLIC_MEETING_TYPES
 
@@ -37,6 +38,7 @@ class CreatorMeetingSerializer(serializers.ModelSerializer):
             'last_seen_at',
             'created_at',
             'price_per_minute',
+            'title',
             'e2ee',
         ]
 
@@ -50,6 +52,16 @@ class PublicMeetingListSerializer(serializers.ModelSerializer):
     meeting_type = serializers.ChoiceField(
         choices=PUBLIC_MEETING_TYPES, read_only=True,
     )
+    admission_minimum_tuzis = serializers.SerializerMethodField()
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_admission_minimum_tuzis(self, obj):
+        if obj.meeting_type != 'ppv':
+            return None
+        # This is the backend's admission balance threshold, not a debit or
+        # provider authorization. Keep the formula shared with join admission.
+        from .views import ppv_join_threshold
+        return ppv_join_threshold(obj.price_per_minute)
 
     class Meta:
         model = CreatorMeeting
@@ -58,6 +70,8 @@ class PublicMeetingListSerializer(serializers.ModelSerializer):
             'avatar',
             'meeting_type',
             'price_per_minute',
+            'title',
+            'admission_minimum_tuzis',
         ]
 
     def get_avatar(self, obj) -> str:
@@ -91,6 +105,8 @@ class MeetingJoinRequestSerializer(serializers.Serializer):
     """Body of a start/join POST to a public meeting."""
 
     expected_actor_id = ActorIDField(required=False, help_text='Original viewer account ID; required for a first-party paid PPV join under the active economic policy.')
+    title = serializers.CharField(required=False, max_length=255, allow_blank=False, trim_whitespace=True)
+    price_per_minute = serializers.DecimalField(max_digits=6, decimal_places=2, required=False, min_value=0)
     admission_idempotency_key = serializers.UUIDField(
         required=False,
         help_text=(

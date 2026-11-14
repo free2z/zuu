@@ -38,14 +38,23 @@ function fakeAuthToken(
   })}.signature`;
 }
 
-function meeting(meetingType: unknown, ...pricePerMinute: [unknown?]) {
+function meeting(
+  meetingType: unknown,
+  ...args: [unknown?, Record<string, unknown>?]
+) {
+  const [pricePerMinute, extras] = args;
   return {
     id: 814,
     creator: { username: "alice", full_name: "Alice" },
     meeting_id: "authoritative-meeting",
     meeting_type: meetingType,
     live_now: true,
-    price_per_minute: pricePerMinute.length ? pricePerMinute[0] : "2",
+    price_per_minute: arguments.length > 1 ? pricePerMinute : "2.00",
+    admission_minimum_tuzis:
+      extras &&
+      Object.prototype.hasOwnProperty.call(extras, "admission_minimum_tuzis")
+        ? extras.admission_minimum_tuzis
+        : 75,
   };
 }
 
@@ -53,7 +62,9 @@ describe("PPV livestream HTTP contract", () => {
   beforeEach(() => requestMock.mockReset());
 
   it("round-trips the authoritative ppv kind through listing, status, and participant join", async () => {
-    const participantToken = fakeAuthToken({ participantId: "participant-ticket" });
+    const participantToken = fakeAuthToken({
+      participantId: "participant-ticket",
+    });
     requestMock
       .mockResolvedValueOnce({ results: [meeting("ppv")] })
       .mockResolvedValueOnce({
@@ -70,13 +81,20 @@ describe("PPV livestream HTTP contract", () => {
       username: "alice",
       kind: "ppv",
       price_tuzis: 75,
+      admission_minimum_tuzis: 75,
+      price_per_minute: "2.00",
     });
     await expect(live.status("alice", stream!.kind)).resolves.toEqual({
       live: true,
       participants: 3,
     });
 
-    await expect(live.join("alice", stream!.kind)).resolves.toMatchObject({
+    await expect(
+      live.join("alice", stream!.kind, undefined, "participant", {
+        expectedActorId: 31,
+        admissionIdempotencyKey: "admission-attempt-1",
+      }),
+    ).resolves.toMatchObject({
       authToken: participantToken,
       meetingId: "authoritative-meeting",
       as: "participant",
@@ -86,6 +104,13 @@ describe("PPV livestream HTTP contract", () => {
       "/api/dyte/alice/live-status",
       "/api/dyte/alice/ppv",
     ]);
+    expect(requestMock.mock.calls[2]?.[1]).toMatchObject({
+      method: "POST",
+      body: {
+        expected_actor_id: 31,
+        admission_idempotency_key: "admission-attempt-1",
+      },
+    });
   });
 
   it("uses the ppv wire enum for the existing host-start endpoint", async () => {
@@ -97,7 +122,12 @@ describe("PPV livestream HTTP contract", () => {
         auth_token: hostToken,
       });
 
-    await expect(live.start("ppv")).resolves.toMatchObject({
+    await expect(
+      live.start("ppv", {
+        title: "A title",
+        pricePerMinute: "2.00",
+      }),
+    ).resolves.toMatchObject({
       ticket: {
         authToken: hostToken,
         meetingId: "authoritative-meeting",
@@ -108,6 +138,10 @@ describe("PPV livestream HTTP contract", () => {
       "/api/auth/user/",
       "/api/dyte/alice/ppv",
     ]);
+    expect(requestMock.mock.calls[1]?.[1]).toMatchObject({
+      method: "POST",
+      body: { title: "A title", price_per_minute: "2.00" },
+    });
   });
 
   it.each([
@@ -118,11 +152,25 @@ describe("PPV livestream HTTP contract", () => {
   ])(
     "computes the exact backend PPV entry price for %s",
     async (rate, price) => {
-      requestMock.mockResolvedValueOnce({ results: [meeting("ppv", rate)] });
+      requestMock.mockResolvedValueOnce({
+        results: [meeting("ppv", rate, { admission_minimum_tuzis: price })],
+      });
 
       const [stream] = await live.listPublic({ force: true });
 
       expect(stream?.price_tuzis).toBe(price);
+    },
+  );
+
+  it.each([undefined, null, 0, -1, "75", 75.5])(
+    "rejects a missing or invalid backend admission minimum %j",
+    async (minimum) => {
+      requestMock.mockResolvedValueOnce({
+        results: [meeting("ppv", "2.00", { admission_minimum_tuzis: minimum })],
+      });
+      await expect(live.listPublic({ force: true })).rejects.toBeInstanceOf(
+        LivestreamPriceContractError,
+      );
     },
   );
 

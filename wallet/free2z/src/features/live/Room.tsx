@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -34,7 +35,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { SectionLoadError } from "@/components/common/SectionLoadError";
 import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import { auth, live, tuzi } from "@/lib/api/free2z";
-import { ApiError } from "@/lib/api/http";
+import { ApiError, getToken } from "@/lib/api/http";
 import { paidActionGate } from "@/lib/auth/paid-action";
 import { preservePaidIntent } from "@/lib/auth/paid-intent";
 import { useAsync } from "@/hooks/useAsync";
@@ -70,6 +71,8 @@ interface JustStarted {
 }
 
 export function Room() {
+  const { t } = useTranslation();
+  const mounted = useRef(true);
   const { username = "" } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
@@ -79,7 +82,18 @@ export function Room() {
   const privateInviteAttempt = location.hash.startsWith("#private=");
 
   const tuzis = useSession((s) => s.tuzis);
-  const adjustTuzis = useSession((s) => s.adjustTuzis);
+  const setUser = useSession((s) => s.setUser);
+  const joinedActor = useRef<{
+    id?: number;
+    username: string;
+    token: string;
+  } | null>(null);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const user = useSession((s) => s.user);
   const sessionLoading = useSession((s) => s.loading);
 
@@ -143,6 +157,7 @@ export function Room() {
         // count. Never synthesize the host/viewer into this value.
         participants: null,
         price_tuzis: resolved.price_tuzis,
+        admission_minimum_tuzis: null,
         thumbnail: null,
         started_at: new Date().toISOString(),
       };
@@ -290,7 +305,9 @@ export function Room() {
             {stream.live ? (
               <div className="absolute end-4 top-4 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
                 <Users className="h-3.5 w-3.5" aria-hidden />
-                <span className="bidi-number tabular-nums">{participants.watching}</span>
+                <span className="bidi-number tabular-nums">
+                  {participants.watching}
+                </span>
               </div>
             ) : null}
 
@@ -375,29 +392,68 @@ export function Room() {
                 ticket={ticket}
                 stream={stream}
                 onLeave={() => {
-                  toast("You left the stream");
-                  navigate("/live");
-                }}
-              />
-            )
-          ) : (
-            entryState === "checking-session" ? (
-              <ViewerIdentityCheck />
-            ) : entryState === "creator-blocked" ? (
-              <CreatorViewerGuard />
-            ) : (
-              <JoinPanel
-                stream={stream}
-                tuzis={tuzis}
-                onJoined={(t, secret) => {
-                  setActiveJoinSecret(secret);
-                  setTicket(t);
-                  if (stream.kind === "ppv" && stream.price_tuzis > 0) {
-                    adjustTuzis(-stream.price_tuzis);
+                  const original = joinedActor.current;
+                  const current = useSession.getState().user;
+                  const token = getToken();
+                  const sameActor =
+                    !!original &&
+                    !!current &&
+                    token === original.token &&
+                    current.username === original.username &&
+                    current.id === original.id;
+                  if (!sameActor || !original) {
+                    if (mounted.current) navigate("/live");
+                    return;
                   }
+                  void auth
+                    .me(original.token)
+                    .then((authoritative) => {
+                      if (!mounted.current) return;
+                      const latest = useSession.getState().user;
+                      if (
+                        getToken() === original.token &&
+                        latest?.username === original.username &&
+                        latest.id === original.id
+                      ) {
+                        setUser({ ...latest, ...authoritative });
+                        toast(t(MESSAGE_KEYS.liveBalanceRefreshed));
+                      }
+                      if (mounted.current) navigate("/live");
+                    })
+                    .catch(() => {
+                      if (!mounted.current) return;
+                      const latest = useSession.getState().user;
+                      if (
+                        getToken() === original.token &&
+                        latest?.username === original.username &&
+                        latest.id === original.id
+                      ) {
+                        toast(t(MESSAGE_KEYS.liveBalanceRefreshPending));
+                      }
+                      if (mounted.current) navigate("/live");
+                    });
                 }}
               />
             )
+          ) : entryState === "checking-session" ? (
+            <ViewerIdentityCheck />
+          ) : entryState === "creator-blocked" ? (
+            <CreatorViewerGuard />
+          ) : (
+            <JoinPanel
+              stream={stream}
+              tuzis={tuzis}
+              onJoined={(t, secret) => {
+                const actor = useSession.getState().user;
+                const token = getToken();
+                joinedActor.current =
+                  actor && token
+                    ? { id: actor.id, username: actor.username, token }
+                    : null;
+                setActiveJoinSecret(secret);
+                setTicket(t);
+              }}
+            />
           )}
         </div>
       </div>
@@ -456,6 +512,7 @@ function JoinPanel({
   // Keep this key through any ambiguous failure. A retry then asks the backend
   // to replay the same purchase instead of buying another month.
   const membershipAttemptKey = useRef<string | null>(null);
+  const ppvAdmissionKey = useRef<string | null>(null);
   const restoredEntryHandled = useRef(false);
 
   const user = useSession((state) => state.user);
@@ -548,10 +605,20 @@ function JoinPanel({
           stream.kind,
           joinSecret,
           "participant",
-          { expectedMeetingId: stream.meetingId },
+          {
+            expectedMeetingId: stream.meetingId,
+            ...(stream.kind === "ppv"
+              ? {
+                  expectedActorId: user?.id,
+                  admissionIdempotencyKey: (ppvAdmissionKey.current ??=
+                    crypto.randomUUID()),
+                }
+              : {}),
+          },
         );
       });
       if (!ticket) return false;
+      if (stream.kind === "ppv") ppvAdmissionKey.current = null;
       onJoined(ticket, joinSecret);
       return true;
     } catch (e) {
@@ -573,10 +640,7 @@ function JoinPanel({
     if (ppvGate !== "ready") return;
     const ok = await doJoin();
     if (ok) {
-      // onJoined has already debited the balance; celebrate the entry.
-      toast.success("You're in", {
-        description: `Enjoy the stream — ${formatTuzis(price)} spent.`,
-      });
+      toast.success(t(MESSAGE_KEYS.liveJoinTicketIssued));
     }
   }
 
@@ -903,10 +967,14 @@ function JoinPanel({
             <div className="flex items-center justify-between rounded-lg bg-warning/10 px-3 py-2.5">
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <Coins className="h-4 w-4 text-warning" aria-hidden />
-                Entry price
+                {t(MESSAGE_KEYS.livePpvRate)}
               </span>
               <span className="text-base font-semibold bidi-number tabular-nums text-warning">
-                {formatTuzis(price)}
+                {Number(stream.price_per_minute).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}{" "}
+                {t(MESSAGE_KEYS.livePpvRateUnit)}
               </span>
             </div>
             {ppvGate === "loading" ? (
@@ -935,7 +1003,7 @@ function JoinPanel({
                 ) : (
                   <Coins className="h-4 w-4" aria-hidden />
                 )}
-                Join for {formatTuzis(price)}
+                {t(MESSAGE_KEYS.livePpvJoin, { reserve: formatTuzis(price) })}
               </Button>
             ) : (
               <div className="space-y-2">
@@ -959,7 +1027,9 @@ function JoinPanel({
                 <DialogHeader>
                   <DialogTitle>Confirm your seat</DialogTitle>
                   <DialogDescription>
-                    Spend {formatTuzis(price)} to join{" "}
+                    {t(MESSAGE_KEYS.livePpvConfirm, {
+                      minimum: formatTuzis(price),
+                    })}{" "}
                     <span className="font-medium text-foreground">
                       {stream.title}
                     </span>
@@ -968,10 +1038,10 @@ function JoinPanel({
                 </DialogHeader>
                 <div className="flex items-center justify-between rounded-lg border border-border bg-background/50 px-4 py-3">
                   <span className="text-sm text-muted-foreground">
-                    Balance after
+                    {t(MESSAGE_KEYS.livePpvMinimumBalance)}
                   </span>
                   <span className="text-sm font-semibold bidi-number tabular-nums">
-                    {formatTuzis(Math.max(0, tuzis - price))}
+                    {formatTuzis(price)}
                   </span>
                 </div>
                 <DialogFooter>
@@ -980,7 +1050,9 @@ function JoinPanel({
                   </Button>
                   <Button className="gap-2" onClick={confirmPpv}>
                     <Coins className="h-4 w-4" aria-hidden />
-                    Confirm · {formatTuzis(price)}
+                    {t(MESSAGE_KEYS.livePpvConfirmButton, {
+                      minimum: formatTuzis(price),
+                    })}
                   </Button>
                 </DialogFooter>
               </DialogContent>
@@ -1171,7 +1243,9 @@ function HostControls({
         </Badge>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Users className="h-3.5 w-3.5" aria-hidden />
-          <span className="bidi-number tabular-nums">{participants.watching}</span>
+          <span className="bidi-number tabular-nums">
+            {participants.watching}
+          </span>
         </span>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
@@ -1226,9 +1300,7 @@ function ParticipantStrip({ count }: { count: number | null }) {
   const copy = participantCountCopy(count);
   return (
     <div>
-      <div className="mb-2 eyebrow text-muted-foreground">
-        In the room
-      </div>
+      <div className="mb-2 eyebrow text-muted-foreground">In the room</div>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Users className="h-3.5 w-3.5" aria-hidden />
         <span className="bidi-number tabular-nums font-medium text-foreground">
