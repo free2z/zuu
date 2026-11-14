@@ -28,7 +28,7 @@ from django.utils import timezone
 from procrastinate.contrib.django.models import ProcrastinateJob
 
 from dj.apps.events.models import Event
-from dj.apps.g12f.models import Creator, Subscription
+from dj.apps.g12f.models import Creator, Subscription, SubscriptionContinuation
 from dj.apps.g12f.tasks import (
     RENEWAL_LAST_LOOK,
     RENEWAL_LEAD,
@@ -92,16 +92,36 @@ def _run_as_worker(sub):
     return job
 
 
+@pytest.fixture
+def reset_active_renewal_policy():
+    """Test-owner reset permits Django flush after a committed policy1 test."""
+    yield
+    from dj.apps.economy.tests.test_foundation import sql
+
+    sql('ALTER TABLE economy_economicpolicy DISABLE TRIGGER economy_policy_guard')
+    try:
+        sql('UPDATE economy_economicpolicy SET version=0,fenced=false')
+    finally:
+        sql('ALTER TABLE economy_economicpolicy ENABLE TRIGGER economy_policy_guard')
+    sql('ALTER TABLE ledger_config DISABLE TRIGGER ledger_boundary_config_guard')
+    try:
+        sql('UPDATE ledger_config SET writer_boundary=false,heal_enabled=true')
+    finally:
+        sql('ALTER TABLE ledger_config ENABLE TRIGGER ledger_boundary_config_guard')
+
+
 @pytest.mark.django_db
-@pytest.mark.parametrize('remaining_seconds', [7200, 600, 30, -1])
-def test_funding_cap_refusal_preserves_money_and_bounds_retry(
+@pytest.mark.parametrize('remaining_seconds', [7200, 600, 30, 0, -1])
+def test_funding_cap_refusal_continues_without_any_money_mutation(
         creator_factory, monkeypatch, django_capture_on_commit_callbacks,
         remaining_seconds):
-    """A real SQL cap refusal must not consume the exception retry budget."""
+    """The real SQL guard rolls back; one ordinary term consumes the cycle."""
     from types import SimpleNamespace
     from dj.apps.economy.tests.test_foundation import activate_for_test
     from dj.apps.g12f import tasks
-    from dj.apps.ledger.models import Transfer
+    from dj.apps.ledger.models import Account, Transfer
+    from dj.apps.economy.models import FundingDay
+    from dj.apps.g12f.models.creator import SUBSCRIPTION_PERIOD
 
     fan = creator_factory(tuzis=Decimal('1000'))
     star = creator_factory(tuzis=Decimal('199990'), member_price=Decimal('11'))
@@ -112,49 +132,298 @@ def test_funding_cap_refusal_preserves_money_and_bounds_retry(
     with transaction.atomic():
         activate_for_test()
     original_journal_count = Transfer.objects.count()
+    original_accounts = list(Account.objects.order_by('pk').values())
+    original_funding = list(FundingDay.objects.order_by('pk').values())
     monkeypatch.setattr(tasks, 'timezone', SimpleNamespace(now=lambda: now))
 
     with django_capture_on_commit_callbacks(execute=True):
         _run_as_worker(sub)
-    # A duplicate delivery must not amplify the eligibility retry chain.
     with django_capture_on_commit_callbacks(execute=True):
         renew_subscription(subscription_id=sub.pk)
     fan.refresh_from_db()
     star.refresh_from_db()
     sub.refresh_from_db()
     assert (fan.tuzis, star.tuzis) == (Decimal('1000'), Decimal('199990'))
-    assert (sub.expires, sub.last_charged_at) == (original_expiry, original_charge)
+    assert sub.last_charged_at == original_charge
+    assert sub.max_price == 11
     assert Transfer.objects.count() == original_journal_count
+    assert list(Account.objects.order_by('pk').values()) == original_accounts
+    assert list(FundingDay.objects.order_by('pk').values()) == original_funding
     assert not _sub_events(sub).exists()
     pending = _renew_jobs(sub).filter(status='todo')
-    if remaining_seconds <= RENEWAL_LAST_LOOK.total_seconds():
+    if remaining_seconds < 0:
+        assert sub.expires == original_expiry
+        assert not sub.zero_charge_continuations.exists()
         assert not pending.exists()
         return
-    retry = pending.get()
-    assert retry.scheduled_at == min(now + RENEWAL_RETRY, original_expiry - RENEWAL_LAST_LOOK)
-    assert retry.queueing_lock == renewal_queueing_lock(sub.pk, original_expiry)
 
-    # A lower current price fits the unchanged cap. The scheduled attempt must
-    # still renew exactly once after a previous refused attempt rolled back.
+    assert sub.expires == original_expiry + SUBSCRIPTION_PERIOD
+    audit = sub.zero_charge_continuations.get()
+    assert (audit.period_start, audit.period_end) == (original_expiry, sub.expires)
+    assert audit.reason == 'usage_daily_funding_limit'
+    assert (audit.refused_price, audit.recurring_ceiling) == (11, 11)
+    assert audit.recorded_at == now
+    successor = pending.get()
+    assert successor.scheduled_at == sub.expires - RENEWAL_LEAD
+    assert successor.queueing_lock == renewal_queueing_lock(sub.pk, sub.expires)
+
+    from dj.apps.g12f.models import creator as creator_models
+    with monkeypatch.context() as boundary:
+        boundary.setattr(creator_models, 'timezone', SimpleNamespace(now=lambda: sub.expires))
+        assert star.has_fan(fan)
+        boundary.setattr(creator_models, 'timezone', SimpleNamespace(
+            now=lambda: sub.expires + timedelta(microseconds=1)))
+        assert not star.has_fan(fan)
+
+    # Becoming eligible during a complimentary term cannot charge that term.
     Creator.objects.filter(pk=star.pk).update(member_price=Decimal('10'))
-    monkeypatch.setattr(tasks, 'timezone', SimpleNamespace(now=lambda: retry.scheduled_at))
+    with django_capture_on_commit_callbacks(execute=True):
+        renew_subscription(subscription_id=sub.pk)
+    assert Transfer.objects.count() == original_journal_count
+    assert _renew_jobs(sub).filter(status='todo').get().pk == successor.pk
+
+    # Next period re-evaluates admission. One ordinary charge, no catch-up.
+    monkeypatch.setattr(tasks, 'timezone', SimpleNamespace(now=lambda: successor.scheduled_at))
     with django_capture_on_commit_callbacks(execute=True):
         _run_as_worker(sub)
+    # Age the paid stamp beyond extend()'s debounce: the cycle guard itself
+    # must prevent a second debit after the complimentary term has ended.
+    Subscription.objects.filter(pk=sub.pk).update(
+        last_charged_at=timezone.now() - timedelta(hours=1))
+    monkeypatch.setattr(tasks, 'timezone', SimpleNamespace(
+        now=lambda: successor.scheduled_at + timedelta(hours=1)))
     with django_capture_on_commit_callbacks(execute=True):
         renew_subscription(subscription_id=sub.pk)
     fan.refresh_from_db()
     star.refresh_from_db()
     sub.refresh_from_db()
     assert (fan.tuzis, star.tuzis) == (Decimal('990'), Decimal('200000'))
-    assert sub.expires == original_expiry + timedelta(days=30)
+    assert sub.expires == original_expiry + 2 * SUBSCRIPTION_PERIOD
     assert sub.last_charged_at is not None
+    assert sub.max_price == 11
+    assert sub.zero_charge_continuations.count() == 1
     assert _sub_events(sub).count() == 2
     assert _renew_jobs(sub).filter(status='todo').get().scheduled_at == sub.expires - RENEWAL_LEAD
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('blocker', ['cancelled', 'insufficient_funds', 'price_above_consent', 'inactive_fan', 'inactive_star'])
+def test_receiving_cap_does_not_override_other_renewal_guards(
+        creator_factory, blocker):
+    from dj.apps.economy.tests.test_foundation import activate_for_test
+    from dj.apps.ledger.models import Transfer
+
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('200000'), member_price=Decimal('11'))
+    sub = _make_sub(fan, star)
+    if blocker == 'cancelled':
+        Subscription.objects.filter(pk=sub.pk).update(max_price=0)
+    elif blocker == 'insufficient_funds':
+        Creator.objects.filter(pk=fan.pk).update(tuzis=0)
+    elif blocker == 'price_above_consent':
+        Subscription.objects.filter(pk=sub.pk).update(max_price=10)
+    else:
+        actor = fan if blocker == 'inactive_fan' else star
+        Creator.objects.filter(pk=actor.pk).update(is_active=False)
+    with transaction.atomic():
+        activate_for_test()
+    expiry = sub.expires
+    journal_count = Transfer.objects.count()
+
+    renew_subscription(sub.pk)
+
+    sub.refresh_from_db()
+    assert sub.expires == expiry
+    assert not sub.zero_charge_continuations.exists()
+    assert Transfer.objects.count() == journal_count
+    assert not _sub_events(sub).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cancel_after_continuation_prevents_all_future_renewal(
+        creator_factory, monkeypatch, reset_active_renewal_policy):
+    from types import SimpleNamespace
+    from dj.apps.economy.tests.test_foundation import activate_for_test
+    from dj.apps.g12f import tasks
+    from dj.apps.ledger.models import Transfer
+
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('200000'), member_price=Decimal('11'))
+    sub = _make_sub(fan, star)
+    with transaction.atomic():
+        activate_for_test()
+    journal_count = Transfer.objects.count()
+    _run_as_worker(sub)
+    sub.refresh_from_db()
+    granted_expiry = sub.expires
+    from dj.apps.g12f.signals import _defer_committed_renewal
+    _defer_committed_renewal(sub.pk)
+    _defer_committed_renewal(sub.pk)
+    assert _renew_jobs(sub).filter(status='todo').count() == 1
+    sub.max_price = 0
+    sub.save(update_fields=['max_price'])
+    monkeypatch.setattr(tasks, 'timezone', SimpleNamespace(
+        now=lambda: granted_expiry - RENEWAL_LEAD))
+
+    _run_as_worker(sub)
+    renew_subscription(sub.pk)
+
+    sub.refresh_from_db()
+    assert (sub.expires, sub.max_price) == (granted_expiry, 0)
+    assert sub.zero_charge_continuations.count() == 1
+    assert Transfer.objects.count() == journal_count
+    assert not _renew_jobs(sub).filter(status='todo').exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_audit_failure_rolls_back_the_entitlement_and_schedules_nothing(
+        creator_factory, monkeypatch, reset_active_renewal_policy):
+    from django.db import OperationalError
+    from dj.apps.economy.tests.test_foundation import activate_for_test
+    from dj.apps.ledger.models import Transfer
+
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('200000'), member_price=Decimal('11'))
+    sub = _make_sub(fan, star)
+    with transaction.atomic():
+        activate_for_test()
+    expiry = sub.expires
+    journal_count = Transfer.objects.count()
+    before = list(_renew_jobs(sub).values_list('id', 'status', 'scheduled_at'))
+
+    def unavailable(**kwargs):
+        raise OperationalError('audit unavailable')
+
+    monkeypatch.setattr(SubscriptionContinuation.objects, 'create', unavailable)
+    with pytest.raises(OperationalError, match='audit unavailable'):
+        renew_subscription(sub.pk)
+
+    sub.refresh_from_db()
+    assert sub.expires == expiry
+    assert not sub.zero_charge_continuations.exists()
+    assert Transfer.objects.count() == journal_count
+    assert list(_renew_jobs(sub).values_list('id', 'status', 'scheduled_at')) == before
+
+
+@pytest.mark.django_db(transaction=True)
+def test_overlapping_cap_refusals_grant_one_term_and_one_successor(
+        creator_factory, reset_active_renewal_policy):
+    from dj.apps.economy.tests.test_foundation import activate_for_test
+    from dj.apps.g12f.models.creator import SUBSCRIPTION_PERIOD
+    from dj.apps.ledger.models import Account, Transfer
+
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('200000'), member_price=Decimal('11'))
+    sub = _make_sub(fan, star)
+    with transaction.atomic():
+        activate_for_test()
+    expiry = sub.expires
+    ProcrastinateJob.objects.all().delete()
+    journal_count = Transfer.objects.count()
+    accounts = list(Account.objects.order_by('pk').values())
+    barrier = threading.Barrier(2, timeout=10)
+    results = []
+
+    def run():
+        try:
+            barrier.wait()
+            renew_subscription(sub.pk)
+            results.append('done')
+        except Exception as exc:
+            results.append(exc)
+        finally:
+            connection.close()
+
+    threads = [threading.Thread(target=run) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+        assert not thread.is_alive(), 'cap-refused renewals deadlocked'
+
+    assert results == ['done', 'done']
+    sub.refresh_from_db()
+    assert sub.expires == expiry + SUBSCRIPTION_PERIOD
+    assert sub.zero_charge_continuations.count() == 1
+    assert Transfer.objects.count() == journal_count
+    assert list(Account.objects.order_by('pk').values()) == accounts
+    assert _renew_jobs(sub).filter(status='todo').get().scheduled_at == sub.expires - RENEWAL_LEAD
+
+
+@pytest.mark.django_db
+def test_intervening_purchase_is_not_overwritten_or_continued(creator_factory):
+    from dj.apps.economy.tests.test_foundation import activate_for_test
+    from dj.apps.ledger.models import Transfer
+
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('199990'), member_price=Decimal('10'))
+    sub = _make_sub(fan, star)
+    with transaction.atomic():
+        activate_for_test()
+    sub.extend()
+    bought_expiry, last_charge = sub.expires, sub.last_charged_at
+    journal_count = Transfer.objects.count()
+    Creator.objects.filter(pk=star.pk).update(member_price=11)
+
+    renew_subscription(sub.pk)
+
+    sub.refresh_from_db()
+    assert (sub.expires, sub.last_charged_at) == (bought_expiry, last_charge)
+    assert not sub.zero_charge_continuations.exists()
+    assert Transfer.objects.count() == journal_count
+
+
+@pytest.mark.django_db
+def test_high_balance_without_authoritative_refusal_is_charged(creator_factory):
+    # Policy0 does not refuse this incoming transfer. A cached/high balance
+    # must not itself select the complimentary path.
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('200000'), member_price=Decimal('11'))
+    sub = _make_sub(fan, star)
+
+    renew_subscription(sub.pk)
+
+    fan.refresh_from_db()
+    star.refresh_from_db()
+    assert (fan.tuzis, star.tuzis) == (989, 200011)
+    assert not sub.zero_charge_continuations.exists()
+
+
+@pytest.mark.django_db
+def test_receiving_admission_is_evaluated_after_actor_lock(
+        creator_factory, monkeypatch):
+    from dj.apps.economy.tests.test_foundation import activate_for_test
+
+    fan = creator_factory(tuzis=Decimal('1000'))
+    star = creator_factory(tuzis=Decimal('199989'), member_price=Decimal('11'))
+    sub = _make_sub(fan, star)
+    with transaction.atomic():
+        activate_for_test()
+    original_lock = ledger.lock_in_order
+    changed = False
+
+    def changed_while_waiting(*actors):
+        nonlocal changed
+        original_lock(*actors)
+        if not changed:
+            changed = True
+            ledger.credit(star, 1, source='sys:promo', ref_kind='tuzi_grant',
+                          ref_id='lock-race-fixture', idem='lock-race-fixture')
+
+    monkeypatch.setattr(ledger, 'lock_in_order', changed_while_waiting)
+    renew_subscription(sub.pk)
+
+    fan.refresh_from_db()
+    star.refresh_from_db()
+    assert (fan.tuzis, star.tuzis) == (1000, 199990)
+    assert sub.zero_charge_continuations.get().reason == 'usage_daily_funding_limit'
+    assert not _sub_events(sub).exists()
 
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize('sqlstate, diagnostic', [
     ('23514', 'unrelated_constraint'),
+    ('23514', 'prefix_usage_daily_funding_limit'),
     ('40P01', 'usage_daily_funding_limit'),
 ])
 def test_renewal_does_not_hide_other_database_errors(
@@ -176,6 +445,7 @@ def test_renewal_does_not_hide_other_database_errors(
     with pytest.raises(DatabaseError, match=diagnostic):
         renew_subscription(subscription_id=sub.pk)
     assert list(_renew_jobs(sub).values_list('id', 'status', 'scheduled_at')) == before
+    assert not sub.zero_charge_continuations.exists()
     fan.refresh_from_db()
     star.refresh_from_db()
     assert (fan.tuzis, star.tuzis) == (Decimal('1000'), Decimal('1000'))

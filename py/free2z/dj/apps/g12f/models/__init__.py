@@ -18,3 +18,4 @@ from .poll import Poll
 from .viewed import ViewedTransaction
 from .series import Series, PageOrder
 from .account_deletion import AccountDeletionEvent
+from .subscription_continuation import SubscriptionContinuation

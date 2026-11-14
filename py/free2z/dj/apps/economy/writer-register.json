@@ -393,6 +393,13 @@
       "disposition": "financial model identified; per-path review required"
     },
     {
+      "model": "g12f.SubscriptionContinuation",
+      "table": "g12f_subscriptioncontinuation",
+      "source": "py/free2z/dj/apps/g12f/models/subscription_continuation.py",
+      "review_scope": "bounded source triage only",
+      "disposition": "no economic mutation established by model enumeration"
+    },
+    {
       "model": "g12f.Transaction",
       "table": "g12f_transaction",
       "source": "py/free2z/dj/apps/g12f/models/transaction.py",
@@ -1275,7 +1282,7 @@
     },
     {
       "source": "py/free2z/dj/apps/g12f/tasks.py",
-      "line": 726,
+      "line": 763,
       "call": "ledger.lock_in_order",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1705,14 +1712,15 @@
     "py/free2z/dj/apps/g12f/models/follow.py": "f1fe4c7c1e8e8a4214528f5cd24737f823071d37bc1d484c91f8445c3e2d1a2b",
     "py/free2z/dj/apps/g12f/models/poll.py": "7d2f6aa7aacc6aa9715d451034696f24caaf5ae6a82356db9b8768beeca99c06",
     "py/free2z/dj/apps/g12f/models/series.py": "a388d904c4830010ac97c9896bc4dd3b7f30e0bb0210f9003d4f56c2b1e71ae3",
+    "py/free2z/dj/apps/g12f/models/subscription_continuation.py": "c39adf692ef2d78326e76a058abbd082c362dbce268dffd7b52060286fbeb53d",
     "py/free2z/dj/apps/g12f/models/transaction.py": "cd4c6d096ad078ce10ee2f1f729cdb96c39ce8ece3370faa5c29cfed3e48102d",
     "py/free2z/dj/apps/g12f/models/viewed.py": "be1895e41d832bf45fbe2daac8a27c678038aa7a6ee7d486393bf97203d4574d",
     "py/free2z/dj/apps/g12f/models/zpage.py": "2c1c8171226265b12a1620bbe66ff66be01be5c61acbc19e74e004bd12589c62",
-    "py/free2z/dj/apps/g12f/tasks.py": "2b3e1710b3cd810bd478ee5d45e99b623083286520b13922f008adc994af9142",
+    "py/free2z/dj/apps/g12f/tasks.py": "976e7915ff9fafbf88a56706ffcde56243022f6ce35f19c2db1cb911c037cb9b",
     "py/free2z/dj/apps/g12f/translation/charges.py": "1880f2c28b822df00d4eeafabc7337e3ebfc66eb8b590ddd4745a8296253e451",
     "py/free2z/dj/apps/g12f/views/translate.py": "da6814a16c3693c675c4aeb40d62dd4e15057628ecb43ef26e2572a8f42c645d",
     "py/free2z/dj/apps/g12f/views/translate_batch.py": "042d4a092f6ec85e5d8a4785b536dee83867325f9378b03ea23cde17e79a9886",
-    "py/free2z/dj/apps/g12f/views/zpage.py": "1e2a95d88fbefce74e7e6fd74857dd34f359283234963ed814765ef053b0bfae",
+    "py/free2z/dj/apps/g12f/views/zpage.py": "8a43996efa2bbc4f889a0ef599fba7e5235409ee0a4a969d847d7ef176b47bcc",
     "py/free2z/dj/apps/handles/models.py": "4787949bbab9b905ca99b59918c492bcc1087e315605eea968526b9d45fdf808",
     "py/free2z/dj/apps/identity/models.py": "bc7779a97afd262f39bf6b38d332931fc68a9a1c5f34809f2f821cb4550edf1c",
     "py/free2z/dj/apps/jobs/models.py": "2fb699398f6cc4b66f52386fa769b652305c2832525f63240413ec65ef291b90",
