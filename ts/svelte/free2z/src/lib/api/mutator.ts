@@ -86,7 +86,11 @@ export class ApiError extends Error {
  * options: a number replaces the class bound from `apiRequestTimeoutMs`,
  * `null` opts out. It never reaches `fetch`.
  */
-export type RequestTimeoutOption = { timeoutMs?: number | null };
+export type RequestTimeoutOption = {
+  timeoutMs?: number | null;
+  /** Host startup reports safe stage/status metadata at its owning call site. */
+  suppressErrorLog?: boolean;
+};
 
 /**
  * Custom fetch instance for API requests.
@@ -211,9 +215,13 @@ export const customInstance = async <T>(
   // strip it before the request is built.
   const requestedTimeout = (init as RequestTimeoutOption | undefined)
     ?.timeoutMs;
-  if (init && "timeoutMs" in init) {
+  const suppressErrorLog = Boolean(
+    (init as RequestTimeoutOption | undefined)?.suppressErrorLog,
+  );
+  if (init && ("timeoutMs" in init || "suppressErrorLog" in init)) {
     init = { ...init };
     delete (init as RequestTimeoutOption).timeoutMs;
+    delete (init as RequestTimeoutOption).suppressErrorLog;
   }
 
   const ssrRequestSignal = !browser
@@ -323,6 +331,7 @@ export const customInstance = async <T>(
     const clientError =
       error instanceof ApiError && error.status >= 400 && error.status < 500;
     if (
+      !suppressErrorLog &&
       !(error instanceof Error && error.name === "AbortError") &&
       !clientError
     ) {

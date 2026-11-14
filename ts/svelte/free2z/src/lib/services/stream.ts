@@ -81,6 +81,22 @@ const STREAM_MESSAGES = {
     "stream.errors.joinFailed",
     "Failed to join stream.",
   ),
+  hostEligibilityChanged: defineMessage(
+    "dashboard.stream.hostEligibilityChanged",
+    "Your account no longer meets the requirements to start a stream. Refresh your balance and try again.",
+  ),
+  hostUnavailable: defineMessage(
+    "dashboard.stream.hostUnavailable",
+    "Stream startup is temporarily unavailable. Please try again shortly.",
+  ),
+  hostProviderUnavailable: defineMessage(
+    "dashboard.stream.hostProviderUnavailable",
+    "The live-stream provider is unavailable right now. Please try again in a few minutes.",
+  ),
+  hostInvalidRequest: defineMessage(
+    "dashboard.stream.hostInvalidRequest",
+    "Check the stream settings and try again.",
+  ),
   privateStreamCreateFailed: defineMessage(
     "stream.errors.privateStreamCreateFailed",
     "Could not create the private stream.",
@@ -94,6 +110,122 @@ const STREAM_MESSAGES = {
     "You are already live in another tab or on another device.",
   ),
 };
+
+export type HostStartFailureCode =
+  | "eligibility_changed"
+  | "invalid_request"
+  | "host_retirement_temporarily_unavailable"
+  | "livestream_compensation_integration_unavailable"
+  | "admission_unavailable"
+  | "provider_unavailable"
+  | "admission_rejected"
+  | "sdk_init_failed";
+
+/** Safe support context for a host start. Never contains the original error. */
+export class HostStreamStartError extends LocalizedError {
+  readonly failureCode: HostStartFailureCode;
+  readonly status: number | null;
+  readonly requestId: string | null;
+
+  constructor(
+    descriptor: MessageDescriptor,
+    failureCode: HostStartFailureCode,
+    status: number | null = null,
+    requestId: string | null = null,
+  ) {
+    super(descriptor);
+    this.name = "HostStreamStartError";
+    this.failureCode = failureCode;
+    this.status =
+      Number.isInteger(status) && status! >= 400 && status! <= 599
+        ? status
+        : null;
+    this.requestId = requestId;
+  }
+}
+
+/** The server's plain-string 400 for a creator below the streaming floor. */
+const HOST_ELIGIBILITY_REASON = "You need at least 150 to go live!";
+
+function isHostEligibilityRefusal(error: ApiError): boolean {
+  return (
+    error.status === 400 &&
+    (error.data === HOST_ELIGIBILITY_REASON ||
+      error.serverMessage === HOST_ELIGIBILITY_REASON)
+  );
+}
+
+function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
+  const code = typeof error.data?.code === "string" ? error.data.code : "";
+  if (isHostEligibilityRefusal(error)) {
+    return new HostStreamStartError(
+      STREAM_MESSAGES.hostEligibilityChanged,
+      "eligibility_changed",
+      error.status,
+    );
+  }
+  if (error.status === 400) {
+    return new HostStreamStartError(
+      STREAM_MESSAGES.hostInvalidRequest,
+      "invalid_request",
+      error.status,
+    );
+  }
+  if (error.status === 403) {
+    return new HostStreamStartError(
+      STREAM_MESSAGES.creatorNotAuthorized,
+      "admission_rejected",
+      error.status,
+    );
+  }
+  if (error.status === 404) {
+    return new HostStreamStartError(
+      STREAM_MESSAGES.creatorNotFound,
+      "admission_rejected",
+      error.status,
+    );
+  }
+  if (code === "host_retirement_temporarily_unavailable") {
+    return new HostStreamStartError(
+      STREAM_MESSAGES.hostUnavailable,
+      "host_retirement_temporarily_unavailable",
+      error.status,
+    );
+  }
+  if (
+    type === "ppv" &&
+    code === "livestream_compensation_integration_unavailable"
+  ) {
+    return new HostStreamStartError(
+      STREAM_MESSAGES.hostUnavailable,
+      "livestream_compensation_integration_unavailable",
+      error.status,
+    );
+  }
+  if (code === "provider_unavailable") {
+    const requestId = error.data?.failure?.request_id;
+    return new HostStreamStartError(
+      STREAM_MESSAGES.hostProviderUnavailable,
+      "provider_unavailable",
+      error.status,
+      typeof requestId === "string" && /^[0-9a-f]{32}$/i.test(requestId)
+        ? requestId.toLowerCase()
+        : null,
+    );
+  }
+  if ([408, 429, 500, 502, 503, 504].includes(error.status)) {
+    return new HostStreamStartError(
+      STREAM_MESSAGES.hostUnavailable,
+      "admission_unavailable",
+      error.status,
+    );
+  }
+  return new HostStreamStartError(
+    STREAM_MESSAGES.joinFailed,
+    "admission_rejected",
+    error.status,
+  );
+}
 
 export const streamInitResponseSchema = z.object({
   e2ee: z.boolean().optional(),
@@ -336,7 +468,7 @@ export class StreamService {
         username,
         type,
         body,
-        undefined,
+        role === "host" ? { suppressErrorLog: true } : undefined,
         signal,
       )) as unknown;
       signal?.throwIfAborted();
@@ -357,13 +489,35 @@ export class StreamService {
           error,
         );
       if (error instanceof z.ZodError) {
-        console.error(
-          "Stream initialization response validation failed:",
-          error.issues,
-        );
+        if (role !== "host")
+          console.error(
+            "Stream initialization response validation failed:",
+            error.issues,
+          );
+        else
+          throw new HostStreamStartError(
+            STREAM_MESSAGES.invalidResponse,
+            "admission_rejected",
+            null,
+          );
         throw localizedError(STREAM_MESSAGES.invalidResponse, undefined, error);
       }
       if (error instanceof ApiError) {
+        if (role === "host") {
+          if (error.status === 409) {
+            const conflict = hostSeatConflict(error);
+            if (conflict) {
+              throw new AlreadyLiveElsewhereError(
+                (PUBLIC_STREAM_TYPES as readonly string[]).includes(
+                  conflict.meetingType ?? "",
+                )
+                  ? (conflict.meetingType as PublicStreamType)
+                  : null,
+              );
+            }
+          }
+          throw hostStartApiFailure(error, type);
+        }
         switch (error.status) {
           case 402:
             throw new PaymentRequiredError(
@@ -399,6 +553,12 @@ export class StreamService {
         }
       }
       if (error instanceof LocalizedError) throw error;
+      if (role === "host")
+        throw new HostStreamStartError(
+          STREAM_MESSAGES.hostUnavailable,
+          "admission_unavailable",
+          null,
+        );
       throw localizedError(STREAM_MESSAGES.joinFailed, undefined, error);
     }
   }
@@ -526,6 +686,24 @@ export class StreamService {
         };
         const message = recordingMessages[error.data?.code];
         if (message) throw localizedError(message, undefined, error);
+        if (error.data?.code === "provider_unavailable")
+          throw localizedError(
+            STREAM_MESSAGES.hostProviderUnavailable,
+            undefined,
+            error,
+          );
+        if (isHostEligibilityRefusal(error))
+          throw localizedError(
+            STREAM_MESSAGES.hostEligibilityChanged,
+            undefined,
+            error,
+          );
+        if ([408, 429, 500, 502, 503, 504].includes(error.status))
+          throw localizedError(
+            STREAM_MESSAGES.hostUnavailable,
+            undefined,
+            error,
+          );
       }
       if (error instanceof LocalizedError) throw error;
       throw localizedError(
