@@ -220,10 +220,9 @@ def _host_participant_response(response, stage, custom_participant_id):
     try:
         payload = response.json()
     except (ValueError, TypeError):
-        # A confirmed missing-room status is enough to permit the existing
-        # room-rotation path, even if the provider/intermediary body is HTML.
-        if status_code == 404:
-            return None, None, {'stage': stage, 'code': 'missing_room'}
+        # Rotation replaces a possibly live, billable room. A bare 404 with a
+        # non-JSON body may come from an intermediary, not the provider, so it
+        # is a retryable failure rather than proof the room is gone.
         return None, None, _host_provider_diagnostic(response, stage, 'invalid_json')
 
     data = payload.get('data') if isinstance(payload, dict) else None
@@ -1730,9 +1729,10 @@ def live_meeting_status(request, username):
 class ProviderRoomCreateFailed(Exception):
     """A provider room create failed; ``diagnostic`` is safe to return."""
 
-    def __init__(self, diagnostic):
+    def __init__(self, diagnostic, room_id=None):
         super().__init__(diagnostic.get('code'))
         self.diagnostic = diagnostic
+        self.room_id = room_id
 
 
 def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting:
@@ -1749,7 +1749,7 @@ def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting
         # Raised inside the caller's transaction: nothing about this row,
         # including a freshly inserted one, is committed. The response's body
         # is never logged; the diagnostic carries only status/code.
-        raise ProviderRoomCreateFailed(failure)
+        raise ProviderRoomCreateFailed(failure, room_id)
     cm.meeting_id = room_id
     # NOTE: `created_at` is deliberately NOT moved here, although the
     # host path's "rotate a room over a day old" rule reads it and so, from a
@@ -2096,6 +2096,16 @@ class PrivateMeetingManage(APIView):
         except ProviderRoomCreateFailed as exc:
             # The transaction rolled back: no new row, no rotated secret, and
             # the previous invitation (if any) still points at its old room.
+            if exc.room_id:
+                # The provider named a room in a response we could not trust.
+                # Keep it for an operator outside the rolled-back transaction.
+                existing = CreatorMeeting.objects.filter(
+                    creator=request.user, meeting_type=PRIVATE, is_public=False,
+                ).values_list('pk', flat=True).first()
+                _record_unidentified_room(
+                    request.user, existing, PRIVATE, room_id=exc.room_id,
+                    error='Private room create response was not safely verifiable; deletion is unsupported',
+                )
             return _host_provider_retry_response(
                 None, exc.diagnostic['stage'], exc.diagnostic['code'],
                 diagnostic=exc.diagnostic,

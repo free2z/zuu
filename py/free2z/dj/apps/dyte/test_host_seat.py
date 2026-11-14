@@ -1618,3 +1618,26 @@ def test_definitive_replacement_room_refusal_drops_its_reconciliation(
     assert cm.host_start_claim is None
     assert cm.host_session_id is None
     assert not ProviderRoomCleanup.objects.filter(creator_meeting=cm).exists()
+
+
+def test_a_non_json_404_is_not_proof_that_a_live_room_is_gone(
+    api_client, provider, host,
+):
+    """An intermediary's HTML 404 must not replace a possibly live room."""
+    CreatorMeeting.objects.create(creator=host, meeting_id='live-room', meeting_type=BROADCAST)
+
+    class Html404(_FakeResponse):
+        def json(self):
+            raise ValueError('<html>404</html>')
+
+    provider.add_participant.return_value = Html404(None, status_code=404)
+
+    failed = _start(api_client, host)
+
+    assert failed.status_code == 503
+    assert failed.data['failure']['stage'] == 'add_participant'
+    assert failed.data['failure']['code'] == 'invalid_json'
+    assert provider.create_meeting.call_count == 0
+    cm = CreatorMeeting.objects.get(creator=host)
+    assert cm.meeting_id == 'live-room'
+    assert cm.host_start_claim is None

@@ -496,3 +496,25 @@ def test_private_rotation_transport_failure_keeps_the_existing_invitation(
     after = CreatorMeeting.objects.get(pk=before.pk)
     assert after.meeting_id == before.meeting_id
     assert after.secret == before.secret
+
+
+def test_unverifiable_private_create_keeps_the_returned_room_for_an_operator(
+    api_client, dyte_client, streamer,
+):
+    from dj.apps.dyte.models import ProviderRoomCleanup
+
+    dyte_client.create_meeting.side_effect = None
+    dyte_client.create_meeting.return_value = _FakeResponse(
+        {'success': False, 'error': {'code': 500}, 'data': {'id': 'half-made-room'}},
+        status_code=500,
+    )
+    api_client.force_authenticate(user=streamer)
+
+    result = api_client.post(MANAGE_URL.format(username=streamer.username))
+
+    assert result.status_code == 503
+    assert not CreatorMeeting.objects.filter(creator=streamer).exists()
+    cleanup = ProviderRoomCleanup.objects.get(provider_meeting_id='half-made-room')
+    assert cleanup.status == 'manual_review'
+    assert cleanup.creator_id == streamer.pk
+    assert cleanup.meeting_type == PRIVATE
