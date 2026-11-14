@@ -16,6 +16,7 @@ import re
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection, transaction
@@ -241,7 +242,7 @@ def execute(decision, *, apply):
     """
     from dj.apps.events.models import Event
     from dj.apps.g12f.models import Subscription, SubscriptionContinuation
-    from dj.apps.g12f.models.creator import SUBSCRIPTION_PERIOD, Creator
+    from dj.apps.g12f.models.creator import SUBSCRIPTION_PERIOD
     from dj.apps.g12f.tasks import RENEWAL_LEAD, _continue_after_receiving_cap_refusal
     from dj.apps.ledger.models import Transfer
     from dj.apps.tuzis import ledger
@@ -260,12 +261,14 @@ def execute(decision, *, apply):
         now = timezone.now()
         memberships = decision['memberships']
         # Creators in primary-key order, then subscriptions in primary-key
-        # order. ``of=('self',)`` keeps the join from locking actors again
-        # in planner order. SELECT FOR UPDATE cannot run read-only, so a
+        # order. Pass plain pk holders: constructing Creator(...) is an
+        # account-insert site to the welcome-grant scanner, and lock_in_order
+        # only reads pk. ``of=('self',)`` keeps the join from locking actors
+        # again in planner order. SELECT FOR UPDATE cannot run read-only, so a
         # dry run is a read-write transaction that rolls back.
         actor_ids = {row['fan_id'] for row in memberships}
         actor_ids.update(row['star_id'] for row in memberships)
-        ledger.lock_in_order(*(Creator(pk=pk) for pk in actor_ids))
+        ledger.lock_in_order(*(SimpleNamespace(pk=pk) for pk in actor_ids))
         locked = {}
         for row in sorted(memberships, key=lambda item: item['subscription_id']):
             subscription_id = row['subscription_id']
