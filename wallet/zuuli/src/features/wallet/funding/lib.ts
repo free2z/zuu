@@ -26,7 +26,9 @@ export const BUY_PACKS = [500, 2_000, 5_000, 10_000] as const;
 export const TIP_PRESETS = [100, 500, 1_000, 2_500] as const;
 
 /** Validate the backend's exact ZEC quote before balance checks or confirmation. */
-export function zatoshisFromQuote(quote: Pick<PricingQuote, "zec_amount">): number | null {
+export function zatoshisFromQuote(
+  quote: Pick<PricingQuote, "zec_amount">,
+): number | null {
   return parseZecToZatoshis(quote.zec_amount);
 }
 
@@ -50,7 +52,9 @@ const KIND_META: Record<Kind, KindMeta> = {
 
 export function kindMeta(kind?: Kind): KindMeta {
   return (
-    (kind && KIND_META[kind]) ?? {
+    (kind && Object.prototype.hasOwnProperty.call(KIND_META, kind)
+      ? KIND_META[kind as Kind]
+      : undefined) ?? {
       label: "Activity",
       icon: Coins,
       badge: "secondary" as const,
@@ -78,3 +82,21 @@ export function kindIconClass(kind?: Kind): string {
 
 /** cents → whole 2Z. tuzis_credited is already in 2Z, but keep the unit clear. */
 export const TUZIS_PER_CENT = TUZIS_PER_USD / 100; // === 1
+
+import { describe, expect, it } from "vitest";
+
+describe("kindMeta", () => {
+  it.each(["__proto__", "constructor", "toString", "future-kind"])(
+    "uses safe fallback metadata for unknown kind %s",
+    (kind) => {
+      expect(kindMeta(kind)).toMatchObject({
+        label: "Activity",
+        badge: "secondary",
+      });
+      expect(kindMeta(kind).icon).toBe(kindMeta("future-kind").icon);
+    },
+  );
+  it("preserves known non-buy kinds", () => {
+    expect(kindMeta("donate").label).toBe("Tip");
+  });
+});

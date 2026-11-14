@@ -556,12 +556,9 @@ export const tuzi = {
       await delay();
       return mockTransactions;
     }
-    // /api/stripe/transactions/ is the card-purchase ledger: every row is a
-    // BUY that credits 2Zs (tuzis_credited is a PositiveIntegerField, so it is
-    // never a debit). Preserve any kind the payload carries and default to
-    // "buy" for these purchases rather than blanket-overwriting every row.
-    // (The full spend mix — tips/AI/PPV/subscriptions — lives in the /api/events/
-    // ledger; ActivityTab scopes its "Total spent" to whatever spend it sees.)
+    // /api/stripe/transactions/ is the card-purchase ledger: every row credits
+    // 2Zs. Preserve a supplied kind (including unknown future kinds) and
+    // default missing kinds to "buy" for older purchase payloads.
     const page = await request<Paginated<TuziTransaction>>(
       "/api/stripe/transactions/",
     );

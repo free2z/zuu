@@ -126,38 +126,6 @@ export const mockTransactions: TuziTransaction[] = [
     timestamp: new Date(Date.now() - 3 * 86400000).toISOString(),
     kind: "buy",
   },
-  {
-    id: 2,
-    amount: 4,
-    tuzis_credited: -4,
-    timestamp: new Date(Date.now() - 2 * 3600000).toISOString(),
-    kind: "ai",
-    counterparty: "Claude Opus 4.8",
-  },
-  {
-    id: 3,
-    amount: 250,
-    tuzis_credited: -250,
-    timestamp: new Date(Date.now() - 60 * 60000).toISOString(),
-    kind: "ppv",
-    counterparty: "mining_maya",
-  },
-  {
-    id: 4,
-    amount: 500,
-    tuzis_credited: -500,
-    timestamp: new Date(Date.now() - 30 * 60000).toISOString(),
-    kind: "donate",
-    counterparty: "zooko",
-  },
-  {
-    id: 5,
-    amount: 12,
-    tuzis_credited: -12,
-    timestamp: new Date(Date.now() - 15 * 60000).toISOString(),
-    kind: "ai",
-    counterparty: "Llama 3.3 70B Instruct — running on our own hardware",
-  },
 ];
 
 // ─── Discovery / search fixtures ──────────────────────────────────────────────
@@ -172,4 +140,3 @@ export function mockSearchCreators(query: string): SimpleCreator[] {
       (c.display_name || "").toLowerCase().includes(q),
   );
 }
-

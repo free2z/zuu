@@ -79,9 +79,9 @@ test("funding authenticates before balances, quotes, or either top-up method", a
   await expectLoginReturn(page, "/wallet/fund");
 
   await openRoute(page, "/wallet/fund");
-  await page.getByRole("tab", { name: "Activity" }).click();
+  await page.getByRole("tab", { name: "Purchases" }).click();
   await expect(page).toHaveURL(/\/wallet\/fund\/activity$/);
-  await expect(page.getByText("Sign in to view activity")).toBeVisible();
+  await expect(page.getByText("Sign in to view purchases")).toBeVisible();
   await expect(
     page.getByText("Card purchase history belongs to your account."),
   ).toBeVisible();

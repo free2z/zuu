@@ -117,7 +117,7 @@ export interface TuziTransaction {
    * past rows even though ZUULI no longer initiates those spends — see
    * `kindMeta` in `src/features/wallet/funding/lib.ts`.
    */
-  kind?: "buy" | "donate" | "subscribe" | "ai" | "ppv";
+  kind?: string;
   counterparty?: string;
 }
 

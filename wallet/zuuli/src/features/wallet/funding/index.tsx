@@ -40,7 +40,7 @@ export default function FundingFeature() {
     <div className="animate-fade-in space-y-6">
       <PageHeader
         title="Wallet funding"
-        description="Buy or send 2Zs and review activity."
+        description="Buy or send 2Zs and review card purchases."
       />
 
       {user ? <BalanceHero /> : null}
@@ -57,7 +57,7 @@ export default function FundingFeature() {
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-1.5">
             <Receipt className="h-4 w-4" />
-            Activity
+            Purchases
           </TabsTrigger>
         </TabsList>
 
