@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "roots": {
+    "django": "py/free2z/dj",
+    "svelte": "ts/svelte/free2z/src",
+    "react": "ts/react/free2z/src",
+    "docs": "docs/about-free2z"
+  },
+  "excluded_extensions": [
+    ".json",
+    ".png",
+    ".svg",
+    ".css",
+    ".txt",
+    ".yaml",
+    ".mjs",
+    ".gitignore",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".ico",
+    ".woff",
+    ".woff2",
+    ".js",
+    ".ts",
+    ".md",
+    ".html"
+  ],
+  "excluded_names": [
+    "LICENSE",
+    ".gitignore",
+    ".nojekyll"
+  ]
+}
