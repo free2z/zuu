@@ -77,21 +77,10 @@ export interface AuthUser {
   tuzis: number;
   /** True when this session authenticated via a Zcash address (no password). */
   zcashLinked?: boolean;
-  /**
-   * The Zcash t-address linked to this account for authentication (as a DID,
-   * `did:zcash:<address>`), if any — set locally after a successful
-   * `auth.zcashAssociate()` call. Not yet exposed by GET /api/auth/user/, so
-   * this reflects only what THIS session has observed (a fresh login on
-   * another device won't see it until the backend surfaces it too).
-   */
-  zcash_identity?: string | null;
-  /**
-   * Which social providers this session has observed as linked, set locally
-   * after a successful `auth.socialLogin(provider, { associate: true })` —
-   * same caveat as `zcash_identity`: GET /api/auth/user/ doesn't echo this
-   * back yet, so it only reflects what THIS session has seen.
-   */
-  social_identities?: Partial<Record<SocialProvider, boolean>>;
+  /** Owner-only authoritative link state from GET /api/auth/user/. */
+  zcash_identity_linked?: boolean;
+  /** Owner-only linked provider keys from GET /api/auth/user/. */
+  social_identities?: SocialProvider[];
 }
 
 // ── Social login (X / Google / GitHub) ──────────────────────────────────────
@@ -176,7 +165,8 @@ export interface AIModel {
   output_price: string; // USD per token
   markup: string; // multiplier above cost
   /** Convenience: provider family inferred from the model name. */
-  provider?: "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
+  provider?:
+    "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
 }
 
 export interface PromptResponse {
@@ -518,10 +508,7 @@ export type KycTaxFormKind = "W-9" | "W-8BEN" | "W-8BEN-E";
 
 /** The four identity-document upload slots /api/kyc/identity-documents accepts. */
 export type KycIdentityDocType =
-  | "id_front"
-  | "id_back"
-  | "additional_document"
-  | "live_photo";
+  "id_front" | "id_back" | "additional_document" | "live_photo";
 
 /** GET /api/kyc/identity-documents → `{ <doctype>_url }` per uploaded slot. */
 export type KycIdentityDocuments = Partial<

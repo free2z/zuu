@@ -366,6 +366,12 @@ class CreatorProfileUpdateSerializer(UserDetailsSerializer):
     # You username/id/name - only for you right now?
     twitter = serializers.SerializerMethodField()
 
+    # Authentication identities are private account state.  Expose presence
+    # and provider names only on this owner-only serializer; never include the
+    # addresses, handles, or stable provider ids used to authenticate.
+    zcash_identity_linked = serializers.SerializerMethodField()
+    social_identities = serializers.SerializerMethodField()
+
     avatar_image = serializers.PrimaryKeyRelatedField(
         queryset=GenericFile.objects.none(), required=False, allow_null=True
     )
@@ -414,12 +420,15 @@ class CreatorProfileUpdateSerializer(UserDetailsSerializer):
             'star_ids',
             'fans_count',
             'twitter',
+            'zcash_identity_linked',
+            'social_identities',
             'avatar_image',
             'banner_image',
         ]
         read_only_fields = [
             'id', 'total', 'zpage_set', 'is_verified',
             'tuzis', 'can_stream', 'stars', 'star_ids', 'fans_count',
+            'zcash_identity_linked', 'social_identities',
         ]
         model = Creator
         extra_fields = ['updateAll']
@@ -549,6 +558,23 @@ class CreatorProfileUpdateSerializer(UserDetailsSerializer):
             }
         except TwitterProfile.DoesNotExist:
             return None
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_zcash_identity_linked(self, obj):
+        annotated = getattr(obj, 'zcash_identity_linked', None)
+        if annotated is not None:
+            return annotated
+        return hasattr(obj, 'zcash_identity')
+
+    @extend_schema_field(serializers.ListField(child=serializers.CharField()))
+    def get_social_identities(self, obj):
+        annotated = getattr(obj, 'linked_social_provider_keys', None)
+        if annotated is not None:
+            return annotated
+        from dj.apps.social.models import SocialIdentity
+        return list(SocialIdentity.objects.filter(
+            creator_id=obj.pk,
+        ).order_by('provider').values_list('provider', flat=True).distinct())
 
     def update(self, instance, validated_data):
         user = None

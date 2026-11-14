@@ -122,6 +122,7 @@ import type {
   SubscriptionStatus,
   TuziTransaction,
 } from "./types";
+import { SOCIAL_PROVIDERS } from "./types";
 import { validateStripeCheckoutUrl } from "./checkout";
 import { parseJoinTicketResponse } from "./live-ticket";
 import { parseSocialProvidersStatus } from "./social-providers";
@@ -867,6 +868,8 @@ export const auth = {
       can_stream?: boolean;
       is_verified?: boolean;
       tuzis?: string;
+      zcash_identity_linked?: boolean;
+      social_identities?: SocialProvider[];
       avatar_image?: RawImage | null;
       banner_image?: RawImage | null;
     }>("/api/auth/user/", { cache: "no-store", authToken, signal });
@@ -886,6 +889,15 @@ export const auth = {
       can_stream: u.can_stream ?? false,
       is_verified: u.is_verified ?? false,
       tuzis: u.tuzis ? Math.floor(Number(u.tuzis)) : 0,
+      zcash_identity_linked:
+        typeof u.zcash_identity_linked === "boolean"
+          ? u.zcash_identity_linked
+          : undefined,
+      social_identities: Array.isArray(u.social_identities)
+        ? u.social_identities.filter((provider): provider is SocialProvider =>
+            SOCIAL_PROVIDERS.includes(provider as SocialProvider),
+          )
+        : undefined,
     };
   },
 
@@ -991,7 +1003,7 @@ export const auth = {
       throw e;
     }
     const me = await auth.me();
-    return { ...me, zcash_identity: params.address };
+    return me;
   },
 
   /**
@@ -1131,10 +1143,7 @@ export const auth = {
         return {
           status: "associated",
           sessionGeneration: lease.sessionGeneration,
-          user: {
-            ...me,
-            social_identities: { ...me.social_identities, [provider]: true },
-          },
+          user: me,
         };
       }
 
@@ -1155,10 +1164,7 @@ export const auth = {
         sessionGeneration: lease.sessionGeneration,
         session: {
           token: tok.token,
-          user: {
-            ...me,
-            social_identities: { ...me.social_identities, [provider]: true },
-          },
+          user: me,
         },
       };
     });
