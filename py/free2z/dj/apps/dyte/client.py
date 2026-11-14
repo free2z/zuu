@@ -197,14 +197,18 @@ class ProviderError(requests.RequestException):
     ``status`` is the provider's HTTP status (0 when no response was received
     or the request was never sent) and ``provider_code`` the provider's own
     numeric error code when its error envelope carried one. Both are plain
-    integers, so they are safe to print; nothing else from the response is
-    kept.
+    integers, so they are safe to print. ``provider_envelope`` says whether
+    the error body was a JSON object at all: a bare 404 page from an
+    intermediary is not the provider saying a meeting is gone. Nothing else
+    from the response is kept.
     """
 
-    def __init__(self, *, status=None, provider_code=None):
+    def __init__(self, *, status=None, provider_code=None,
+                 provider_envelope=False):
         super().__init__(type(self).__name__)
         self.status = status
         self.provider_code = provider_code
+        self.provider_envelope = provider_envelope
 
 
 class ProviderAuthError(ProviderError):
@@ -392,19 +396,27 @@ _EXPECTED_404 = frozenset({
 })
 
 
-def _provider_code(response):
-    """The provider's numeric error code, if its envelope has one.
+def _error_envelope(response):
+    """``(provider_code, is_json_object)`` for an error response.
 
     v2 answers ``{"success": false, "error": {"code": 401, ...}}``; the
     Cloudflare v4 envelope is ``{"errors": [{"code": 10000, ...}]}``. Only an
-    integer is ever returned, so nothing provider-authored reaches a log.
+    integer code is ever returned, so nothing provider-authored reaches a log.
     """
     try:
         body = response.json()
     except Exception:  # noqa: BLE001 -- classification must never raise
-        return None
+        return None, False
     if not isinstance(body, dict):
-        return None
+        return None, False
+    return _provider_code_of(body), True
+
+
+def _provider_code(response):
+    return _error_envelope(response)[0]
+
+
+def _provider_code_of(body):
     candidates = []
     error = body.get('error')
     if isinstance(error, dict):
@@ -515,11 +527,13 @@ class DyteClient(object):
              'Content-Type': 'application/json'},
         )
 
-    def _fail(self, error, operation, status, *, reason, provider_code=None):
+    def _fail(self, error, operation, status, *, reason, provider_code=None,
+              provider_envelope=False):
         """Report a failed provider operation and return its typed error."""
         report_provider_failure(operation, status, self.auth_mode,
                                 reason=reason, provider_code=provider_code)
-        return error(status=status, provider_code=provider_code)
+        return error(status=status, provider_code=provider_code,
+                      provider_envelope=provider_envelope)
 
     def request(self, method, path, *, payload=None, params=None, timeout=None,
                 allow_ack=False, operation=None):
@@ -545,16 +559,17 @@ class DyteClient(object):
             raise self._fail(ProviderInvalidResponse, operation, 0,
                              reason='invalid_response')
         if not 200 <= status < 300:
-            code = _provider_code(response)
+            code, envelope = _error_envelope(response)
             error = _STATUS_ERRORS.get(status)
             if error is None:
                 error = (ProviderUnavailableError
                          if status >= 500 or 300 <= status < 400
                          else ProviderRejectedError)
             if status == 404 and operation in _EXPECTED_404:
-                raise error(status=status, provider_code=code)
+                raise error(status=status, provider_code=code,
+                            provider_envelope=envelope)
             raise self._fail(error, operation, status, reason='http_status',
-                             provider_code=code)
+                             provider_code=code, provider_envelope=envelope)
         try:
             body = response.json()
         except (ValueError, TypeError):

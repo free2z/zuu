@@ -440,3 +440,17 @@ def test_idle_recording_confirmation_uses_short_deadline_and_circuit():
     finally:
         module._SESSION = original
         cache.delete(rc.PROVIDER_CIRCUIT)
+
+
+@pytest.mark.parametrize('json_body,envelope,code', [
+    (lambda: {'success': False, 'error': {'code': 404}}, True, 404),
+    (lambda: {'success': False, 'errors': []}, True, None),
+    (Mock(side_effect=ValueError('<html>404</html>')), False, None),
+    (lambda: ['not', 'an', 'object'], False, None),
+])
+def test_error_records_whether_the_provider_answered_an_envelope(json_body, envelope, code):
+    body = SimpleNamespace(status_code=404, json=json_body)
+    with pytest.raises(ProviderNotFoundError) as caught:
+        DyteClient(transport=transport(body)).create_meeting('creator')
+    assert caught.value.provider_envelope is envelope
+    assert caught.value.provider_code == code
