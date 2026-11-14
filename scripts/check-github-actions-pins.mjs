@@ -42,7 +42,7 @@ const POW_POLICY_COMMAND = "node scripts/free2z/check-pow-policy.mjs";
 const REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT = 3;
 const REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT = 11;
 const REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST =
-  "4b4115dff3d451ca9f4576881fb80e3b7b1c33b465e69968048e18b9bf0325ab";
+  "4b0e2bba4757703c090e0e956a101ce99e8d1c2e50dcc98225f2a388f38b7df7";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
 const WASM_POLICY_SELF_TEST_COMMAND =

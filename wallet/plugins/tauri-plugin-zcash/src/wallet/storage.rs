@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use rand::rngs::OsRng;
+use super::os_rng;
 use rusqlite::{Connection, OpenFlags};
 use zcash_client_sqlite::util::SystemClock;
 use zcash_protocol::consensus::Network;
@@ -35,7 +35,8 @@ fn prepare_wallet_connection(conn: Connection, network: Network) -> Result<Walle
     rusqlite::vtab::array::load_module(&conn)
         .map_err(|e| Error::DatabaseError(format!("failed to load array module: {e}")))?;
 
-    let mut db = zcash_client_sqlite::WalletDb::from_connection(conn, network, SystemClock, OsRng);
+    let mut db =
+        zcash_client_sqlite::WalletDb::from_connection(conn, network, SystemClock, os_rng());
 
     // Run migrations
     zcash_client_sqlite::wallet::init::init_wallet_db(&mut db, None)
@@ -61,7 +62,7 @@ pub fn open_read_db(db_path: &Path, network: Network) -> Result<WalletDatabase> 
         conn,
         network,
         SystemClock,
-        OsRng,
+        os_rng(),
     ))
 }
 

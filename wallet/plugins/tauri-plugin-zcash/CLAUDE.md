@@ -20,6 +20,9 @@ Rust edition 2024, MSRV 1.97. All librustzcash deps are path deps at `z/zcash/li
 Defined in `src/wallet/mod.rs`:
 
 ```rust
+// rand 0.10's OS generator in the infallible form librustzcash requires.
+pub type OsRng = rand::rand_core::UnwrapErr<rand::rngs::SysRng>;
+
 pub type WalletDatabase =
     zcash_client_sqlite::WalletDb<rusqlite::Connection, Network, SystemClock, OsRng>;
 
@@ -46,7 +49,12 @@ pub type WalletProposal = zcash_client_backend::proposal::Proposal<
   `lock_inputs: Option<LockRequest>` (currently `None`; durable lock ownership
   and unlock recovery must be designed together), and
   `proposed_version: Option<TxVersion>` (`None` lets target height decide).
-- **`create_proposed_transactions`** — takes **8** args and has phantom `InputsErrT` + `ChangeErrT`. Use `std::convert::Infallible` for both. The 8th arg is `expiry_height: Option<BlockHeight>` (use `None` to keep the builder-derived expiry). The transaction version is now carried on the proposal itself (`proposal.proposed_version()`), not passed here.
+- **`create_proposed_transactions`** — takes **10** args and has phantom `InputsErrT` + `ChangeErrT`. Use `std::convert::Infallible` for both. Args 3 and 4 are a `Clock` (wall time, checked against recipient address expiry metadata; pass `&SystemClock`) and a `&mut impl CryptoRng` (pass `&mut os_rng()`). The last arg is `expiry_height: Option<BlockHeight>` (use `None` to keep the builder-derived expiry). The transaction version is carried on the proposal itself (`proposal.proposed_version()`), not passed here.
+- **Default expiry is height-dependent.** There is no `DEFAULT_TX_EXPIRY_DELTA`; use `default_tx_expiry_delta(BranchId::for_height(params, height))` — 40 blocks before NU7, 120 from NU7 (same 50 minutes at 25-second blocks).
+- **NU7 is live on mainnet** (height 3,543,405, branch ID `0x77190AD9`) with no `zcash_unstable` cfg. `tests/nu7_mainnet_consensus.rs` fails if the pinned librustzcash ever stops mapping it.
+- **RNGs are rand 0.10.** `WalletDb` needs `R: rand::Rng` (infallible). Use the crate's `OsRng` alias / `os_rng()`; there is no `rand::rngs::OsRng` any more.
+- **`UnifiedFullViewingKey::encode`** returns `Result<String, _>`; map the error, don't unwrap.
+- **secp256k1 0.33 uses a global context.** `PublicKey::from_secret_key(&sk)`, `RecoverableSignature::sign_ecdsa_recoverable(msg, &sk)`, `sig.recover_ecdsa(msg)`, `SecretKey::from_secret_bytes([u8; 32])` — no `Secp256k1` value is needed.
 - **Ironwood (NU6.3) is a third shielded pool, not a cargo feature.** There is no `ironwood` feature flag; the pool is unconditional in `zcash_protocol` (`ShieldedPool::Ironwood`) and its sync/tree/note plumbing in `zcash_client_backend`/`zcash_client_sqlite` is gated behind the existing **`orchard`** feature (Ironwood reuses `MerkleHashOrchard`). Because we enable `orchard`, we get Ironwood.
 - **`AccountBalance` has THREE shielded pools** — `sapling_balance()`, `orchard_balance()`, `ironwood_balance()`. Any code summing shielded value MUST include Ironwood; after NU6.3 activation Orchard becomes spend-only and new shielded value accrues to Ironwood.
 - **`AccountBalance` transparent split** — `unshielded()` is deprecated; use `unshielded_regular_balance()` + `unshielded_coinbase_balance()` (or `unshielded_balance()` for the sum).
