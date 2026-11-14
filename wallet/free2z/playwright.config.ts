@@ -22,7 +22,7 @@ export default defineConfig({
   },
   webServer: {
     command: `npm run dev -- --host 127.0.0.1 --port ${port}`,
-    env: { ...process.env, VITE_MOCK: "1" },
+    env: { ...process.env, VITE_MOCK: "1", VITE_LOCAL_DRAFT_EVALUATION: "1" },
     reuseExistingServer: false,
     stderr: "pipe",
     stdout: "pipe",
