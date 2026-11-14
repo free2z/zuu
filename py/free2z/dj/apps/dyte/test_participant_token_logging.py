@@ -17,7 +17,7 @@ ROOM = '11111111-2222-3333-4444-555555555555'
     {'nested': {'authToken': TOKEN}}, ['opaque-secret'], 'short-secret'])
 def test_participant_response_secrecy(status, message, caplog):
     body = {'success': status == 200, 'data': {'id': ROOM, 'token': TOKEN}}
-    if status != 200:
+    if status in (400, 401, 403, 404, 429, 500):
         body['error'] = {'message': message, 'details': {'token': TOKEN}}
     response = SimpleNamespace(status_code=status, json=lambda: body)
     transport = Mock(request=Mock(return_value=response))

@@ -89,6 +89,19 @@ logger = logging.getLogger(__name__)
 VIEWER_PROVIDER_RETRY_AFTER = "5"
 
 
+def _provider_refused(exc):
+    """True when the provider answered with an HTTP 4xx: it refused the
+    request, so nothing was created and no reconciliation is needed.
+
+    A transport error, timeout, 5xx or unreadable 2xx is different -- the
+    provider may have acted -- and keeps the "outcome unknown" path. 408 is a
+    timeout, so it stays ambiguous too.
+    """
+    status_code = getattr(exc, 'status', None)
+    return (isinstance(exc, ProviderError) and isinstance(status_code, int)
+            and 400 <= status_code < 500 and status_code != 408)
+
+
 def _provider_retry_response():
     return Response(
         {"error": "The live-stream provider did not respond; try again."},
@@ -2500,7 +2513,14 @@ class DyteMeeting(APIView):
             )
             try:
                 response = dc.create_meeting(creator.username)
-            except Exception:
+            except Exception as exc:
+                if _provider_refused(exc):
+                    # Refused outright (e.g. 401 credentials): no room exists.
+                    room_reconciliation.delete()
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return Response(status=status.HTTP_502_BAD_GATEWAY,
+                        data="The live-stream provider did not respond; try again.")
                 room_reconciliation.last_error = (
                     'Room create outcome is unknown; inspect RealtimeKit meetings '
                     'for this creator/title and reconcile manually'
@@ -2581,7 +2601,13 @@ class DyteMeeting(APIView):
             )
             try:
                 room_response = dc.create_meeting(creator.username)
-            except Exception:
+            except Exception as exc:
+                if _provider_refused(exc):
+                    room_reconciliation.delete()
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return Response(status=status.HTTP_502_BAD_GATEWAY,
+                        data="The live-stream provider did not respond; try again.")
                 room_reconciliation.last_error = (
                     'Replacement room create outcome is unknown; inspect '
                     'RealtimeKit meetings for this creator/title and reconcile manually'

@@ -2002,16 +2002,51 @@ if WELCOME_GRANT_2Z > WELCOME_GRANT_MAX_2Z:
 # NAMESPACE == 'stage'. Fail closed on every other environment.
 SMOKE_TEST_ACCOUNT_USERNAME = os.environ.get("SMOKE_TEST_ACCOUNT_USERNAME", "")
 
-# Cloudflare RealtimeKit v4 control plane. Empty defaults fail closed.
-RTK_ACCOUNT_ID = os.environ.get("RTK_ACCOUNT_ID", "")
-RTK_APP_ID = os.environ.get("RTK_APP_ID", "")
-RTK_API_TOKEN = os.environ.get("RTK_API_TOKEN", "")
-# Existing host-retirement rollout remains independent of the API migration.
+# Cloudflare RealtimeKit (ex-Dyte) control plane -- dj.apps.dyte.client.
+#
+# Two credential shapes are supported so a rollout is never blocked on which
+# one the Cloudflare dashboard hands out:
+#
+#   v4 -- https://api.cloudflare.com/client/v4/accounts/{RTK_ACCOUNT_ID}/
+#         realtime/kit/{RTK_APP_ID}/...  with  Authorization: Bearer
+#         {RTK_API_TOKEN} (a Cloudflare API token with Realtime or Realtime
+#         Admin permission). RTK_APP_ID is the RealtimeKit app id, which is
+#         the former Dyte organization id.
+#   v2 -- {RTK_API_BASE_URL}/v2/...  with HTTP Basic DYTE_ORG:DYTE_KEY (the
+#         legacy Dyte org API key).
+#
+# RTK_API_MODE picks one: "auto" (default) uses v4 when all three RTK_* v4
+# values are set and v2 otherwise; "v4"/"v2" force that mode and fail closed
+# when its credentials are missing. Anything else is treated as "auto" and
+# reported by the startup `rtk_api_mode_selected` log line. Every value is
+# server-only (k8s secret `free2z`), never a Vite/public env. Values are
+# stripped because a secret created from a file often ends in a newline.
+RTK_API_MODE = os.environ.get("RTK_API_MODE", "auto").strip().lower() or "auto"
+RTK_ACCOUNT_ID = os.environ.get("RTK_ACCOUNT_ID", "").strip()
+RTK_APP_ID = os.environ.get("RTK_APP_ID", "").strip()
+RTK_API_TOKEN = os.environ.get("RTK_API_TOKEN", "").strip()
+DYTE_KEY = os.environ.get("DYTE_KEY", "").strip()
+DYTE_ORG = os.environ.get("DYTE_ORG", "").strip()
+# Legacy v2 REST host. Same endpoints, schemas and Basic auth as api.dyte.io.
+RTK_API_BASE_URL = os.environ.get(
+    "RTK_API_BASE_URL", "https://api.realtime.cloudflare.com").strip()
+
+# Register the consumer on every worker before a later deployment enables
+# producers. Obligations stay in CreatorMeeting.host_evictions while disabled.
 DYTE_HOST_EVICTION_JOBS_ENABLED = _strict_boolean_env(
     "DYTE_HOST_EVICTION_JOBS_ENABLED", False)
-# Signing-key distribution is public and separate from the v4 control plane.
-RTK_WEBHOOK_KEY_URL = "https://api.realtime.cloudflare.com/.well-known/webhooks.json"
 
+# Webhook public-key fetch (dyte.views.get_or_load_dyte_public_key).
+#
+# The key is public, credential-free, and the same for both API modes. It is
+# fetched lazily on the first webhook delivery and then cached in-process.
+# Guards, because the endpoint that triggers this fetch is UNAUTHENTICATED by
+# nature (it is the signature check itself, so it cannot be behind the
+# signature check):
+#
+# RTK_WEBHOOK_KEY_URL -- where the public RSA signing key is published.
+#   Sent with no credential and no redirects.
+#
 # DYTE_KEY_FETCH_TIMEOUT_SECONDS -- an unresponsive provider must not pin a
 #   sync gunicorn worker forever. `requests` has NO default timeout.
 # DYTE_KEY_FETCH_RETRY_SECONDS -- how long a FAILED fetch is remembered. While
@@ -2026,11 +2061,14 @@ RTK_WEBHOOK_KEY_URL = "https://api.realtime.cloudflare.com/.well-known/webhooks.
 #   reject every genuine delivery until it happened to restart. A TTL bounds
 #   that blindness to one interval.
 #
-# All three have safe defaults; none needs to be set to deploy. They are read
-# through _positive_float_env so a typo'd or nonsensical value (garbage, 0,
-# negative, inf, NaN) degrades to the default with a loud warning instead of
-# either bricking every pod at import time or -- worse, in the NaN case --
-# silently disabling the guard it configures.
+# All of these have safe defaults; none needs to be set to deploy. The three
+# durations are read through _positive_float_env so a typo'd or nonsensical
+# value (garbage, 0, negative, inf, NaN) degrades to the default with a loud
+# warning instead of either bricking every pod at import time or -- worse, in
+# the NaN case -- silently disabling the guard it configures.
+RTK_WEBHOOK_KEY_URL = os.environ.get(
+    "RTK_WEBHOOK_KEY_URL",
+    "https://api.realtime.cloudflare.com/.well-known/webhooks.json").strip()
 DYTE_KEY_FETCH_TIMEOUT_SECONDS = _positive_float_env(
     "DYTE_KEY_FETCH_TIMEOUT_SECONDS", 5.0)
 DYTE_KEY_FETCH_RETRY_SECONDS = _positive_float_env(
