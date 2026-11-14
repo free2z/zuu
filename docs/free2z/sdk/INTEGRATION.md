@@ -578,6 +578,18 @@ and only `credited` means 2Z reached the account. Third-party apps never use
 Free2Z's first-party Apple/Google IAP rails. See
 [spec/purchase.md](./spec/purchase.md).
 
+**Removal plan:** SDK 0.x keeps the deprecated purchase methods and their
+public helpers working for existing clients. Removing those SDK public helpers
+may happen only in a future breaking SDK release. Before that release, publish
+a migration window and versioned migration guide, and verify every supported
+SDK 0.x client can move to `billing_url()` / `openBilling()` for eligible
+builds or the account-management exit for store builds. This plan does not
+retire the server purchase endpoint or `purchase:create` scope: either requires
+a separate versioned migration, proof that all legacy and first-party
+consumers have migrated or approved migration paths, and preserved server
+compatibility until then. Existing legacy card purchase clients continue to
+work.
+
 ### Manage Free2Z account: the URL contract
 
 An app never sells 2Z and never shows a purchase flow. When the account needs
