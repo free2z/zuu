@@ -1,3 +1,4 @@
+import { DIAGNOSTIC_KINDS } from "./vocabulary";
 import type { DiagnosticsEnvironment } from "./environment";
 import type { DiagnosticBreadcrumb, DiagnosticEvent } from "./record";
 import type { DiagnosticsStore } from "./store";
@@ -119,4 +120,18 @@ export function renderDiagnosticsReport(
   );
 
   return lines.join("\n");
+}
+
+/** The feedback tier deliberately contains no free text, frames or filenames. */
+export function renderFeedbackDiagnostics(store: DiagnosticsStore): string {
+  const counts = new Map<string, number>();
+  for (const event of store.events()) {
+    if (!DIAGNOSTIC_KINDS.includes(event.kind)) continue;
+    counts.set(event.kind, (counts.get(event.kind) ?? 0) + 1);
+  }
+  return [
+    "Diagnostics summary",
+    `Recorded failures: ${store.events().length}`,
+    ...Array.from(counts, ([kind, count]) => `${kind}: ${count}`),
+  ].join("\n");
 }

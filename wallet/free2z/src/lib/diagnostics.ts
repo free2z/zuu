@@ -6,23 +6,13 @@ import {
 import release from "../../release.json";
 
 /**
- * The content surface's diagnostics buffer.
+ * The content surface's frontend diagnostics buffer.
  *
- * ## Why this surface takes no native crash channel with it
- *
- * `src-tauri/src/lib.rs` registers no `invoke_handler` at all, and a unit test
- * fails the build if one appears: under the Wry frame-confusion defect (#367) a
- * remote subframe in this process resolves as the trusted main window, so the
- * property that keeps this surface safe is that there is no command to reach.
- * A `diagnostics_native_records` command would be a command, and this is
- * exactly the surface where third-party content is rendered. So capture here is
- * the renderer's own — the WebView's errors and rejections — and the native
- * half of the design (a Rust panic hook) is deliberately not wired in until
- * there is a channel that does not cost this property. See the pull request.
- *
- * There is no diagnostics screen here yet either; it belongs on a route, next
- * to a nav entry and inside `tests/viewport.pw.ts`'s route audit, which is its
- * own change.
+ * The /diagnostics route displays and manually exports this bounded frontend
+ * report. Native panic capture writes a separate bounded app-data file when
+ * storage is available, but native readback is intentionally unavailable here.
+ * No invoke handler, event channel or initialization script exposes that file:
+ * under #367 a hostile remote subframe can resolve as the trusted main window.
  */
 
 function storage() {

@@ -6,28 +6,15 @@ import {
 import { BUILD_INFO } from "./build-info";
 
 /**
- * The wallet authority's diagnostics buffer.
+ * The wallet authority's frontend diagnostics buffer.
  *
- * ## Why the wallet gets the same buffer as the other two
+ * Breadcrumbs use a closed vocabulary; error names, messages and bundle frames
+ * are allowlist-filtered before storage. Ordinary prose cannot be distinguished
+ * from error prose, so call sites must not interpolate private content.
  *
- * Because the failure mode is the same and the privacy bar is higher, not
- * lower. What makes it safe to run here is that the buffer holds no field a
- * caller controls: breadcrumbs come from a closed vocabulary, and the only free
- * text is an error's own name, message and stack, each reduced by
- * `@free2z/wallet-shared`'s allow-list before it is stored. A seed, a spending
- * key or an address is not a shape that survives that.
- *
- * ## What this does not do yet
- *
- * ZUULI has no diagnostics screen in this increment — capture lands in all
- * three surfaces, the screen lands first in e2e2z, which is the one that
- * shipped and hung (#973). The right home here is the existing About screen
- * next to `FeedbackComposer`, and `lib/feedback.ts`'s
- * `captureFeedbackDiagnostics()` is the seam that was left for it: its comment
- * says diagnostics stay unavailable "until a future separately reviewed
- * allowlist can prove a safe schema end to end", and that allowlist is what
- * this store now is. Wiring the two together is a change to the feedback
- * handoff's own review rules and belongs in its own pull request.
+ * About displays the full frontend report and the separately bounded native
+ * panic report. Feedback uses this store only through a reduced rendering of
+ * failure kinds and counts: no error text, frames, filenames or native records.
  */
 
 function storage() {

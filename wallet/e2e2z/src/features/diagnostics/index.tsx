@@ -1,4 +1,5 @@
-import { useCallback, useState } from "react";
+import { readNativeDiagnostics } from "../../lib/native-diagnostics";
+import { useCallback, useEffect, useState } from "react";
 import {
   type DiagnosticEvent,
   type DiagnosticsStore,
@@ -80,8 +81,10 @@ interface DiagnosticsFeatureProps {
 export default function DiagnosticsFeature({
   store = appDiagnostics,
 }: DiagnosticsFeatureProps) {
+  const [native, setNative] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (open) void readNativeDiagnostics().then(setNative); }, [open]);
   // The buffer is a mutable ring rather than immutable state, so a render is
   // asked for explicitly after an action that changes it.
   const [, setRevision] = useState(0);
@@ -95,7 +98,7 @@ export default function DiagnosticsFeature({
   const copy = useCallback(() => {
     void (async () => {
       try {
-        await navigator.clipboard.writeText(renderDiagnosticsReport(store));
+        await navigator.clipboard.writeText(`${renderDiagnosticsReport(store)}\n\n${native ?? "Native panic readback is unavailable in this runtime."}`);
         setCopied(true);
       } catch {
         // A WebView can refuse clipboard access. The report is on screen in
@@ -103,11 +106,11 @@ export default function DiagnosticsFeature({
         setCopied(false);
       }
     })();
-  }, [store]);
+  }, [store, native]);
 
   const share = useCallback(() => {
     void (async () => {
-      const report = renderDiagnosticsReport(store);
+      const report = `${renderDiagnosticsReport(store)}\n\n${native ?? "Native panic readback is unavailable in this runtime."}`;
       try {
         const shareTo = (
           navigator as Navigator & {
@@ -125,13 +128,18 @@ export default function DiagnosticsFeature({
         // A dismissed share sheet rejects. That is a choice, not a failure.
         return;
       }
-      await navigator.clipboard.writeText(report).catch(() => undefined);
-      setCopied(true);
+      try {
+        await navigator.clipboard.writeText(report);
+        setCopied(true);
+      } catch {
+        setCopied(false);
+      }
     })();
-  }, [store]);
+  }, [store, native]);
 
   const clear = useCallback(() => {
     store.clear();
+    void readNativeDiagnostics().then(setNative);
     setCopied(false);
     setRevision((value) => value + 1);
   }, [store]);
@@ -169,6 +177,7 @@ export default function DiagnosticsFeature({
         into a GitHub issue if you want us to see it.
       </p>
 
+      <p className="mt-4 whitespace-pre-wrap break-words text-sm" data-native-diagnostics-state>{native ?? "Native panic readback is unavailable in this runtime."}</p>
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-4">
         <div>
           <dt className="eyebrow text-muted-foreground">App</dt>
@@ -200,7 +209,7 @@ export default function DiagnosticsFeature({
           Share report
         </Button>
         <Button type="button" size="sm" variant="ghost" onClick={clear}>
-          Clear
+          Clear frontend records
         </Button>
         <Button
           type="button"

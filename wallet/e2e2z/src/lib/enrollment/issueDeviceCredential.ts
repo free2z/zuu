@@ -1,3 +1,4 @@
+import { diagnostics } from "../diagnostics";
 /**
  * The caller side of `issue-device-credential` — #905, #904, blocked on #461.
  *
@@ -225,91 +226,99 @@ export function createDeviceCredentialClient(
     },
 
     async requestDeviceCredential(handle: string): Promise<Uint8Array> {
-      const transport = transportOf();
-      // Before anything is sampled. `prepare_device` replaces this device's
-      // pending key set and discards the previous secrets, so preparing a
-      // device for a request that cannot leave the process throws key material
-      // away for nothing. The transport refuses again inside `dispatch`, and
-      // that second refusal does not read this flag — see `./transport.ts`.
-      if (!transport.available) {
-        throw new IntentTransportUnavailableError(family);
-      }
+      try {
+        const transport = transportOf();
+        // Before anything is sampled. `prepare_device` replaces this device's
+        // pending key set and discards the previous secrets, so preparing a
+        // device for a request that cannot leave the process throws key material
+        // away for nothing. The transport refuses again inside `dispatch`, and
+        // that second refusal does not read this flag — see `./transport.ts`.
+        if (!transport.available) {
+          throw new IntentTransportUnavailableError(family);
+        }
 
-      // `readKeys` has already opened this device's contact queue: the entry
-      // that publishes the device carries the relay-issued address, and the
-      // wallet authority cannot know it (ADR 0017 §4.1).
-      const keys = await readKeys();
-      const issuedAtMs = now();
-      const payload = orRefuse(
-        encodeIssueDeviceCredentialV2Payload({
-          handle,
-          devicePublicKey: keys.devicePublicKey,
-          deviceKemPublicKey: keys.deviceKemPublicKey,
-          notBeforeMs: Math.max(0, issuedAtMs - CREDENTIAL_BACKDATE_MS),
-          notAfterMs: issuedAtMs + CREDENTIAL_LIFETIME_MS,
-          contactRelayUrl: keys.contactRelayUrl,
-          contactRelayId: keys.contactRelayId,
-          contactAddr: keys.contactAddr,
-        }),
-        "request",
-      );
-
-      const requestId = newRequestId();
-      const expiresAtMs = issuedAtMs + REQUEST_LIFETIME_MS;
-      // `issue` encodes and records in one step, so there is no window in which
-      // a request exists on the wire without an outstanding question behind it.
-      const encoded = orRefuse(
-        session.issue(
-          {
-            intent: IntentFamily.IssueDeviceCredentialV2,
-            requestId,
-            caller: E2E2Z_CALLER,
-            purpose: ISSUE_DEVICE_CREDENTIAL_PURPOSE,
-            issuedAtMs,
-            expiresAtMs,
-            payload,
-          },
-          issuedAtMs,
-        ),
-        "request",
-      );
-
-      // The record stays outstanding if this rejects. It is keyed by 32 CSPRNG
-      // bytes and expires on its own; removing it here would mean a response
-      // that crossed a slow dispatch's rejection could never be judged.
-      const answer = await transport.dispatch(encoded, {
-        family,
-        requestId: toHex(requestId),
-        expiresAtMs,
-      });
-
-      // A transport is not trusted to have returned bytes at all. Anything else
-      // is a programming error in the transport, not a message, so it is not
-      // laundered into a protocol refusal.
-      if (!(answer instanceof Uint8Array)) {
-        throw new TypeError(
-          `the ${transport.id} transport resolved with something that is not a response`,
+        // `readKeys` has already opened this device's contact queue: the entry
+        // that publishes the device carries the relay-issued address, and the
+        // wallet authority cannot know it (ADR 0017 §4.1).
+        const keys = await readKeys();
+        const issuedAtMs = now();
+        const payload = orRefuse(
+          encodeIssueDeviceCredentialV2Payload({
+            handle,
+            devicePublicKey: keys.devicePublicKey,
+            deviceKemPublicKey: keys.deviceKemPublicKey,
+            notBeforeMs: Math.max(0, issuedAtMs - CREDENTIAL_BACKDATE_MS),
+            notAfterMs: issuedAtMs + CREDENTIAL_LIFETIME_MS,
+            contactRelayUrl: keys.contactRelayUrl,
+            contactRelayId: keys.contactRelayId,
+            contactAddr: keys.contactAddr,
+          }),
+          "request",
         );
+
+        const requestId = newRequestId();
+        const expiresAtMs = issuedAtMs + REQUEST_LIFETIME_MS;
+        // `issue` encodes and records in one step, so there is no window in which
+        // a request exists on the wire without an outstanding question behind it.
+        const encoded = orRefuse(
+          session.issue(
+            {
+              intent: IntentFamily.IssueDeviceCredentialV2,
+              requestId,
+              caller: E2E2Z_CALLER,
+              purpose: ISSUE_DEVICE_CREDENTIAL_PURPOSE,
+              issuedAtMs,
+              expiresAtMs,
+              payload,
+            },
+            issuedAtMs,
+          ),
+          "request",
+        );
+
+        diagnostics.breadcrumb("bridge", "bridge-request-encoded");
+        // The record stays outstanding if this rejects. It is keyed by 32 CSPRNG
+        // bytes and expires on its own; removing it here would mean a response
+        // that crossed a slow dispatch's rejection could never be judged.
+        const answer = await transport.dispatch(encoded, {
+          family,
+          requestId: toHex(requestId),
+          expiresAtMs,
+        });
+
+        // A transport is not trusted to have returned bytes at all. Anything else
+        // is a programming error in the transport, not a message, so it is not
+        // laundered into a protocol refusal.
+        if (!(answer instanceof Uint8Array)) {
+          throw new TypeError(
+            `the ${transport.id} transport resolved with something that is not a response`,
+          );
+        }
+
+        // Every hostile shape is judged here: an unsolicited identifier, a
+        // different family, an expired window, a refusal status, a malformed or
+        // truncated envelope, trailing bytes. All of it is the shared session's
+        // and the shared decoder's, re-checked against the frozen record.
+        const response = session.accept(answer, now());
+        if (response.ok) diagnostics.breadcrumb("bridge", "bridge-response-decoded");
+        const accepted = orRefuse(response, "response");
+
+        // Defence in depth. `accept` already tags the result from the *pending*
+        // record rather than from the reply, and refuses a family mismatch; this
+        // costs nothing and means a future change to that tagging cannot quietly
+        // route another family's payload into a credential.
+        if (accepted.intent !== IntentFamily.IssueDeviceCredentialV2) {
+          throw new IntentRefusedError("response", IntentErrorCode.Unsolicited);
+        }
+
+        return orRefuse(
+          decodeIssueDeviceCredentialResult(accepted.payload),
+          "response",
+        );
+      } catch (cause) {
+        diagnostics.breadcrumb("bridge", "bridge-refused");
+        throw cause;
       }
-
-      // Every hostile shape is judged here: an unsolicited identifier, a
-      // different family, an expired window, a refusal status, a malformed or
-      // truncated envelope, trailing bytes. All of it is the shared session's
-      // and the shared decoder's, re-checked against the frozen record.
-      const accepted = orRefuse(session.accept(answer, now()), "response");
-
-      // Defence in depth. `accept` already tags the result from the *pending*
-      // record rather than from the reply, and refuses a family mismatch; this
-      // costs nothing and means a future change to that tagging cannot quietly
-      // route another family's payload into a credential.
-      if (accepted.intent !== IntentFamily.IssueDeviceCredentialV2) {
-        throw new IntentRefusedError("response", IntentErrorCode.Unsolicited);
-      }
-
-      return orRefuse(
-        decodeIssueDeviceCredentialResult(accepted.payload),
-        "response",
-      );
     },
   };
 }

@@ -1,3 +1,4 @@
+import { diagnostics } from "../diagnostics";
 /**
  * The caller half of the intent bridge, judged the way the wallet half is.
  *
@@ -345,10 +346,14 @@ describe("ZEC input becomes an exact number of zatoshis", () => {
 
 describe("the request is the one ZUULI's authority validates", () => {
   it("names this app, this family and a bounded window", async () => {
+    diagnostics.clear();
     const transport = fulfilling();
     const now = 1_700_000_000_000;
     await tip(100_000, transport, now);
 
+    expect(diagnostics.breadcrumbs().map((crumb) => crumb.code)).toContain("bridge-request-encoded");
+    // This fixture expires before response validation; no identifiers enter the trail.
+    expect(JSON.stringify(diagnostics.breadcrumbs())).not.toContain("zooko");
     const decoded = decodeIntentRequest(transport.sent[0] as Uint8Array);
     expect(decoded.ok).toBe(true);
     if (!decoded.ok) return;

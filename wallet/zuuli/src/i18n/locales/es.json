@@ -44,5 +44,18 @@
       "label": "Billetera anterior conservada",
       "title": "Billetera anterior conservada"
     }
+  },
+  "diagnostics": {
+    "title": "Diagnóstico",
+    "description": "Informe local del frontend. Revíselo antes de copiarlo o compartirlo; no se envía automáticamente.",
+    "copy": "Copiar informe",
+    "share": "Compartir informe",
+    "refresh": "Actualizar",
+    "clear": "Borrar registros del frontend",
+    "copied": "Informe copiado.",
+    "failed": "No se pudo completar la acción. Puede seleccionar el informe a continuación.",
+    "nativeUnavailable": "La lectura de fallos nativos no está disponible en este entorno.",
+    "feedback": "Incluir diagnóstico reducido",
+    "feedbackDescription": "Incluir solo tipos y cantidades de fallos. Los informes completos, nombres de archivos y trazas quedan fuera."
   }
 }

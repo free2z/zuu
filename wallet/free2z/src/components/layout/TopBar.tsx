@@ -79,6 +79,7 @@ export function TopBar() {
       ) : null}
 
       <div className="flex-1" />
+      <Link className="min-tap flex items-center text-sm" to="/diagnostics">{t(MESSAGE_KEYS.diagnosticsTitle)}</Link>
 
       {/* 2Z balance chip. There is deliberately no ZEC chip beside it. */}
       {user ? (

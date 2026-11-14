@@ -222,5 +222,16 @@
     "violence": "Violence",
     "spam": "Spam or scam",
     "other": "Other"
+  },
+  "diagnostics": {
+    "title": "Diagnostics",
+    "description": "Local frontend report. Review before copying or sharing; nothing is uploaded automatically.",
+    "copy": "Copy report",
+    "share": "Share report",
+    "refresh": "Refresh",
+    "clear": "Clear frontend records",
+    "copied": "Report copied.",
+    "failed": "The action could not be completed. You can select the report below.",
+    "nativeFree2z": "Native panic capture uses a bounded local file when storage is available. Native readback is intentionally unavailable in Free2Z to protect this content surface. This report contains frontend records only."
   }
 }

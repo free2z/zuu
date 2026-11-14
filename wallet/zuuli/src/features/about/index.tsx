@@ -1,3 +1,4 @@
+import DiagnosticsFeature from "../diagnostics";
 import { useState } from "react";
 import { Check, Clipboard, Info } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -164,6 +165,7 @@ export default function AboutFeature() {
         description={messages.pageDescription}
       />
       <AboutBuildCard messages={messages} />
+      <DiagnosticsFeature />
       <div className="mt-6 px-4 sm:px-0">
         <FeedbackComposer
           minimalBuildBlock={formatBuildInfoMinimal(BUILD_INFO, messages)}

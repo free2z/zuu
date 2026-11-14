@@ -222,5 +222,16 @@
     "violence": "Violencia",
     "spam": "Spam o estafa",
     "other": "Otro"
+  },
+  "diagnostics": {
+    "title": "Diagnóstico",
+    "description": "Informe local del frontend. Revíselo antes de copiarlo o compartirlo; no se envía automáticamente.",
+    "copy": "Copiar informe",
+    "share": "Compartir informe",
+    "refresh": "Actualizar",
+    "clear": "Borrar registros del frontend",
+    "copied": "Informe copiado.",
+    "failed": "No se pudo completar la acción. Puede seleccionar el informe a continuación.",
+    "nativeFree2z": "La captura de fallos nativos usa un archivo local limitado cuando hay almacenamiento disponible. Su lectura no está disponible intencionalmente en Free2Z para proteger esta interfaz de contenido. Este informe contiene solo registros del frontend."
   }
 }
