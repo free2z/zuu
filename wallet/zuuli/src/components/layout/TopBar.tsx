@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import {
@@ -7,6 +8,7 @@ import {
   Plus,
   Wallet as WalletIcon,
   LogOut,
+  Languages,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,10 +29,13 @@ import {
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { formatTuzis, formatZecTrim, initials } from "@/lib/format";
+import { changeAppLocale } from "@/i18n";
+import { SUPPORTED_LOCALES } from "@/i18n/locale";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 
 export function TopBar() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const [languageError, setLanguageError] = useState(false);
   const { user, tuzis, logout } = useSession();
   const balance = useWallet((s) => s.balance);
   const navigate = useNavigate();
@@ -74,6 +79,25 @@ export function TopBar() {
       {/* ZUULI is the wallet authority (#904): it hosts no discovery surface,
           so the TopBar carries no search chrome. Search lives in free2z. */}
       <div className="flex-1" />
+
+      <div className="relative">
+      <label className="flex items-center gap-1 text-sm">
+        <Languages className="h-4 w-4" aria-hidden />
+        <span className="sr-only">{t(MESSAGE_KEYS.navLanguage)}</span>
+        <select aria-label={t(MESSAGE_KEYS.navLanguage)} value={i18n.resolvedLanguage} onChange={(event) => {
+          const locale = SUPPORTED_LOCALES.find((item) => item === event.target.value);
+          if (locale) {
+            setLanguageError(false);
+            void changeAppLocale(i18n, locale).catch(() => setLanguageError(true));
+          }
+        }} className="min-tap cursor-pointer rounded-md bg-background text-foreground">
+          <option value="en" lang="en">English</option>
+          <option value="es" lang="es">Español</option>
+          <option value="fr" lang="fr">Français</option>
+        </select>
+      </label>
+      {languageError && <p role="alert" className="absolute end-0 top-full z-50 w-56 rounded-md border border-border bg-background p-2 text-sm shadow-md">{t(MESSAGE_KEYS.navLanguageError)}</p>}
+      </div>
 
       {/* ZEC wallet chip */}
       {user ? (
