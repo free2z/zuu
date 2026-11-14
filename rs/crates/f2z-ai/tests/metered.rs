@@ -48,6 +48,14 @@ impl Gatekeeper for Gate {
         })
     }
 }
+#[derive(Clone)]
+struct Attempt {
+    id: Uuid,
+    number: i32,
+    model: String,
+    amount: i64,
+    outcome: Option<&'static str>,
+}
 #[derive(Default)]
 struct Memory {
     call: Option<Uuid>,
@@ -57,6 +65,16 @@ struct Memory {
     request: Value,
     completion: Value,
     hold: Option<Uuid>,
+    attempts: Vec<Attempt>,
+    operations: Vec<Operation>,
+    refuse_attempt: Option<i32>,
+    lose_attempt_replies: Option<i32>,
+    lose_release_replies: usize,
+    fail_release: bool,
+    slow_release: bool,
+    release_started: bool,
+    fail_reads: bool,
+    available_after_release: Option<u64>,
     amount: i64,
     terminal: Option<&'static str>,
     charges: usize,
@@ -97,6 +115,7 @@ impl Memory {
                     "settled"
                 }
             }
+            Some("released") if self.completion.is_null() => "streaming",
             Some(_) => "released",
             None => {
                 if self.completion.is_null() {
@@ -107,7 +126,7 @@ impl Memory {
             }
         };
         json!({"call_id":self.call,"status":status,"request":self.request,"completion":self.completion,"created_at":"2026-09-27T00:00:00Z","settled_at":self.terminal.map(|_|"2026-09-27T00:00:01Z"),"error":null,
-          "attempts":self.hold.map(|id|vec![json!({"hold_id":id,"attempt":1})]).unwrap_or_default(),
+          "attempts":self.attempts.iter().rev().map(|a|json!({"hold_id":a.id,"attempt":a.number,"model":a.model})).collect::<Vec<_>>(),
           "settlement":self.terminal.and_then(|outcome|self.hold.map(|id|json!({"hold_id":id,"outcome":outcome,"hold_milli_2z":self.amount,"priced_milli_2z":if outcome=="settled" {1000} else {0},"collected_milli_2z":if outcome=="settled" {1000} else {0},"shortfall_milli_2z":0,"applied_markup_bps":0,"usage":{"private_debug":"must not project"}})))})
     }
 }
@@ -126,7 +145,12 @@ impl Ledger for Database {
         if matches!(op, Operation::Complete { .. }) && self.0.lock().unwrap().slow_completion {
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
+        if matches!(op, Operation::Release { .. }) && self.0.lock().unwrap().slow_release {
+            self.0.lock().unwrap().release_started = true;
+            tokio::time::sleep(Duration::from_millis(600)).await;
+        }
         let mut m = self.0.lock().unwrap();
+        m.operations.push(op.clone());
         match op {
             Operation::Context(_) => {
                 m.context_requests += 1;
@@ -158,7 +182,10 @@ impl Ledger for Database {
                 let status = if m.call.is_some() {
                     if &m.key != key || &m.fingerprint != fingerprint {
                         "conflict"
-                    } else if m.terminal.is_some() {
+                    } else if matches!(
+                        m.record()["status"].as_str(),
+                        Some("settled" | "settled_partial" | "released")
+                    ) {
                         "replayed"
                     } else {
                         "pending"
@@ -175,23 +202,56 @@ impl Ledger for Database {
                     json!({"status":status,"call_id":m.call,"record":m.record(),"context":m.context()}),
                 )
             }
-            Operation::Hold { amount_milli, .. } => {
+            Operation::Hold {
+                amount_milli,
+                attempt,
+                model,
+                ..
+            } => {
                 m.hold_requests += 1;
                 if m.revoked {
                     return Ok(json!({"status":"revoked"}));
                 }
-                let replayed = m.hold.is_some();
-                m.hold.get_or_insert_with(Uuid::now_v7);
+                if m.refuse_attempt == Some(*attempt) {
+                    return Ok(json!({"status":"insufficient_balance"}));
+                }
+                let existing = m.attempts.iter().find(|a| a.number == *attempt).cloned();
+                let replayed = existing.is_some();
+                let id = if let Some(a) = existing {
+                    assert_eq!(a.amount, *amount_milli, "hold intent changed");
+                    assert_eq!(&a.model, model);
+                    a.id
+                } else {
+                    assert!(
+                        m.completion.is_null(),
+                        "completed calls admit no new attempt"
+                    );
+                    assert!(
+                        m.attempts.iter().all(|a| a.outcome == Some("released")),
+                        "previous attempt hold must be released before the next hold"
+                    );
+                    let id = Uuid::now_v7();
+                    m.attempts.push(Attempt {
+                        id,
+                        number: *attempt,
+                        model: model.clone(),
+                        amount: *amount_milli,
+                        outcome: None,
+                    });
+                    m.terminal = None;
+                    id
+                };
+                m.hold = Some(id);
                 m.amount = *amount_milli;
                 if m.revoke_after_hold {
                     m.revoked = true;
                 }
-                if m.lose_hold_replies > 0 {
-                    m.lose_hold_replies -= 1;
+                if m.lose_hold_replies > 0 || m.lose_attempt_replies == Some(*attempt) {
+                    m.lose_hold_replies = m.lose_hold_replies.saturating_sub(1);
                     return Err(Failure);
                 }
                 Ok(
-                    json!({"status":if replayed {"replayed"} else {"held"},"state":m.terminal.unwrap_or("open"),"hold_id":m.hold,"amount":m.amount,"applied_markup_bps":0,"available":m.available,"cap_remaining":null,"expires_at":"2026-09-27T00:05:00Z"}),
+                    json!({"status":if replayed {"replayed"} else {"held"},"state":m.terminal.unwrap_or("open"),"hold_id":id,"amount":m.amount,"applied_markup_bps":0,"available":m.available,"cap_remaining":null,"expires_at":"2026-09-27T00:05:00Z"}),
                 )
             }
             Operation::Extend { .. } => Ok(
@@ -249,6 +309,10 @@ impl Ledger for Database {
                     assert!(m.hold.is_none(), "false no-hold claim would strand money");
                     m.terminal = Some("released");
                 }
+                let terminal = m.terminal;
+                if let Some(a) = m.attempts.last_mut() {
+                    a.outcome = terminal;
+                }
                 Ok(json!({"status":"recorded","record":m.record()}))
             }
             Operation::Settle {
@@ -269,6 +333,8 @@ impl Ledger for Database {
                         *cap = cap.saturating_sub(1_000);
                     }
                 }
+                let terminal = m.terminal;
+                m.attempts.last_mut().unwrap().outcome = terminal;
                 if m.lose_settle_reply {
                     m.lose_settle_reply = false;
                     return Err(Failure);
@@ -300,11 +366,28 @@ impl Ledger for Database {
                 Ok(result)
             }
             Operation::Release { hold, .. } => {
-                assert_eq!(Some(*hold), m.hold);
-                m.terminal.get_or_insert("released");
-                Ok(json!({"status":m.terminal}))
+                if m.fail_release {
+                    return Err(Failure);
+                }
+                let a = m.attempts.iter_mut().find(|a| a.id == *hold).unwrap();
+                a.outcome.get_or_insert("released");
+                let outcome = a.outcome;
+                if m.hold == Some(*hold) {
+                    m.terminal = outcome;
+                }
+                if let Some(available) = m.available_after_release {
+                    m.available = available;
+                }
+                if m.lose_release_replies > 0 {
+                    m.lose_release_replies -= 1;
+                    return Err(Failure);
+                }
+                Ok(json!({"status":outcome}))
             }
             Operation::Read { identity, call } => {
+                if m.fail_reads {
+                    return Err(Failure);
+                }
                 if Some(*call) != m.call
                     || m.identity
                         .is_none_or(|i| i.subject != identity.subject || i.app != identity.app)
@@ -3651,4 +3734,634 @@ async fn forced_tool_choice_signed_policy_precedes_holds_and_provider_io() {
             }
         }
     }
+}
+
+// S12: testkit synthetic documented-shape streams, source:
+// f2z-ai-testkit::mock module docs. No live providers or credentials.
+struct FallbackGate {
+    limits: f2z_ai::auth::limits::Limits,
+    admissions: std::sync::atomic::AtomicUsize,
+}
+#[async_trait]
+impl Gatekeeper for FallbackGate {
+    async fn admit(&self, headers: &HeaderMap) -> Result<Admitted, ApiFailure> {
+        let mut admitted = Gate.admit(headers).await?;
+        let p = &admitted.principal;
+        admitted.lease = Some(
+            self.limits
+                .admit(&f2z_ai::auth::jwt::Claims {
+                    sub: p.sub.clone(),
+                    client_id: p.client_id.clone(),
+                    app_id: p.app_id.clone(),
+                    scope: p.scope.clone(),
+                    aep: p.aep,
+                    agen: p.agen,
+                    exp: p.exp,
+                    jti: p.jti.clone(),
+                    child_directed: false,
+                })
+                .await?,
+        );
+        self.admissions
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(admitted)
+    }
+}
+struct FallbackRig {
+    r: support::Running,
+    primary: MockProvider,
+    fallback: MockProvider,
+    gate: Arc<FallbackGate>,
+}
+impl FallbackRig {
+    async fn start(db: Arc<Database>, primary: Scenario, fallback: Scenario) -> Self {
+        Self::policy(db, primary, fallback, None).await
+    }
+    async fn policy(
+        db: Arc<Database>,
+        primary: Scenario,
+        fallback: Scenario,
+        allowed: Option<Vec<&str>>,
+    ) -> Self {
+        let primary = MockProvider::start(primary).await.unwrap();
+        let fallback = MockProvider::start(fallback).await.unwrap();
+        let providers = [
+            ("openai", primary.base_url()),
+            ("chatco", fallback.base_url()),
+            ("anthropic", fallback.base_url()),
+        ]
+        .into_iter()
+        .map(|(name, base_url)| {
+            (
+                name.into(),
+                f2z_ai::config::ProviderConfig {
+                    base_url,
+                    api_key: "synthetic-unused-key".into(),
+                    completion_tokens_include_reasoning: true,
+                },
+            )
+        })
+        .collect();
+        let backend =
+            f2z_ai::provider::ProviderBackend::new(&providers, adapter_support::tuning(0)).unwrap();
+        let meter = Arc::new(
+            Metered::new(db, backend, adapter_support::claim_key())
+                .with_allowed_models(
+                    allowed.map(|ids| ids.into_iter().map(str::to_owned).collect()),
+                )
+                .with_features_meta(true),
+        );
+        let gate = Arc::new(FallbackGate {
+            limits: f2z_ai::auth::limits::Limits::new(
+                f2z_ai::auth::limits::LimitsConfig {
+                    user: f2z_ai::auth::store::Rate {
+                        per_minute: 10000,
+                        burst: 1000,
+                    },
+                    app: None,
+                    concurrency: 1,
+                    lease_ttl: Duration::from_secs(360),
+                },
+                None,
+                "fallback-test".into(),
+            ),
+            admissions: std::sync::atomic::AtomicUsize::new(0),
+        });
+        // Fallback is pricier, with its own output ceiling.
+        let mut catalog = serde_json::to_value(adapter_support::catalog(10_000).catalog()).unwrap();
+        catalog["models"][0]["max_output_tokens"] = json!(11);
+        catalog["models"][2]["max_output_tokens"] = json!(37);
+        catalog["models"][2]["prices"]["output_nusd_per_mtok"] = json!(900_000_000_000_u64);
+        let catalog = f2z_ai::catalog::VerifiedCatalog::from_verified(
+            serde_json::from_value(catalog).unwrap(),
+        )
+        .unwrap();
+        let r = support::start(
+            &support::config(&[]),
+            Deps {
+                gate: gate.clone(),
+                catalog: Arc::new(Fixed(catalog)),
+                backend: meter.clone(),
+                settler: meter,
+            },
+        )
+        .await;
+        support::wait_readyz(r.admin, StatusCode::OK).await;
+        Self {
+            r,
+            primary,
+            fallback,
+            gate,
+        }
+    }
+    async fn send(&self, stream: bool) -> axum::http::Response<hyper::body::Incoming> {
+        let mut body = request();
+        body["stream"] = json!(stream);
+        body["fallback"] = json!(["m-responses", "m-chat", "m-chat", "m-responses"]);
+        let mut req = support::chat_request(body.to_string());
+        req.headers_mut()
+            .insert("idempotency-key", "fallback-call".parse().unwrap());
+        support::send(self.r.public, req).await
+    }
+    async fn stop(self) {
+        self.primary.shutdown().await;
+        self.fallback.shutdown().await;
+        self.r.gateway.run_until(async {}).await;
+    }
+}
+fn primary_503() -> Scenario {
+    Scenario {
+        fault: f2z_ai_testkit::mock::Fault::Status { status: 503 },
+        ..Scenario::default()
+    }
+}
+fn assert_closed_attempts(db: &Database, expected: &[&str], charges: usize) {
+    let m = db.0.lock().unwrap();
+    assert_eq!(
+        m.attempts
+            .iter()
+            .map(|a| a.outcome.unwrap_or("OPEN"))
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(m.charges, charges);
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_primary_503_answers_with_one_lease_one_settlement_and_actual_model() {
+    for stream in [true, false] {
+        let db = Arc::new(Database::new());
+        // Cross the 250 ms tick during switching: next() cancellation must
+        // not repeat release or renumber attempts.
+        db.0.lock().unwrap().slow_release = true;
+        let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+        let response = rig.send(stream).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        if stream {
+            assert_eq!(
+                rig.gate
+                    .limits
+                    .open_calls("11111111-1111-4111-8111-111111111111"),
+                1
+            );
+            let competing = rig.send(true).await;
+            assert_eq!(competing.status(), StatusCode::TOO_MANY_REQUESTS);
+            drop(competing);
+        }
+        let text = support::text(response).await;
+        if stream {
+            assert_eq!(text.matches("event: meta").count(), 1, "{text}");
+            assert_eq!(text.matches("event: done").count(), 1, "{text}");
+            assert!(text.contains("\"model\":\"m-chat\""), "{text}");
+            assert!(
+                text.contains("\"requested_model\":\"m-responses\""),
+                "{text}"
+            );
+            assert!(text.contains("\"max_output_tokens\":37"), "{text}");
+        } else {
+            let v: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(v["model"], "m-chat");
+            assert_eq!(v["requested_model"], "m-responses");
+        }
+        final_state(&db).await;
+        assert_closed_attempts(&db, &["released", "settled"], 1);
+        {
+            let m = db.0.lock().unwrap();
+            assert_eq!(m.claims, 1);
+            assert_eq!(m.settle_requests, 1);
+            assert_eq!(m.hold_requests, 2);
+            assert!(m.attempts[1].amount > m.attempts[0].amount);
+            assert_eq!(m.completion["model"], "m-chat");
+            let usage = Scenario::default()
+                .expected_usage(f2z_ai_testkit::mock::ProviderStyle::ChatCompletions, true)
+                .unwrap();
+            assert_eq!(m.settled_usage, json!(usage));
+            let expected_cost = (u128::from(usage.input_tokens) * 1_000
+                + u128::from(usage.cached_input_tokens) * 100
+                + u128::from(usage.output_tokens) * 900_000_000_000)
+                .div_ceil(1_000_000);
+            assert!(m.operations.iter().any(|op| matches!(op,
+                Operation::Settle { cost_nusd, .. } if u128::try_from(*cost_nusd).unwrap() == expected_cost)),
+                "settlement must use the answering model's prices");
+
+            assert_eq!(m.request["features"]["fallback"], 4);
+            let second_hold = m
+                .operations
+                .iter()
+                .position(|op| matches!(op, Operation::Hold { attempt: 2, .. }))
+                .unwrap();
+            assert!(
+                m.operations
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, op)| matches!(op, Operation::Complete { .. }))
+                    .all(|(i, _)| i > second_hold),
+                "switching must not complete the call"
+            );
+        }
+        assert_eq!(
+            rig.gate
+                .admissions
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+        assert_eq!(rig.primary.request_count(), 1);
+        assert_eq!(rig.fallback.request_count(), 1);
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while rig
+                .gate
+                .limits
+                .open_calls("11111111-1111-4111-8111-111111111111")
+                != 0
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let replay = rig.send(stream).await;
+        assert_eq!(replay.headers()["x-f2z-replayed"], "true");
+        let receipt: Value = serde_json::from_str(&support::text(replay).await).unwrap();
+        assert_eq!(receipt["model"], "m-chat");
+        assert_eq!(receipt["requested_model"], "m-responses");
+        assert_closed_attempts(&db, &["released", "settled"], 1);
+        rig.stop().await;
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_hold_refusal_releases_primary_and_reports_last_code() {
+    for stream in [true, false] {
+        let db = Arc::new(Database::new());
+        db.0.lock().unwrap().refuse_attempt = Some(2);
+        let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+        let response = rig.send(stream).await;
+        assert_eq!(
+            response.status(),
+            if stream {
+                StatusCode::OK
+            } else {
+                StatusCode::PAYMENT_REQUIRED
+            }
+        );
+        let text = support::text(response).await;
+        assert!(text.contains("insufficient_balance"), "{text}");
+        assert!(!text.contains("event: meta"), "{text}");
+        assert_closed_attempts(&db, &["released"], 0);
+        {
+            let m = db.0.lock().unwrap();
+            assert_eq!(m.hold_requests, 2);
+            assert!(
+                m.operations
+                    .iter()
+                    .any(|op| matches!(op, Operation::Complete { no_hold: false, .. }))
+            );
+        }
+        assert_eq!(rig.fallback.request_count(), 0);
+        rig.stop().await;
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_exhaustion_uses_last_provider_code_and_never_repeats_a_model() {
+    let db = Arc::new(Database::new());
+    let rig = FallbackRig::start(
+        db.clone(),
+        primary_503(),
+        Scenario {
+            fault: f2z_ai_testkit::mock::Fault::Status { status: 504 },
+            ..Scenario::default()
+        },
+    )
+    .await;
+    let text = support::text(rig.send(true).await).await;
+    assert!(text.contains("provider_timeout"), "{text}");
+    assert!(!text.contains("event: meta"), "{text}");
+    final_state(&db).await;
+    assert_closed_attempts(&db, &["released", "released"], 0);
+    assert_eq!(rig.primary.request_count(), 1);
+    assert_eq!(rig.fallback.request_count(), 1);
+    rig.stop().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_never_switches_after_meta_or_provider_acceptance() {
+    for fault in [
+        f2z_ai_testkit::mock::Fault::ErrorEventAtByte {
+            byte: 0,
+            status: 503,
+        },
+        f2z_ai_testkit::mock::Fault::DisconnectAtByte { byte: 0 },
+    ] {
+        let db = Arc::new(Database::new());
+        let rig = FallbackRig::start(
+            db.clone(),
+            Scenario {
+                fault,
+                ..Scenario::default()
+            },
+            Scenario::default(),
+        )
+        .await;
+        let text = support::text(rig.send(true).await).await;
+        assert!(text.contains("event: error"), "{text}");
+        final_state(&db).await;
+        assert_eq!(db.0.lock().unwrap().attempts.len(), 1);
+        assert_eq!(rig.fallback.request_count(), 0);
+        rig.stop().await;
+    }
+    let db = Arc::new(Database::new());
+    let rig = FallbackRig::start(
+        db.clone(),
+        Scenario {
+            ending: f2z_ai_testkit::mock::Ending::Failed,
+            ..Scenario::default()
+        },
+        Scenario::default(),
+    )
+    .await;
+    let text = support::text(rig.send(true).await).await;
+    assert!(text.contains("event: meta"), "{text}");
+    assert!(text.contains("event: error"), "{text}");
+    assert_closed_attempts(&db, &["settled"], 1);
+    assert_eq!(rig.fallback.request_count(), 0);
+    rig.stop().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_pre_meta_client_disconnect_keeps_single_lease_until_release_and_tries_no_fallback()
+ {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().slow_completion = true;
+    let rig = FallbackRig::start(
+        db.clone(),
+        Scenario {
+            ttfb: Duration::from_millis(800),
+            ..primary_503()
+        },
+        Scenario::default(),
+    )
+    .await;
+    let response = rig.send(true).await;
+    assert_eq!(
+        rig.gate
+            .limits
+            .open_calls("11111111-1111-4111-8111-111111111111"),
+        1
+    );
+    drop(response);
+    let refused = rig.send(true).await;
+    assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert!(support::text(refused).await.contains("concurrency_limit"));
+    final_state(&db).await;
+    assert_closed_attempts(&db, &["released"], 0);
+    assert_eq!(rig.fallback.request_count(), 0);
+    assert_eq!(
+        rig.gate
+            .admissions
+            .load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while rig
+            .gate
+            .limits
+            .open_calls("11111111-1111-4111-8111-111111111111")
+            != 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    rig.stop().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_ambiguous_release_is_read_back_before_next_hold_and_settles_only_once() {
+    let db = Arc::new(Database::new());
+    {
+        let mut m = db.0.lock().unwrap();
+        m.lose_release_replies = 2;
+        m.lose_settle_reply = true;
+    }
+    let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+    let text = support::text(rig.send(true).await).await;
+    assert!(text.contains("event: done"), "{text}");
+    assert_closed_attempts(&db, &["released", "settled"], 1);
+    {
+        let m = db.0.lock().unwrap();
+        assert_eq!(m.settle_requests, 2);
+        let read = m
+            .operations
+            .iter()
+            .position(|o| matches!(o, Operation::Read { .. }))
+            .unwrap();
+        let second = m
+            .operations
+            .iter()
+            .position(|o| matches!(o, Operation::Hold { attempt: 2, .. }))
+            .unwrap();
+        assert!(read < second);
+    }
+    rig.stop().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_ambiguous_hold_recovers_matching_attempt_without_reserving_again() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().lose_attempt_replies = Some(2);
+    let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+    let text = support::text(rig.send(true).await).await;
+    assert!(text.contains("unavailable"), "{text}");
+    final_state(&db).await;
+    assert_closed_attempts(&db, &["released", "released"], 0);
+    assert_eq!(rig.fallback.request_count(), 0);
+    assert_eq!(
+        db.0.lock().unwrap().hold_requests,
+        3,
+        "two identical hold-2 operations; finalizer only recovers"
+    );
+    rig.stop().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_unconfirmed_release_stops_before_any_next_hold() {
+    let db = Arc::new(Database::new());
+    {
+        let mut m = db.0.lock().unwrap();
+        m.fail_release = true;
+        m.fail_reads = true;
+    }
+    let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+    let text = support::text(rig.send(true).await).await;
+    assert!(text.contains("unavailable"), "{text}");
+    assert_eq!(rig.fallback.request_count(), 0);
+    assert_eq!(db.0.lock().unwrap().hold_requests, 1);
+    {
+        let mut m = db.0.lock().unwrap();
+        m.fail_release = false;
+        m.fail_reads = false;
+    }
+    final_state(&db).await;
+    assert_closed_attempts(&db, &["released"], 0);
+    rig.stop().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_disabled_model_is_terminal_after_primary_release() {
+    let db = Arc::new(Database::new());
+    let rig = FallbackRig::policy(
+        db.clone(),
+        primary_503(),
+        Scenario::default(),
+        Some(vec!["m-responses"]),
+    )
+    .await;
+    let text = support::text(rig.send(true).await).await;
+    assert!(text.contains("model_disabled"), "{text}");
+    assert_closed_attempts(&db, &["released"], 0);
+    assert_eq!(db.0.lock().unwrap().hold_requests, 1);
+    assert_eq!(rig.fallback.request_count(), 0);
+    rig.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_replans_at_current_affordability_and_uses_its_own_clamp() {
+    for available in [0, 2_000] {
+        let db = Arc::new(Database::new());
+        db.0.lock().unwrap().available_after_release = Some(available);
+        let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+        let text = support::text(rig.send(true).await).await;
+        if available == 0 {
+            assert!(text.contains("insufficient_balance"), "{text}");
+            assert!(!text.contains("event: meta"), "{text}");
+            assert_closed_attempts(&db, &["released"], 0);
+            assert_eq!(db.0.lock().unwrap().hold_requests, 1);
+            assert_eq!(rig.fallback.request_count(), 0);
+        } else {
+            assert!(text.contains("event: done"), "{text}");
+            assert_closed_attempts(&db, &["released", "settled"], 1);
+            let meta: Value = text
+                .lines()
+                .find_map(|line| {
+                    line.strip_prefix("data: ")
+                        .and_then(|line| serde_json::from_str::<Value>(line).ok())
+                        .filter(|v| v.get("max_output_tokens").is_some())
+                })
+                .unwrap();
+            let output = meta["max_output_tokens"].as_u64().unwrap();
+            assert!(
+                output > 11 && output < 37,
+                "fallback reuses neither primary's clamp nor stale balance: {meta}"
+            );
+            assert!(db.0.lock().unwrap().attempts[1].amount <= available as i64);
+        }
+        rig.stop().await;
+    }
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_never_resends_an_ambiguous_intermediary_failure() {
+    for status in [408, 502, 504] {
+        let db = Arc::new(Database::new());
+        let rig = FallbackRig::start(
+            db.clone(),
+            Scenario {
+                fault: f2z_ai_testkit::mock::Fault::Status { status },
+                ..Scenario::default()
+            },
+            Scenario::default(),
+        )
+        .await;
+        let text = support::text(rig.send(true).await).await;
+        assert!(text.contains("event: error"), "{text}");
+        assert_closed_attempts(&db, &["released"], 0);
+        assert_eq!(rig.fallback.request_count(), 0);
+        rig.stop().await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_disconnect_during_switching_release_takes_no_next_hold() {
+    let db = Arc::new(Database::new());
+    db.0.lock().unwrap().slow_release = true;
+    let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+    let response = rig.send(true).await;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !db.0.lock().unwrap().release_started {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    drop(response);
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while rig
+            .gate
+            .limits
+            .open_calls("11111111-1111-4111-8111-111111111111")
+            != 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_closed_attempts(&db, &["released"], 0);
+    assert_eq!(db.0.lock().unwrap().hold_requests, 1);
+    assert_eq!(rig.fallback.request_count(), 0);
+    rig.stop().await;
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_order_and_deduplication_extend_to_more_than_two_attempts() {
+    let db = Arc::new(Database::new());
+    let rig = FallbackRig::start(db.clone(), primary_503(), primary_503()).await;
+    let mut body = request();
+    body["fallback"] = json!(["m-chat", "m-chat", "m-responses", "m-anthropic", "m-chat"]);
+    let text = support::text(support::post_chat(rig.r.public, &body).await).await;
+    assert!(text.contains("provider_error"), "{text}");
+    assert_closed_attempts(&db, &["released", "released", "released"], 0);
+    {
+        let m = db.0.lock().unwrap();
+        assert_eq!(
+            m.attempts
+                .iter()
+                .map(|a| (a.number, a.model.as_str()))
+                .collect::<Vec<_>>(),
+            vec![(1, "m-responses"), (2, "m-chat"), (3, "m-anthropic")]
+        );
+    }
+    assert_eq!(rig.primary.request_count(), 1);
+    assert_eq!(rig.fallback.request_count(), 2);
+    rig.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn fallback_fingerprint_keeps_the_original_list_before_attempt_requests_are_trimmed() {
+    let db = Arc::new(Database::new());
+    let rig = FallbackRig::start(db.clone(), primary_503(), Scenario::default()).await;
+    let text = support::text(rig.send(true).await).await;
+    assert!(text.contains("event: done"), "{text}");
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while rig
+            .gate
+            .limits
+            .open_calls("11111111-1111-4111-8111-111111111111")
+            != 0
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    let mut body = request();
+    // Same distinct attempt order, different original routing data. The
+    // fingerprint and feature count must describe the caller's complete list.
+    body["fallback"] = json!(["m-chat"]);
+    let mut req = support::chat_request(body.to_string());
+    req.headers_mut()
+        .insert("idempotency-key", "fallback-call".parse().unwrap());
+    let conflict = support::send(rig.r.public, req).await;
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    assert!(
+        support::text(conflict)
+            .await
+            .contains("idempotency_conflict")
+    );
+    assert_eq!(db.0.lock().unwrap().request["features"]["fallback"], 4);
+    assert_closed_attempts(&db, &["released", "settled"], 1);
+    assert_eq!(rig.primary.request_count(), 1);
+    assert_eq!(rig.fallback.request_count(), 1);
+    rig.stop().await;
 }

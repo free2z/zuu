@@ -83,7 +83,17 @@ Exhaustion before starting is `503`; overflow or interrupted delivery is `502`
 with a pending charge and a call ID for receipt reconciliation. Provider reading
 and settlement continue after delivery ends.
 
-Limitations: model fallback and images are unsupported. Input reservation runs
+Native `fallback` tries the request's distinct models in order, taking each
+attempt's hold at that model's price and output clamp. Before switching it
+confirms release of the failed attempt without completing the call. Only
+eligible provider failures before `meta` and before provider acceptance can
+switch; disconnect, an ambiguous lost head/transport response, or an intermediary
+408/502/504 never starts another model. The call keeps one concurrency lease,
+records the answering model and the original `requested_model`, and settles at
+most once. A refused fallback hold ends with its own code. Compat fallback
+carriers are a separate slice (S11).
+
+Limitations: images are unsupported. Input reservation runs
 the provider's own tokenizer (`o200k_base` / `cl100k_base`, vendored by
 `tiktoken-rs`) over messages, tool definitions and the `response_format` schema
 with measured framing for OpenAI models (`src/estimate.rs`; the recorded corpus
@@ -563,9 +573,11 @@ their decoded representation with `503`; allow space for both when sizing it.
 
 Settlement ownership starts **before** the backend's `start` runs: a call
 whose `start` fails, times out or is cancelled by a drain still reaches the
-settler, as `NotStarted`. **The settler is the single owner of releasing a
-hold**: a backend never releases a hold it took in `start` (that would be a
-double release); it leaves it for the settler.
+settler, as `NotStarted`. **The settler owns final hold cleanup**: a backend
+leaves a hold it took in `start` for the settler. A pre-meta fallback transition
+may release a failed attempt inside `MeterStream`; it confirms that release
+before reserving the next attempt and never records whole-call completion
+during the switch.
 
 The deadline for `start` is the request's own (`request_timeout`, counted
 from admission), enforced only by the call's task — the tower timeout is a
