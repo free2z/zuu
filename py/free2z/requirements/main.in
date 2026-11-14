@@ -164,6 +164,9 @@ requests==2.34.2
 # https://github.com/oauthlib/oauthlib/releases/tag/v4.0.1
 oauthlib==4.0.1
 requests_oauthlib==2.0.0
+# Traceparent ReDoS (GHSA-mf5v-w3w3-f6cg). sdk 1.45.1 requires api==1.45.1.
+# sdk 1.45.2 requires api==1.45.2 and semantic-conventions==0.66b2.
+opentelemetry-sdk==1.45.2
 slick-bitcoinrpc==0.1.4
 stripe==16.0.1
 tiktoken==0.14.0
