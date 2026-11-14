@@ -5,6 +5,6 @@
 factory-boy==3.3.3
 pytest==9.2.0
 pytest-split==0.11.0
-pytest-asyncio==1.4.1
+pytest-asyncio==1.4.1.post1
 pytest-django==4.14.0
 pytest-mock==3.17.0
