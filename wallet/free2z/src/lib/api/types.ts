@@ -176,7 +176,8 @@ export interface AIModel {
   output_price: string; // USD per token
   markup: string; // multiplier above cost
   /** Convenience: provider family inferred from the model name. */
-  provider?: "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
+  provider?:
+    "openai" | "anthropic" | "xai" | "kimi" | "google" | "local" | "other";
 }
 
 export interface PromptResponse {
@@ -505,6 +506,8 @@ export interface KycProfile {
   is_us: boolean | null;
   is_individual: boolean | null;
   application_status: KycApplicationStatus;
+  tax_form_classification: KycTaxFormKind | "";
+  tax_form_version: number;
 }
 
 /** Fields the applicant sets in the "basic info" step — POST /api/kyc/user-profile. */
@@ -518,10 +521,7 @@ export type KycTaxFormKind = "W-9" | "W-8BEN" | "W-8BEN-E";
 
 /** The four identity-document upload slots /api/kyc/identity-documents accepts. */
 export type KycIdentityDocType =
-  | "id_front"
-  | "id_back"
-  | "additional_document"
-  | "live_photo";
+  "id_front" | "id_back" | "additional_document" | "live_photo";
 
 /** GET /api/kyc/identity-documents → `{ <doctype>_url }` per uploaded slot. */
 export type KycIdentityDocuments = Partial<
@@ -536,6 +536,12 @@ export interface KycTaxFormFile {
 /** POST /api/kyc/upload-tax-form (multipart, field `file`) response. */
 export interface KycTaxFormUploadResult {
   file_url: string;
+  tax_form_version: number;
+}
+
+export interface KycTaxFormPrecondition {
+  tax_form_version: number;
+  tax_form_classification: KycTaxFormKind;
 }
 
 /** GET/POST /api/kyc/tax-form-signature. */

@@ -710,6 +710,8 @@ export interface BasicInfo {
   is_individual?: boolean | null;
   readonly application_status: ApplicationStatusEnum;
   readonly rejection_reason: string;
+  readonly tax_form_classification: string;
+  readonly tax_form_version: number;
 }
 
 export type BlankEnum = typeof BlankEnum[keyof typeof BlankEnum];
@@ -5075,11 +5077,36 @@ export interface TagSuggestion {
 }
 
 /**
+ * * `W-9` - W-9
+ * * `W-8BEN` - W-8BEN
+ * * `W-8BEN-E` - W-8BEN-E
+ */
+export type TaxFormClassificationEnum = typeof TaxFormClassificationEnum[keyof typeof TaxFormClassificationEnum];
+
+
+export const TaxFormClassificationEnum = {
+  'W-9': 'W-9',
+  'W-8BEN': 'W-8BEN',
+  'W-8BEN-E': 'W-8BEN-E',
+} as const;
+
+/**
  * `GET /api/kyc/get-tax-form-file` — null when nothing is uploaded yet.
  */
 export interface TaxFormFile {
   /** @nullable */
   file: string | null;
+  /** @minimum 0 */
+  tax_form_version: number;
+}
+
+/**
+ * Required while submitting NEW; omitted only for APPROVED -> NEW.
+ */
+export interface TaxFormPrecondition {
+  /** @minimum 0 */
+  tax_form_version?: number;
+  tax_form_classification?: TaxFormClassificationEnum;
 }
 
 /**
@@ -5090,6 +5117,9 @@ export interface TaxFormFile {
  * file says "send a file here", nothing more.
  */
 export interface TaxFormUploadRequest {
+  /** @minimum 0 */
+  tax_form_version: number;
+  tax_form_classification: TaxFormClassificationEnum;
   /** Completed tax form. PDF only; validated by content, not by the Content-Type the client declares. */
   file: string;
 }
@@ -5101,6 +5131,8 @@ export interface TaxFormUploadResponse {
      * @nullable
      */
   file_url: string | null;
+  /** @minimum 0 */
+  tax_form_version: number;
 }
 
 /**
@@ -5620,6 +5652,8 @@ export interface UserInfo {
 export interface UserProfileSignature {
   /** @maxLength 255 */
   tax_form_signature?: string;
+  tax_form_version: number;
+  tax_form_classification: string;
 }
 
 /**

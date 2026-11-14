@@ -18,6 +18,12 @@
     "retrying": "Retrying",
     "tryAgain": "Try again."
   },
+  "kyc": {
+    "loadErrorTitle": "Couldn't load your application",
+    "loadErrorBody": "The KYC service could not be reached. Refresh the page to try again.",
+    "classificationRefreshError": "Your answers were saved, but the tax form status could not be refreshed. Reload this page before continuing.",
+    "reviewTaxRemediation": "Your tax form or signature is missing for these answers. Return to the tax form step, upload the currently required form, and sign it again before submitting."
+  },
   "creator": {
     "chat": {
       "trigger": "Start encrypted chat",
