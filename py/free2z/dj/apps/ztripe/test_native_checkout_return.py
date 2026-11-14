@@ -1501,12 +1501,15 @@ def test_status_waits_for_webhook_row_then_reports_credit(
             {"status_token": status_token},
             format="json",
         )
-        StripeTransaction.objects.create(
+        receipt = StripeTransaction.objects.create(
             user=user,
             amount=125,
             tuzis_credited=100,
             stripe_charge_id="pi_12345678",
         )
+        from dj.apps.tuzis import ledger
+        ledger.credit(user, 100, source="sys:clearing_stripe", ref_kind="stripe_transaction",
+            ref_id=str(receipt.pk), idem="stripe:pi_12345678")
         after = api_client.post(
             "/api/stripe/native-return/status/",
             {"status_token": status_token},
@@ -1539,12 +1542,15 @@ def test_processing_status_correlates_only_after_authoritative_webhook_row(
     )
     token = _assert_correlated_processing_claim(api_client, claim)["status_token"]
 
-    StripeTransaction.objects.create(
+    receipt = StripeTransaction.objects.create(
         user=user,
         amount=125,
         tuzis_credited=100,
         stripe_charge_id="pi_12345678",
     )
+    from dj.apps.tuzis import ledger
+    ledger.credit(user, 100, source="sys:clearing_stripe", ref_kind="stripe_transaction",
+        ref_id=str(receipt.pk), idem="stripe:pi_12345678")
     # A database row for some payment is insufficient: the verified webhook's
     # Session correlation must resolve this exact non-authoritative token.
     before_resolution = api_client.post(

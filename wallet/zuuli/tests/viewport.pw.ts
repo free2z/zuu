@@ -337,6 +337,6 @@ test("signed-out card checkout returns to Wallet funding after login at 320px", 
     .click();
 
   await expect(page).toHaveURL(/\/wallet\/fund$/);
-  await expect(page.getByRole("button", { name: "Pay with card" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Review card purchase" })).toBeVisible();
   expect((await auditHorizontalLayout(page)).failures).toEqual([]);
 });
