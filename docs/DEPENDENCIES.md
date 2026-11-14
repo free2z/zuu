@@ -1,6 +1,6 @@
 # Fork & pin register
 
-<!-- verified: 2026-08-31 -->
+<!-- verified: 2026-11-14 -->
 
 What this repository carries that is **not stock upstream**, and **what event
 retires each one**.
@@ -39,49 +39,38 @@ Every row in §3 now names the file that verifies it and every number in it is a
 | | |
 |---|---|
 | **Kind** | Reviewed submodule source bridge |
-| **Points at** | `https://github.com/free2z/librustzcash`, branch `fix/parameter-download-tls-trust`, commit `473543ce227332b8afd82a9edbf655c4bc4d7c50` |
+| **Points at** | `https://github.com/free2z/librustzcash`, branch `f2z/parameter-download-tls-nu7`, commit `a83a5bb45fbc624561ac81673289a019d2e955b5` |
 | **Upstream** | `zcash/librustzcash`, `main` |
-| **Base** | Reviewed shipping fork `a2b8c95210046eb59ee71dd10fd2ad1e9329b238` |
-| **Delta** | Remove two stale RustCrypto workspace pins; move proving-parameter downloads to minreq 3 and adapt the lazy response reader, with loopback tests. |
-| **Exit condition** | Upstream carries both the compatible RustCrypto pin removal tracked by **`zcash/librustzcash#3010`** and a maintained parameter-download TLS client. Verify all incident chains and shipping wallet builds before returning to upstream. |
+| **Base** | Upstream `main` at `b0e6e347eb` (2026-11-12), which carries mainnet NU6.2, NU6.3 and NU7 activation heights with no `zcash_unstable` cfg |
+| **Delta** | One commit: move proving-parameter downloads to minreq 3 on the maintained rustls 0.23 line and adapt the lazy response reader, with loopback tests. |
+| **Exit condition** | Upstream ships a maintained parameter-download TLS client. Verify all incident chains and shipping wallet builds before returning to upstream. |
 | **Security tracking** | `free2z/zuu#1235` |
 
-The security overlay changes the downloader dependency and reader only. Zcash
-package versions, spend adapters, and wallet schema code are unchanged. HTTPS
-parameter downloads use the patched modern verifier; parameter size and content
-hash checks are preserved. Installed applications require new builds.
+The security overlay changes the downloader dependency and reader only.
+HTTPS parameter downloads use the patched modern verifier; parameter size and
+content hash checks are preserved. Installed applications require new builds.
 
-Upstream PR #3010 uses `f2z/upstream-drop-stale-rustcrypto-rc-pins` and covers
-only the RustCrypto deletion. Its head is not the security overlay we build;
-merging that PR alone does not retire this bridge. The upstream minreq proposal
-was discussed in issue #2334, which closed without the port. No upstream PR for
-the port is claimed. The source bridge and immutable identity are reviewed and
-checked in this repository. This row was verified on 2026-10-21.
+The earlier second delta, removing the stale `block-buffer` / `crypto-common`
+RC pins, is gone: upstream dropped those pins itself when it moved to
+secp256k1 0.33 and the released `bip32 0.6` (`c1d750af45`), so
+zcash/librustzcash#3010 no longer carries anything this bridge needs. The
+upstream minreq proposal was discussed in issue #2334, which closed without the
+port. No upstream PR for the port is claimed. This row was verified on
+2026-11-14.
+
+The previous pin `473543ce22` stays reachable on the fork's
+`fix/parameter-download-tls-trust` branch; it lacked mainnet NU7, so wallets
+built from it could not decode post-NU7 transactions.
 
 ---
 
-## 2. `[patch.crates-io] bip32` → `free2z/crates`
+## 2. `[patch.crates-io] bip32` — retired
 
-| | |
-|---|---|
-| **Kind** | Cargo `[patch.crates-io]`, pinned by `rev` |
-| **Declared in** | [`wallet/zuuli/src-tauri/Cargo.toml`](../wallet/zuuli/src-tauri/Cargo.toml) |
-| **Points at** | `https://github.com/free2z/crates` @ `131d490ef75ccd23111cc7f3df91e4a88fc971ae` (branch `f2z/bip32-secp256k1-0.29`) |
-| **Upstream** | `iqlusioninc/crates`, `main` |
-| **Delta** | upstream `main` (`eb57d494`) with `bip32`'s `secp256k1-ffi` requirement held at 0.29 — one requirement, nothing else |
-| **Exit condition** | a real **`bip32 0.6.0`** release **and** the Zcash stack on **secp256k1 0.31** |
-| **Why** | the `[patch.crates-io]` comment block at the foot of `wallet/zuuli/src-tauri/Cargo.toml` |
-
-The registry publishes **`bip32 0.6.0`** as of the 2026-11-06 check. The shipping
-librustzcash fork continues to require `secp256k1 = "0.29"` and
-`bip32 = "=0.6.0-pre.1"`, so the second half of the retirement condition must
-be resolved with the wallet library upgrade before removing this patch.
-
-The fork is 21 commits behind `iqlusioninc/crates@main` at that check. Its
-refresh or retirement belongs to the coordinated wallet dependency train in
-[#239](https://github.com/free2z/zuu/issues/239). This patch is registered
-alongside the OpenMLS bridge below; the check rejects additional unregistered
-patches and patches pinned by branch instead of an immutable revision.
+Retired on 2026-11-14. Both halves of its exit condition held: the registry
+publishes `bip32 0.6.0`, and upstream librustzcash now requires `bip32 = "0.6"`
+and `secp256k1 = "0.33"`. `wallet/zuuli/src-tauri` resolves the registry
+`bip32 0.6.0`, and the `free2z/crates` source allowance is gone from
+`wallet/deny.toml` and the runtime SBOM binder.
 
 ---
 
@@ -131,15 +120,15 @@ patches and returning `z/openmls/openmls` to upstream `main`. Update the narrow
 Git source allowances and exact identity policy, then re-run shipping lock
 parity, standards KATs, real old/new interoperability and clean Linux tests.
 A release version alone is a review trigger, not proof that these fixes shipped.
-The existing bip32 bridge is independent.
 
 ---
 
 ## 3. Deliberate version holds that look stale but are not
 
-The affected `sha2` and `chacha20poly1305` lock measurements were refreshed
-on 2026-10-11 for the fixed provider bridge; unchanged upstream constraint rows
-retain their earlier verification date.
+Every row was re-read on 2026-11-14 when the librustzcash bridge moved to
+upstream `main` with mainnet NU7: `secp256k1`, `rand` and `bip0039` followed
+upstream's new requirements, `chacha20poly1305` stopped being forced by Zcash,
+and the `sha2` counts were re-measured.
 
 **Every row names the file that verifies it, and
 `scripts/check-dependency-register.mjs` re-reads exactly that file.** Most are
@@ -155,16 +144,16 @@ same badge as the ones that are checked.
 
 | Crate | Held at | Who forces it | Where the reason lives |
 |---|---|---|---|
-| `rusqlite` | 0.37 | **Upstream librustzcash** (`z/zcash/librustzcash/Cargo.toml:161`) *and* a repository-wide singleton: `libsqlite3-sys` declares `links = "sqlite3"` and Cargo hard-errors on two versions of a `links` package | [`rs/Cargo.toml`](../rs/Cargo.toml) (`rusqlite` entry), `wallet/plugins/tauri-plugin-zcash/Cargo.toml`, upstream's own CocoaPods note |
-| `secrecy` | 0.8 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:154` (`secrecy = "0.8"`). `wallet/zuuli/src-tauri` names it only to match what `tauri-plugin-zcash` already resolves | `wallet/zuuli/src-tauri/Cargo.toml` |
-| `secp256k1` | 0.29 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:86`. Also the second half of row 2's exit condition | `z/zcash/librustzcash/Cargo.toml`; `wallet/zuuli/src-tauri/Cargo.toml` `[patch.crates-io]` block |
-| `rand` | 0.8 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:98-99` (`rand = "0.8"`, `rand_core = "0.6"`). Not a repository-wide hold — `rs/` is on `rand_core 0.10`, and since #855 collapsed the `rand 0.9` island the shipping wallet lock carries **0.8.7 and 0.10.2 only** (`rand_core` 0.6.4 and 0.10.1) | `z/zcash/librustzcash/Cargo.toml`; `rs/Cargo.toml` (`rand_core` entry) |
-| `sha2` | 0.10 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:107` (`sha2 = "0.10"`) — see the correction below | [`rs/Cargo.toml`](../rs/Cargo.toml) (`sha2` entry) |
-| `ripemd` | 0.1 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:85`. `zcash_transparent` and `zcash_script` resolve to `ripemd 0.1.3`, and so does ours. Bumping to 0.2 adds no copy — `bip32` already carries 0.2.0 — but 0.2 is on `digest 0.11`, so `hash160`'s `Ripemd160` and its `Sha256` would be on **two different `digest` traits in the same function** | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`ripemd` entry) and `src/wallet/keys.rs`'s `hash160` |
-| `nonempty` | 0.11 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:94`. This one crosses an API boundary rather than merely duplicating: `send/native.rs` returns `nonempty::NonEmpty<TxId>` straight out of a librustzcash call, so a second `nonempty` is a type mismatch, not a bigger binary. Single copy (0.11.0), shared by 9 packages in the wallet lock | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`nonempty` entry) |
-| `base64` | 0.22 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:113`. 0.22.1 is the **shared** copy — 12 packages, including `zcash_client_backend`, `zip321`, `reqwest`, `tonic`, `wry`, `tauri-codegen` and ZUULI itself (ADR 0017's Contract C client). Bumping ours would not retire it; it would move our one crate onto `ureq`'s 0.23 island and lose the alignment for nothing | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`base64` entry) |
-| `bip0039` | 0.12 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:192`. Weaker than the rows above, deliberately: upstream declares it only `optional`, behind `zcash_keys`'s `zcashd-compat` and a `zcash_client_sqlite` feature, and neither is on — so today exactly 1 package resolves `bip0039` in the wallet lock, and it is ours (`tauri-plugin-zcash`). Matching 0.12 is what keeps turning either feature on from adding a second BIP-39 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`bip0039` entry) |
-| `chacha20poly1305` | 0.10 | **Shipping registry dependency `zcash_note_encryption 0.4.2`**, measured in `wallet/zuuli/src-tauri/Cargo.lock`. The independently tracked note-encryption submodule uses 0.11 and does not determine the shipping wallet graph. The Zcash-only locks carry 0.10.1; the MLS locks also carry 0.11.0. In the shipping ZUULI lock, 0.10 is shared by 3 packages: `tauri-plugin-zcash`, `tauri-plugin-f2zmsg` and `zcash_note_encryption`. Bumping our requirements leaves that registry consumer on 0.10 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
+| `rusqlite` | 0.37 | **Upstream librustzcash** (`z/zcash/librustzcash/Cargo.toml:157`) *and* a repository-wide singleton: `libsqlite3-sys` declares `links = "sqlite3"` and Cargo hard-errors on two versions of a `links` package | [`rs/Cargo.toml`](../rs/Cargo.toml) (`rusqlite` entry), `wallet/plugins/tauri-plugin-zcash/Cargo.toml`, upstream's own CocoaPods note |
+| `secrecy` | 0.8 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:150` (`secrecy = "0.8"`). `wallet/zuuli/src-tauri` names it only to match what `tauri-plugin-zcash` already resolves | `wallet/zuuli/src-tauri/Cargo.toml` |
+| `secp256k1` | 0.33 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:82`. `src/wallet/keys.rs` signs with keys whose types must match what `zcash_transparent` and `bip32` resolve, so ours follows upstream's line | `z/zcash/librustzcash/Cargo.toml`; `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`secp256k1` entry) |
+| `rand` | 0.10 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:94-95` (`rand = "0.10"`, `rand_core = "0.10"`). `WalletDb` takes our RNG as a type parameter bounded by rand 0.10's `Rng`, so ours must be on the same line. The shipping wallet lock carries **0.8.7, 0.9.5 and 0.10.2** (`rand_core` 0.6.4, 0.9.5 and 0.10.1): 0.8 is `zbus`/`secret-service`'s and 0.9 is secp256k1 0.33's, neither ours | `z/zcash/librustzcash/Cargo.toml`; `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`rand` entry) |
+| `sha2` | 0.10 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:103` (`sha2 = "0.10"`) — see the correction below | [`rs/Cargo.toml`](../rs/Cargo.toml) (`sha2` entry) |
+| `ripemd` | 0.1 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:81`. `zcash_transparent` and `zcash_script` resolve to `ripemd 0.1.3`, and so does ours. Bumping to 0.2 adds no copy — `bip32` already carries 0.2.0 — but 0.2 is on `digest 0.11`, so `hash160`'s `Ripemd160` and its `Sha256` would be on **two different `digest` traits in the same function** | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`ripemd` entry) and `src/wallet/keys.rs`'s `hash160` |
+| `nonempty` | 0.11 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:90`. This one crosses an API boundary rather than merely duplicating: `send/native.rs` returns `nonempty::NonEmpty<TxId>` straight out of a librustzcash call, so a second `nonempty` is a type mismatch, not a bigger binary. Single copy (0.11.0), shared by 9 packages in the wallet lock | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`nonempty` entry) |
+| `base64` | 0.22 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:109`. 0.22.1 is the **shared** copy — 12 packages, including `zcash_client_backend`, `zip321`, `reqwest`, `tonic`, `wry`, `tauri-codegen` and ZUULI itself (ADR 0017's Contract C client). Bumping ours would not retire it; it would move our one crate onto `ureq`'s 0.23 island and lose the alignment for nothing | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`base64` entry) |
+| `bip0039` | 0.14 | **Upstream librustzcash** workspace, `z/zcash/librustzcash/Cargo.toml:187`. Weaker than the rows above, deliberately: upstream declares it only `optional`, behind `zcash_keys`'s `zcashd-compat` and a `zcash_client_sqlite` feature, and neither is on — so today exactly 1 package resolves `bip0039` in the wallet lock, and it is ours (`tauri-plugin-zcash`). Matching 0.14 is what keeps turning either feature on from adding a second BIP-39 | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` (`bip0039` entry) |
+| `chacha20poly1305` | 0.10 | **Our own choice**, no longer forced by Zcash: the shipping wallet now resolves `zcash_note_encryption 0.5.1`, which is on 0.11. Every wallet lock carries 0.10.1 and 0.11.0. In the shipping ZUULI lock, 0.10 is shared by 2 packages, `tauri-plugin-zcash` and `tauri-plugin-f2zmsg`; they move to 0.11 together or not at all, and the f2zmsg half is covered by the messaging KATs | `wallet/plugins/tauri-plugin-zcash/Cargo.toml` and `wallet/plugins/tauri-plugin-f2zmsg/Cargo.toml` (`chacha20poly1305` entries) |
 | `getrandom` | 0.3 | **A registry crate, not a vendored one.** `tauri 2.11.5` declares `getrandom = "0.3"` unconditionally in its own published manifest, so 0.3 is in the shipping graph whatever we choose; `wallet/zuuli/src-tauri/Cargo.lock` records the edge as `tauri 2.11.5 → getrandom 0.3.4`. Our single call site is `oauth.rs`'s PKCE randomness. Bumping to 0.4 would not retire tauri's copy — the lock already carries 0.2.17, 0.3.4 and 0.4.3 — it would only move us off the copy the framework links. This hold retires when **tauri** moves, not when we decide to | `wallet/zuuli/src-tauri/Cargo.toml` (`getrandom` entry); the edge in `wallet/zuuli/src-tauri/Cargo.lock` |
 | `hkdf` | 0.12 | **Our own choice.** `hkdf` is absent from the registered upstream manifest. 0.12 is the line that pairs with `sha2` 0.10 (both on `digest` 0.10), so it moves only when `sha2` does | [`rs/Cargo.toml`](../rs/Cargo.toml) (`hkdf` entry) |
 
@@ -181,10 +170,9 @@ is named:
 
 | Kind | Rows | What is re-read | Strength |
 |---|---|---|---|
-| Manifest | `rusqlite`, `secrecy`, `secp256k1`, `rand`, `sha2`, `ripemd`, `nonempty`, `base64`, `bip0039` (and `bip32`, section 2's) | `z/zcash/librustzcash/Cargo.toml`'s `[workspace.dependencies]` | Strongest — it reads the *requirement* the upstream author wrote, so a bump is caught the moment the submodule moves |
-| Lockfile | `chacha20poly1305` | `wallet/zuuli/src-tauri/Cargo.lock`, `zcash_note_encryption 0.4.2` | Requires the reviewed registry version and its dependency edge |
+| Manifest | `rusqlite`, `secrecy`, `secp256k1`, `rand`, `sha2`, `ripemd`, `nonempty`, `base64`, `bip0039` | `z/zcash/librustzcash/Cargo.toml`'s `[workspace.dependencies]` | Strongest — it reads the *requirement* the upstream author wrote, so a bump is caught the moment the submodule moves |
 | Lockfile | `getrandom` | `wallet/zuuli/src-tauri/Cargo.lock`: `tauri` must still resolve to **2.11.5**, and that package must still pull `getrandom` on the 0.3 line | Weaker, and labelled so. A lockfile is a resolution, not a requirement |
-| Negative | `hkdf` | The registered upstream manifest, asserting `hkdf` is absent | "Our own choice" stops being true the moment an upstream takes a position |
+| Negative | `hkdf`, `chacha20poly1305` | The registered upstream manifest, asserting each is absent | "Our own choice" stops being true the moment an upstream takes a position |
 
 And separately from *who forces a hold*, every **number** this page states —
 "0.8.7 and 0.10.2", "11 packages", "5 packages", "0.2.17, 0.3.4 and 0.4.3" — is
@@ -214,19 +202,19 @@ not. The real one, read off the shipping lock:
 
 `f2z-msg-identity` is linked into **`wallet/zuuli/src-tauri`**, and in that
 binary `sha2 0.10.9` is what `zcash_primitives`, `zcash_transparent`,
-`zcash_script`, `tauri-plugin-zcash`, `bip0039`, `bs58`, `tauri-codegen` and
+`zcash_script`, `tauri-plugin-zcash`, `bs58`, `tauri-codegen` and
 `wry` all resolve to — because librustzcash's workspace declares `sha2 = "0.10"`.
 That is the constraint, and it is upstream's, not `akd_core`'s.
 
 The comment in `rs/Cargo.toml` has been corrected to say so.
 
-**Second correction, 2026-08-31; counts refreshed 2026-10-11.** This
+**Second correction, 2026-08-31; counts refreshed 2026-11-14.** This
 section used to finish "Moving `f2z-msg-identity` to 0.11 would add a second
 SHA-256 to the shipped wallet." It would not. The wallet lock already carries
 **0.10.9 and 0.11.0**: the MLS half of the graph brought 0.11 in through
-`bip32`, `ed25519-dalek`, `hpke-rs-rust-crypto` and `openmls_rust_crypto`, and
-nothing re-read the sentence that said otherwise. 14 packages resolve `sha2`
-on 0.10 and 6 packages on 0.11. So the real cost of moving `f2z-msg-identity` is
+`bip32`, `bip0039`, `ed25519-dalek`, `hpke-rs-rust-crypto` and
+`openmls_rust_crypto`, and nothing re-read the sentence that said otherwise.
+13 packages resolve `sha2` on 0.10 and 7 packages on 0.11. So the real cost of moving `f2z-msg-identity` is
 *defection* — it would leave the copy every Zcash crate in the binary shares —
 not a new copy. Both numbers, and both edges, are now `evidence` entries in
 `scripts/check-dependency-register.mjs`, so the next time this drifts the check
