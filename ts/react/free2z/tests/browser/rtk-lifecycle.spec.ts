@@ -143,6 +143,16 @@ test("classic wrapper retains the room during reconnect and releases lifecycle l
   await expect
     .poll(() => page.evaluate(() => (window as any).rtkContract.leaves))
     .toBe(4);
+  // StrictMode's development effect replay is not a departure: no leave and
+  // no navigation on mount; a real unmount afterwards still leaves once.
+  await page.evaluate(() => (window as any).mountRtkStrict());
+  await expect(page.getByTestId("meeting-boundary")).toBeVisible();
+  await page.waitForTimeout(50);
+  expect(await page.evaluate(() => (window as any).rtkContract.leaves)).toBe(4);
+  await page.evaluate(() => (window as any).rtkRoot.unmount());
+  await expect
+    .poll(() => page.evaluate(() => (window as any).rtkContract.leaves))
+    .toBe(5);
 });
 
 test("published Core 2.0.3 surfaces a mocked participant-token rejection before join", async ({

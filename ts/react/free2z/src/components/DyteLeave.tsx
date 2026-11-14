@@ -1,9 +1,21 @@
 import { useRealtimeKitMeeting } from "@cloudflare/realtimekit-react";
 import { useEffect } from "react";
 
+// Unmount leaves are deferred by one task so React StrictMode's development
+// effect replay (cleanup immediately followed by setup for the SAME meeting,
+// with no real unmount) cancels it instead of tearing the meeting down.
+const pendingUnmountLeave = new WeakMap<object, ReturnType<typeof setTimeout>>();
+
 export default function DyteLeave() {
   const { meeting } = useRealtimeKitMeeting();
   useEffect(() => {
+    if (meeting) {
+      const pending = pendingUnmountLeave.get(meeting);
+      if (pending !== undefined) {
+        clearTimeout(pending);
+        pendingUnmountLeave.delete(meeting);
+      }
+    }
     let leaving = false;
     const leave = () => {
       if (!meeting || leaving) return;
@@ -26,7 +38,14 @@ export default function DyteLeave() {
       meeting?.self.removeListener("roomLeft", onRoomLeft);
       window.removeEventListener("pagehide", leave);
       window.removeEventListener("popstate", leave);
-      leave();
+      if (!meeting || leaving) return;
+      pendingUnmountLeave.set(
+        meeting,
+        setTimeout(() => {
+          pendingUnmountLeave.delete(meeting);
+          leave();
+        }, 0)
+      );
     };
   }, [meeting]);
   return null;

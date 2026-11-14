@@ -1972,6 +1972,12 @@ class PrivateMeetingManage(APIView):
             try:
                 cm = _create_meeting(cm)
             except ProviderError:
+                # Returning would COMMIT this atomic block, including a row
+                # get_or_create just inserted with the empty meeting_id, which
+                # is globally unique and would block every other creator's
+                # next room create. Roll back exactly as an escaping
+                # exception did before typed provider errors.
+                transaction.set_rollback(True)
                 return _provider_retry_response()
             cm.e2ee = request.data.get('e2ee', False)
             cm.recycle_secret()
