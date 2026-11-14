@@ -204,11 +204,22 @@ class ProviderError(requests.RequestException):
     """
 
     def __init__(self, *, status=None, provider_code=None,
-                 provider_envelope=False):
+                 provider_envelope=False, request_sent=True):
         super().__init__(type(self).__name__)
         self.status = status
         self.provider_code = provider_code
         self.provider_envelope = provider_envelope
+        # False only when the client refused locally (credentials unusable,
+        # invalid path): nothing reached the provider, so nothing can have
+        # been created there.
+        self.request_sent = request_sent
+
+    @property
+    def provider_not_found(self):
+        """A 404 the provider itself answered (JSON envelope, and its own
+        code, when present, agrees) -- not an intermediary's routing page."""
+        return (self.status == 404 and self.provider_envelope
+                and self.provider_code in (None, 404))
 
 
 class ProviderAuthError(ProviderError):
@@ -533,7 +544,8 @@ class DyteClient(object):
         report_provider_failure(operation, status, self.auth_mode,
                                 reason=reason, provider_code=provider_code)
         return error(status=status, provider_code=provider_code,
-                      provider_envelope=provider_envelope)
+                     provider_envelope=provider_envelope,
+                     request_sent=reason not in ('not_configured', 'invalid_request'))
 
     def request(self, method, path, *, payload=None, params=None, timeout=None,
                 allow_ack=False, operation=None):
@@ -640,7 +652,12 @@ class DyteClient(object):
         # A 404 alone does not distinguish an idle room from a missing app.
         try:
             response = self.request('GET', f'meetings/{meeting_id}/active-session')
-        except ProviderNotFoundError:
+        except ProviderNotFoundError as exc:
+            # Only the provider's own 404 means "no session"; an
+            # intermediary's HTML 404 must not read as a confirmed empty room
+            # (the sweep clears live_now on a confirmed zero).
+            if not exc.provider_not_found:
+                raise
             self._meeting(self.request('GET', f'meetings/{meeting_id}'))
             return 0
         data = response.json()['data']

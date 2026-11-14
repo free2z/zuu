@@ -132,13 +132,31 @@ def test_stop_and_poll_upload(room, mocker):
 
 def test_provider_only_accepts_empty_recording_after_confirming_meeting(mocker):
     from .client import ProviderNotFoundError, ProviderResponse
+    def gone():
+        return ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True)
+
     request = mocker.patch.object(rc.DyteClient, "request", side_effect=[
-        ProviderNotFoundError(),
+        gone(),
         ProviderResponse({'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}, 200),
     ])
     assert rc.provider("GET", "recordings/active-recording/x", allow_empty=True) is None
     assert request.call_args_list[0].kwargs['timeout'] == rc.PROVIDER_TIMEOUT
-    request.side_effect = [ProviderNotFoundError(), ProviderNotFoundError()]
+    request.side_effect = [gone(), gone()]
+    with pytest.raises(rc.ProviderUnavailable):
+        rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
+    # An intermediary's HTML 404 (no provider envelope) is an unknown state,
+    # not "no active recording", even when the meeting itself exists.
+    request.side_effect = [
+        ProviderNotFoundError(status=404, provider_envelope=False),
+        ProviderResponse({'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}, 200),
+    ]
+    with pytest.raises(rc.ProviderUnavailable) as caught:
+        rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
+    assert not isinstance(caught.value, rc.ProviderRejected)
+    # A provider 404 whose own code disagrees is not proof either.
+    request.side_effect = [
+        ProviderNotFoundError(status=404, provider_code=7003, provider_envelope=True),
+    ]
     with pytest.raises(rc.ProviderUnavailable):
         rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
 

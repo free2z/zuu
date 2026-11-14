@@ -73,7 +73,12 @@ def provider(method, path, *, payload=None, allow_empty=False):
     try:
         response = client.request(method, path, payload=payload, timeout=PROVIDER_TIMEOUT, allow_ack=method == 'PUT')
         return response.json()['data']
-    except ProviderNotFoundError:
+    except ProviderNotFoundError as exc:
+        # Only the provider's own 404 is an answer. An intermediary's routing
+        # page is an unknown state, never "no active recording" (that would
+        # hide the Stop control) and never a definite rejection.
+        if not exc.provider_not_found:
+            raise ProviderUnavailable() from None
         if allow_empty and path.startswith('recordings/active-recording/'):
             # An idle 404 counts as "no recording" only once the meeting is
             # confirmed to exist -- under the same short deadline and the

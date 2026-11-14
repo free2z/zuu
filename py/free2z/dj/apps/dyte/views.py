@@ -97,9 +97,14 @@ def _provider_refused(exc):
     provider may have acted -- and keeps the "outcome unknown" path. 408 is a
     timeout, so it stays ambiguous too.
     """
-    status_code = getattr(exc, 'status', None)
-    return (isinstance(exc, ProviderError) and isinstance(status_code, int)
-            and 400 <= status_code < 500 and status_code != 408)
+    if not isinstance(exc, ProviderError):
+        return False
+    if exc.request_sent is False:
+        # Refused locally (credentials unusable): nothing reached the provider.
+        return True
+    status_code = exc.status
+    return (isinstance(status_code, int) and 400 <= status_code < 500
+            and status_code != 408)
 
 
 def _provider_retry_response():
