@@ -35,7 +35,7 @@ The server also exposes the five bounded text-AI tools and four discovery/dispat
 | `free2z_list_uploads`, `free2z_get_upload` | Find the selected account's media and image variants |
 | `free2z_prepare_upload`, `free2z_get_upload_status` | Transfer a file and recover its media ID after an interrupted response |
 
-Tool input schemas come from the SDK and reject unsupported fields. The hosted surface excludes money transfers, subscription purchases, credential changes, arbitrary API requests, local server filesystem paths, and server-side URL fetching. The optional local stdio package has its own API catalog and configuration; its broader catalog is not the hosted server's permission contract.
+Tool input schemas come from the SDK and reject unsupported fields. The hosted surface supports explicit donation/membership delegation (see the account operation guide) and excludes credential changes, arbitrary API requests, local server filesystem paths, and server-side URL fetching. The optional local stdio package has its own API catalog and configuration; its broader catalog is not the hosted server's permission contract.
 
 ## Writing and uploading
 
@@ -66,3 +66,5 @@ The four discovery/dispatch tools (`free2z_search_operations`, `free2z_describe_
 Separate `mcp:social`, `mcp:account`, `mcp:media`, `mcp:live` and `mcp:spend` consent covers these domains. `mcp:ai` authorizes bounded metered text AI through model/quote/start/status tools. Neither permission silently expands an existing account grant. Publication permission is required conservatively for variant, conversation, personality and series mutations, and dynamically for edits/deletion of public media.
 
 File and export downloads use two-minute, resource-bound capabilities. Their payload contains identifiers, not OAuth credentials. Authorization is rechecked before streaming; storage I/O occurs outside account locks.
+
+Financial calls predeclare immutable recipients in the lifecycle Creator lock set. Native membership purchase/extension, renewal and cancellation acquire ordered Creator locks before Subscription locks, matching hosted authorization. The native no-debit debounce route retains its shared-Creator-lock-free optimization and cannot fall through into charging. Hosted intent metadata is stored on native receipts in the settlement transaction; no schema or additional balance ledger is introduced.

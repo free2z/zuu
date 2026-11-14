@@ -642,6 +642,11 @@ def renew_subscription(subscription_id: int):
     with transaction.atomic():
         from dj.apps.economy.epoch import pin_supported_policy
         pin_supported_policy()
+        candidate = Subscription.objects.select_related("fan", "star").filter(pk=subscription_id).first()
+        if candidate is None:
+            return
+        from dj.apps.tuzis import ledger
+        ledger.lock_in_order(candidate.fan, candidate.star)
         sub = (
             Subscription.objects
             # PostgreSQL otherwise locks every select_related row in database
@@ -720,10 +725,8 @@ def renew_subscription(subscription_id: int):
             _defer_inactive_fan_retry(sub, now, locked=False)
             return
 
-        # All multi-balance writers acquire Creator rows in this order. Refresh
-        # after locking because either row may have changed while we waited.
-        from dj.apps.tuzis import ledger
-        ledger.lock_in_order(sub.fan, sub.star)
+        # The ordered Creator locks precede the Subscription lock above.
+        # Refresh cached related instances before validating the debit.
         # is_active rides along: the post-lock fan gate below
         # must judge the committed row, not the pre-lock snapshot.
         sub.fan.refresh_from_db(fields=["tuzis", "is_active"])

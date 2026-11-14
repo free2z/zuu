@@ -1,6 +1,6 @@
 {
   "tool_count": 22,
-  "supported_count": 103,
+  "supported_count": 108,
   "operations": [
     {
       "operation_id": "account_deletion_keep",
@@ -2615,10 +2615,25 @@
       "method": "POST",
       "path": "/api/tuzis/donate-idempotent/{username}",
       "summary": "Atomically transfer 2Z and record a replayable response. The idempotency key is bound to recipient, amount, and anonymity. This explicit route supports backend-first rollout: clients must not fall back to the legacy donation POST after an ambiguous response. `intent: ppv` (the former pay-per-view unlock) is retired: a new request is refused with 400 `ppv_unlock_retired` and moves nothing, because PPV admission is a balance reserve and PPV is billed per minute watched; a key that completed a `ppv` unlock before the retirement still replays its receipt. Completed results replay for 365 days.",
-      "supported": false,
+      "supported": true,
       "keywords": "",
-      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
-      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+      "required_scopes": [
+        "mcp:transfer"
+      ],
+      "paid": "donation",
+      "financial_contract": {
+        "recipient": "Exact positive integer recipient_id is authoritative, prelocked before native entry; path.username is a display locator. Select account explicitly from list_accounts.",
+        "retry": "Charging calls require a canonical lowercase hyphenated UUIDv4 idempotency_key and decimal-string max_charge_tuzis. Keep the same payer, recipient, body, ceiling and key after ambiguity. Changed intent returns 409. Native receipts retain their native retention period; never fall back to legacy charging routes.",
+        "consent": "mcp:transfer authorizes immediate donation/membership debit only. mcp:renew separately authorizes future recurring spending and cap management. mcp:spend grants neither. No scope or omitted field defaults a purchase into recurrence.",
+        "receipt": {
+          "donation": "charge_tuzis: decimal string original transferred 2Z. data.balance: decimal string frozen at original settlement; data.charged: decimal string original transferred 2Z; data.replayed: boolean. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer.",
+          "membership": "charge_tuzis: decimal string exact original debit (0 for debounce/free extension). data.balance: decimal string live at reply; data.charged: boolean (native extension outcome, true also for free extension); data.replayed: boolean; data.expires: original receipt expiry; data.subscription: original receipt fan/star/expires/max_price snapshot. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer. Replaying does not restore an old renewal cap or undo cancellation.",
+          "renewal_policy": "Top-level live renewal_policy is null when no subscription exists; otherwise it has max_price (decimal string 2Z per native 30-day renewal), automatic_renewal (boolean; false at cap 0), expires (live ISO timestamp). Native eligibility/balance/active-account gates remain authoritative. A worker may attempt renewal 24 hours before expiry. A cancellation that wins the locks blocks renewal; one that follows a committed renewal preserves that expiry and disables subsequent renewals. Revoking OAuth stops delegated calls; cancel the subscription separately to revoke already-created recurring authority."
+        },
+        "purchase": "Require body.recipient_id, whole expected_price and explicit whole renewal_max_price. For a new membership choose 0 (one purchase, no recurrence) or expected_price (requires mcp:renew). Existing memberships retain their cap; explicitly acknowledge it. Update/cancel separately before purchasing under a different policy. No renewal-policy change is applied on receipt replay.",
+        "cap": "PATCH requires body.recipient_id and native max_price (whole 1..1000000, within native price/balance rules). No immediate charge; mcp:renew required. DELETE requires body.recipient_id and sets max_price=0; preserves paid expiry, works for an inactive recipient and requires mcp:renew. PATCH data has fan/star/expires/max_price; DELETE data is the string OK. Both also return live renewal_policy. These are explicit policy setters, not new purchases; no retry key/charge ceiling accepted.",
+        "recovery": "Recovery path.creator_id is immutable; body.key must be the original canonical UUIDv4. Optional expected_price/username identify historical native receipts. data.status is resolved (committed receipt), abandoned (terminal fence against that key), or unchanged (no evidence). No debit or new recurring authority; never interpret an ambiguous response as rollback."
+      }
     },
     {
       "operation_id": "tuzis_my_subscribers_list",
@@ -2661,10 +2676,25 @@
       "method": "POST",
       "path": "/api/tuzis/subscribe-confirmed/{username}",
       "summary": "Purchase 30 days only when the creator's transaction-locked price equals expected_price. A new subscription renews at that ceiling; an existing subscription retains its current renewal ceiling, including zero after cancellation. This explicit route supports backend-first rollout; clients must not fall back to the legacy subscription POST after an ambiguous response. Completed results replay for 365 days. A key that already completed a legacy POST /api/tuzis/subscribe/{username}/ for the same creator is replayed here too (replayed: true, nothing charged) rather than claimed anew, so a client may move an outstanding purchase intent from that route to this one without paying twice. That replay is the ONE 200 on this route that expected_price does not constrain, and it cannot be: the legacy route binds no price and records none, so the amount it debited is not recoverable from its receipt. Read it as 'this key already bought this membership, on a route that charged whatever the price was then' -- nothing is charged now, and `balance` is the fan's real balance either way. The same applies to a receipt reached through X-Superseded-Idempotency-Key. That carry-over replay only happens while the membership it bought is still running: receipts are kept far longer than 30 days, so a receipt whose month has already ENDED is not replayed -- you are not subscribed and it would be false -- and is not charged under that key either. It is 409 `idempotency_mismatch` with `key_resolved: true`, and the month is bought by the next request, under the fresh key that answer tells you to mint. Every replay on this route is guarded that way, including the replay of a receipt recorded under this very key. One other 200 is unbound for the same kind of reason: if your key already completed a purchase HERE, of a membership you are STILL holding from this creator, a retry of it at a different expected_price replays that purchase (replayed: true, nothing charged) rather than refusing. That key bought the month you are holding, so reporting it is the honest answer, and telling you to mint a fresh one would buy a second month for a fan trying to recover one purchase. Retire the key on that 200 like any other, and a deliberate extra month is then a normal purchase at the current price. Once the membership has lapsed the same retry is a 409 `idempotency_mismatch` with `key_resolved: true`, because then the receipt really does describe a request that is over. A NEW debit is always bound to expected_price. expected_price 0 confirms a FREE membership (a free follow): it grants the same 30 days and moves no 2Z, so `charged: true` there means the membership was extended, not that 2Z moved. On every 200, `balance` is the fan's balance as of this reply, including a replay; `charged` and `expires` describe the original request.",
-      "supported": false,
+      "supported": true,
       "keywords": "",
-      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
-      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+      "required_scopes": [
+        "mcp:transfer"
+      ],
+      "paid": "membership",
+      "financial_contract": {
+        "recipient": "Exact positive integer recipient_id is authoritative, prelocked before native entry; path.username is a display locator. Select account explicitly from list_accounts.",
+        "retry": "Charging calls require a canonical lowercase hyphenated UUIDv4 idempotency_key and decimal-string max_charge_tuzis. Keep the same payer, recipient, body, ceiling and key after ambiguity. Changed intent returns 409. Native receipts retain their native retention period; never fall back to legacy charging routes.",
+        "consent": "mcp:transfer authorizes immediate donation/membership debit only. mcp:renew separately authorizes future recurring spending and cap management. mcp:spend grants neither. No scope or omitted field defaults a purchase into recurrence.",
+        "receipt": {
+          "donation": "charge_tuzis: decimal string original transferred 2Z. data.balance: decimal string frozen at original settlement; data.charged: decimal string original transferred 2Z; data.replayed: boolean. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer.",
+          "membership": "charge_tuzis: decimal string exact original debit (0 for debounce/free extension). data.balance: decimal string live at reply; data.charged: boolean (native extension outcome, true also for free extension); data.replayed: boolean; data.expires: original receipt expiry; data.subscription: original receipt fan/star/expires/max_price snapshot. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer. Replaying does not restore an old renewal cap or undo cancellation.",
+          "renewal_policy": "Top-level live renewal_policy is null when no subscription exists; otherwise it has max_price (decimal string 2Z per native 30-day renewal), automatic_renewal (boolean; false at cap 0), expires (live ISO timestamp). Native eligibility/balance/active-account gates remain authoritative. A worker may attempt renewal 24 hours before expiry. A cancellation that wins the locks blocks renewal; one that follows a committed renewal preserves that expiry and disables subsequent renewals. Revoking OAuth stops delegated calls; cancel the subscription separately to revoke already-created recurring authority."
+        },
+        "purchase": "Require body.recipient_id, whole expected_price and explicit whole renewal_max_price. For a new membership choose 0 (one purchase, no recurrence) or expected_price (requires mcp:renew). Existing memberships retain their cap; explicitly acknowledge it. Update/cancel separately before purchasing under a different policy. No renewal-policy change is applied on receipt replay.",
+        "cap": "PATCH requires body.recipient_id and native max_price (whole 1..1000000, within native price/balance rules). No immediate charge; mcp:renew required. DELETE requires body.recipient_id and sets max_price=0; preserves paid expiry, works for an inactive recipient and requires mcp:renew. PATCH data has fan/star/expires/max_price; DELETE data is the string OK. Both also return live renewal_policy. These are explicit policy setters, not new purchases; no retry key/charge ceiling accepted.",
+        "recovery": "Recovery path.creator_id is immutable; body.key must be the original canonical UUIDv4. Optional expected_price/username identify historical native receipts. data.status is resolved (committed receipt), abandoned (terminal fence against that key), or unchanged (no evidence). No debit or new recurring authority; never interpret an ambiguous response as rollback."
+      }
     },
     {
       "operation_id": "tuzis_subscribe_create",
@@ -2681,30 +2711,75 @@
       "method": "DELETE",
       "path": "/api/tuzis/subscribe/{username}",
       "summary": "Set max_price to 0 so it won't renew.",
-      "supported": false,
+      "supported": true,
       "keywords": "",
-      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
-      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+      "required_scopes": [
+        "mcp:renew"
+      ],
+      "paid": null,
+      "financial_contract": {
+        "recipient": "Exact positive integer recipient_id is authoritative, prelocked before native entry; path.username is a display locator. Select account explicitly from list_accounts.",
+        "retry": "Charging calls require a canonical lowercase hyphenated UUIDv4 idempotency_key and decimal-string max_charge_tuzis. Keep the same payer, recipient, body, ceiling and key after ambiguity. Changed intent returns 409. Native receipts retain their native retention period; never fall back to legacy charging routes.",
+        "consent": "mcp:transfer authorizes immediate donation/membership debit only. mcp:renew separately authorizes future recurring spending and cap management. mcp:spend grants neither. No scope or omitted field defaults a purchase into recurrence.",
+        "receipt": {
+          "donation": "charge_tuzis: decimal string original transferred 2Z. data.balance: decimal string frozen at original settlement; data.charged: decimal string original transferred 2Z; data.replayed: boolean. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer.",
+          "membership": "charge_tuzis: decimal string exact original debit (0 for debounce/free extension). data.balance: decimal string live at reply; data.charged: boolean (native extension outcome, true also for free extension); data.replayed: boolean; data.expires: original receipt expiry; data.subscription: original receipt fan/star/expires/max_price snapshot. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer. Replaying does not restore an old renewal cap or undo cancellation.",
+          "renewal_policy": "Top-level live renewal_policy is null when no subscription exists; otherwise it has max_price (decimal string 2Z per native 30-day renewal), automatic_renewal (boolean; false at cap 0), expires (live ISO timestamp). Native eligibility/balance/active-account gates remain authoritative. A worker may attempt renewal 24 hours before expiry. A cancellation that wins the locks blocks renewal; one that follows a committed renewal preserves that expiry and disables subsequent renewals. Revoking OAuth stops delegated calls; cancel the subscription separately to revoke already-created recurring authority."
+        },
+        "purchase": "Require body.recipient_id, whole expected_price and explicit whole renewal_max_price. For a new membership choose 0 (one purchase, no recurrence) or expected_price (requires mcp:renew). Existing memberships retain their cap; explicitly acknowledge it. Update/cancel separately before purchasing under a different policy. No renewal-policy change is applied on receipt replay.",
+        "cap": "PATCH requires body.recipient_id and native max_price (whole 1..1000000, within native price/balance rules). No immediate charge; mcp:renew required. DELETE requires body.recipient_id and sets max_price=0; preserves paid expiry, works for an inactive recipient and requires mcp:renew. PATCH data has fan/star/expires/max_price; DELETE data is the string OK. Both also return live renewal_policy. These are explicit policy setters, not new purchases; no retry key/charge ceiling accepted.",
+        "recovery": "Recovery path.creator_id is immutable; body.key must be the original canonical UUIDv4. Optional expected_price/username identify historical native receipts. data.status is resolved (committed receipt), abandoned (terminal fence against that key), or unchanged (no evidence). No debit or new recurring authority; never interpret an ambiguous response as rollback."
+      }
     },
     {
       "operation_id": "tuzis_subscribe_partial_update",
       "method": "PATCH",
       "path": "/api/tuzis/subscribe/{username}",
       "summary": "Change the authenticated fan's maximum 2Z per renewal and return the authoritative subscription representation.",
-      "supported": false,
+      "supported": true,
       "keywords": "",
-      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
-      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+      "required_scopes": [
+        "mcp:renew"
+      ],
+      "paid": null,
+      "financial_contract": {
+        "recipient": "Exact positive integer recipient_id is authoritative, prelocked before native entry; path.username is a display locator. Select account explicitly from list_accounts.",
+        "retry": "Charging calls require a canonical lowercase hyphenated UUIDv4 idempotency_key and decimal-string max_charge_tuzis. Keep the same payer, recipient, body, ceiling and key after ambiguity. Changed intent returns 409. Native receipts retain their native retention period; never fall back to legacy charging routes.",
+        "consent": "mcp:transfer authorizes immediate donation/membership debit only. mcp:renew separately authorizes future recurring spending and cap management. mcp:spend grants neither. No scope or omitted field defaults a purchase into recurrence.",
+        "receipt": {
+          "donation": "charge_tuzis: decimal string original transferred 2Z. data.balance: decimal string frozen at original settlement; data.charged: decimal string original transferred 2Z; data.replayed: boolean. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer.",
+          "membership": "charge_tuzis: decimal string exact original debit (0 for debounce/free extension). data.balance: decimal string live at reply; data.charged: boolean (native extension outcome, true also for free extension); data.replayed: boolean; data.expires: original receipt expiry; data.subscription: original receipt fan/star/expires/max_price snapshot. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer. Replaying does not restore an old renewal cap or undo cancellation.",
+          "renewal_policy": "Top-level live renewal_policy is null when no subscription exists; otherwise it has max_price (decimal string 2Z per native 30-day renewal), automatic_renewal (boolean; false at cap 0), expires (live ISO timestamp). Native eligibility/balance/active-account gates remain authoritative. A worker may attempt renewal 24 hours before expiry. A cancellation that wins the locks blocks renewal; one that follows a committed renewal preserves that expiry and disables subsequent renewals. Revoking OAuth stops delegated calls; cancel the subscription separately to revoke already-created recurring authority."
+        },
+        "purchase": "Require body.recipient_id, whole expected_price and explicit whole renewal_max_price. For a new membership choose 0 (one purchase, no recurrence) or expected_price (requires mcp:renew). Existing memberships retain their cap; explicitly acknowledge it. Update/cancel separately before purchasing under a different policy. No renewal-policy change is applied on receipt replay.",
+        "cap": "PATCH requires body.recipient_id and native max_price (whole 1..1000000, within native price/balance rules). No immediate charge; mcp:renew required. DELETE requires body.recipient_id and sets max_price=0; preserves paid expiry, works for an inactive recipient and requires mcp:renew. PATCH data has fan/star/expires/max_price; DELETE data is the string OK. Both also return live renewal_policy. These are explicit policy setters, not new purchases; no retry key/charge ceiling accepted.",
+        "recovery": "Recovery path.creator_id is immutable; body.key must be the original canonical UUIDv4. Optional expected_price/username identify historical native receipts. data.status is resolved (committed receipt), abandoned (terminal fence against that key), or unchanged (no evidence). No debit or new recurring authority; never interpret an ambiguous response as rollback."
+      }
     },
     {
       "operation_id": "tuzis_subscribe_recovery_create",
       "method": "POST",
       "path": "/api/tuzis/subscribe-recovery/{creator_id}",
       "summary": "Reconcile one subscription retry handle for the authenticated payer and immutable creator. A committed purchase is reported as resolved. An unresolved recorded claim is retained as a terminal abandonment fence, including its legacy route aliases; the old key cannot charge again. A missing or unrelated handle is answered unchanged and reveals no other payer's receipt.",
-      "supported": false,
+      "supported": true,
       "keywords": "",
-      "reason": "Transfers, checkout and recurring membership authority are not granted by content or one-off comment/translation spending scopes.",
-      "next_step": "Add explicit financial delegation and durable bounded receipts; use the native purchase/account flow meanwhile."
+      "required_scopes": [
+        "mcp:transfer"
+      ],
+      "paid": null,
+      "financial_contract": {
+        "recipient": "Exact positive integer recipient_id is authoritative, prelocked before native entry; path.username is a display locator. Select account explicitly from list_accounts.",
+        "retry": "Charging calls require a canonical lowercase hyphenated UUIDv4 idempotency_key and decimal-string max_charge_tuzis. Keep the same payer, recipient, body, ceiling and key after ambiguity. Changed intent returns 409. Native receipts retain their native retention period; never fall back to legacy charging routes.",
+        "consent": "mcp:transfer authorizes immediate donation/membership debit only. mcp:renew separately authorizes future recurring spending and cap management. mcp:spend grants neither. No scope or omitted field defaults a purchase into recurrence.",
+        "receipt": {
+          "donation": "charge_tuzis: decimal string original transferred 2Z. data.balance: decimal string frozen at original settlement; data.charged: decimal string original transferred 2Z; data.replayed: boolean. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer.",
+          "membership": "charge_tuzis: decimal string exact original debit (0 for debounce/free extension). data.balance: decimal string live at reply; data.charged: boolean (native extension outcome, true also for free extension); data.replayed: boolean; data.expires: original receipt expiry; data.subscription: original receipt fan/star/expires/max_price snapshot. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer. Replaying does not restore an old renewal cap or undo cancellation.",
+          "renewal_policy": "Top-level live renewal_policy is null when no subscription exists; otherwise it has max_price (decimal string 2Z per native 30-day renewal), automatic_renewal (boolean; false at cap 0), expires (live ISO timestamp). Native eligibility/balance/active-account gates remain authoritative. A worker may attempt renewal 24 hours before expiry. A cancellation that wins the locks blocks renewal; one that follows a committed renewal preserves that expiry and disables subsequent renewals. Revoking OAuth stops delegated calls; cancel the subscription separately to revoke already-created recurring authority."
+        },
+        "purchase": "Require body.recipient_id, whole expected_price and explicit whole renewal_max_price. For a new membership choose 0 (one purchase, no recurrence) or expected_price (requires mcp:renew). Existing memberships retain their cap; explicitly acknowledge it. Update/cancel separately before purchasing under a different policy. No renewal-policy change is applied on receipt replay.",
+        "cap": "PATCH requires body.recipient_id and native max_price (whole 1..1000000, within native price/balance rules). No immediate charge; mcp:renew required. DELETE requires body.recipient_id and sets max_price=0; preserves paid expiry, works for an inactive recipient and requires mcp:renew. PATCH data has fan/star/expires/max_price; DELETE data is the string OK. Both also return live renewal_policy. These are explicit policy setters, not new purchases; no retry key/charge ceiling accepted.",
+        "recovery": "Recovery path.creator_id is immutable; body.key must be the original canonical UUIDv4. Optional expected_price/username identify historical native receipts. data.status is resolved (committed receipt), abandoned (terminal fence against that key), or unchanged (no evidence). No debit or new recurring authority; never interpret an ambiguous response as rollback."
+      }
     },
     {
       "operation_id": "tuzis_subscribe_retrieve",
@@ -2726,7 +2801,20 @@
       "required_scopes": [
         "mcp:account"
       ],
-      "paid": null
+      "paid": null,
+      "financial_contract": {
+        "recipient": "Exact positive integer recipient_id is authoritative, prelocked before native entry; path.username is a display locator. Select account explicitly from list_accounts.",
+        "retry": "Charging calls require a canonical lowercase hyphenated UUIDv4 idempotency_key and decimal-string max_charge_tuzis. Keep the same payer, recipient, body, ceiling and key after ambiguity. Changed intent returns 409. Native receipts retain their native retention period; never fall back to legacy charging routes.",
+        "consent": "mcp:transfer authorizes immediate donation/membership debit only. mcp:renew separately authorizes future recurring spending and cap management. mcp:spend grants neither. No scope or omitted field defaults a purchase into recurrence.",
+        "receipt": {
+          "donation": "charge_tuzis: decimal string original transferred 2Z. data.balance: decimal string frozen at original settlement; data.charged: decimal string original transferred 2Z; data.replayed: boolean. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer.",
+          "membership": "charge_tuzis: decimal string exact original debit (0 for debounce/free extension). data.balance: decimal string live at reply; data.charged: boolean (native extension outcome, true also for free extension); data.replayed: boolean; data.expires: original receipt expiry; data.subscription: original receipt fan/star/expires/max_price snapshot. payer_account_id: selected grant UUID; recipient_id: immutable Creator integer. Replaying does not restore an old renewal cap or undo cancellation.",
+          "renewal_policy": "Top-level live renewal_policy is null when no subscription exists; otherwise it has max_price (decimal string 2Z per native 30-day renewal), automatic_renewal (boolean; false at cap 0), expires (live ISO timestamp). Native eligibility/balance/active-account gates remain authoritative. A worker may attempt renewal 24 hours before expiry. A cancellation that wins the locks blocks renewal; one that follows a committed renewal preserves that expiry and disables subsequent renewals. Revoking OAuth stops delegated calls; cancel the subscription separately to revoke already-created recurring authority."
+        },
+        "purchase": "Require body.recipient_id, whole expected_price and explicit whole renewal_max_price. For a new membership choose 0 (one purchase, no recurrence) or expected_price (requires mcp:renew). Existing memberships retain their cap; explicitly acknowledge it. Update/cancel separately before purchasing under a different policy. No renewal-policy change is applied on receipt replay.",
+        "cap": "PATCH requires body.recipient_id and native max_price (whole 1..1000000, within native price/balance rules). No immediate charge; mcp:renew required. DELETE requires body.recipient_id and sets max_price=0; preserves paid expiry, works for an inactive recipient and requires mcp:renew. PATCH data has fan/star/expires/max_price; DELETE data is the string OK. Both also return live renewal_policy. These are explicit policy setters, not new purchases; no retry key/charge ceiling accepted.",
+        "recovery": "Recovery path.creator_id is immutable; body.key must be the original canonical UUIDv4. Optional expected_price/username identify historical native receipts. data.status is resolved (committed receipt), abandoned (terminal fence against that key), or unchanged (no evidence). No debit or new recurring authority; never interpret an ambiguous response as rollback."
+      }
     },
     {
       "operation_id": "twitter_delete_destroy",

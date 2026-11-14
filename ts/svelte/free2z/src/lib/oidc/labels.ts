@@ -70,6 +70,16 @@ export function scopeLabel(
         "oauth.scopes.mcpDelete",
         "Permanently delete your pages, translations, comments, conversations, collections and files",
       );
+    case "mcp:transfer":
+      return t(
+        "oauth.scopes.mcpTransfer",
+        "Donate 2Z and buy memberships within each explicit immediate charge limit",
+      );
+    case "mcp:renew":
+      return t(
+        "oauth.scopes.mcpRenew",
+        "Authorize future membership renewals up to an explicit cap, update caps and cancel renewals",
+      );
     case "mcp:spend":
       return t(
         "oauth.scopes.mcpSpend",

@@ -2807,6 +2807,8 @@
       "mcpMedia": "Download, edit and delete your stored files",
       "mcpLive": "Read and manage your livestream host session",
       "mcpDelete": "Permanently delete your pages, translations, comments, conversations, collections and files",
+      "mcpTransfer": "Donate 2Z and buy memberships within each explicit immediate charge limit",
+      "mcpRenew": "Authorize future membership renewals up to an explicit cap, update caps and cancel renewals",
       "mcpSpend": "Spend 2Z on comments, votes and translations within each explicit limit"
     },
     "capPeriods": {
