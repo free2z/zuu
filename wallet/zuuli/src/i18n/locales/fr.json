@@ -44,5 +44,19 @@
       "label": "Ancien portefeuille conservé",
       "title": "Ancien portefeuille conservé"
     }
+  },
+  "username": {
+    "title": "Choisissez votre nom d’utilisateur",
+    "description": "Il sera votre nom public et le lien de votre profil.",
+    "label": "Nom d’utilisateur",
+    "rules": "Les lettres, chiffres et @ . + - _ sont autorisés. La casse est ignorée.",
+    "checking": "Vérification…",
+    "available": "Disponible",
+    "taken": "Ce nom d’utilisateur est déjà pris.",
+    "invalid": "Ce nom d’utilisateur est invalide ou réservé.",
+    "unavailable": "Impossible de vérifier la disponibilité. Réessayez.",
+    "continue": "Continuer avec ce nom",
+    "skip": "Utiliser un nom généré",
+    "sessionChanged": "La session a changé. Recommencez."
   }
 }

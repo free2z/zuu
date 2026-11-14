@@ -16,9 +16,12 @@
 // Both reuse this exact stepper so the crypto is never duplicated.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { wallet } from "@/lib/wallet/bridge";
 import type { SignedChallenge } from "@/lib/wallet/types";
 import { auth } from "@/lib/api/free2z";
+import { ApiError, getTokenSnapshot } from "@/lib/api/http";
 import type { AuthUser } from "@/lib/api/types";
 import {
   useAttemptLease,
@@ -44,6 +47,7 @@ export type Phase =
   | "loadingSeed" // authenticating native custody for an explicit reveal
   | "seedReveal" // showing the recovery phrase for backup
   | "confirmingBackup" // durably clearing the native backup gate
+  | "usernameChoice"
   | "success"
   | "error";
 
@@ -95,6 +99,7 @@ export interface ZcashChallengeFlowState {
   revealSeedBackup: () => Promise<void>;
   confirmSeedSaved: () => Promise<void>;
   hideSeedBackup: () => void;
+  submitUsername: (username: string) => void;
   retry: () => void;
   reset: () => void;
 }
@@ -105,7 +110,8 @@ export interface ChallengeFlowConfig {
    * challenge — either `auth.zcashLogin` (anonymous) or `auth.zcashAssociate`
    * (authenticated, attaches the current knox token).
    */
-  verify: (signed: SignedChallenge) => Promise<ChallengeVerification>;
+  verify: (signed: SignedChallenge, desiredUsername?: string) => Promise<ChallengeVerification>;
+  usernameChoice?: boolean;
   /** Friendly message shown when `verify` throws (a non-conflict error). */
   verifyErrorMessage: string;
   /** Called once `verify` resolves, so the caller can update its own state. */
@@ -152,7 +158,8 @@ function friendlyError(
 export function useZcashChallengeFlow(
   config: ChallengeFlowConfig,
 ): ZcashChallengeFlowState {
-  const { verify, verifyErrorMessage, onVerified, afterSuccess } = config;
+  const { verify, verifyErrorMessage, onVerified, afterSuccess, usernameChoice } = config;
+  const { t } = useTranslation();
 
   const [phase, setPhase] = useState<Phase>("idle");
   const [steps, setSteps] = useState<Steps>(freshSteps);
@@ -170,6 +177,7 @@ export function useZcashChallengeFlow(
 
   // Guards against overlapping runs (e.g. an impatient double-click).
   const runningRef = useRef(false);
+  const choiceContext = useRef<{ walletId: string; generation: number } | null>(null);
   const attempt = useAttemptLease();
 
   const hideSeedBackup = useCallback(() => {
@@ -206,7 +214,9 @@ export function useZcashChallengeFlow(
 
   // The crypto half of the flow: challenge → sign → verify → done.
   const runCrypto = useCallback(
-    async (isCurrent: IsCurrentAttempt, expectedWalletId?: string) => {
+    async (isCurrent: IsCurrentAttempt, expectedWalletId?: string, desiredUsername?: string) => {
+      const session = getTokenSnapshot();
+      const sessionCurrent = () => isCurrent() && getTokenSnapshot().generation === session.generation && !getTokenSnapshot().token;
       // Track which step is in flight so a failure lands on the right row and
       // gets the right friendly message.
       let stage: StepKey = "prepare";
@@ -286,8 +296,25 @@ export function useZcashChallengeFlow(
         setStep("verify", "active");
         await wait(400);
         if (!isCurrent()) return;
-        const result = await verify(signed);
+        if (usernameChoice && expectedWalletId) {
+          const status = await wallet.getWalletStatus();
+          if (!isCurrent()) return;
+          if (!sessionCurrent()) throw new Error(t(MESSAGE_KEYS.usernameSessionChanged));
+          if (!status.initialized || status.activeWalletId !== expectedWalletId || status.backupRequired) {
+            throw new Error("The selected Zcash identity is no longer active. Try again.");
+          }
+        }
+        if (usernameChoice && !sessionCurrent()) throw new Error(t(MESSAGE_KEYS.usernameSessionChanged));
+        const result = await verify(signed, desiredUsername);
         if (!isCurrent()) return;
+        if (usernameChoice && expectedWalletId) {
+          const status = await wallet.getWalletStatus();
+          if (!isCurrent()) return;
+          if (!status.initialized || status.activeWalletId !== expectedWalletId || status.backupRequired) {
+            throw new Error("The selected Zcash identity is no longer active. Try again.");
+          }
+        }
+        if (usernameChoice && !sessionCurrent()) throw new Error(t(MESSAGE_KEYS.usernameSessionChanged));
         setStep("verify", "done");
 
         // 5 — Land the result and let the caller react.
@@ -297,6 +324,13 @@ export function useZcashChallengeFlow(
         if (afterSuccess) await afterSuccess(result, signed.address, isCurrent);
       } catch (e) {
         if (!isCurrent()) return;
+        const code = e instanceof ApiError && e.body && typeof e.body === "object" ? (e.body as { code?: string }).code : undefined;
+        if (usernameChoice && expectedWalletId && sessionCurrent() && (code === "username_required" || code === "username_taken" || code === "username_invalid")) {
+          choiceContext.current = { walletId: expectedWalletId, generation: session.generation };
+          setError(code === "username_required" ? null : code);
+          setPhase("usernameChoice");
+          return;
+        }
         setStep(stage, "error");
         setError(friendlyError(stage, e, verifyErrorMessage));
         setPhase("error");
@@ -304,7 +338,7 @@ export function useZcashChallengeFlow(
         if (isCurrent()) runningRef.current = false;
       }
     },
-    [afterSuccess, onVerified, setStep, verify, verifyErrorMessage],
+    [afterSuccess, onVerified, setStep, verify, verifyErrorMessage, usernameChoice, t],
   );
 
   // Step 1 — ensure a wallet exists, then either pause for creation or run.
@@ -504,6 +538,25 @@ export function useZcashChallengeFlow(
     }
   }, [attempt, backupWalletId, runCrypto, setStep]);
 
+  const submitUsername = useCallback((username: string) => {
+    const context = choiceContext.current;
+    if (!context || runningRef.current) return;
+    const snapshot = getTokenSnapshot();
+    if (snapshot.token || snapshot.generation !== context.generation) {
+      choiceContext.current = null;
+      setError(t(MESSAGE_KEYS.usernameSessionChanged));
+      setPhase("error");
+      return;
+    }
+    const isCurrent = attempt.begin();
+    runningRef.current = true;
+    setError(null);
+    setSteps(freshSteps());
+    setStep("prepare", "done");
+    setPhase("running");
+    void runCrypto(isCurrent, context.walletId, username);
+  }, [attempt, runCrypto, setStep, t]);
+
   const retry = useCallback(() => {
     void prepareAndRun();
   }, [prepareAndRun]);
@@ -516,6 +569,7 @@ export function useZcashChallengeFlow(
     setAddress(null);
     sensitiveSeed.current?.clear();
     setBackupWalletId(null);
+    choiceContext.current = null;
     setError(null);
   }, [attempt]);
 
@@ -543,6 +597,7 @@ export function useZcashChallengeFlow(
     revealSeedBackup,
     confirmSeedSaved,
     hideSeedBackup,
+    submitUsername,
     retry,
     reset,
   };

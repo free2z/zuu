@@ -18,16 +18,19 @@ every login failed with a 401 regardless of signature validity.
 """
 import hashlib
 import logging
+import secrets
+
 
 from django.db import DatabaseError, IntegrityError, connection, transaction
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import AllowAny
 from rest_framework import status
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiTypes
 
 
 from dj.apps.g12f.models import Creator
+from dj.apps.g12f.usernames import username_status
 from dj.apps.g12f.account_deletion import (
     DeletionPending,
     InactiveAccount,
@@ -55,6 +58,7 @@ from dj.apps.otp.utils import (
 from dj.free2z.throttling import (
     ZCASH_CHALLENGE_THROTTLES,
     ZCASH_LOGIN_THROTTLES,
+    POLLING_THROTTLES,
 )
 
 from .models import ZcashIdentity
@@ -79,6 +83,8 @@ from .serializers import (
     ZcashChallengeResponseSerializer,
     ZcashLoginRequestSerializer,
     ZcashLoginResponseSerializer,
+    UsernameAvailabilityResponseSerializer,
+    ZcashConflictSerializer,
 )
 from .verify import verify_message
 
@@ -159,24 +165,38 @@ class ZcashAdmissionBeforeAuthenticationAPIView(APIView):
         return None
 
 
-def username_for_address(address: str) -> str:
-    """
-    Deterministic, unique, username-validator-safe handle for a brand
-    new Zcash-only account: "z" + first 16 hex chars of sha256(address),
-    with a numeric suffix on the (astronomically unlikely) collision.
 
-    Deliberately outside 's refuse-not-link rule: this username
-    derives from a signature-proven address, not from a user-chosen
-    handle, so there is no human claim to collide with and nothing to
-    hijack by registering a name somewhere else.
-    """
-    base = "z" + hashlib.sha256(address.encode()).hexdigest()[:16]
-    username = base
-    suffix = 0
-    while Creator.objects.filter(username__iexact=username).exists():
-        suffix += 1
-        username = f"{base}{suffix}"
-    return username
+def username_for_address(address: str) -> str:
+    """Generate a readable name; the database still arbitrates races."""
+    del address
+    adjectives = ("amber", "bright", "calm", "gentle", "golden", "quiet", "silver", "sunny")
+    nouns = ("badger", "cedar", "falcon", "forest", "otter", "river", "sparrow", "willow")
+    return f"{secrets.choice(adjectives)}-{secrets.choice(nouns)}-{secrets.randbelow(1000000):06d}"
+
+
+class UsernameChoiceRequired(Exception):
+    pass
+
+
+class UsernameUnavailable(Exception):
+    def __init__(self, reason):
+        self.reason = reason
+
+
+class UsernameAvailabilityView(ZcashAdmissionBeforeAuthenticationAPIView):
+    permission_classes = [AllowAny]
+    throttle_classes = POLLING_THROTTLES
+
+    @extend_schema(
+        parameters=[OpenApiParameter("username", OpenApiTypes.STR, OpenApiParameter.QUERY, required=True)],
+        responses={200: UsernameAvailabilityResponseSerializer, 429: ZcashAuthErrorSerializer},
+        description="Anonymous, throttled, no-store advisory check. Availability is not a reservation; creation validates again.",
+    )
+    def get(self, request):
+        username, result = username_status(request.query_params.get("username"))
+        response = Response({"username": username, "status": result})
+        response["Cache-Control"] = "no-store"
+        return response
 
 
 def _identity_lock_id(address: str) -> int:
@@ -194,7 +214,7 @@ def _lock_identity_address(address: str) -> None:
             )
 
 
-def _provision_identity_and_token(acting_user, address: str, otp_token=None, *, request=None):
+def _provision_identity_and_token(acting_user, address: str, otp_token=None, *, request=None, choose_username=False, desired_username=None):
     """Create/reuse one identity and mint its token in one transaction.
 
     The address advisory lock closes the absent-row race: two distinct valid
@@ -281,8 +301,16 @@ def _provision_identity_and_token(acting_user, address: str, otp_token=None, *, 
                         issuing_epoch = creator.kt_account_epoch
                         created = False
                 else:
+                    if choose_username and desired_username is None:
+                        raise UsernameChoiceRequired()
+                    if desired_username:
+                        username, result = username_status(desired_username)
+                        if result != "available":
+                            raise UsernameUnavailable(result)
+                    else:
+                        username = username_for_address(address)
                     creator = Creator(
-                        username=username_for_address(address),
+                        username=username,
                         p2paddr=address,
                     )
                     creator.set_unusable_password()
@@ -461,6 +489,7 @@ class ZcashLoginView(ZcashAdmissionBeforeAuthenticationAPIView):
     throttle_classes = ZCASH_LOGIN_THROTTLES
 
     @extend_schema(
+        description="A verified address logs in or creates an account, or links to the authenticated account. Existing accounts require their active TOTP. A username choice or refusal consumes the signed challenge; obtain and sign a fresh challenge before retrying. Returning identities keep their username.",
         request=ZcashLoginRequestSerializer,
         responses={
             200: ZcashLoginResponseSerializer,
@@ -468,7 +497,7 @@ class ZcashLoginView(ZcashAdmissionBeforeAuthenticationAPIView):
             401: ZcashAuthErrorSerializer,
             #the signature verified but the linked identity is stale.
             403: ZcashAuthErrorSerializer,
-            409: ZcashAuthErrorSerializer,
+            409: ZcashConflictSerializer,
             413: ZcashAuthErrorSerializer,
             415: ZcashAuthErrorSerializer,
             429: ZcashAuthErrorSerializer,
@@ -486,6 +515,8 @@ class ZcashLoginView(ZcashAdmissionBeforeAuthenticationAPIView):
         challenge = serializer.validated_data["challenge"]
         signature = serializer.validated_data["signature"]
         otp_token = serializer.validated_data.get("otp_token")
+        choose_username = serializer.validated_data["choose_username"]
+        desired_username = serializer.validated_data.get("desired_username")
 
         # (a) Authenticate canonical v2 without cache state. Only strict v1
         # syntax can enter the transitional compare/delete fallback; a malformed,
@@ -576,9 +607,14 @@ class ZcashLoginView(ZcashAdmissionBeforeAuthenticationAPIView):
                 try:
                     creator, created, instance, token, proved_existing_identity = (
                         _provision_identity_and_token(
-                            acting_user, address, otp_token, request=request
+                            acting_user, address, otp_token, request=request,
+                            choose_username=choose_username, desired_username=desired_username
                         )
                     )
+                except UsernameChoiceRequired:
+                    return Response({"code": "username_required"}, status=status.HTTP_409_CONFLICT)
+                except UsernameUnavailable as exc:
+                    return Response({"code": "username_" + exc.reason}, status=status.HTTP_409_CONFLICT)
                 except RecentAuthenticationRequired as exc:
                     return exc.response()
                 except DeletionPending as exc:

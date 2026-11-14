@@ -44,5 +44,19 @@
       "label": "Preserved legacy wallet",
       "title": "Earlier wallet preserved"
     }
+  },
+  "username": {
+    "title": "Choose your username",
+    "description": "This will be your public name and profile link.",
+    "label": "Username",
+    "rules": "Letters, numbers and @ . + - _ are allowed. Names are checked without regard to case.",
+    "checking": "Checking…",
+    "available": "Available",
+    "taken": "That username is taken.",
+    "invalid": "That username is invalid or reserved.",
+    "unavailable": "Could not check availability. Try again.",
+    "continue": "Continue with username",
+    "skip": "Use a generated username",
+    "sessionChanged": "The session changed. Start again."
   }
 }
