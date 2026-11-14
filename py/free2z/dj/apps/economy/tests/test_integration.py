@@ -825,8 +825,8 @@ def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(cre
     host.username='ea_'+admission.pk.hex;host.save(update_fields=['username'])
     post=mocker.patch('dj.apps.dyte.client._SESSION.post')
     post.return_value.status_code=200
-    post.return_value.json.return_value={'data':{'token':'synthetic-fixture-token','id':str(uuid.uuid4())}}
-    DyteClient('fixture-org').add_participant(host,meeting.meeting_id,role=role,
+    post.return_value.json.return_value={'success':True,'data':{'token':'synthetic-fixture-token','id':str(uuid.uuid4())}}
+    DyteClient(mode='v2',org='fixture-org',key='fixture-key').add_participant(host,meeting.meeting_id,role=role,
         custom_participant_id=f'ph_{host.public_id.hex}')
     token=post.call_args.kwargs['json']['custom_participant_id']
     assert token==f'ph_{host.public_id.hex}'

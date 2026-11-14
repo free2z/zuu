@@ -89,6 +89,19 @@ logger = logging.getLogger(__name__)
 VIEWER_PROVIDER_RETRY_AFTER = "5"
 
 
+def _provider_refused(exc):
+    """True when the provider answered with an HTTP 4xx: it refused the
+    request, so nothing was created and no reconciliation is needed.
+
+    A transport error, timeout, 5xx or unreadable 2xx is different -- the
+    provider may have acted -- and keeps the "outcome unknown" path. 408 is a
+    timeout, so it stays ambiguous too.
+    """
+    status_code = getattr(exc, 'status', None)
+    return (isinstance(exc, ProviderError) and isinstance(status_code, int)
+            and 400 <= status_code < 500 and status_code != 408)
+
+
 def _provider_retry_response():
     return Response(
         {"error": "The live-stream provider did not respond; try again."},
