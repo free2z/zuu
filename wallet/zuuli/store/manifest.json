@@ -79,31 +79,31 @@
       "maxBytes": 10485760,
       "files": [
         {
-          "id": "01-articles-fresh",
-          "path": "store/media/en-US/apple-iphone-6.9-portrait/01-articles-fresh.png",
-          "sha256": "41f3e5bb6bfa6881fc14990bbfd3ddf0adba63761c25020cd2b593e427867d78",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "01-vault-home",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/01-vault-home.png",
+          "sha256": "722ef75f7f2df44bee801dd5fdcf96c9a5204afcfd53a3ed321c124a9020d79e",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "02-semantic-search",
-          "path": "store/media/en-US/apple-iphone-6.9-portrait/02-semantic-search.png",
-          "sha256": "d880d9ab27ca6473409cda81dc2ca9b42dda4f8ea2abee286f9ca4c153a1177b",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "02-wallet-send",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/02-wallet-send.png",
+          "sha256": "901343631c2dc7aa1e644779cf91a4c14742977ffaf9ddd970b982d195f95249",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "03-article-reader",
-          "path": "store/media/en-US/apple-iphone-6.9-portrait/03-article-reader.png",
-          "sha256": "f52280b457e3b980b4aa9e7c7e3722d04c6cc2086a4fb7f1bdc2b8cbe3649ef6",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "03-wallet-history",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/03-wallet-history.png",
+          "sha256": "01cba838f9f06b30a8d54eef9f14865f9cc675fe0f9bae1bb2c1d7d15a56c563",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "04-creator-profile",
-          "path": "store/media/en-US/apple-iphone-6.9-portrait/04-creator-profile.png",
-          "sha256": "daae3016c7859063b480ea80ea1d170a3f4a90370e9b7d776f02ecac9bdf3258",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "04-about",
+          "path": "store/media/en-US/apple-iphone-6.9-portrait/04-about.png",
+          "sha256": "3dca4a4443129d5034deaa6926c859510551e6f8409db81a23782d8ab4f422a5",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         }
       ]
@@ -120,31 +120,31 @@
       "maxBytes": 10485760,
       "files": [
         {
-          "id": "01-articles-fresh",
-          "path": "store/media/en-US/apple-ipad-13-portrait/01-articles-fresh.png",
-          "sha256": "b01c0716a53ee186f7c00596d2a815823b087d16bd28ad01c06c4d89504e5e9e",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "01-vault-home",
+          "path": "store/media/en-US/apple-ipad-13-portrait/01-vault-home.png",
+          "sha256": "0908046f12cda96ceb4e52c6e37d20e8b54cf788d6c1146d85921e8b657560ff",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "02-semantic-search",
-          "path": "store/media/en-US/apple-ipad-13-portrait/02-semantic-search.png",
-          "sha256": "acbf16d395fa1ae62f6c07f4d6b2b61049f6a329b89393955f31b840d2e51b05",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "02-wallet-send",
+          "path": "store/media/en-US/apple-ipad-13-portrait/02-wallet-send.png",
+          "sha256": "6bc346c3debbd1ca93d2da032f14ec862031e6441bf3b0356545129ad7681636",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "03-article-reader",
-          "path": "store/media/en-US/apple-ipad-13-portrait/03-article-reader.png",
-          "sha256": "5cafca1876cdb5111f0863a4429ab5e33a2c55910ebfa69ae9359010b5cad948",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "03-wallet-history",
+          "path": "store/media/en-US/apple-ipad-13-portrait/03-wallet-history.png",
+          "sha256": "1d378175b7d7c3db5091dc7c4cad99649ac7c452ede68c4c71a077315e8f4cdd",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "04-creator-profile",
-          "path": "store/media/en-US/apple-ipad-13-portrait/04-creator-profile.png",
-          "sha256": "a7f994e4ff4ec670de401513712b6e6093c193669e3ce2515e97950054b4633c",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "04-about",
+          "path": "store/media/en-US/apple-ipad-13-portrait/04-about.png",
+          "sha256": "1b6bffbb6a3ba61e4caf6efdbe8de374cdd440aa672b567654269fe9f58279d6",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         }
       ]
@@ -161,31 +161,31 @@
       "maxBytes": 8388608,
       "files": [
         {
-          "id": "01-articles-fresh",
-          "path": "store/media/en-US/play-phone-portrait/01-articles-fresh.png",
-          "sha256": "8b2172b2fe714bbbe3eaeca428a4b10b6f35e5c596f2be5a0981d4bc0d23b620",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "01-vault-home",
+          "path": "store/media/en-US/play-phone-portrait/01-vault-home.png",
+          "sha256": "e893f95e4fa8e1c512b57138bac9074ae12d51be620df6c735a7980520348d84",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "02-semantic-search",
-          "path": "store/media/en-US/play-phone-portrait/02-semantic-search.png",
-          "sha256": "c81e28d70ba91757b6f7282285d1cd19b1a7ffdd9bd2e536081e0a1e8e087f6c",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "02-wallet-send",
+          "path": "store/media/en-US/play-phone-portrait/02-wallet-send.png",
+          "sha256": "47039e504c83dc7ebb0b773685eb58f2fc0772cb69bb3c27a8a04f6a34b2c2ed",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "03-article-reader",
-          "path": "store/media/en-US/play-phone-portrait/03-article-reader.png",
-          "sha256": "9b6e7278299876eafd9b13db4880e592f0651af8cb0acb88ccd4d6838e28fa7d",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "03-wallet-history",
+          "path": "store/media/en-US/play-phone-portrait/03-wallet-history.png",
+          "sha256": "3909edbefe365f546dcdaa36b0f8ff0c09f460ee775c3dac7f4bff7c90fcc146",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "04-creator-profile",
-          "path": "store/media/en-US/play-phone-portrait/04-creator-profile.png",
-          "sha256": "f376b15ad178ad3855c3029911fb2273215a8097c7fbf8582bf610ce462f6f55",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "04-about",
+          "path": "store/media/en-US/play-phone-portrait/04-about.png",
+          "sha256": "594546a5fd7cd56bb3b338d26accb112f0eeddcceccbd44ef92ce7b5b4b4494a",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         }
       ]
@@ -202,31 +202,31 @@
       "maxBytes": 8388608,
       "files": [
         {
-          "id": "01-articles-fresh",
-          "path": "store/media/en-US/play-7-inch-tablet-portrait/01-articles-fresh.png",
-          "sha256": "3d418d60e06cb5f9d6f72b7d8d10a3a8b1a968451ec7159c736750c2b5aee003",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "01-vault-home",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/01-vault-home.png",
+          "sha256": "6fe489c82fddc30473d751a42bc6209f37e890e03daf09d1844f084d1fadc1c6",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "02-semantic-search",
-          "path": "store/media/en-US/play-7-inch-tablet-portrait/02-semantic-search.png",
-          "sha256": "ec979b69968d612d3b617371b0c35bbac484147e0cdce7b001c575e28945114a",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "02-wallet-send",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/02-wallet-send.png",
+          "sha256": "853ebf82c63b1b27b30c072b09a4e70e9995e553b6841931ba0367875c15c9a8",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "03-article-reader",
-          "path": "store/media/en-US/play-7-inch-tablet-portrait/03-article-reader.png",
-          "sha256": "fbe910a6b2b7307fa3a0122baf35ce84073f871c5e5475e5e74156eab8fee208",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "03-wallet-history",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/03-wallet-history.png",
+          "sha256": "a683c57cb299b9580a8e37261885163d4a0d44b0cbbbdec924b121a87eead660",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "04-creator-profile",
-          "path": "store/media/en-US/play-7-inch-tablet-portrait/04-creator-profile.png",
-          "sha256": "5487f91f718c40e4317884537bba5da145cb3d07327591b80821e76a9ea46d72",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "04-about",
+          "path": "store/media/en-US/play-7-inch-tablet-portrait/04-about.png",
+          "sha256": "d1eceb73004e7e7e2e9b509c8a51868d3f9c60c11dbafc51902a83c0ab27dd79",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         }
       ]
@@ -243,31 +243,31 @@
       "maxBytes": 8388608,
       "files": [
         {
-          "id": "01-articles-fresh",
-          "path": "store/media/en-US/play-10-inch-tablet-portrait/01-articles-fresh.png",
-          "sha256": "d19b42db78bc1d285649fd1c93dcd178e67ce9bd4aee56d1f026653044e692f6",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "01-vault-home",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/01-vault-home.png",
+          "sha256": "08ab8e71a6695ce928807d43a04294b69ada439e0e382f42e0e0ab19ee6c5338",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "02-semantic-search",
-          "path": "store/media/en-US/play-10-inch-tablet-portrait/02-semantic-search.png",
-          "sha256": "ee59404440e4aaf69cd689096f1f6c776d86c3e0ab797da3892bd31c944b6a2a",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "02-wallet-send",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/02-wallet-send.png",
+          "sha256": "c21cf51b6ef3ff69c2ef3b82145162172da6316fa32d192cc4b64ccac8986787",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "03-article-reader",
-          "path": "store/media/en-US/play-10-inch-tablet-portrait/03-article-reader.png",
-          "sha256": "b972b853e907c23a431cddf150d3b90420fd26e4364556d2282ca145d37a8cfd",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "03-wallet-history",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/03-wallet-history.png",
+          "sha256": "6060f8ec55d3b4355f54e1624067ac99ea3ed36a387530af0104503268c4996f",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         },
         {
-          "id": "04-creator-profile",
-          "path": "store/media/en-US/play-10-inch-tablet-portrait/04-creator-profile.png",
-          "sha256": "ce1021857dc52eb06d3f3667b43fdaf658bfc123f7e5f7056ba15a22fdfeedff",
-          "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
+          "id": "04-about",
+          "path": "store/media/en-US/play-10-inch-tablet-portrait/04-about.png",
+          "sha256": "d954e803a93f9613f8b07acc343d66700aea58b5b6a110ebdb609ee6782044d0",
+          "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
           "reviewIssue": 387
         }
       ]
@@ -279,16 +279,16 @@
       371,
       373
     ],
-    "fixtureProfile": "store-v1",
+    "fixtureProfile": "vault-empty-v1",
     "releaseEquivalentBuildRequired": true,
     "safeAreasRequired": true,
     "realSeedOrPrivateDataAllowed": false,
     "testerIdentityAllowed": false,
     "debugOrMockDisclosureAllowed": false,
     "reviewRequired": true,
-    "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
-    "sourceDigest": "01f54ce8bba5c925b72df93e8513dd9969b91895602c64ea8af28f2022100758",
-    "contractDigest": "77ca9598b939f9746bbca650132ce966066b6e375f69922c1fca85ea5e5cf2bc",
+    "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
+    "sourceDigest": "93bb5b3dda883fb77f498af5cd7dc3a769b918f53b26c5467b26f5bc6b65bf2f",
+    "contractDigest": "eaf907c5eba6ac4fedd81b7d30ac855d7dcc03127a2071f7d25daaf1c67e343c",
     "captureConfig": "store/capture.json",
     "captureRecord": "store/capture-record.json",
     "forbiddenEmbeddedText": [

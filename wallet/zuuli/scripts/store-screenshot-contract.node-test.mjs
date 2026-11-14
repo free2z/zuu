@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { runInNewContext } from "node:vm";
+import { validateVaultFixture, installVaultNativeFixture } from "./store-vault-fixture.mjs";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cp, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
@@ -6,9 +8,12 @@ import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import test from "node:test";
 import { setTimeout as wait } from "node:timers/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   CAPTURE_CONFIG_PATH,
+  CAPTURE_FIXTURE_PATH,
+  CAPTURE_SHOTS,
+  CAPTURE_IMAGE,
   CAPTURE_INPUTS,
   CAPTURE_LOCAL_OVERRIDE_FILES,
   CAPTURE_NPM_CI_ARGUMENTS,
@@ -36,7 +41,9 @@ const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const screenshotSets = JSON.parse(await readFile(resolve(projectRoot, "store/manifest.json"), "utf8")).screenshotSets;
 
 async function fixture() {
-  const root = await mkdtemp(resolve(tmpdir(), "zuuli-screenshot-contract-"));
+  const parent = await mkdtemp(resolve(tmpdir(), "zuuli-screenshot-contract-"));
+  const root = resolve(parent, "zuuli");
+  await mkdir(root);
   for (const input of CAPTURE_INPUTS) {
     const destination = resolve(root, input);
     await mkdir(dirname(destination), { recursive: true });
@@ -80,6 +87,7 @@ const GIT_FIXTURE_ENV = Object.freeze({
 // `force` suppresses ENOENT, not ENOTEMPTY. Retrying absorbs any future
 // concurrent writer the env guard above does not already prevent.
 async function removeGitFixture(root, { remove = rm, pause = wait } = {}) {
+  if (root.endsWith("/zuuli")) root = dirname(root);
   let retries = 0;
   for (;;) {
     try {
@@ -217,7 +225,7 @@ test("repository capture plan, provenance, and exact entry matrix validate", asy
 
 test("target dimensions and safe areas fail closed", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const config = await json(root, CAPTURE_CONFIG_PATH);
   config.targets[0].cssWidth += 1;
   await writeJson(root, CAPTURE_CONFIG_PATH, config);
@@ -231,7 +239,7 @@ test("target dimensions and safe areas fail closed", async (t) => {
 
 test("declared browser version must match every Playwright manifest and lock entry", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const packageLock = await json(root, "package-lock.json");
   packageLock.packages["node_modules/playwright-core"].version = "1.62.0";
   await writeJson(root, "package-lock.json", packageLock);
@@ -262,12 +270,12 @@ test("creator capture pins the authoritative first catalog page and rejects deco
 
 test("capture records reject stale source pixels and incomplete or duplicate entries", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   await writeFile(resolve(root, "index.html"), `${await readFile(resolve(root, "index.html"), "utf8")}\n`);
   await rejectsCode(() => validateCaptureRecord({ root, screenshotSets, enforceCurrentSource: true }), "STALE_CAPTURE");
 
   const cleanRoot = await fixture();
-  t.after(() => rm(cleanRoot, { recursive: true, force: true }));
+  t.after(() => rm(dirname(cleanRoot), { recursive: true, force: true }));
   const missing = await json(cleanRoot, CAPTURE_RECORD_PATH);
   missing.entries.pop();
   await writeJson(cleanRoot, CAPTURE_RECORD_PATH, missing);
@@ -286,7 +294,7 @@ test("capture records reject stale source pixels and incomplete or duplicate ent
 
 test("ordinary validation rejects stale capture tooling without requiring a UI-source comparison", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const captureScript = resolve(root, "scripts/store-screenshot-capture.mjs");
   await writeFile(captureScript, `${await readFile(captureScript, "utf8")}\n`);
   await rejectsCode(() => validateCaptureRecord({ root, screenshotSets }), "STALE_CAPTURE");
@@ -294,36 +302,42 @@ test("ordinary validation rejects stale capture tooling without requiring a UI-s
 
 test("record metadata cannot waive disclosure checks or alter routes", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const record = await json(root, CAPTURE_RECORD_PATH);
   record.entries[0].disclosureScan = "skipped";
   await writeJson(root, CAPTURE_RECORD_PATH, record);
   await rejectsCode(() => validateCaptureRecord({ root, screenshotSets }), "INVALID_CAPTURE_RECORD");
 
   record.entries[0].disclosureScan = "passed";
-  record.entries[0].route = "/wallet";
+  record.entries[0].route = "/articles";
   await writeJson(root, CAPTURE_RECORD_PATH, record);
   await rejectsCode(() => validateCaptureRecord({ root, screenshotSets }), "INVALID_CAPTURE_RECORD");
 });
 
-test("fictional fixtures reject debug disclosures and private identities", async (t) => {
+test("vault fixture is a closed public empty identity, without sensitive or live data", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const fixturePath = "store/fixtures/en-US/articles.json";
-  const value = await json(root, fixturePath);
-  value.articles[0].title = "Debug capture";
-  await writeJson(root, fixturePath, value);
-  await rejectsCode(() => validateCaptureConfig({ root, screenshotSets }), "FORBIDDEN_CAPTURE_DISCLOSURE");
-
-  value.articles[0].title = "Why Shielded Defaults Matter";
-  value.articles[0].description = "Contact private-person@example.invalid";
-  await writeJson(root, fixturePath, value);
-  await rejectsCode(() => validateCaptureConfig({ root, screenshotSets }), "PRIVATE_CAPTURE_DATA");
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
+  const clean = await json(root, CAPTURE_FIXTURE_PATH);
+  validateVaultFixture(clean);
+  for (const mutate of [
+    (v) => { v.status.activeWalletId = "other"; },
+    (v) => { v.wallets[0].name = "private-person@example.invalid"; },
+    (v) => { v.balance.spendable = 1; },
+    (v) => { v.transactions.push({ memo: "Debug capture" }); },
+    (v) => { v.unifiedAddress = "u1" + "a".repeat(140); },
+    (v) => { v.seedPhrase = "never allowed"; },
+    (v) => { v.sync.chainTip = 100; },
+    (v) => { v.pendingSend = {}; },
+  ]) {
+    const changed = structuredClone(clean); mutate(changed);
+    await writeJson(root, CAPTURE_FIXTURE_PATH, changed);
+    await assert.rejects(() => validateCaptureConfig({ root, screenshotSets }), /reviewed public empty snapshot/);
+  }
 });
 
 test("capture inputs cannot be symlinks", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   await rm(resolve(root, "vite.config.ts"));
   await symlink(resolve(root, "index.html"), resolve(root, "vite.config.ts"));
   await rejectsCode(() => validateCaptureConfig({ root, screenshotSets }), "UNSAFE_CAPTURE_INPUT");
@@ -360,7 +374,7 @@ test("capture npm install has one canonical config-free invocation", () => {
 
 test("capture input digest brackets reject source or contract drift", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const expected = {
     sourceDigest: (await validateCaptureConfig({ root, screenshotSets })).sourceDigest,
     contractDigest: await computeCaptureContractDigest(root),
@@ -441,10 +455,10 @@ test("capture artifact commit preserves a concurrent manifest edit", async (t) =
 test("source comparison includes untracked render inputs", async (t) => {
   const root = await fixture();
   t.after(() => removeGitFixture(root));
-  await git(root, ["init", "-q"]);
+  await git(dirname(root), ["init", "-q"]);
   await git(root, ["config", "user.name", "Capture Contract"]);
   await git(root, ["config", "user.email", "capture-contract@example.invalid"]);
-  await git(root, ["add", "."]);
+  await git(dirname(root), ["add", "."]);
   await git(root, ["commit", "-qm", "capture source"]);
   const sourceSha = await git(root, ["rev-parse", "HEAD"]);
   await assertReleaseSource({ sourceSha }, root);
@@ -467,3 +481,121 @@ test("dependency-free preflight requires the exact host digests", async () => {
 
 // Exercise the trust-data guard alongside the capture contract.
 import "./capture-tls.node-test.mjs";
+
+test("vault shots correspond to the production route mounts and never the retired surfaces", async () => {
+  const app = await readFile(resolve(projectRoot, "src/App.tsx"), "utf8");
+  const routes = await readFile(resolve(projectRoot, "src/lib/routes.ts"), "utf8");
+  const wallet = await readFile(resolve(projectRoot, "src/features/wallet/index.tsx"), "utf8");
+  assert(app.includes("<HomeFeature />") && app.includes("<AboutFeature />") && app.includes("<WalletFeature />"));
+  assert(routes.includes('"/about"') && routes.includes('"/wallet/*"'));
+  assert(wallet.includes('<Route path="send" element={<Send />} />') && wallet.includes('<Route path="history" element={<History />} />'));
+  assert.deepEqual([...CAPTURE_SHOTS.values()].map((v) => v.route), ["/", "/wallet/send", "/wallet/history", "/about"]);
+  const root = await fixture();
+  try {
+    const config = await json(root, CAPTURE_CONFIG_PATH);
+    for (const route of ["/articles", "/wallet/receive", "/creator/example_editorial"]) {
+      config.shots[0].route = route;
+      await writeJson(root, CAPTURE_CONFIG_PATH, config);
+      await rejectsCode(() => validateCaptureConfig({ root, screenshotSets }), "INVALID_CAPTURE_CONTRACT");
+    }
+  } finally { await rm(dirname(root), { recursive: true, force: true }); }
+});
+
+test("capture pins the combined image and wallet-root mount without shipping a fixture", async (t) => {
+  const root = await fixture();
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
+  const config = await json(root, CAPTURE_CONFIG_PATH);
+  assert.equal(config.browser.containerImage, CAPTURE_IMAGE);
+  config.browser.containerImage = "mcr.microsoft.com/playwright:latest";
+  await writeJson(root, CAPTURE_CONFIG_PATH, config);
+  await rejectsCode(() => validateCaptureConfig({ root, screenshotSets }), "INVALID_CAPTURE_CONTRACT");
+  const runner = await readFile(resolve(projectRoot, "scripts/store-screenshot-capture.mjs"), "utf8");
+  assert(runner.includes('`${resolve(projectRoot, "..")}:/work`'));
+  assert(runner.includes('"--workdir", "/work/zuuli"'));
+  assert(runner.includes('/usr/local/bin/verify-zuuli-store-capture-image'));
+  const { captureInputFiles } = await import("./store-screenshot-contract.mjs");
+  for (const path of await captureInputFiles(projectRoot, ["src"])) {
+    assert(!/store-vault-fixture|__STORE_VAULT_AUDIT__/.test(await readFile(resolve(projectRoot, path), "utf8")), path);
+  }
+});
+
+test("native fixture permits exact empty reads and refuses all other bridge authority", async () => {
+  const fixture = await json(projectRoot, CAPTURE_FIXTURE_PATH);
+  const window = {};
+  runInNewContext(`(${installVaultNativeFixture.toString()})({fixture, action: "wallet-send"})`, { window, fixture, structuredClone });
+  const invoke = window.__TAURI_INTERNALS__.invoke;
+  assert.deepEqual(await invoke("plugin:zcash|get_wallet_status"), fixture.status);
+  assert.equal(await invoke("plugin:zcash|get_pending_send"), null);
+  await assert.rejects(() => invoke("plugin:zcash|start_sync"), /unavailable/);
+  const bridge = await readFile(resolve(projectRoot, "src/lib/wallet/bridge.ts"), "utf8");
+  const allowed = ["get_wallet_status", "list_wallets", "get_sync_status", "get_pending_send", "get_account_balance", "get_unified_address", "start_sync"];
+  const commands = [...bridge.matchAll(/invoke\("([a-z_]+)"/g)].map((v) => v[1]);
+  assert(commands.includes("get_seed_phrase") && commands.includes("execute_send"));
+  for (const cmd of commands.filter((cmd) => !allowed.includes(cmd))) {
+    await assert.rejects(() => invoke(`plugin:zcash|${cmd}`), /refused/);
+  }
+  for (const [cmd, args] of [
+    ["free2z_session_sync", { args: { token: "identity" } }],
+    ["plugin:zcash|get_account_balance", { args: { accountIndex: 1 } }],
+    ["plugin:zcash|get_wallet_status", { args: { seed: true } }],
+    ["plugin:zcash|get_unified_address", { args: { accountIndex: 0, extra: true } }],
+    ["plugin:http|fetch", {}],
+  ]) await assert.rejects(() => invoke(cmd, args), /refused/);
+  assert(window.__STORE_VAULT_AUDIT__.refused.length > 20);
+});
+
+test("vault network allowlist refuses account, external, write and websocket traffic", async () => {
+  const { vaultStaticRequestAllowed } = await import("./store-screenshot-capture.mjs");
+  const origin = "http://127.0.0.1:12345";
+  assert(vaultStaticRequestAllowed(origin, `${origin}/wallet/send`, "GET", "/wallet/send"));
+  assert(vaultStaticRequestAllowed(origin, `${origin}/assets/app-123.js`, "GET", "/wallet/send", new Set(["/assets/app-123.js"])));
+  for (const [path, method] of [["/api/auth/user/", "GET"], ["/assets/app.js?token=private", "GET"], ["/wallet/send", "POST"], ["/wallet/receive", "GET"], ["/assets/unregistered.js", "GET"]]) {
+    assert(!vaultStaticRequestAllowed(origin, origin + path, method, "/wallet/send"));
+  }
+  assert(!vaultStaticRequestAllowed(origin, "https://free2z.cash/api/zpage/", "GET", "/"));
+});
+
+test("disclosure scan rejects private identities and permits only About's public support contact", async () => {
+  const { vaultDisclosureScanPassed } = await import("./store-screenshot-capture.mjs");
+  assert(vaultDisclosureScanPassed("No transactions yet", "wallet-history"));
+  assert(vaultDisclosureScanPassed("Opens a draft to help@free2z.com.", "about"));
+  for (const text of ["mock mode", "debug", "seed phrase", "private key", "tester@example.com", "help@free2z.com.attacker.example", "xhelp@free2z.com", "u1" + "a".repeat(100)]) {
+    assert(!vaultDisclosureScanPassed(text, "about"), text);
+  }
+  assert(!vaultDisclosureScanPassed("help@free2z.com", "wallet-send"));
+});
+
+test("capture framing preserves app chrome by scrolling only the production viewport", async () => {
+  const runner = await readFile(resolve(projectRoot, "scripts/store-screenshot-capture.mjs"), "utf8");
+  assert(!runner.includes("await focus.scrollIntoViewIfNeeded()"));
+  assert(runner.includes("viewport.scrollTop +="));
+  assert(runner.includes("topBar.top >= -1"));
+});
+
+
+test("full CI history restores a historical capture source without changing checked-out renderer", async (t) => {
+  const source = await fixture();
+  const checkout = await mkdtemp(resolve(tmpdir(), "zuuli-capture-history-"));
+  t.after(() => removeGitFixture(source));
+  t.after(() => removeGitFixture(checkout));
+  await git(dirname(source), ["init", "-q"]);
+  await git(source, ["config", "user.name", "Capture Contract"]);
+  await git(source, ["config", "user.email", "capture-contract@example.invalid"]);
+  await git(dirname(source), ["add", "."]);
+  await git(source, ["commit", "-qm", "reviewed renderer"]);
+  const sourceSha = await git(source, ["rev-parse", "HEAD"]);
+  await writeFile(resolve(dirname(source), "history-only.txt"), "Later commit, unchanged renderer.\n");
+  await git(dirname(source), ["add", "history-only.txt"]);
+  await git(source, ["commit", "-qm", "later source history"]);
+  const currentHead = await git(source, ["rev-parse", "HEAD"]);
+  const sourceUrl = pathToFileURL(dirname(source)).href;
+  await git(checkout, ["init", "-q"]);
+  await git(checkout, ["fetch", "--depth=1", sourceUrl, "HEAD"]);
+  await git(checkout, ["checkout", "--detach", "FETCH_HEAD"]);
+  assert.equal(await git(checkout, ["rev-parse", "--is-shallow-repository"]), "true");
+  await rejectsCode(() => assertCaptureSourceCommit(sourceSha, resolve(checkout, "zuuli")), "INVALID_CAPTURE_SOURCE");
+  await git(checkout, ["fetch", "--unshallow", sourceUrl, "HEAD"]);
+  assert.equal(await git(checkout, ["rev-parse", "--is-shallow-repository"]), "false");
+  assert.equal(await git(checkout, ["rev-parse", "HEAD"]), currentHead);
+  await assertCaptureSourceCommit(sourceSha, resolve(checkout, "zuuli"));
+});

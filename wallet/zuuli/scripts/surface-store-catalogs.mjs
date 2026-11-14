@@ -6,7 +6,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Resvg } from '@resvg/resvg-js';
 import { PNG } from 'pngjs';
-import { assertMetadata, validateMedia, pngText, readCanonicalJson, exactKeys, listPngs } from './store-contract.mjs';
+import { validateStoreContract, assertMetadata, validateMedia, pngText, readCanonicalJson, exactKeys, listPngs } from './store-contract.mjs';
 import { RUNTIME_EVIDENCE, validateSurfaceCaptureRecord } from './surface-store-capture-contract.mjs';
 
 const walletRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
@@ -37,7 +37,7 @@ export async function renderBrandMedia(root) {
   });
 }
 
-export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, app), publish = false } = {}) {
+export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, app), publish = false, enforceCurrentSource = false } = {}) {
   assert(apps.includes(app), 'unknown store app');
   assert.equal(publish, false, 'surface catalogs are not approved for publication');
   const manifest = await readCanonicalJson(resolve(root, 'store/manifest.json'), 'surface manifest');
@@ -61,7 +61,7 @@ export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, a
   assert.equal(copy.title, app === 'free2z' ? 'Free2Z' : 'E2E2Z');
   assert.deepEqual(manifest.classification, { playCategory: app === 'free2z' ? 'SOCIAL' : 'COMMUNICATION', reviewStatus: 'proposed-owner-store-review-required', automaticRatingSubmissionAllowed: false });
   const captured = manifest.phase === 'captured'
-    ? (await validateSurfaceCaptureRecord(app, { root: dirname(root) })).record : null;
+    ? (await validateSurfaceCaptureRecord(app, { root: dirname(root), enforceCurrentSource })).record : null;
   const entries = captured?.entries ?? [];
   assert.deepEqual(manifest.screenshotSets, geometries.map(([name, apiType, width, height]) => ({ id: `play-${name}-portrait`, provider: 'play', apiType, locale: 'en-US', width, height, minCount: 2, maxCount: 8, maxBytes: 8388608, files: entries.filter((entry) => entry.setId === `play-${name}-portrait`).map(({ id, path, sha256, sourceSha }) => ({ id, path, sha256, sourceSha, reviewIssue: 989 })) })));
   assert.deepEqual(manifest.capturePolicy, {
@@ -93,7 +93,12 @@ export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, a
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  assert(argv.every((arg) => ['--generate', '--publish'].includes(arg)), 'unknown argument');
+  assert(argv.every((arg) => ['--generate', '--publish', '--current-source'].includes(arg)), 'unknown argument');
+  // npm forwards trailing arguments to this last command in store:validate.
+  // Apply the same local-only checks to ZUULI before the two surface catalogs.
+  // Neither flag loads credentials or performs store writes.
+  if (argv.includes('--publish')) await validateStoreContract({ publish: true });
+  if (argv.includes('--current-source')) await validateStoreContract({ enforceCurrentSource: true });
   assert(!argv.includes('--publish'), 'surface catalogs are not approved for publication');
   for (const app of apps) {
     const root = resolve(walletRoot, app);
@@ -106,7 +111,7 @@ export async function main(argv = process.argv.slice(2)) {
       manifest.brandMedia = generated.map(({ spec }) => spec);
       await writeFile(manifestPath, canonical(manifest));
     }
-    process.stdout.write(`${JSON.stringify(await validateSurfaceCatalog({ app }))}\n`);
+    process.stdout.write(`${JSON.stringify(await validateSurfaceCatalog({ app, enforceCurrentSource: argv.includes("--current-source") }))}\n`);
   }
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

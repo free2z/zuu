@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "sourceSha": "bda85b9beefce2f1fb19639f3b67e5035b94f503",
-  "fixtureProfile": "store-v1",
+  "sourceSha": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
+  "fixtureProfile": "vault-empty-v1",
   "locale": "en-US",
   "timezone": "UTC",
   "fixedTime": "2026-08-19T12:00:00.000Z",
@@ -9,7 +9,7 @@
   "browser": {
     "engine": "chromium",
     "playwrightVersion": "1.62.1",
-    "containerImage": "mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac",
+    "containerImage": "ghcr.io/free2z/zuuli-store-capture@sha256:13c508c86e0a458c180059dbb6fa6e45406fcd01e24f5416de7c78acf8b57be9",
     "platform": "linux/amd64"
   },
   "targets": [
@@ -76,24 +76,24 @@
   ],
   "shots": [
     {
-      "id": "01-articles-fresh",
-      "route": "/articles",
-      "action": "fresh"
+      "id": "01-vault-home",
+      "route": "/",
+      "action": "vault-home"
     },
     {
-      "id": "02-semantic-search",
-      "route": "/articles",
-      "action": "search-privacy"
+      "id": "02-wallet-send",
+      "route": "/wallet/send",
+      "action": "wallet-send"
     },
     {
-      "id": "03-article-reader",
-      "route": "/articles/why-shielded-defaults-matter",
-      "action": "article-reader"
+      "id": "03-wallet-history",
+      "route": "/wallet/history",
+      "action": "wallet-history"
     },
     {
-      "id": "04-creator-profile",
-      "route": "/creator/example_editorial",
-      "action": "creator-profile"
+      "id": "04-about",
+      "route": "/about",
+      "action": "about"
     }
   ]
 }

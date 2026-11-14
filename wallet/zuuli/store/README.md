@@ -34,41 +34,81 @@ The selected final capture contract is exact:
 - Play 7-inch tablet portrait: 1200 × 1920.
 - Play 10-inch tablet portrait: 1600 × 2560.
 
-Each captured set carries four PNGs as constrained by the manifest:
+Each captured set carries four actual mounted production screens (#956):
 
-1. the public Articles feed;
-2. three public semantic-search results for `privacy`;
-3. a full public article reader; and
-4. a public creator profile and its published content, using one explicitly
-   fictional, non-live, non-paid editorial identity.
+1. `/`: the signed-out vault home, with zero balances and wallet destinations;
+2. `/wallet/send`: the blank Send form with its review action disabled;
+3. `/wallet/history`: the real empty transaction-history state; and
+4. `/about`: product/build information and the blank feedback composer.
 
-The creator-profile and semantic-search candidates are captured only after the
-responsive profile fix in #432 and the single-clear-control fix in #254. The
-capture pipeline does not hide product defects with screenshot-only CSS; both
-surfaces must pass the same geometry and readable-scale visual review as every
-other candidate.
+Receive is deliberately excluded: its useful settled state displays a payable
+address and a QR code. The wallet-specific Overview also requires an address.
+About replaces Receive without inventing a payment destination. No wallet is
+created, restored, unlocked or funded; no payment is proposed or broadcast.
+These are Linux Chromium fixture renders, **not physical-device, native-engine,
+connected-chain, signed-artifact or successful-payment evidence**. Home's zero
+readouts are public synthetic inputs, not observed balances on a real account.
 
 Every file must be opaque, exact-size, individually SHA-256 pinned, unique across
-the complete catalog, and tied to an exact capture source SHA and review issue
-under the capture policy. The actual production Vite bundle is rendered with
-all `VITE_*` overrides removed, and capture refuses local Vite environment
-files that production mode would load; this is not application mock mode. A narrow
-network allowlist supplies exact public zpage/comment/creator response schemas
-from the locale fixture and rejects every other external request. The harness
-also rejects loading states, horizontal overflow, private/email-like text, and
-mock/debug disclosure.
+the complete catalog, and tied to an exact product-source SHA and review issue.
+The unchanged production Vite renderer is built with all `VITE_*` overrides
+removed. Local Vite/npm overrides are refused. `scripts/store-vault-fixture.mjs`
+is a capture-only Playwright initializer, absent from the shipping import graph;
+there is no app capture mode or extra native capability. Its JSON snapshot is
+an exact audited constant (`vault-empty-v1`), with a coherent synthetic wallet
+inventory, zero balances, no history, no account session and no completed sync.
+The native bridge can return only these reads and a desktop callback-transport
+classification. It acknowledges only a null session publication. Automatic
+`start_sync` is explicitly refused, never reported successful. Seed, backup,
+restore, signing, send, credentials, account changes and every unknown command
+or argument are refused and fail capture. No native host is connected.
+
+Bootstrap requires an address string even on routes that never display it.
+The only supplied value is the invalid, nonpayable constant
+`PUBLIC-SYNTHETIC-NONPAYABLE`; capture fails if it appears in rendered text.
+No production component is replaced or edited. Network access is restricted to
+GETs for the selected local route and built static assets (including Vite's
+exact WASM `?init` query); API calls, writes, remote requests, service workers
+and WebSockets are refused. Capture also rejects runtime errors, frames,
+horizontal overflow, clipped focus content, nonempty Send fields, payable Send
+review, private/address-like text and mock/debug disclosures. The sole email exception
+is About's exact, source-authored public support contact `help@free2z.com`;
+negative controls reject tester identities, lookalikes and suffixed domains.
+
+The editorial fixture remains solely for Free2Z's own captures. Because its
+catalog and E2E2Z's catalog bind shared tooling bytes, #956 refreshes their
+six-image matrices with fresh two-pass evidence as well. Their app code and
+listing approval are unchanged; historical evidence is not relabelled current.
 
 The rendering environment is immutable:
-`mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac`
+`ghcr.io/free2z/zuuli-store-capture@sha256:13c508c86e0a458c180059dbb6fa6e45406fcd01e24f5416de7c78acf8b57be9`
 on `linux/amd64`, Playwright/Chromium 1.62.1, UTC, a fixed clock, dark mode,
-and declared safe-area insets. It performs two clean passes and refuses to
+and declared safe-area insets. The combined image retains the original pinned
+Playwright base and supplies Rust 1.97.1/WASM. Its provenance was verified
+against `free2z/zuu` and its inventory is verified on each invocation; see
+[the image record](../../../docs/zuuli/build/ZUULI-STORE-CAPTURE-IMAGE.md). It performs two clean passes and refuses to
 write unless every pixel and rendered-text digest matches. Input digests bracket
 config parsing, build, both passes, and replacement so concurrent drift aborts
 rather than mislabeling pixels. The record carries
 both a full source digest and a separately revalidated capture-contract digest.
-Ordinary validation permits an older, unapproved candidate to remain tied to
+The default PR `store:validate` permits an older, unapproved candidate to remain tied to
 its exact source SHA as product work continues; publication validation and
-the reproducibility command below requires current source to reproduce it exactly.
+the `--current-source` validation and reproducibility commands below require
+current source to reproduce it exactly. `--current-source` invokes the same
+`enforceCurrentSource` provenance check required by `--publish`, while keeping
+`publicationReady: false`. It does not approve copy/media or access a store.
+`--publish` additionally requires owner approval and intentionally still fails.
+The contract tests also complete the full local publish check using a temporary
+synthetic approval manifest against the real current source and PNGs. That
+positive control never modifies the actual manifest or grants listing approval.
+
+The current `sourceSha` is `b4e3d79334b6ee56f0796776db6251e821d5dd4a`:
+all renderer/build inputs match that commit. Capture-tool changes are bound by
+`contractDigest` and the combined `sourceDigest`; this does not claim the new
+capture tooling existed in the historical product-source commit. `STATUS.md`
+remains its dated distribution audit, which predates these local candidates.
+No current authenticated store readback was performed for #956; live store
+screenshots, publication, signed artifacts and device behavior remain unverified.
 
 PNG textual chunks are also scanned for forbidden seed/private/debug markers.
 Human-readable pixel review across all 20 images remains mandatory because no
@@ -80,6 +120,7 @@ Run the local contract checks with:
 ```bash
 npm run store:validate
 npm run test:store-listing
+npm run store:validate -- --current-source # all three catalogs; publish provenance, no approval
 node scripts/store-screenshot-capture.mjs --verify-reproducible # Docker; two passes
 npm run store:validate -- --publish  # intentionally fails during Phase B
 ```

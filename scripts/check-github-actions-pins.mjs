@@ -648,6 +648,13 @@ const REQUIRED_SURFACES_JOB_LINES = [
   "      - name: Build production frontend",
   "        run: npm run build",
 ];
+// Store provenance tests need historical sourceSha objects while retaining
+// the event's current checkout. Finite/default depth can hide those commits.
+const REQUIRED_FRONTEND_CHECKOUT_STEP = [
+  `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+  "        with:",
+  "          fetch-depth: 0",
+].join("\n");
 const REQUIRED_FRONTEND_JOB_LINES = [
   "  frontend:",
   "    name: zuuli / frontend",
@@ -660,7 +667,7 @@ const REQUIRED_FRONTEND_JOB_LINES = [
   "        working-directory: wallet/zuuli",
   "    steps:",
   ...bootstrapStep.trimEnd().split("\n"),
-  `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
+  ...REQUIRED_FRONTEND_CHECKOUT_STEP.split("\n"),
   "      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0",
   "        with:",
   "          node-version: '24.22.2'",
@@ -1944,8 +1951,7 @@ function requiredFrontendWasmControlFailures(relativeFile, lines, frontend) {
   );
   if (
     checkouts.length !== 1 ||
-    exactStepSource(lines, checkouts[0]) !==
-      `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`
+    exactStepSource(lines, checkouts[0]) !== REQUIRED_FRONTEND_CHECKOUT_STEP
   ) {
     failures.push(
       `${relativeFile}:${frontend.start + 1}: frontend must have one exact current-source checkout without a ref override`,
@@ -5564,13 +5570,22 @@ function runCurrentWorkflowMutationTests(repoRoot) {
         "    if: false",
       ),
     },
+    ...[
+      ["default shallow history", `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`],
+      ["depth-one history", REQUIRED_FRONTEND_CHECKOUT_STEP.replace("fetch-depth: 0", "fetch-depth: 1")],
+      ["finite history", REQUIRED_FRONTEND_CHECKOUT_STEP.replace("fetch-depth: 0", "fetch-depth: 2")],
+    ].map(([description, replacement]) => ({
+      name: `real workflow rejects frontend ${description} that can hide capture source commits`,
+      needle: "frontend must have one exact current-source checkout without a ref override",
+      source: replaceFrontend(REQUIRED_FRONTEND_CHECKOUT_STEP, replacement),
+    })),
     {
       name: "real workflow rejects a stale frontend checkout ref",
       needle:
         "frontend must have one exact current-source checkout without a ref override",
       source: replaceFrontend(
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n        with:\n          ref: stale-release`,
+        REQUIRED_FRONTEND_CHECKOUT_STEP,
+        `${REQUIRED_FRONTEND_CHECKOUT_STEP}\n          ref: stale-release`,
       ),
     },
     {
@@ -5578,8 +5593,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Substitute stale frontend source after checkout\n        run: cd ../.. && git reset --hard HEAD~1`,
+        REQUIRED_FRONTEND_CHECKOUT_STEP,
+        `${REQUIRED_FRONTEND_CHECKOUT_STEP}\n      - name: Substitute stale frontend source after checkout\n        run: cd ../.. && git reset --hard HEAD~1`,
       ),
     },
     {
@@ -5587,8 +5602,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Check out stale frontend source\n        run: cd ../.. && git checkout HEAD~1`,
+        REQUIRED_FRONTEND_CHECKOUT_STEP,
+        `${REQUIRED_FRONTEND_CHECKOUT_STEP}\n      - name: Check out stale frontend source\n        run: cd ../.. && git checkout HEAD~1`,
       ),
     },
     {
@@ -5596,8 +5611,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Overwrite checked-out frontend source\n        run: printf stale > src/main.tsx`,
+        REQUIRED_FRONTEND_CHECKOUT_STEP,
+        `${REQUIRED_FRONTEND_CHECKOUT_STEP}\n      - name: Overwrite checked-out frontend source\n        run: printf stale > src/main.tsx`,
       ),
     },
     {
@@ -5605,8 +5620,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - name: Substitute the WASM build script\n        run: cp package.json scripts/wasm-build.mjs`,
+        REQUIRED_FRONTEND_CHECKOUT_STEP,
+        `${REQUIRED_FRONTEND_CHECKOUT_STEP}\n      - name: Substitute the WASM build script\n        run: cp package.json scripts/wasm-build.mjs`,
       ),
     },
     {
@@ -5614,8 +5629,8 @@ function runCurrentWorkflowMutationTests(repoRoot) {
       needle:
         "frontend must match the complete exact current-source execution program",
       source: replaceFrontend(
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1`,
-        `      - uses: ${FRONTEND_CHECKOUT_REFERENCE} # v7.0.1\n      - run: true`,
+        REQUIRED_FRONTEND_CHECKOUT_STEP,
+        `${REQUIRED_FRONTEND_CHECKOUT_STEP}\n      - run: true`,
       ),
     },
     {

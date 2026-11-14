@@ -13,7 +13,9 @@ import "./store-screenshot-contract.node-test.mjs";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 async function fixture() {
-  const root = await mkdtemp(resolve(tmpdir(), "zuuli-store-contract-"));
+  const parent = await mkdtemp(resolve(tmpdir(), "zuuli-store-contract-"));
+  const root = resolve(parent, "zuuli");
+  await mkdir(root);
   await mkdir(resolve(root, "assets"), { recursive: true });
   await cp(resolve(projectRoot, "store"), resolve(root, "store"), { recursive: true });
   await cp(resolve(projectRoot, "assets/store"), resolve(root, "assets/store"), { recursive: true });
@@ -70,7 +72,7 @@ test("the repository captured-media contract validates and publication fails clo
 
 test("metadata must be canonical and within provider limits", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const applePath = resolve(root, "store/locales/en-US/apple.json");
   const apple = JSON.parse(await readFile(applePath, "utf8"));
   apple.name = "X".repeat(31);
@@ -83,7 +85,7 @@ test("metadata must be canonical and within provider limits", async (t) => {
 
 test("media hashes, dimensions, RGB encoding, and fixed contracts are authoritative", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const manifestPath = resolve(root, "store/manifest.json");
   const value = await manifest(root);
   value.brandMedia[1].sha256 = value.brandMedia[0].sha256;
@@ -106,7 +108,7 @@ test("media hashes, dimensions, RGB encoding, and fixed contracts are authoritat
 
 test("publication-ready screenshot declarations reject duplicate content", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const manifestPath = resolve(root, "store/manifest.json");
   const value = await manifest(root);
   value.phase = "ready";
@@ -129,7 +131,7 @@ test("publication-ready screenshot declarations reject duplicate content", async
 
 test("screenshot file IDs are unique within each upload set", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const manifestPath = resolve(root, "store/manifest.json");
   const value = await manifest(root);
   value.phase = "ready";
@@ -152,7 +154,7 @@ test("screenshot file IDs are unique within each upload set", async (t) => {
 
 test("forbidden textual PNG chunks are rejected without logging their payload", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const manifestPath = resolve(root, "store/manifest.json");
   const value = await manifest(root);
   const spec = value.brandMedia[0];
@@ -166,7 +168,7 @@ test("forbidden textual PNG chunks are rejected without logging their payload", 
 
 test("declared paths cannot traverse or resolve through symlinks", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const manifestPath = resolve(root, "store/manifest.json");
   const value = await manifest(root);
   value.locales[0].appleMetadata = "store/locales/en-US/../en-US/apple.json";
@@ -183,7 +185,7 @@ test("declared paths cannot traverse or resolve through symlinks", async (t) => 
 
 test("undeclared screenshot media is rejected during foundation", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   await mkdir(resolve(root, "store/media/en-US"), { recursive: true });
   await writeFile(resolve(root, "store/media/en-US/unreviewed.png"), await readFile(resolve(root, "assets/store/play-store-icon-512.png")));
   await rejectsCode(() => validateStoreContract({ root }), "UNDECLARED_MEDIA");
@@ -191,7 +193,7 @@ test("undeclared screenshot media is rejected during foundation", async (t) => {
 
 test("application and contact identities cannot drift", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const manifestPath = resolve(root, "store/manifest.json");
   const value = await manifest(root);
   value.application.bundleId = "example.invalid";
@@ -201,7 +203,7 @@ test("application and contact identities cannot drift", async (t) => {
 
 test("release identity is canonical, returned, and cannot drift", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const releasePath = resolve(root, "release.json");
   const release = JSON.parse(await readFile(releasePath, "utf8"));
   const valid = await validateStoreContract({ root });
@@ -219,10 +221,53 @@ test("release identity is canonical, returned, and cannot drift", async (t) => {
 
 test("provider locale mappings must be one-to-one", async (t) => {
   const root = await fixture();
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
   const manifestPath = resolve(root, "store/manifest.json");
   const value = await manifest(root);
   value.locales.push({ ...value.locales[0], id: "fr-FR" });
   await writeJson(manifestPath, value);
   await rejectsCode(() => validateStoreContract({ root }), "INVALID_MANIFEST");
+});
+
+// Current-source checking is independently usable for an unapproved draft.
+// It is the same provenance check publication requires, without inventing approval.
+test("current-source draft validation exercises publish provenance while approval stays blocked", async (t) => {
+  const valid = await validateStoreContract({ enforceCurrentSource: true });
+  assert.equal(valid.publicationReady, false);
+  await rejectsCode(() => validateStoreContract({ publish: true }), "NOT_PUBLICATION_READY");
+  const root = await fixture();
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
+  await writeFile(resolve(root, "src/unregistered.ts"), "export {};\n");
+  await validateStoreContract({ root });
+  await rejectsCode(() => validateStoreContract({ root, enforceCurrentSource: true }), "STALE_CAPTURE");
+});
+
+test("publish cannot opt out of current source validation", async (t) => {
+  const root = await fixture();
+  t.after(() => rm(dirname(root), { recursive: true, force: true }));
+  const value = await manifest(root);
+  value.phase = "ready"; value.publicationReady = true;
+  for (const locale of value.locales) locale.copyStatus = "approved";
+  value.classification.reviewStatus = "approved";
+  value.capturePolicy.status = "approved"; value.capturePolicy.blockedByIssues = [];
+  await writeJson(resolve(root, "store/manifest.json"), value);
+  await writeFile(resolve(root, "index.html"), "changed production renderer\n");
+  await rejectsCode(() => validateStoreContract({ root, publish: true, enforceCurrentSource: false }), "STALE_CAPTURE");
+});
+
+test("synthetic approval control completes local publish validation without approving the actual catalog", async (t) => {
+  const temp = await mkdtemp(resolve(tmpdir(), "zuuli-publish-control-"));
+  t.after(() => rm(temp, { recursive: true, force: true }));
+  const value = await manifest(projectRoot);
+  value.phase = "ready"; value.publicationReady = true;
+  for (const locale of value.locales) locale.copyStatus = "approved";
+  value.classification.reviewStatus = "approved";
+  value.capturePolicy.status = "approved"; value.capturePolicy.blockedByIssues = [];
+  const manifestPath = resolve(temp, "synthetic-approval-control.json");
+  await writeJson(manifestPath, value);
+  // Only an in-memory/temporary manifest supplies synthetic approval. The
+  // production source, saved pixels and commit comparison are all real.
+  const result = await validateStoreContract({ manifestPath, publish: true });
+  assert.equal(result.screenshotSets.reduce((sum, set) => sum + set.count, 0), 20);
+  assert.equal((await manifest(projectRoot)).publicationReady, false);
 });
