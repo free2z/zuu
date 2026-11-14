@@ -1641,6 +1641,7 @@
       "started": "The stream started successfully. You are live!",
       "startFailed": "Failed to start the stream.",
       "hostEligibilityChanged": "Your account no longer meets the requirements to start a stream. Refresh your balance and try again.",
+      "hostProviderUnavailable": "The live-stream provider is unavailable right now. Please try again in a few minutes.",
       "hostInvalidRequest": "Check the stream settings and try again.",
       "hostUnavailable": "Stream startup is temporarily unavailable. Please try again shortly.",
       "starting": "Starting Stream...",

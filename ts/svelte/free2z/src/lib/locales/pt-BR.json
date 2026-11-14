@@ -1641,6 +1641,7 @@
       "started": "Transmissão iniciada. Você está ao vivo!",
       "startFailed": "Não foi possível iniciar a transmissão.",
       "hostEligibilityChanged": "Sua conta não atende mais aos requisitos para iniciar uma transmissão. Atualize seu saldo e tente novamente.",
+      "hostProviderUnavailable": "O provedor de transmissão ao vivo está indisponível no momento. Tente novamente em alguns minutos.",
       "hostInvalidRequest": "Confira as configurações da transmissão e tente novamente.",
       "hostUnavailable": "O início da transmissão está temporariamente indisponível. Tente novamente em breve.",
       "starting": "Iniciando transmissão...",

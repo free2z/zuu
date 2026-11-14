@@ -1641,6 +1641,7 @@
       "started": "La diffusion a bien démarré. Vous êtes en direct !",
       "startFailed": "Impossible de lancer la diffusion.",
       "hostEligibilityChanged": "Votre compte ne remplit plus les conditions pour lancer un direct. Actualisez votre solde et réessayez.",
+      "hostProviderUnavailable": "Le fournisseur de diffusion en direct est indisponible pour le moment. Veuillez réessayer dans quelques minutes.",
       "hostInvalidRequest": "Vérifiez les paramètres du direct et réessayez.",
       "hostUnavailable": "Le démarrage du direct est temporairement indisponible. Veuillez réessayer bientôt.",
       "starting": "Démarrage de la diffusion…",
