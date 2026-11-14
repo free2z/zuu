@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -290,7 +291,9 @@ export function Room() {
             {stream.live ? (
               <div className="absolute end-4 top-4 flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-xs font-medium text-white backdrop-blur">
                 <Users className="h-3.5 w-3.5" aria-hidden />
-                <span className="bidi-number tabular-nums">{participants.watching}</span>
+                <span className="bidi-number tabular-nums">
+                  {participants.watching}
+                </span>
               </div>
             ) : null}
 
@@ -380,24 +383,22 @@ export function Room() {
                 }}
               />
             )
+          ) : entryState === "checking-session" ? (
+            <ViewerIdentityCheck />
+          ) : entryState === "creator-blocked" ? (
+            <CreatorViewerGuard />
           ) : (
-            entryState === "checking-session" ? (
-              <ViewerIdentityCheck />
-            ) : entryState === "creator-blocked" ? (
-              <CreatorViewerGuard />
-            ) : (
-              <JoinPanel
-                stream={stream}
-                tuzis={tuzis}
-                onJoined={(t, secret) => {
-                  setActiveJoinSecret(secret);
-                  setTicket(t);
-                  if (stream.kind === "ppv" && stream.price_tuzis > 0) {
-                    adjustTuzis(-stream.price_tuzis);
-                  }
-                }}
-              />
-            )
+            <JoinPanel
+              stream={stream}
+              tuzis={tuzis}
+              onJoined={(t, secret) => {
+                setActiveJoinSecret(secret);
+                setTicket(t);
+                if (stream.kind === "ppv" && stream.price_tuzis > 0) {
+                  adjustTuzis(-stream.price_tuzis);
+                }
+              }}
+            />
           )}
         </div>
       </div>
@@ -1133,6 +1134,51 @@ function HostControls({
   inviteSecret?: string;
   onEnd: () => void;
 }) {
+  const { t } = useTranslation();
+  const [usage, setUsage] = useState<{
+    amount2z: number | null;
+    asOf: string;
+  } | null>(null);
+  const [usageFailed, setUsageFailed] = useState(false);
+  useEffect(() => {
+    let stopped = false;
+    let busy = false;
+    const refresh = async () => {
+      if (busy || document.hidden) return;
+      busy = true;
+      try {
+        const result = await live.broadcastUsage(stream.username);
+        if (!stopped) {
+          setUsage(
+            result.status === "available"
+              ? { amount2z: result.amount2z, asOf: result.asOf }
+              : null,
+          );
+          setUsageFailed(result.status === "unavailable");
+        }
+      } catch {
+        if (!stopped) {
+          setUsage(null);
+          setUsageFailed(true);
+        }
+      } finally {
+        busy = false;
+      }
+    };
+    setUsage(null);
+    setUsageFailed(false);
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 15_000);
+    const visible = () => {
+      if (!document.hidden) void refresh();
+    };
+    document.addEventListener("visibilitychange", visible);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", visible);
+    };
+  }, [stream.username]);
   const inviteInput = useRef<HTMLInputElement>(null);
   const participants = participantCountCopy(stream.participants);
   const inviteUrl =
@@ -1171,7 +1217,9 @@ function HostControls({
         </Badge>
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Users className="h-3.5 w-3.5" aria-hidden />
-          <span className="bidi-number tabular-nums">{participants.watching}</span>
+          <span className="bidi-number tabular-nums">
+            {participants.watching}
+          </span>
         </span>
       </div>
       <p className="mt-3 text-xs text-muted-foreground">
@@ -1179,6 +1227,34 @@ function HostControls({
         <span className="font-medium text-foreground">@{stream.username}</span>.
         Manage your broadcast below.
       </p>
+      <div
+        className="mt-3 rounded-lg border border-border/60 bg-background/40 p-3"
+        aria-label="Current broadcast 2Z usage"
+      >
+        <div className="text-xs font-medium text-foreground">
+          {t(MESSAGE_KEYS.liveUsageTitle)}
+        </div>
+        <p
+          className="mt-1 text-sm font-semibold text-foreground"
+          aria-live="polite"
+        >
+          {usage?.amount2z == null
+            ? t(MESSAGE_KEYS.liveUsageUnavailable)
+            : `${usage.amount2z.toLocaleString()} 2Z`}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {t(MESSAGE_KEYS.liveUsagePartial)}
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {usage
+            ? t(MESSAGE_KEYS.liveUsageUpdated, {
+                time: new Date(usage.asOf).toLocaleTimeString(),
+              })
+            : usageFailed
+              ? t(MESSAGE_KEYS.liveUsageRefreshFailed)
+              : t(MESSAGE_KEYS.liveUsageLoading)}
+        </p>
+      </div>
       <Separator className="my-3" />
       {inviteUrl ? (
         <div className="mb-3 space-y-2">
@@ -1226,9 +1302,7 @@ function ParticipantStrip({ count }: { count: number | null }) {
   const copy = participantCountCopy(count);
   return (
     <div>
-      <div className="mb-2 eyebrow text-muted-foreground">
-        In the room
-      </div>
+      <div className="mb-2 eyebrow text-muted-foreground">In the room</div>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Users className="h-3.5 w-3.5" aria-hidden />
         <span className="bidi-number tabular-nums font-medium text-foreground">

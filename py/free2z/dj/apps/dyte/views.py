@@ -14,7 +14,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.http import HttpResponse, HttpRequest
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Exists, F, Max, Prefetch, Q, Subquery
+from django.db.models import Exists, F, Max, Prefetch, Q, Subquery, Sum
+from django.contrib.contenttypes.models import ContentType
 
 from rest_framework.decorators import (
     action, api_view, permission_classes, throttle_classes
@@ -74,6 +75,7 @@ from .serializers import (
     MeetingJoinResponseSerializer,
     PublicMeetingDiscoverySerializer,
     PublicMeetingListSerializer,
+    HostUsageSerializer,
 )
 from dj.apps.tuzis.serializers import (
     InsufficientFundsErrorSerializer,
@@ -1142,6 +1144,11 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
                         type="PLATFORM_FEE",
                         receiving_user=cm.creator,
                         amount=charged,
+                        content_object=cm,
+                        provider_session_id=(
+                            cm.provider_session_id
+                            or getattr(event_data.meeting, 'sessionId', None)
+                        ),
                     )
         elif meeting_type == PAY_PER_VIEW:
             if pin_supported_policy() == 1:
@@ -1395,6 +1402,39 @@ def _process_legacy_recording_event(
     publish_recording_ready(
         recording.downloadUrl, cm.creator, provider_event_id, recording_key,
         meeting_pk=cm.pk)
+
+
+class HostBroadcastUsage(APIView):
+    """Settled hosting fees for the caller's active broadcast session only."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(responses={200: HostUsageSerializer})
+    def get(self, request, username, *args, **kwargs):
+        if not is_path_owner(request, {'username': username}):
+            return Response(status=status.HTTP_403_FORBIDDEN)
+        meeting = CreatorMeeting.objects.filter(
+            creator=request.user, meeting_type=BROADCAST, is_public=True,
+            live_now=True, host_session_id__isnull=False,
+            provider_session_id__isnull=False,
+        ).only('id', 'provider_session_id').first()
+        now = timezone.now()
+        if meeting is None:
+            return Response({
+                'amount_2z': None, 'complete': False, 'as_of': now,
+                'status': 'unavailable',
+            })
+        content_type = ContentType.objects.get_for_model(CreatorMeeting)
+        total = Event.objects.filter(
+            type='PLATFORM_FEE', receiving_user=request.user,
+            content_type=content_type, object_id=str(meeting.pk),
+            provider_session_id=meeting.provider_session_id,
+        ).aggregate(total=Sum('amount'))['total']
+        return Response({
+            'amount_2z': int(total or 0),
+            # Historical and provider-delayed participant-left events cannot
+            # be proven complete, so this is always explicitly partial.
+            'complete': False, 'as_of': now, 'status': 'available',
+        })
 
 
 @extend_schema_view(

@@ -234,6 +234,9 @@ class Event(models.Model):
     # can accommodate UUIDs and integers
     object_id = models.CharField(max_length=200, null=True, blank=True)
     content_object = GenericForeignKey('content_type', 'object_id')
+    # Provider session attribution is populated for newly settled livestream
+    # hosting fees. Older fee events intentionally remain unattributed.
+    provider_session_id = models.UUIDField(null=True, blank=True, editable=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
