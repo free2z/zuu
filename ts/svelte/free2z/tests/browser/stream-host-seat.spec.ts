@@ -150,7 +150,7 @@ test("known host maintenance failures are actionable and safe to retry", async (
   await page.getByTestId("stream-start").click();
   await expect(
     page.getByText(
-      "Stream startup is temporarily unavailable. Please try again shortly.",
+      "The live-stream provider is unavailable right now. Please try again in a few minutes.",
       { exact: true },
     ),
   ).toBeVisible();
@@ -169,6 +169,48 @@ test("known host maintenance failures are actionable and safe to retry", async (
   ).toHaveCount(0);
   await expect(page.locator("rtk-meeting")).toHaveCount(0);
 });
+
+// Production, November 2026: RealtimeKit refused room creation (HTTP 401)
+// and every audience type ended in the same generic "could not start" text.
+// A structured provider failure must say so for every type, localized.
+for (const type of ["broadcast", "ppv", "subscribers-only", "private"]) {
+  test(`a provider outage is named for ${type} starts in Spanish`, async ({
+    page,
+  }) => {
+    await seatStatus(page, { active: false });
+    const starts = await captureStarts(page, type, {
+      status: 503,
+      body: {
+        code: "provider_unavailable",
+        retryable: true,
+        failure: {
+          stage: type === "private" ? "create_private_room" : "create_room",
+          code: "invalid_response",
+          provider_status: 401,
+          request_id: "0123456789abcdef0123456789abcdef",
+        },
+        error: "Basic auth failed for org must not be shown",
+      },
+    });
+
+    await openDashboard(page, "es");
+    await page.locator(`label[for="stream-audience-${type}"]`).click();
+    await page.getByTestId("stream-start").click();
+
+    await expect.poll(() => starts.length).toBe(1);
+    await expect(
+      page
+        .getByText(
+          "El proveedor de transmisiones en vivo no está disponible en este momento. Inténtalo de nuevo en unos minutos.",
+          { exact: true },
+        )
+        .first(),
+    ).toBeVisible();
+    await expect(page.getByText(/Basic auth failed/)).toHaveCount(0);
+    await expect(page.getByTestId("stream-start")).toBeEnabled();
+    await expect(page.locator("rtk-meeting")).toHaveCount(0);
+  });
+}
 
 test("an unknown backend 500 does not assume a provider failure", async ({
   page,

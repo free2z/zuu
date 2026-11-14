@@ -89,6 +89,10 @@ const STREAM_MESSAGES = {
     "dashboard.stream.hostUnavailable",
     "Stream startup is temporarily unavailable. Please try again shortly.",
   ),
+  hostProviderUnavailable: defineMessage(
+    "dashboard.stream.hostProviderUnavailable",
+    "The live-stream provider is unavailable right now. Please try again in a few minutes.",
+  ),
   hostInvalidRequest: defineMessage(
     "dashboard.stream.hostInvalidRequest",
     "Check the stream settings and try again.",
@@ -140,14 +144,20 @@ export class HostStreamStartError extends LocalizedError {
   }
 }
 
+/** The server's plain-string 400 for a creator below the streaming floor. */
+const HOST_ELIGIBILITY_REASON = "You need at least 150 to go live!";
+
+function isHostEligibilityRefusal(error: ApiError): boolean {
+  return (
+    error.status === 400 &&
+    (error.data === HOST_ELIGIBILITY_REASON ||
+      error.serverMessage === HOST_ELIGIBILITY_REASON)
+  );
+}
+
 function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   const code = typeof error.data?.code === "string" ? error.data.code : "";
-  const eligibilityReason = "You need at least 150 to go live!";
-  if (
-    error.status === 400 &&
-    (error.data === eligibilityReason ||
-      error.serverMessage === eligibilityReason)
-  ) {
+  if (isHostEligibilityRefusal(error)) {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostEligibilityChanged,
       "eligibility_changed",
@@ -195,7 +205,7 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
   if (code === "provider_unavailable") {
     const requestId = error.data?.failure?.request_id;
     return new HostStreamStartError(
-      STREAM_MESSAGES.hostUnavailable,
+      STREAM_MESSAGES.hostProviderUnavailable,
       "provider_unavailable",
       error.status,
       typeof requestId === "string" && /^[0-9a-f]{32}$/i.test(requestId)
@@ -676,6 +686,24 @@ export class StreamService {
         };
         const message = recordingMessages[error.data?.code];
         if (message) throw localizedError(message, undefined, error);
+        if (error.data?.code === "provider_unavailable")
+          throw localizedError(
+            STREAM_MESSAGES.hostProviderUnavailable,
+            undefined,
+            error,
+          );
+        if (isHostEligibilityRefusal(error))
+          throw localizedError(
+            STREAM_MESSAGES.hostEligibilityChanged,
+            undefined,
+            error,
+          );
+        if ([408, 429, 500, 502, 503, 504].includes(error.status))
+          throw localizedError(
+            STREAM_MESSAGES.hostUnavailable,
+            undefined,
+            error,
+          );
       }
       if (error instanceof LocalizedError) throw error;
       throw localizedError(
