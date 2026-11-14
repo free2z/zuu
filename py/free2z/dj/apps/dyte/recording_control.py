@@ -17,8 +17,8 @@ from rest_framework.views import APIView
 
 from dj.free2z.throttling import POLLING_THROTTLES
 from .client import (
-    DyteClient, ProviderError, ProviderNotFoundError, ProviderRejectedError,
-    ProviderUnavailableError,
+    DyteClient, ProviderAuthError, ProviderError, ProviderNotFoundError,
+    ProviderRejectedError, ProviderUnavailableError,
 )
 from .models import CreatorMeeting, PUBLIC_MEETING_TYPES, PRIVATE
 
@@ -69,19 +69,29 @@ class ProviderRejected(ProviderUnavailable):
 def provider(method, path, *, payload=None, allow_empty=False):
     if cache.get(PROVIDER_CIRCUIT):
         raise ProviderUnavailable()
+    client = DyteClient()
     try:
-        response = DyteClient().request(method, path, payload=payload, timeout=PROVIDER_TIMEOUT, allow_ack=method == 'PUT')
+        response = client.request(method, path, payload=payload, timeout=PROVIDER_TIMEOUT, allow_ack=method == 'PUT')
         return response.json()['data']
     except ProviderNotFoundError:
         if allow_empty and path.startswith('recordings/active-recording/'):
+            # An idle 404 counts as "no recording" only once the meeting is
+            # confirmed to exist -- under the same short deadline and the
+            # same circuit breaker as every other recording-control call.
             try:
-                client = DyteClient()
-                client._meeting(client.request('GET', f"meetings/{path.rsplit('/', 1)[-1]}"))
-            except ProviderError:
+                client._meeting(client.request(
+                    'GET', f"meetings/{path.rsplit('/', 1)[-1]}",
+                    timeout=PROVIDER_TIMEOUT))
+            except ProviderError as exc:
+                if isinstance(exc, ProviderUnavailableError):
+                    cache.set(PROVIDER_CIRCUIT, True, 10)
                 raise ProviderUnavailable() from None
             return None
         raise ProviderRejected() from None
-    except ProviderRejectedError:
+    except (ProviderRejectedError, ProviderAuthError):
+        # A definitive refusal (4xx, including 401/403 credentials): nothing
+        # started, so callers must release their pending marker rather than
+        # hold it for a recording that does not exist.
         raise ProviderRejected() from None
     except ProviderError as exc:
         if isinstance(exc, ProviderUnavailableError):

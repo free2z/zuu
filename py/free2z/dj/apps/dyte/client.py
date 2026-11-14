@@ -453,8 +453,11 @@ def report_provider_failure(operation, status, auth_mode, *, reason,
     )
 
 
+#: 408 is a timeout reported by the provider or an intermediary: the request
+#: may still complete, so it is ambiguous (unavailable), never a refusal.
 _STATUS_ERRORS = {401: ProviderAuthError, 403: ProviderAuthError,
-                  404: ProviderNotFoundError, 429: ProviderRateLimitError}
+                  404: ProviderNotFoundError, 408: ProviderUnavailableError,
+                  429: ProviderRateLimitError}
 
 
 class DyteClient(object):

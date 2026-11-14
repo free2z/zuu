@@ -132,6 +132,17 @@ test("classic wrapper retains the room during reconnect and releases lifecycle l
     (window as any).rtkRoot.unmount();
   });
   expect(await page.evaluate(() => (window as any).rtkContract.leaves)).toBe(3);
+  // A failed media join is not a completed teardown: Core does not release
+  // captured media for it, so unmount must still leave exactly once.
+  await page.evaluate(() => (window as any).mountRtk());
+  await expect(page.getByTestId("meeting-boundary")).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).rtkContract.emit("roomLeft", { state: "failed" });
+    (window as any).rtkRoot.unmount();
+  });
+  await expect
+    .poll(() => page.evaluate(() => (window as any).rtkContract.leaves))
+    .toBe(4);
 });
 
 test("published Core 2.0.3 surfaces a mocked participant-token rejection before join", async ({
