@@ -472,10 +472,12 @@ def test_first_private_create_provider_failure_is_structured_and_writes_nothing(
 
 
 def test_private_rotation_transport_failure_keeps_the_existing_invitation(
-    api_client, dyte_client, streamer,
+    api_client, dyte_client, streamer, mocker,
 ):
     import requests
 
+    # No recording in progress: rotation proceeds to the provider room create.
+    mocker.patch('dj.apps.dyte.recording_control.recording_status', return_value=None)
     api_client.force_authenticate(user=streamer)
     created = api_client.post(MANAGE_URL.format(username=streamer.username))
     assert created.status_code == 200

@@ -191,6 +191,29 @@ def _room_create_definitively_rejected(response, room_id):
     )
 
 
+def _settle_failed_room_create(room_reconciliation, response, room_id, creator,
+                               row_id, meeting_type, claim, what):
+    """Resolve the in-flight room marker after a failed create.
+
+    The caller still releases the start claim and returns the retry response;
+    this only decides what an operator must reconcile.
+    """
+    if _room_create_definitively_rejected(response, room_id):
+        room_reconciliation.delete()
+        return
+    room_reconciliation.last_error = (
+        f'{what} response was not safely verifiable; inspect RealtimeKit '
+        'meetings for this creator/title and reconcile manually'
+    )[:255]
+    room_reconciliation.save(update_fields=['last_error'])
+    if room_id:
+        _record_unidentified_room(
+            creator, row_id, meeting_type, room_id=room_id, claim=claim,
+            error=f'{what} response was not safely verifiable; deletion is unsupported',
+        )
+        room_reconciliation.delete()
+
+
 def _host_participant_response(response, stage, custom_participant_id):
     """Validate a participant response while preserving its precommitted cleanup key."""
     status_code = getattr(response, 'status_code', None)
@@ -2699,21 +2722,11 @@ class DyteMeeting(APIView):
                                     keep_cleanup=False)
                 raise
             proposed_id, failure = _host_room_response(response, 'create_room')
-            if failure and _room_create_definitively_rejected(response, proposed_id):
-                room_reconciliation.delete()
-            elif failure:
-                room_reconciliation.last_error = (
-                    'Room create response was not safely verifiable; inspect '
-                    'RealtimeKit meetings for this creator/title and reconcile manually'
+            if failure:
+                _settle_failed_room_create(
+                    room_reconciliation, response, proposed_id,
+                    creator, row_id, meeting_type, start_claim, 'Room create',
                 )
-                room_reconciliation.save(update_fields=['last_error'])
-                if proposed_id:
-                    _record_unidentified_room(
-                        creator, row_id, meeting_type, room_id=proposed_id,
-                        claim=start_claim,
-                        error='Room create response was not safely verifiable; deletion is unsupported',
-                    )
-                    room_reconciliation.delete()
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 return _host_provider_retry_response(
@@ -2812,21 +2825,12 @@ class DyteMeeting(APIView):
                                     keep_cleanup=False)
                 raise
             proposed_id, failure = _host_room_response(room_response, 'rotate_room')
-            if failure and _room_create_definitively_rejected(room_response, proposed_id):
-                room_reconciliation.delete()
-            elif failure:
-                room_reconciliation.last_error = (
-                    'Replacement room create response was not safely verifiable; '
-                    'inspect RealtimeKit meetings for this creator/title and reconcile manually'
+            if failure:
+                _settle_failed_room_create(
+                    room_reconciliation, room_response, proposed_id,
+                    creator, row_id, meeting_type, start_claim,
+                    'Replacement room create',
                 )
-                room_reconciliation.save(update_fields=['last_error'])
-                if proposed_id:
-                    _record_unidentified_room(
-                        creator, row_id, meeting_type, room_id=proposed_id,
-                        claim=start_claim,
-                        error='Replacement room create response was not safely verifiable; deletion is unsupported',
-                    )
-                    room_reconciliation.delete()
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 return _host_provider_retry_response(
