@@ -909,7 +909,7 @@ class DetectionUnavailable(Exception):
     """
 
 
-def apply_detection(page, detection, *, reindex=True, now=None):
+def apply_detection(page, detection, *, path="live", reindex=True, now=None):
     """Persist one detection onto ``page``. Returns the fields written.
 
     The rule this encodes:
@@ -957,10 +957,16 @@ def apply_detection(page, detection, *, reindex=True, now=None):
 
     from dj.apps.g12f.localization import is_content_language
     from dj.apps.g12f.models.zpage import (
+        LANGUAGE_DETECTION_PATH_BATCH,
+        LANGUAGE_DETECTION_PATH_LIVE,
         LANGUAGE_SOURCE_CREATOR,
         LANGUAGE_SOURCE_DETECTED,
         ZPageTranslation,
     )
+
+    paths = {LANGUAGE_DETECTION_PATH_LIVE, LANGUAGE_DETECTION_PATH_BATCH}
+    if path not in paths:
+        raise ValueError("path must be 'live' or 'batch'")
 
     fields = ["detected_language", "detection_confidence", "detected_at"]
     page.detected_language = detection.tag
@@ -982,6 +988,8 @@ def apply_detection(page, detection, *, reindex=True, now=None):
         if page.language_source != LANGUAGE_SOURCE_DETECTED:
             page.language_source = LANGUAGE_SOURCE_DETECTED
             fields.append("language_source")
+        page.language_detection_path = path
+        fields.append("language_detection_path")
 
     previously_skipped = getattr(page, "_skip_zpage_async_side_effects", False)
     page._language_write_is_detection = True

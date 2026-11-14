@@ -107,6 +107,15 @@ LANGUAGE_SOURCE_CHOICES = (
     (LANGUAGE_SOURCE_CREATOR, "Creator"),
 )
 
+# Which detector entry point last supplied the stored label. NULL deliberately
+# means unknown (including all rows predating this field).
+LANGUAGE_DETECTION_PATH_LIVE = "live"
+LANGUAGE_DETECTION_PATH_BATCH = "batch"
+LANGUAGE_DETECTION_PATH_CHOICES = (
+    (LANGUAGE_DETECTION_PATH_LIVE, "Live"),
+    (LANGUAGE_DETECTION_PATH_BATCH, "Batch"),
+)
+
 # These are the fields indexed by the full-text search path.  Keep this
 # definition next to the model write guard so a future save path cannot
 # accidentally make an unrelated page edit look like fresh searchable
@@ -172,6 +181,8 @@ class zPageQuerySet(models.QuerySet):
         actionable ``ValueError``: Django implements ``bulk_update()`` with
         per-row ``Case`` expressions, so it cannot infer which rows changed.
         """
+        if {"source_language", "language_source"}.intersection(kwargs):
+            kwargs.setdefault("language_detection_path", None)
         searchable_updates = SEARCHABLE_CONTENT_FIELDS.intersection(kwargs)
         expression_updates = {
             field: kwargs[field]
@@ -310,6 +321,15 @@ class zPage(models.Model):
         help_text="Whether source_language came from the detector or from the "
                   "creator. A creator override is never overwritten by a "
                   "later detection.",
+    )
+    language_detection_path = models.CharField(
+        max_length=8,
+        choices=LANGUAGE_DETECTION_PATH_CHOICES,
+        null=True,
+        blank=True,
+        editable=False,
+        help_text="Detection entry point for the current detected label; NULL "
+                  "means unknown or not detected.",
     )
     category = models.CharField(
         max_length=64,
