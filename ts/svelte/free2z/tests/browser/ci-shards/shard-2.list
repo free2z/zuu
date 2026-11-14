@@ -146,3 +146,5 @@ billing-realtime-credit.spec.ts › vote permits a cold no-actor authentication 
 billing-realtime-credit.spec.ts › vote rejects original intent before mint and POST when held authentication changes other-account
 billing-realtime-credit.spec.ts › vote rejects original intent before mint and POST when held authentication changes return-original
 converse-composer-tools.spec.ts
+crawler-null-urls.spec.ts › homepage: empty optional data, SSR through delayed hydration
+crawler-null-urls.spec.ts › profile: empty optional data, SSR through delayed hydration

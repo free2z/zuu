@@ -36,3 +36,6 @@ zpage-hero.spec.ts › SSR and hydration reserve the same hero space while the c
 zpage-hero.spec.ts › SSR and hydration reserve the same hero space while the cover is delayed at 390px
 zpage-hero.spec.ts › cover frames keep the whole artwork and pad the column at 1280px
 zpage-hero.spec.ts › cover frames keep the whole artwork and pad the column at 390px
+crawler-null-urls.spec.ts › article: present optional data, SSR through delayed hydration
+crawler-null-urls.spec.ts › conversation: present optional data, SSR through delayed hydration
+crawler-null-urls.spec.ts › detector controls: resolved boundary, transient attributes and actual network
