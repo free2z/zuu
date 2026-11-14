@@ -34,12 +34,16 @@ An eligible payment buys only that next term.
 ## Historical terminal refusals
 
 The recurring task does not recover expired subscriptions or overwrite a newer
-purchase. A separate bounded recovery workflow is required for historical
-terminal refusals, as specified in [issue #1485](https://github.com/free2z/zuu/issues/1485).
-It must provide a dry run and transactionally revalidate the original refusal,
-actors, subscription, cancellation, intervening purchases, and current
-entitlement before granting the established ordinary interval. Conflicts must
-be reported. Editing an expired row's `expires` through an admin/save path is
+purchase. The [read-only recovery preview](membership-recovery-preview.md)
+prepares current-state manifests and reports evidence requirements without
+granting access. Historical terminal refusals use the bounded command in
+[membership-recovery-apply.md](membership-recovery-apply.md), as specified in
+[issue #1485](https://github.com/free2z/zuu/issues/1485).
+It provides a dry run and transactionally revalidates the actors,
+subscription, cancellation, intervening purchases, and current entitlement
+before granting the established ordinary interval. A caller-supplied SQLSTATE
+is not proof of the original refusal. Conflicts block the whole decision.
+Editing an expired row's `expires` through an admin/save path is
 not a recovery procedure: it can arm a charge-bearing renewal immediately.
 
 ## Internal and test accounts
