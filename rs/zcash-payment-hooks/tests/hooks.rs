@@ -61,6 +61,8 @@ fn process_is_running(pid: u32) -> Result<bool> {
     let stat = match std::fs::read_to_string(stat_path) {
         Ok(stat) => stat,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+        // A process that exits between open and read makes procfs return ESRCH.
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Ok(false),
         Err(error) => return Err(error.into()),
     };
     // `comm` is parenthesized and may contain spaces or parentheses. The state
@@ -192,6 +194,12 @@ async fn timeout_includes_blocked_stdin_and_terminates_descendants() -> Result<(
     Ok(())
 }
 
+// Fixed shell bodies run through `/bin/sh -c`, matching `handler_argv`: no
+// executable is written and then immediately spawned (avoids ETXTBSY races).
+fn shell(body: &str) -> Vec<String> {
+    vec!["/bin/sh".into(), "-c".into(), body.into(), "hook".into()]
+}
+
 fn hook_failure(error: &anyhow::Error) -> HookFailure {
     *error
         .downcast_ref::<HookFailure>()
@@ -227,7 +235,7 @@ async fn failures_are_classified_without_child_or_event_data() -> Result<()> {
     for (name, body, timeout_seconds, expected, reason) in cases {
         let a = ExecAutomation(Consumer {
             id: name.into(),
-            argv: vec![script(&d, name, body)?],
+            argv: shell(body),
             timeout_seconds,
             observe_unconfirmed: false,
         });
@@ -255,10 +263,9 @@ async fn failures_are_classified_without_child_or_event_data() -> Result<()> {
 
 #[tokio::test]
 async fn hook_exiting_before_reading_reports_its_own_status() -> Result<()> {
-    let d = TempDir::new()?;
     let a = ExecAutomation(Consumer {
         id: "early".into(),
-        argv: vec![script(&d, "early", "exit 3")?],
+        argv: shell("exit 3"),
         timeout_seconds: 2,
         observe_unconfirmed: false,
     });
