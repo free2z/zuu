@@ -3245,6 +3245,12 @@ export interface MCPAction {
   application: string | null;
 }
 
+export interface MCPBrowserLink {
+  /** @maxLength 150 */
+  expected_username: string;
+  scopes: string[];
+}
+
 /**
  * * `none` - none
  * * `client_secret_basic` - client_secret_basic
@@ -3334,6 +3340,12 @@ export interface MCPLinkEvaluation {
   scopes: string[];
   scope_descriptions: MCPLinkEvaluationScopeDescriptions;
   expires_at: string;
+}
+
+export interface MCPLinkIntentResult {
+  url: string;
+  expires_at: string;
+  expected_username: string;
 }
 
 export interface MCPLinkResult {

@@ -3085,7 +3085,16 @@
         "uncertain": "Could not confirm"
       },
       "deletedAccount": "Deleted account",
-      "removedApplication": "Removed application"
+      "removedApplication": "Removed application",
+      "connectionId": "Connection ID",
+      "addAccount": "Add account",
+      "addTo": "Add an account to {app}",
+      "addHelp": "Enter the exact username. That account must sign in and approve access to this connection; creating a link grants no access.",
+      "exactUsername": "Exact account username",
+      "createLink": "Create consent link",
+      "reviewLink": "Continue to account consent",
+      "linkExpiry": "This link expires in 10 minutes. After approval, ask your assistant to list accounts again.",
+      "addFailed": "The account-link request could not be confirmed. No access is granted until the named account approves. Check Connected apps before trying again."
     }
   },
   "translationJobs": {

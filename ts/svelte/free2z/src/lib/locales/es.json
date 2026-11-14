@@ -3085,7 +3085,16 @@
         "uncertain": "No se pudo confirmar"
       },
       "deletedAccount": "Cuenta eliminada",
-      "removedApplication": "Aplicación eliminada"
+      "removedApplication": "Aplicación eliminada",
+      "connectionId": "ID de conexión",
+      "addAccount": "Añadir cuenta",
+      "addTo": "Añadir una cuenta a {app}",
+      "addHelp": "Introduce el nombre de usuario exacto. Esa cuenta debe iniciar sesión y aprobar el acceso a esta conexión; crear un enlace no concede acceso.",
+      "exactUsername": "Nombre de usuario exacto de la cuenta",
+      "createLink": "Crear enlace de consentimiento",
+      "reviewLink": "Continuar al consentimiento de la cuenta",
+      "linkExpiry": "Este enlace caduca en 10 minutos. Tras aprobarlo, pide a tu asistente que vuelva a listar las cuentas.",
+      "addFailed": "No se pudo confirmar la solicitud de enlace de cuenta. No se concede acceso hasta que la cuenta indicada lo apruebe. Revisa las aplicaciones conectadas antes de intentarlo de nuevo."
     }
   },
   "translationJobs": {

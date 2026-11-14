@@ -3085,7 +3085,16 @@
         "uncertain": "Impossible de confirmer"
       },
       "deletedAccount": "Compte supprimé",
-      "removedApplication": "Application supprimée"
+      "removedApplication": "Application supprimée",
+      "connectionId": "Identifiant de connexion",
+      "addAccount": "Ajouter un compte",
+      "addTo": "Ajouter un compte à {app}",
+      "addHelp": "Saisissez le nom d’utilisateur exact. Ce compte doit se connecter et approuver l’accès à cette connexion ; créer un lien n’accorde aucun accès.",
+      "exactUsername": "Nom d’utilisateur exact du compte",
+      "createLink": "Créer un lien de consentement",
+      "reviewLink": "Continuer vers le consentement du compte",
+      "linkExpiry": "Ce lien expire dans 10 minutes. Après approbation, demandez à votre assistant de lister à nouveau les comptes.",
+      "addFailed": "La demande de liaison du compte n’a pas pu être confirmée. Aucun accès n’est accordé tant que le compte indiqué ne l’a pas approuvé. Vérifiez les applications connectées avant de réessayer."
     }
   },
   "translationJobs": {

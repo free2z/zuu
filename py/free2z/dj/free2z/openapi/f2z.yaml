@@ -5715,6 +5715,33 @@ paths:
       responses:
         '204':
           description: No response body
+  /api/oauth/mcp/connections/{connection_id}/link/:
+    post:
+      operationId: mcp_connection_link
+      description: Request independent account consent for a connection owned by this
+        session.
+      parameters:
+      - in: path
+        name: connection_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - oauth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPBrowserLink'
+        required: true
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPLinkIntentResult'
+          description: ''
   /api/oauth/mcp/grants/{grant_id}/:
     delete:
       operationId: mcp_account_revoke
@@ -14581,6 +14608,19 @@ components:
       required:
       - client_id
       - name
+    MCPBrowserLink:
+      type: object
+      properties:
+        expected_username:
+          type: string
+          maxLength: 150
+        scopes:
+          type: array
+          items:
+            type: string
+      required:
+      - expected_username
+      - scopes
     MCPClientRegistration:
       type: object
       properties:
@@ -14738,6 +14778,21 @@ components:
       - scope_descriptions
       - scopes
       - signed_in_username
+    MCPLinkIntentResult:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+        expires_at:
+          type: string
+          format: date-time
+        expected_username:
+          type: string
+      required:
+      - expected_username
+      - expires_at
+      - url
     MCPLinkResult:
       type: object
       properties:
