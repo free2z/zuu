@@ -28,8 +28,10 @@ xAI, the drop-in compatibility encodings and the build order — is in
 Tagged releases and the gateway compatibility matrix are in
 [RELEASES.md](./RELEASES.md). Package maintainers can use the
 [release verification guide](./RELEASING.md).
-It separates the implemented Rust preview and mock flows from the pending
-Tauri/TypeScript packages and live-platform prerequisites.
+It separates implemented source/package checks from pending registry publication
+and live-platform acceptance. Current-source TypeScript signatures and examples
+are in [REFERENCE.md](./REFERENCE.md) (D3); credential boundaries and recovery
+operations are in [SECURITY.md](./SECURITY.md) (D4).
 
 ## The three capabilities
 
@@ -117,8 +119,8 @@ binaries are AGPL.
 | `wallet/plugins/tauri-plugin-f2z` | `tauri-plugin-f2z` (crates.io) + `@free2z/tauri-plugin-f2z-api` (npm) | Tauri 2 plugin (`tauri = "2"`, from 2.5 up; peer `@tauri-apps/api ^2.5`). Tokens stay in Rust; JavaScript never sees them | MIT |
 | `ts/free2z/sdk` | `@free2z/sdk` (npm) | Framework-agnostic TypeScript client. `FetchTransport` for the web, explicit `NativeTransport(nativeBridge)` inside a Tauri webview; same API on both (pre-release source preview) | MIT |
 | `ts/free2z/sdk-ui` | `@free2z/sdk-ui` (npm, later) | Web components `<f2z-sign-in>`, `<f2z-balance>` and a "get 2Z on Free2Z" link | MIT |
-| `wallet/examples/free2z/hello-ai` | — | The reference Tauri app (planned, not in the tree yet): sign in, show the balance and the Free2Z billing link, stream a chat | — |
-| `docs/free2z/sdk/` | — | This contract (D1), later the guides (D2), reference (D3) and security/operations notes (D4) | — |
+| `wallet/examples/free2z/hello-ai` | — | Package-consuming browser app and reusable Tauri frontend: sign-in, balance, billing, chat, cancel and receipt recovery; native host/device setup is separate | — |
+| `docs/free2z/sdk/` | — | Wire contracts (D1), quickstart/integration guides (D2), TypeScript reference (D3) and security/operations notes (D4) | — |
 | `docs/free2z/ai-gateway/` | — | The gateway's architecture decision records | — |
 
 Supported releases use **published packages** from crates.io and npm, never
@@ -176,6 +178,8 @@ Consequences that follow directly:
 
 | Document | Who needs it |
 |---|---|
+| [`REFERENCE.md`](./REFERENCE.md) | Current-source TypeScript API, tagged-version differences and legacy API removal plan |
+| [`SECURITY.md`](./SECURITY.md) | Credential boundaries, operation journals, settlement and independent release evidence |
 | [`QUICKSTART.md`](./QUICKSTART.md) | Everyone, first. A complete first app (TS and Rust), the recovery UX for balance and budget refusals, sessions and multiple accounts |
 | [`spec/oidc.md`](./spec/oidc.md) | Everyone. Registration, redirect rules, PKCE, tokens and claims, refresh rotation, revocation, step-up |
 | [`spec/chat-api.md`](./spec/chat-api.md) | Anyone calling or implementing the gateway. `POST /v1/chat` and the full SSE grammar with examples |

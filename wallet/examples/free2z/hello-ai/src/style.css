@@ -1,0 +1,9 @@
+:root { font-family: system-ui, sans-serif; color-scheme: light dark; }
+main { max-width: 52rem; margin: 2rem auto; padding: 1rem; }
+label, textarea, pre { display: block; margin-block: 1rem; }
+textarea { width: 95%; min-height: 6rem; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+button, select { margin: .25rem; padding: .5rem; }
+button:enabled, select:enabled { cursor: pointer; }
+button:disabled, select:disabled { cursor: default; }
+[hidden] { display: none; }

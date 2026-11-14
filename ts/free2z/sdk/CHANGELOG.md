@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Added / fixed (#1073)
+
+- Export `TauriTransport` as an alias of `NativeTransport` (same class identity,
+  constructor and native security boundary; existing imports keep working).
+- Keep `waitForPurchase` polling unknown, disputed and partially-refunded
+  statuses until a known final state or the existing deadline. A returned
+  snapshot is never evidence of credit unless its status is `credited`.
+- Add the package-consuming hello-ai web/Tauri frontend, journal/cancellation/
+  same-key recovery tests, installed guest type compatibility, and D3/D4
+  reference/security guides. Billing follows #1307: no in-app purchase UI.
+- Document future breaking 1.0.0 removal of deprecated purchase wrappers;
+  preserve 0.4.x card compatibility and Zcash billing-refusal details.
+
+These changes are not in a tagged release. Package publication and live
+browser/native acceptance remain separate requirements; no versions are bumped.
+
 - Forward optional `SignInOptions.loginHint` and `uiLocales` through both
   transports, matching the existing native guest/core options. Hints never
   determine the authenticated account. These additions are not in `sdk-v0.4.0`.

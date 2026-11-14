@@ -6,6 +6,9 @@ Use the coordinated `sdk-v0.4.0` source tag for all five packages; the
 [installation guide and historical implementation snapshot](./SOURCE-PREVIEW.md)
 separate source integration from registry publication and live acceptance.
 Local fakes prove SDK behavior, not deployed service or payment readiness.
+For a package-consuming UI, see [hello-ai](../../../wallet/examples/free2z/hello-ai/README.md).
+Use the [TypeScript API reference](./REFERENCE.md) (D3) and
+[security/operations guide](./SECURITY.md) (D4) alongside this integration guide (D2).
 
 ## Registration and the native boundary
 
@@ -576,7 +579,8 @@ back from a checkout is a wake-up hint, **not evidence of credit**;
 `wait_for_purchase` may return an intent still `created`, `pending` or `paid`,
 and only `credited` means 2Z reached the account. Third-party apps never use
 Free2Z's first-party Apple/Google IAP rails. See
-[spec/purchase.md](./spec/purchase.md).
+[spec/purchase.md](./spec/purchase.md). The migration and future 1.0.0 wrapper-removal plan is in
+[the reference](./REFERENCE.md#legacy-purchase-compatibility-and-removal).
 
 ### Manage Free2Z account: the URL contract
 
@@ -730,9 +734,11 @@ records to the account and clear or quarantine them on account changes.
 The chat idempotency window is 24 hours. Do not automatically re-send an old key
 after that window: it can become a new billable call. A recovered receipt has no
 answer text because the gateway does not retain completions. Generating another
-answer is an explicit new operation with a new key. Defaults may automatically
-retry eligible uncharged failures with a new key; the example disables that
-behavior so the app owns the retry decision.
+answer is an explicit new operation with a new key. The Rust core's retry policy may retry eligible uncharged failures with a new
+key; its integration example disables that policy. The TypeScript facade and
+native plugin do not automatically retry a billable call with a fresh key.
+The hello-ai consumer requires an explicit user action for recovery or a new
+paid operation.
 
 `sign_out().await` clears local state and returns whether server revocation was
 confirmed. `false` does not promise server revocation. Cancellation-independent
