@@ -8,7 +8,7 @@ use tempfile::{Builder, TempDir};
 use zcash_paymentd::{
     Event, Payment,
     config::Consumer,
-    delivery::{Automation, ExecAutomation},
+    delivery::{Automation, ExecAutomation, HookFailure, failure_reason},
 };
 
 fn event() -> Event {
@@ -189,5 +189,80 @@ async fn timeout_includes_blocked_stdin_and_terminates_descendants() -> Result<(
         Ok(result) => result?,
         Err(_) => bail!("hook descendant process {pid} survived timeout"),
     }
+    Ok(())
+}
+
+fn hook_failure(error: &anyhow::Error) -> HookFailure {
+    *error
+        .downcast_ref::<HookFailure>()
+        .expect("classified hook failure")
+}
+
+#[tokio::test]
+async fn failures_are_classified_without_child_or_event_data() -> Result<()> {
+    let d = TempDir::new()?;
+    let cases: [(&str, &str, u64, HookFailure, &str); 3] = [
+        (
+            "exits",
+            "/bin/cat >/dev/null\necho private-memo-text >&2\nexit 7",
+            2,
+            HookFailure::Exit(7),
+            "hook exited with status 7",
+        ),
+        (
+            "killed",
+            "/bin/cat >/dev/null\nkill -9 $$",
+            2,
+            HookFailure::Signal(9),
+            "hook killed by signal 9",
+        ),
+        (
+            "slow",
+            "/bin/cat >/dev/null\n/bin/sleep 30",
+            1,
+            HookFailure::TimedOut(1),
+            "hook timed out after 1s",
+        ),
+    ];
+    for (name, body, timeout_seconds, expected, reason) in cases {
+        let a = ExecAutomation(Consumer {
+            id: name.into(),
+            argv: vec![script(&d, name, body)?],
+            timeout_seconds,
+            observe_unconfirmed: false,
+        });
+        let error = a.handle(&event()).await.expect_err(name);
+        assert_eq!(hook_failure(&error), expected);
+        assert_eq!(failure_reason(&error), reason);
+        assert!(!failure_reason(&error).contains("private"));
+    }
+    let missing = ExecAutomation(Consumer {
+        id: "missing".into(),
+        argv: vec![d.path().join("absent").to_string_lossy().into_owned()],
+        timeout_seconds: 2,
+        observe_unconfirmed: false,
+    });
+    let error = missing.handle(&event()).await.expect_err("missing hook");
+    assert_eq!(hook_failure(&error), HookFailure::Start);
+    assert_eq!(failure_reason(&error), "hook could not start");
+    // Anything unclassified keeps a fixed generic reason, never its message.
+    assert_eq!(
+        failure_reason(&anyhow::anyhow!("memo 6a6f686e and SELECT * FROM users")),
+        "hook failed"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn hook_exiting_before_reading_reports_its_own_status() -> Result<()> {
+    let d = TempDir::new()?;
+    let a = ExecAutomation(Consumer {
+        id: "early".into(),
+        argv: vec![script(&d, "early", "exit 3")?],
+        timeout_seconds: 2,
+        observe_unconfirmed: false,
+    });
+    let error = a.handle(&event()).await.expect_err("early exit");
+    assert_eq!(hook_failure(&error), HookFailure::Exit(3));
     Ok(())
 }
