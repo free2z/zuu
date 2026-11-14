@@ -176,6 +176,9 @@ POLICY: dict[str, tuple[str, str]] = {
     "tagging.TagSuggestion.decided_by": (UNLINK, "unlinked, as a real delete's SET_NULL would"),
     "twitter.Announcement.subject_user": (UNLINK, "unlinked; unsent announcements suppressed, generated copy and images cleared"),
     "dyte.CreatorMeeting.creator": (RETAIN, "livestream room; every access and money path refuses an inactive creator"),
+    "dyte.ProducerStream.creator": (RETAIN, "provider room/ambiguity and billing attribution survive on the tombstone; host tickets revoke at deactivation, title/description scrub at purge unless held for moderation"),
+    "dyte.ProducerOperation.creator": (RETAIN, "operation keys and content-free outcomes bind historical host identities and cleanup; content fingerprint scrubbed at purge unless held for moderation"),
+    "dyte.ProducerActorClaim.creator": (RETAIN, "content-free fencing row needed by orphan-room recovery; holder and expiry revoked at deactivation"),
     "dyte.ProviderRoomCleanup.creator": (UNLINK, "unlinked, as a real delete's SET_NULL would; keeps creator_id_snapshot"),
     "dyte.RecordingDelivery.creator": (UNLINK, "unlinked so a pending recording retry terminalizes instead of re-uploading"),
     "dyte.RecordingDeliveryTarget.creator": (UNLINK, "unlinked, as a real delete's SET_NULL would; keeps creator_id_snapshot"),
@@ -490,6 +493,8 @@ def _purge_locked(creator) -> DeletionReport:
     _unlink_records(creator, report)
     _scrub_profile(creator, keep_public_profile=held.everything)
     _scrub_idempotency_response_bodies(creator, report)
+    from dj.apps.dyte.producer import revoke_producers
+    revoke_producers(creator.pk, purge=not held.everything)
     # After every credential is gone, in the same transaction (the
     # function's own contract): signs out every session and token.
     bump_account_epoch(creator.pk, event=EVENT_ACCOUNT_DELETED)
@@ -1238,6 +1243,8 @@ def schedule_deletion(creator, *, confirm_username: str, auth_epoch: int):
         creator.save(update_fields=[
             "deletion_requested_at", "purge_after", "is_active", "updated_at",
         ])
+        from dj.apps.dyte.producer import revoke_producers
+        revoke_producers(creator.pk)
         _bump_carrying_identities(creator, EVENT_ACCOUNT_DELETION_SCHEDULED)
         _record_event(creator, "scheduled", purge_after=creator.purge_after.isoformat())
     logger.info(

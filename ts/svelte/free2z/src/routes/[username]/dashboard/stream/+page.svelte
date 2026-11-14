@@ -1193,6 +1193,12 @@
   }
 </script>
 
+<div class="px-4 py-3">
+  <Button href={`/${username}/dashboard/producer`}
+    >{$t("producer.heading")}</Button
+  >
+</div>
+
 <svelte:head>
   <title
     >{$t("dashboard.stream.metaTitle", "Stream Dashboard - {username}", {

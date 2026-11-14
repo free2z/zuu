@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>free2z uses the camera when you explicitly prepare or host a live stream.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>free2z uses the microphone when you explicitly prepare or host a live stream.</string>
+</dict>
+</plist>

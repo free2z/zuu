@@ -1,3 +1,4 @@
+import { ProducerDialog } from "./ProducerDialog";
 import { useEffect, useMemo, useState } from "react";
 import { Radio } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -69,10 +70,15 @@ export function Discovery() {
             : error && data === null
               ? "Live status is temporarily unavailable."
               : liveCount > 0
-              ? `${liveCount} creator${liveCount === 1 ? "" : "s"} live right now.`
-              : "No one is live yet — be the first to go on air."
+                ? `${liveCount} creator${liveCount === 1 ? "" : "s"} live right now.`
+                : "No one is live yet — be the first to go on air."
         }
-        actions={<GoLiveDialog />}
+        actions={
+          <>
+            <ProducerDialog />
+            <GoLiveDialog />
+          </>
+        }
       />
 
       <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)}>
@@ -88,7 +94,9 @@ export function Discovery() {
       {error ? (
         <SectionLoadError
           title={
-            data ? "Live status may be out of date" : "Couldn't load livestreams"
+            data
+              ? "Live status may be out of date"
+              : "Couldn't load livestreams"
           }
           description={
             data

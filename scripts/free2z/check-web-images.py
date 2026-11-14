@@ -11,6 +11,19 @@ def run(*args):
     return subprocess.check_output(['docker', *args], text=True, timeout=180)
 
 
+def producer_install_program():
+    return """(()=>{
+const fs=require('node:fs'), path=require('node:path');
+const app=JSON.parse(fs.readFileSync('package.json','utf8'));
+const lock=JSON.parse(fs.readFileSync('package-lock.json','utf8'));
+const target=fs.realpathSync('node_modules/@free2z/producer');
+const relative=path.relative(process.cwd(),target).split(path.sep).join('/');
+if(app.dependencies['@free2z/producer']!=='file:'+relative || lock.packages['node_modules/@free2z/producer'].resolved!==relative || !lock.packages[relative])throw Error('producer lock identity');
+const producer=JSON.parse(fs.readFileSync(path.join(target,'package.json'),'utf8'));
+if(producer.name!=='@free2z/producer'||producer.private!==true||producer.exports['.']!=='./src/index.ts'||!fs.statSync(path.join(target,'src/index.ts')).isFile())throw Error('producer source package missing');
+})();"""
+
+
 def inspect(kind, image, commit):
     metadata = json.loads(run('image', 'inspect', image))[0]
     labels = metadata['Config'].get('Labels') or {}
@@ -22,6 +35,7 @@ def inspect(kind, image, commit):
         print(run(*options, '-e', 'DJANGO_SETTINGS_MODULE=dj.free2z.settings', '-e', 'OPENAPI_GEN=1', '-e', 'SECRET_KEY=fixture-image-import-check-not-a-production-key', image, '-c', program))
         mcp_protocol_smoke(image, options)
     elif kind == 'web':
+        print(run(*options, '--entrypoint=node', image, '-e', producer_install_program()))
         print(run(*options, '--entrypoint=node', image, 'scripts/check-og-runtime.mjs'))
         print(run(*options, '--entrypoint=node', image, '-e', "const fs=require('fs');for(const p of ['/usr/local/bin/npm','/usr/local/bin/npx','/usr/local/bin/corepack','/usr/local/bin/yarn'])if(fs.existsSync(p))throw Error(p);if(process.env.PUBLIC_BUILD_SHA!=="+repr(commit)+")throw Error('source identity');import('./build/handler.js')"))
     elif kind == 'static':

@@ -377,3 +377,58 @@ def test_short_ppv_session_drops_the_platform_fee_but_still_pays_the_creator(
     assert viewer.tuzis == Decimal('97')
     assert Event.objects.get(
         type='PLATFORM_FEE', receiving_user=viewer).amount == Decimal('0')
+
+
+@pytest.mark.django_db
+def test_producer_host_departure_after_rename_and_rotation_never_bills_itself(
+    client, creator_factory, keypair,
+):
+    from dj.apps.dyte.models import ProducerStream, ProducerOperation
+    cm, creator = _broadcast(creator_factory)
+    stream = ProducerStream.objects.create(creator=creator, account_epoch=creator.kt_account_epoch,
+        title='Host fixture', owner=uuid.uuid4(), room_id=cm.meeting_id,
+        meeting=cm, state='cleaned_up')
+    key=uuid.uuid4()
+    ProducerOperation.objects.create(creator=creator,key=key,fingerprint='0'*64,
+        stream=stream,result={'action':'refresh','accepted_version':1})
+    body=_left_after(cm,f'producer:{key}',600)
+    cm.meeting_id=str(uuid.uuid4());cm.save(update_fields=['meeting_id'])
+    creator.username='renamed_producer';creator.save(update_fields=['username'])
+    before=creator.tuzis
+    for _ in range(2):
+        assert _post(client,keypair[0],body).status_code == 200
+    creator.refresh_from_db()
+    assert creator.tuzis == before
+    assert not Event.objects.filter(type='PLATFORM_FEE',receiving_user=creator).exists()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('historical_source', ['producer', 'legacy_retirement'])
+def test_producer_rotation_retains_delayed_viewer_billing_once(
+    client, creator_factory, keypair, historical_source,
+):
+    from dj.apps.dyte.models import ProducerStream, ProducerOperation, ProviderRoomCleanup
+    cm, creator = _broadcast(creator_factory)
+    body = _left_after(cm, 'Historical viewer', 600)
+    stream = ProducerStream.objects.create(
+        creator=creator, account_epoch=creator.kt_account_epoch,
+        title='Host fixture', owner=uuid.uuid4(), meeting=cm,
+        room_id=cm.meeting_id if historical_source == 'producer' else uuid.uuid4(),
+        state='cleaned_up',
+    )
+    if historical_source == 'legacy_retirement':
+        receipt = ProviderRoomCleanup.objects.create(
+            creator=creator, creator_meeting=cm, meeting_type=BROADCAST,
+            provider_meeting_id=cm.meeting_id, status='complete',
+        )
+        ProducerOperation.objects.create(
+            creator=creator, key=uuid.uuid4(), fingerprint='0'*64, stream=stream,
+            result={'action':'provision','accepted_version':1,'retired_room_id':receipt.pk},
+        )
+    cm.meeting_id = str(uuid.uuid4())
+    cm.save(update_fields=['meeting_id'])
+    for _ in range(2):
+        assert _post(client, keypair[0], body).status_code == 200
+    creator.refresh_from_db()
+    assert creator.tuzis == Decimal('995')
+    assert Event.objects.filter(type='PLATFORM_FEE',receiving_user=creator).count() == 1

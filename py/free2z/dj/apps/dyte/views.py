@@ -696,6 +696,34 @@ def _historical_private_recording_meeting(meeting_id, session_id=None):
     return None
 
 
+def _historical_producer_projection(meeting_id):
+    """Keep delayed fees/uploads on the original public broadcast owner.
+
+    Only v1 generations or their durable legacy-retirement receipts qualify.
+    The reusable row must still have the same owner and public/free tier;
+    this routing grants no lifecycle or admission authority.
+    """
+    from .models import ProducerStream, ProducerOperation
+    stream = ProducerStream.objects.filter(room_id=meeting_id).first()
+    if stream:
+        cm = stream.meeting
+        owner_id = stream.creator_id
+    else:
+        receipt = ProviderRoomCleanup.objects.filter(
+            provider_meeting_id=str(meeting_id), meeting_type=BROADCAST,
+        ).first()
+        if receipt is None or not ProducerOperation.objects.filter(
+            result__action='provision', result__retired_room_id=receipt.pk,
+            creator_id=receipt.creator_id,
+        ).exists():
+            return None
+        cm = receipt.creator_meeting
+        owner_id = receipt.creator_id
+    if cm and cm.creator_id == owner_id and cm.meeting_type == BROADCAST and cm.is_public:
+        return cm
+    return None
+
+
 def recording_delivery_business_key(meeting_id, recording) -> str:
     """Deduplicate one usable URL delivery without suppressing a refresh.
 
@@ -837,8 +865,25 @@ def webhook(request: HttpRequest):
         )
         return Response(status=status.HTTP_400_BAD_REQUEST)
 
+    if event_data.event == 'meeting.participantLeft' and isinstance(event_data.participant.customParticipantId, str) and event_data.participant.customParticipantId.startswith('producer:'):
+        # This reserved provider namespace is never issued to a viewer. Bind
+        # it to the durable host grant and historical room before exempting a
+        # creator's own connection from platform fees, even after rename/end.
+        from .models import ProducerOperation
+        try:
+            grant_key = uuid.UUID(event_data.participant.customParticipantId[9:])
+        except ValueError:
+            return Response({'code': 'producer_identity_unresolved'}, status=503)
+        if not ProducerOperation.objects.filter(key=grant_key,
+                stream__room_id=event_data.meeting.id,
+                result__action__in=['refresh', 'takeover']).exists():
+            return Response({'code': 'producer_identity_unresolved'}, status=503)
+        return HttpResponse('OK')
+
     cm = CreatorMeeting.objects.filter(
         meeting_id=str(event_data.meeting.id)).first()
+    if cm is None and event_data.event in ('meeting.participantLeft', 'recording.statusUpdate'):
+        cm = _historical_producer_projection(event_data.meeting.id)
     if cm is None and event_data.event == 'recording.statusUpdate':
         cm = _historical_private_recording_meeting(
             event_data.meeting.id, getattr(event_data.meeting, 'sessionId', None),
@@ -978,6 +1023,11 @@ def _acknowledge_unresolved_meeting(
 @transaction.atomic
 def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
     """Apply one validated delivery atomically with its unique claim."""
+    from .models import ProducerStream
+    # Only v1 may change its public projection; callbacks are not publish intent.
+    if event_data.event in ('meeting.started', 'meeting.ended') and ProducerStream.objects.filter(
+            room_id=cm.meeting_id).exists():
+        return
     if event_data.event in ('meeting.started', 'meeting.ended'):
         # The caller resolved this row before our transaction. Serialize both
         # lifecycle events and compare against the current, locked session.
@@ -1348,6 +1398,8 @@ def webhook_recording_status_update(request: HttpRequest):
 
     cm = CreatorMeeting.objects.filter(
         meeting_id=str(event_data.meeting.id)).first()
+    if cm is None:
+        cm = _historical_producer_projection(event_data.meeting.id)
     if cm is None:
         cm = _historical_private_recording_meeting(
             event_data.meeting.id, getattr(event_data.meeting, 'sessionId', None),
@@ -2252,6 +2304,12 @@ class DyteMeeting(APIView):
                 takeover=body.validated_data.get('takeover', False),
             )
 
+        # Reserve host identity independently of username validation (including
+        # legacy/imported accounts). A viewer must never impersonate a durable
+        # producer grant in a signed participant-left billing callback.
+        if str(request.user.username).startswith('producer:'):
+            return Response({'code': 'participant_identity_unavailable'}, status=409)
+
         # Viewer -- including the creator on their own public stream page.
         # Meeting must exist and be live
         cm = get_object_or_404(
@@ -2417,6 +2475,10 @@ class DyteMeeting(APIView):
                         return Response({'code': 'livestream_compensation_integration_unavailable',
                             'error': 'Paid livestream compensation is unavailable.'}, status=409)
             _lock_host_seat(creator)
+            from .models import ProducerStream, ProducerActorClaim
+            if (ProducerActorClaim.objects.filter(creator=creator, token__isnull=False).exists()
+                    or ProducerStream.objects.filter(creator=creator).exclude(state='cleaned_up').exists()):
+                return Response({'code': 'versioned_producer_active'}, status=409)
             if (not settings.DYTE_HOST_EVICTION_JOBS_ENABLED
                     and CreatorMeeting.objects.filter(creator=creator).filter(
                         ~Q(host_participant_id='') | ~Q(host_evictions=[])
@@ -2463,7 +2525,16 @@ class DyteMeeting(APIView):
             if meeting_type == PAY_PER_VIEW and ppv_join_threshold(cm.price_per_minute) is None:
                 return Response(status=status.HTTP_400_BAD_REQUEST,
                     data="PPV price must be a positive amount with at most two decimals")
-            rotate = created or not cm.meeting_id or (
+            # A v1 end permanently disabled this historical room. Legacy
+            # hosts must create a fresh generation, never reuse its tokens.
+            try:
+                producer_room_id = uuid.UUID(str(cm.meeting_id))
+            except (ValueError, TypeError):
+                producer_room_id = None
+            retired_producer_room = producer_room_id is not None and ProducerStream.objects.filter(
+                meeting=cm, room_id=producer_room_id, state='cleaned_up',
+            ).exists()
+            rotate = created or not cm.meeting_id or retired_producer_room or (
                 not resumed and not cm.live_now
                 and timezone.now() - cm.created_at > timezone.timedelta(days=1)
             )

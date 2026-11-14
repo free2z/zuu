@@ -18,6 +18,9 @@ import { promisify } from "node:util";
 import ts from "typescript";
 
 const SHARED_PACKAGE = "@free2z/wallet-shared";
+// Content-host authority belongs only to Free2Z, never to the seed holder.
+const PRODUCER_PACKAGE = "@free2z/producer";
+const PRODUCER_DEPENDENCY = "file:../../ts/free2z/producer";
 const executeFile = promisify(execFile);
 const SCRIPT_DIRECTORY = path.dirname(fileURLToPath(import.meta.url));
 const CONSTRAINED_VITE_BUILD_HELPER = path.join(
@@ -515,6 +518,7 @@ async function constrainedViteConfigurationAudit(
   const allowedReadRoots = [
     project.projectRoot,
     sharedRoot,
+    ...project.sourcePackages.map((entry) => entry.root),
     path.join(path.dirname(project.projectRoot), "package.json"),
     path.join(path.dirname(project.projectRoot), "pnpm-workspace.yaml"),
     path.join(path.dirname(project.projectRoot), "lerna.json"),
@@ -533,6 +537,7 @@ async function constrainedViteConfigurationAudit(
         schemaVersion: 1,
         projectDirectory: project.directory,
         moduleReferences,
+        sourcePackages: project.sourcePackages,
       }),
       { flag: "wx" },
     );
@@ -720,6 +725,10 @@ function dependencyViolations(project, projects) {
   for (const [section, dependencies] of dependencySections(project.manifest)) {
     for (const [alias, value] of Object.entries(dependencies)) {
       if (alias === SHARED_PACKAGE && section === "dependencies" && value === "file:../shared") {
+        continue;
+      }
+      if (project.directory === "free2z" && project.name === "free2z" &&
+          alias === PRODUCER_PACKAGE && section === "dependencies" && value === PRODUCER_DEPENDENCY) {
         continue;
       }
       if (typeof value !== "string") {
@@ -1014,6 +1023,19 @@ function validateSpecifier({ project, projects, sharedRoot, file, sourceFile, im
   }
   if (specifier.includes("\0")) return `${location}: module specifier contains NUL`;
 
+  if (packageName(specifier) === PRODUCER_PACKAGE) {
+    if (specifier !== PRODUCER_PACKAGE) {
+      return `${location}: ${PRODUCER_PACKAGE} exposes only its package root; traversal and subpaths are forbidden`;
+    }
+    if (!project.sourcePackages?.some((entry) => entry.name === PRODUCER_PACKAGE)) {
+      return `${location}: producer authority requires the exact Free2Z content-app dependency`;
+    }
+    if (matchingPathAliases(project.compilerOptions, specifier).length) {
+      return `${location}: producer package import may not be shadowed by a TypeScript alias`;
+    }
+    return null;
+  }
+
   if (packageSpecifierIsShared(specifier)) {
     if (specifier.split("/").includes("..")) {
       return `${location}: shared package import may not traverse parent segments: ${specifier}`;
@@ -1064,6 +1086,50 @@ async function readJson(file) {
   } catch (error) {
     throw new Error(`${file}: invalid JSON: ${error.message}`);
   }
+}
+
+async function producerSourcePackages(project, walletRoot) {
+  if (project.directory !== "free2z" || project.name !== "free2z") return [];
+  if (project.manifest.dependencies?.[PRODUCER_PACKAGE] !== PRODUCER_DEPENDENCY) {
+    throw new Error("wallet/free2z must declare the exact Free2Z producer source package");
+  }
+  const root = path.resolve(walletRoot, "../ts/free2z/producer");
+  if (realpathSync(root) !== root) {
+    throw new Error("Free2Z producer package root may not traverse a symbolic link");
+  }
+  const manifest = await readJson(path.join(root, "package.json"));
+  if ((await lstat(path.join(root, "package.json"))).isSymbolicLink() ||
+      !(await existsAs(path.join(root, "src/index.ts"), "file"))) {
+    throw new Error("Free2Z producer requires a regular manifest and exported source entry");
+  }
+  if (manifest.name !== PRODUCER_PACKAGE || manifest.private !== true || manifest.type !== "module" ||
+      JSON.stringify(manifest.exports) !== JSON.stringify({ ".": "./src/index.ts" }) ||
+      dependencySections(manifest).some(([, entries]) => Object.keys(entries).length) ||
+      Object.keys(manifest.scripts ?? {}).length) {
+    throw new Error("Free2Z producer must remain a private dependency-free source package with only ./src/index.ts exported and no install/build scripts");
+  }
+  const lock = await readJson(path.join(project.projectRoot, "package-lock.json"));
+  const link = lock.packages?.[`node_modules/${PRODUCER_PACKAGE}`];
+  if (link?.link !== true || link.resolved !== PRODUCER_DEPENDENCY.slice(5)) {
+    throw new Error("wallet/free2z lock must resolve the exact producer source package as a local link");
+  }
+  // Audit the complete package, including files not reached by today's panel.
+  // Its injected HTTP/SDK interfaces must not acquire another app's authority.
+  for (const file of await sourceFiles(path.join(root, "src"))) {
+    const parsed = ts.createSourceFile(file, await readFile(file, "utf8"), ts.ScriptTarget.ESNext, true, scriptKind(file));
+    if (parsed.parseDiagnostics.length) throw new Error("Free2Z producer source must parse without ambiguity");
+    for (const imported of importedModules(parsed)) {
+      const specifier = imported.node && literalModule(imported.node);
+      if (!specifier?.startsWith(".") || specifier.includes("\0")) {
+        throw new Error(`${file}: producer source imports must remain package-local`);
+      }
+      const target = path.resolve(path.dirname(file), specifier);
+      if (!inside(root, target) || !inside(root, projectedRealpath(target, "producer source import"))) {
+        throw new Error(`${file}: producer source import escapes its package`);
+      }
+    }
+  }
+  return [{ name: PRODUCER_PACKAGE, root, entry: path.join(root, "src/index.ts") }];
 }
 
 export async function scanProjectBoundaries(
@@ -1118,6 +1184,7 @@ export async function scanProjectBoundaries(
   let importCount = 0;
   for (const project of projects) {
     const dependencies = project.manifest.dependencies ?? {};
+    project.sourcePackages = await producerSourcePackages(project, absoluteWalletRoot);
     const configurations = await typeScriptConfigurations(project);
     const primaryConfiguration = configurations.find(
       (configuration) => path.basename(configuration.configFile) === "tsconfig.json",

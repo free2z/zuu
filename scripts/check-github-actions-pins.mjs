@@ -141,6 +141,21 @@ const RUST_ROOT_CONTRACTS = [
         "wallet/free2z/src/index.css"].map((file) => [file,
         { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" }]),
 
+      // The Free2Z producer source is compiled by the content app as well as
+      // the web dashboard. It selects surfaces without selecting native jobs.
+      ...["src/client.ts", "src/panel.ts", "src/labels.ts", "src/nested/future.ts", "package.json"].map((file) => [
+        `ts/free2z/producer/${file}`,
+        { zuuli: "false", rust: "false", zuuallet_schema: "false", surfaces: "true" },
+      ]),
+      [
+        "ts/free2z/producer/src/client.ts\0wallet/free2z/src/App.tsx",
+        { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" },
+      ],
+      [
+        "ts/free2z/producer/src/client.ts\0wallet/free2z/src-tauri/src/lib.rs",
+        { zuuli: "true", rust: "true", zuuallet_schema: "true", surfaces: "true" },
+      ],
+
       // The carve-out itself, at both depths a `*` that spans `/` reaches, and
       // for both surfaces.
       [
@@ -205,6 +220,10 @@ const RUST_ROOT_CONTRACTS = [
       ],
     ],
     excludedProbePaths: [
+      // The shared producer exception must not select unrelated web inputs.
+      "ts/free2z/producer-sibling.ts",
+      "ts/free2z/producer-sibling/nested.ts",
+      "ts/svelte/free2z/tests/browser/producer-v1.spec.ts",
       "wallet/README.md",
       "wallet/docs/free2z/app-suite/architecture.md",
       "rs/crates/f2z-relay/src/lib.rs",
@@ -3957,6 +3976,14 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       }
       console.log("self-test: future Rust-embedded frontend input cannot silently skip native jobs: passed");
       cases += 1;
+      const futureProducerDependency = "ts/free2z/producer/src/future-native-input.ts";
+      const producerFindings = rustRootWorkflowFailures(contract.workflow, source.split(/\r?\n/),
+        contract, [futureProducerDependency]);
+      if (!producerFindings.some((finding) => finding.includes(`Rust selector must preserve embedded input ${futureProducerDependency}`))) {
+        throw new Error("future Rust-embedded shared producer source escaped selector validation");
+      }
+      console.log("self-test: future Rust-embedded shared producer input cannot silently skip native jobs: passed");
+      cases += 1;
     }
 
     const ownerPrefix = `${contract.root}/ owner`;
@@ -4179,6 +4206,33 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       `${ownerPrefix} selector must actively select`,
     );
     if (contract.root === "wallet") {
+      const producerGuard =
+        '            if [[ "$file" == ts/free2z/producer/* ]]; then\n' +
+        '              surfaces=true\n' +
+        '              continue\n' +
+        '            fi\n';
+      for (const [description, replacement, needle] of [
+        ["deleting shared producer coverage", "",
+          'must leave surfaces true for "ts/free2z/producer/src/client.ts"'],
+        ["dropping the shared producer surfaces output",
+          producerGuard.replace("              surfaces=true\n", ""),
+          'must leave surfaces true for "ts/free2z/producer/src/client.ts"'],
+        ["narrowing shared producer coverage to one current file",
+          producerGuard.replace("producer/*", "producer/src/panel.ts"),
+          'must leave surfaces true for "ts/free2z/producer/src/client.ts"'],
+        ["broadening shared producer coverage to unrelated web sources",
+          producerGuard.replace("producer/*", "*"),
+          'must leave surfaces false for unrelated input "ts/free2z/producer-sibling.ts"'],
+        ["selecting native jobs for shared producer source",
+          producerGuard.replace("surfaces=true", "surfaces=true\n              rust=true"),
+          'must leave rust false for "ts/free2z/producer/src/client.ts"'],
+        ["letting shared producer source skip a later native change",
+          producerGuard.replace("continue", "break"),
+          'must leave rust true for "ts/free2z/producer/src/client.ts'],
+      ]) {
+        assertWorkflowFailure(contract, source, `wallet/ rejects ${description}`,
+          (value) => mutateJob(value, "changes", producerGuard, replacement), needle);
+      }
       const selectorPatternMutations = [
         [
           "wallet Rust source selector",

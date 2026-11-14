@@ -178,6 +178,7 @@ export default defineConfig({
   },
   ssr: {
     external: ["@resvg/resvg-js"],
+    noExternal: ["@free2z/producer"],
   },
   server: {
     hmr: process.env.NODE_TEST_CONTEXT ? false : undefined,
@@ -186,7 +187,10 @@ export default defineConfig({
     // changing the production bundle or exposing them through SvelteKit
     // routes.
     fs: {
-      allow: [fileURLToPath(new URL("./", import.meta.url))],
+      allow: [
+        fileURLToPath(new URL("./", import.meta.url)),
+        fileURLToPath(new URL("../../free2z/producer", import.meta.url)),
+      ],
     },
     proxy: {
       "/.well-known": {

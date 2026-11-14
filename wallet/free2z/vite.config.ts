@@ -68,6 +68,12 @@ export default defineConfig({
     strictPort: true,
     host: host || "127.0.0.1",
     hmr: host ? { protocol: "ws", host, port: 1426 } : undefined,
+    fs: {
+      allow: [
+        __dirname,
+        path.resolve(__dirname, "../../ts/free2z/producer"),
+      ],
+    },
     watch: {
       ignored: ["**/src-tauri/**"],
     },

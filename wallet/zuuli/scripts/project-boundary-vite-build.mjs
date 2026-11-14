@@ -123,13 +123,22 @@ if (
   typeof request !== "object" ||
   Array.isArray(request) ||
   JSON.stringify(Object.keys(request).sort()) !==
-    JSON.stringify(["moduleReferences", "projectDirectory", "schemaVersion"]) ||
+    JSON.stringify(["moduleReferences", "projectDirectory", "schemaVersion", "sourcePackages"]) ||
   request.schemaVersion !== 1 ||
   typeof request.projectDirectory !== "string" ||
   request.projectDirectory.length === 0 ||
-  !Array.isArray(request.moduleReferences)
+  !Array.isArray(request.moduleReferences) ||
+  !Array.isArray(request.sourcePackages)
 ) {
   throw new Error("invalid constrained Vite audit request");
+}
+for (const entry of request.sourcePackages) {
+  if (request.projectDirectory !== "free2z" || entry.name !== "@free2z/producer" ||
+      !path.isAbsolute(entry.root) || fs.realpathSync(entry.root) !== entry.root ||
+      entry.entry !== path.join(entry.root, "src/index.ts") ||
+      !allowedRoots.includes(entry.root)) {
+    throw new Error("invalid declared Free2Z producer source authority");
+  }
 }
 for (const reference of request.moduleReferences) {
   if (
@@ -248,7 +257,10 @@ function viteFilesystemViolation(
   }
   const ownerLocal = inside(projectRoot, lexical) && inside(projectRoot, canonical);
   const namedShared = inside(sharedRoot, lexical) && inside(sharedRoot, canonical);
-  return ownerLocal || (allowShared && namedShared)
+  const namedSourcePackage = request.sourcePackages.some(
+    (entry) => inside(entry.root, lexical) && inside(entry.root, canonical),
+  );
+  return ownerLocal || (allowShared && (namedShared || namedSourcePackage))
     ? null
     : `${label} escapes wallet/${request.projectDirectory}: ${candidate}`;
 }
@@ -537,6 +549,12 @@ for (const environment of environments) {
         );
         if (violation) violations.push(violation);
       }
+    }
+    const sourcePackage = request.sourcePackages.find((entry) => entry.name === reference.specifier);
+    if (sourcePackage && (!standard ||
+        projectedRealpath(typeof standard === "string" ? standard : standard.id,
+          "declared producer resolution") !== sourcePackage.entry)) {
+      violations.push(`${reference.location}: declared producer import must resolve to its exact exported entry`);
     }
   }
   let plugins;

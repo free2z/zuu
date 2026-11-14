@@ -1,0 +1,15 @@
+**
+!ts/
+!ts/svelte/
+!ts/svelte/free2z/
+!ts/svelte/free2z/**
+!ts/free2z/
+!ts/free2z/producer/
+!ts/free2z/producer/**
+**/node_modules
+**/.svelte-kit
+**/build
+**/.vite
+**/.env
+**/.env.*
+**/npm-debug.log*

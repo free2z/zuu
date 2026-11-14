@@ -31,6 +31,11 @@ import type {
   MeetingJoinRequestSchema,
   MeetingJoinResponse,
   PaginatedCreatorMeetingList,
+  ProducerError,
+  ProducerInstruction,
+  ProducerReadiness,
+  ProducerResult,
+  ProducerStatus,
   PublicMeetingDiscovery,
   RecordingRequest,
   RecordingStatus,
@@ -1063,7 +1068,169 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return createMutation(getDyteRecordingStopCreateMutationOptions(options));
     }
-    export const dytePublicList = (
+    export const dyteProducerV1Readiness = (
+
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<ProducerReadiness>(
+      {url: `/api/dyte/producer/v1`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+export const dyteProducerV1Draft = (
+    producerInstruction: ProducerInstruction,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<ProducerResult>(
+      {url: `/api/dyte/producer/v1`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: producerInstruction, signal
+    },
+      options);
+    }
+
+
+
+
+export const getDyteProducerV1DraftMutationKey = () => ['dyteProducerV1Draft'] as const;
+
+export const getDyteProducerV1DraftMutationOptions = <TError = ProducerError,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dyteProducerV1Draft>>, TError,DyteProducerV1DraftMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof dyteProducerV1Draft>>, TError,DyteProducerV1DraftMutationVariables, TContext> => {
+
+const mutationKey = getDyteProducerV1DraftMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dyteProducerV1Draft>>, DyteProducerV1DraftMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  dyteProducerV1Draft(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DyteProducerV1DraftMutationResult = NonNullable<Awaited<ReturnType<typeof dyteProducerV1Draft>>>
+    export type DyteProducerV1DraftMutationBody = ProducerInstruction
+    export type DyteProducerV1DraftMutationError = ProducerError
+    export type DyteProducerV1DraftMutationVariables = {data: ProducerInstruction}
+
+    export const createDyteProducerV1Draft = <TError = ProducerError,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dyteProducerV1Draft>>, TError,DyteProducerV1DraftMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof dyteProducerV1Draft>>,
+        TError,
+        DyteProducerV1DraftMutationVariables,
+        TContext
+      > => {
+      return createMutation(getDyteProducerV1DraftMutationOptions(options));
+    }
+    export const dyteProducerV1Status = (
+    streamId: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<ProducerStatus>(
+      {url: `/api/dyte/producer/v1/${streamId}`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+export const dyteProducerV1Action = (
+    streamId: string,
+    producerInstruction: ProducerInstruction,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<ProducerResult>(
+      {url: `/api/dyte/producer/v1/${streamId}`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: producerInstruction, signal
+    },
+      options);
+    }
+
+
+
+
+export const getDyteProducerV1ActionMutationKey = () => ['dyteProducerV1Action'] as const;
+
+export const getDyteProducerV1ActionMutationOptions = <TError = ProducerError,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dyteProducerV1Action>>, TError,DyteProducerV1ActionMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof dyteProducerV1Action>>, TError,DyteProducerV1ActionMutationVariables, TContext> => {
+
+const mutationKey = getDyteProducerV1ActionMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof dyteProducerV1Action>>, DyteProducerV1ActionMutationVariables> = (props) => {
+          const {streamId,data} = props ?? {};
+
+          return  dyteProducerV1Action(streamId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DyteProducerV1ActionMutationResult = NonNullable<Awaited<ReturnType<typeof dyteProducerV1Action>>>
+    export type DyteProducerV1ActionMutationBody = ProducerInstruction
+    export type DyteProducerV1ActionMutationError = ProducerError
+    export type DyteProducerV1ActionMutationVariables = {streamId: string;data: ProducerInstruction}
+
+    export const createDyteProducerV1Action = <TError = ProducerError,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dyteProducerV1Action>>, TError,DyteProducerV1ActionMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof dyteProducerV1Action>>,
+        TError,
+        DyteProducerV1ActionMutationVariables,
+        TContext
+      > => {
+      return createMutation(getDyteProducerV1ActionMutationOptions(options));
+    }
+    export const dyteProducerV1History = (
+
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<ProducerStatus[]>(
+      {url: `/api/dyte/producer/v1/history`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+export const dytePublicList = (
     params?: DytePublicListParams,
  options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
 ) => {

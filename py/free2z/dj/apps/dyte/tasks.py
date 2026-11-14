@@ -620,10 +620,13 @@ def sweep_live_meetings(timestamp: int):
     summary line per sweep, WARNING only when something actually failed or
     was skipped.
     """
+    from .producer import recover
+    recover()
+
     # Imported lazily so autodiscovery of this module never drags in the
     # Django ORM / app models before the app registry is ready.
     from dj.apps.dyte.client import DyteClient
-    from dj.apps.dyte.models import CreatorMeeting
+    from dj.apps.dyte.models import CreatorMeeting, ProducerStream
 
     _enqueue_deferred_host_evictions()
     dc = DyteClient(settings.DYTE_ORG)
@@ -645,7 +648,10 @@ def sweep_live_meetings(timestamp: int):
     # Materialised so "how many did we not get to" is answerable without a
     # second query racing a concurrent go-live.
     rooms = _probe_order(
-        CreatorMeeting.objects.filter(live_now=True).order_by(
+        CreatorMeeting.objects.filter(live_now=True).exclude(
+            pk__in=ProducerStream.objects.filter(meeting__isnull=False)
+            .exclude(state='cleaned_up').values('meeting_id'),
+        ).order_by(
             F('last_seen_at').asc(nulls_first=True), 'pk'),
         tick=timestamp,
     )
