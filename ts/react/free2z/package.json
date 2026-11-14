@@ -5,7 +5,7 @@
   "dependencies": {
     "@cloudflare/realtimekit": "^1.1.7",
     "@cloudflare/realtimekit-react": "^1.1.7",
-    "@cloudflare/realtimekit-react-ui": "^1.0.5",
+    "@cloudflare/realtimekit-react-ui": "^1.2.0",
     "@cloudflare/realtimekit-recording-sdk": "^0.0.1",
     "@cloudflare/realtimekit-ui": "^1.0.5",
     "@cloudflare/realtimekit-ui-addons": "^0.0.4",
