@@ -1,383 +1,146 @@
-"""A RealtimeKit participant auth token must never reach the logs.
-
-``POST /v2/meetings/{id}/participants`` returns ``data.token``: a bearer
-credential that lets whoever holds it join that meeting as that participant.
-Root logging is INFO in prod (``dj/free2z/settings.py`` ``LOGGING``) and ships
-to Cloud Logging, so an f-string of the response body wrote a live, joinable
-token for every host start and every viewer join.
-
-This matters more, not less, now that anonymous guests can join public
-broadcasts: every anonymous join is a fresh participant, so the volume of
-tokens written to logs scales with the audience.
-
-The DB is real Postgres (repo convention); only the provider HTTP boundary is
-mocked.
-"""
+"""Provider-controlled content must not escape through logs or exceptions."""
 import logging
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
+import requests
 
-from dj.apps.dyte.client import DyteClient
-from dj.apps.dyte.models import CreatorMeeting
+from .client import DyteClient, ProviderError
 
-TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.SUPER-SECRET-JOIN-TOKEN.sig"
-MEETING_ID = "11111111-2222-3333-4444-555555555555"
-
-
-class _Resp:
-    """Minimal stand-in for the requests.Response the provider returns."""
-
-    def __init__(self, status_code, payload):
-        self.status_code = status_code
-        self._payload = payload
-
-    def json(self):
-        return self._payload
-
-    @property
-    def text(self):
-        import json
-        return json.dumps(self._payload)
+TOKEN = 'eyJhbGciOiJIUzI1NiJ9.private-participant-token.sig'
+ROOM = '11111111-2222-3333-4444-555555555555'
 
 
-@pytest.fixture
-def meeting(creator_factory):
-    creator = creator_factory(username="hoststar")
-    return CreatorMeeting.objects.create(
-        creator=creator,
-        meeting_id=MEETING_ID,
-        meeting_type="broadcast",
-        is_public=True,
-        live_now=True,
-    )
-
-
-@pytest.mark.django_db
-def test_add_participant_never_logs_the_auth_token(
-    mocker, caplog, meeting, creator_factory,
-):
-    viewer = creator_factory(username="viewer1")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(200, {"success": True, "data": {
-            "id": "abc", "token": TOKEN,
-        }}),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        resp = DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    # The caller still gets the token; only the LOG must not.
-    assert resp.json()["data"]["token"] == TOKEN
+@pytest.mark.parametrize('status', [200, 400, 401, 403, 404, 429, 500])
+@pytest.mark.parametrize('message', [TOKEN, f'failed with {TOKEN}',
+    {'nested': {'authToken': TOKEN}}, ['opaque-secret'], 'short-secret'])
+def test_participant_response_secrecy(status, message, caplog):
+    body = {'success': status == 200, 'data': {'id': ROOM, 'token': TOKEN}}
+    if status in (400, 401, 403, 404, 429, 500):
+        body['error'] = {'message': message, 'details': {'token': TOKEN}}
+    response = SimpleNamespace(status_code=status, json=lambda: body)
+    transport = Mock(request=Mock(return_value=response))
+    dc = DyteClient(transport=transport)
+    creator = SimpleNamespace(is_authenticated=True, username='viewer', avatar_image=None)
+    cm = SimpleNamespace(creator_id=1, creator=creator)
+    with caplog.at_level(logging.DEBUG):
+        if status == 200:
+            assert dc.add_participant(creator, ROOM, role='viewer', cm=cm).json()['data']['token'] == TOKEN
+        else:
+            with pytest.raises(ProviderError) as caught:
+                dc.add_participant(creator, ROOM, role='viewer', cm=cm)
+            assert TOKEN not in str(caught.value)
+            assert 'short-secret' not in str(caught.value)
     assert TOKEN not in caplog.text
-    assert "SUPER-SECRET-JOIN-TOKEN" not in caplog.text
-    # ...and the log is still useful for debugging a join.
-    assert "add_participant ok" in caplog.text
-    assert "viewer1" in caplog.text
+    assert 'test-only-api-token' not in caplog.text
+    assert 'short-secret' not in caplog.text
+
+
+@pytest.mark.parametrize('secret', ['s3', 'a-b', '秘密', TOKEN])
+@pytest.mark.parametrize('operation', ['create', 'host', 'viewer'])
+@pytest.mark.parametrize('failure', ['http', 'transport', 'json', 'list', 'null', 'scalar', 'missing-token'])
+def test_all_client_call_paths_keep_secrets_out_of_logged_tracebacks(
+    secret, operation, failure, caplog,
+):
+    import requests
+    response = SimpleNamespace(status_code=200, json=lambda: {'success': True, 'data': {}})
+    transport = Mock()
+    transport.request.return_value = response
+    if failure == 'http':
+        response.status_code = 400
+        response.json = lambda: {'success': False, 'error': {'message': secret}, 'data': {'token': secret}}
+    elif failure == 'transport':
+        transport.request.side_effect = requests.ConnectionError(f'Bearer {secret}')
+    elif failure == 'json':
+        response.json = Mock(side_effect=ValueError(f'invalid JSON containing {secret}'))
+    else:
+        body = {'list': [secret], 'null': None, 'scalar': secret,
+                'missing-token': {'success': True, 'data': {'token': secret}}}[failure]
+        response.json = lambda: body
+    dc = DyteClient(transport=transport, api_token=secret)
+    creator = SimpleNamespace(is_authenticated=True, username='viewer', avatar_image=None)
+    cm = SimpleNamespace(creator_id=1, creator=creator)
+    logger = logging.getLogger('rtk.safe.caller')
+    with caplog.at_level(logging.DEBUG):
+        with pytest.raises(ProviderError):
+            try:
+                if operation == 'create':
+                    dc.create_meeting('creator')
+                else:
+                    dc.add_participant(creator, ROOM, role=operation, cm=cm)
+            except ProviderError:
+                # Exercise the actual traceback formatting used by callers,
+                # including suppressed transport/JSON exception contexts.
+                logger.exception('Provider operation failed')
+                raise
+    assert secret not in caplog.text
+    assert 'Traceback (most recent call last)' in caplog.text
 
 
 @pytest.mark.django_db
-def test_add_participant_logs_only_allowlisted_error_fields(
-    mocker, caplog, meeting,
+@pytest.mark.parametrize('role', ['host', 'viewer'])
+@pytest.mark.parametrize('failure', ['transport', 'http', 'json', 'malformed'])
+@pytest.mark.parametrize('secret', ['a-b', TOKEN])
+def test_shipping_join_failures_do_not_log_provider_secrets(
+    role, failure, secret, caplog, mocker, creator_factory, api_client, settings,
 ):
-    """Callers retry on `error`, so the reason must survive -- but only it."""
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(404, {
-            "success": False,
-            "error": {"code": 404, "message": "No meeting found"},
-        }),
-    )
-
-    class _Anon:
-        is_authenticated = False
-        username = ""
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(_Anon(), MEETING_ID)
-
-    assert "add_participant failed" in caplog.text
-    assert "provider_code=404" in caplog.text
-    assert "No meeting found" in caplog.text
+    from decimal import Decimal
+    from .models import CreatorMeeting
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
+    host = creator_factory(username='log-host', tuzis=Decimal('1000'))
+    viewer = creator_factory(username='log-viewer')
+    CreatorMeeting.objects.create(creator=host, meeting_id=ROOM, meeting_type='broadcast',
+                                  is_public=True, live_now=True)
+    transport = Mock()
+    if failure == 'transport':
+        transport.request.side_effect = requests.ConnectionError(secret)
+    else:
+        response = SimpleNamespace(status_code=400 if failure == 'http' else 200,
+                                   json=lambda: {'success': False, 'error': {'message': secret}, 'data': {'token': secret}})
+        if failure == 'json':
+            response.json = Mock(side_effect=ValueError(secret))
+        elif failure == 'malformed':
+            response.json = lambda: [secret]
+        transport.request.return_value = response
+    dc = DyteClient(transport=transport, api_token=secret)
+    mocker.patch('dj.apps.dyte.views.DyteClient', return_value=dc)
+    api_client.force_authenticate(host if role == 'host' else viewer)
+    with caplog.at_level(logging.DEBUG):
+        result = api_client.post('/api/dyte/log-host/broadcast', {'role': role}, format='json')
+    assert result.status_code == 503
+    assert secret not in caplog.text
 
 
 @pytest.mark.django_db
-def test_error_envelope_carrying_a_token_still_leaks_nothing(
-    mocker, caplog, meeting, creator_factory,
-):
-    """The provider may create the participant AND report a partial failure.
-
-    Nothing documents that an error envelope cannot also carry ``data.token``,
-    which is exactly why the failure branch allowlists scalar fields instead
-    of logging the body. Raised by the codex adversarial review of this
-    change.
-    """
-    viewer = creator_factory(username="viewer3")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(207, {
-            "success": False,
-            "error": {"code": 207, "message": "partial"},
-            "data": {"token": TOKEN},
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert "add_participant failed" in caplog.text
-    assert TOKEN not in caplog.text
-    assert "SUPER-SECRET-JOIN-TOKEN" not in caplog.text
-
-
-@pytest.mark.django_db
-def test_a_nested_provider_error_field_is_not_logged_verbatim(
-    mocker, caplog, meeting, creator_factory,
-):
-    """Only known-scalar allowlisted fields reach the log, never a container."""
-    viewer = creator_factory(username="viewer4")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(400, {
-            "success": False,
-            "error": {"code": {"nested": TOKEN}, "message": {"also": TOKEN}},
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert "add_participant failed" in caplog.text
-    assert TOKEN not in caplog.text
-
-
-@pytest.mark.django_db
-def test_a_credential_embedded_in_a_provider_message_is_redacted(
-    mocker, caplog, meeting, creator_factory,
-):
-    """The allowlist restricts field NAMES; this restricts their contents.
-
-    Second codex adversarial-review finding: a partial-failure diagnostic can
-    embed the credential in free-form prose. The message survives (operators
-    need it -- DyteMeeting.post retries on `error`), the token does not.
-    """
-    viewer = creator_factory(username="viewer5")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(207, {
-            "success": False,
-            "error": {
-                "code": 207,
-                "message": f"participant created; token={TOKEN}",
-            },
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert TOKEN not in caplog.text
-    assert "SUPER-SECRET-JOIN-TOKEN" not in caplog.text
-    # The human-readable part is kept, so the log still explains the failure.
-    assert "participant created" in caplog.text
-    assert "[redacted]" in caplog.text
-
-
-@pytest.mark.django_db
-def test_redaction_keeps_a_meeting_uuid_readable(
-    mocker, caplog, meeting, creator_factory,
-):
-    """The redaction must not eat the identifiers that make a log useful.
-
-    A UUID's longest separator-free run is 12 hex characters, well under the
-    24-character token threshold, so meeting ids survive intact.
-    """
-    viewer = creator_factory(username="viewer6")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(404, {
-            "success": False,
-            "error": {
-                "code": 404,
-                "message": f"No meeting found for id: {MEETING_ID}",
-            },
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert MEETING_ID in caplog.text
-    assert "[redacted]" not in caplog.text
-
-
-@pytest.mark.django_db
-def test_a_non_numeric_provider_code_is_not_logged(
-    mocker, caplog, meeting, creator_factory,
-):
-    """`code` is logged as a strict number, so it can carry nothing else."""
-    viewer = creator_factory(username="viewer7")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(400, {
-            "success": False,
-            "error": {"code": TOKEN, "message": "bad"},
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert "provider_code=?" in caplog.text
-    assert TOKEN not in caplog.text
-
-
-@pytest.mark.django_db
-def test_a_shapeless_credential_from_this_response_is_still_redacted(
-    mocker, caplog, meeting, creator_factory,
-):
-    """Exact-match redaction, so the token's SHAPE does not have to be guessed.
-
-    Third codex adversarial-review finding: a shape denylist can always be
-    evaded by a token that does not look like one. The credential that
-    actually matters is in the response we are holding, so every string
-    outside the `error` subtree is redacted from the message by exact match
-    -- here a token with dots, dashes and no `eyJ` header and no 24-char run.
-    """
-    viewer = creator_factory(username="viewer8")
-    odd_token = "tok.a-b-c.d-e-f.g-h-i.j-k-l"
-    assert "eyJ" not in odd_token
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(207, {
-            "success": False,
-            "error": {"code": 207, "message": f"created with {odd_token}"},
-            "data": {"token": odd_token},
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert odd_token not in caplog.text
-    assert "created with [redacted]" in caplog.text
-
-
-@pytest.mark.django_db
-def test_a_message_that_is_nothing_but_the_token_is_redacted_whole(
-    mocker, caplog, meeting, creator_factory,
-):
-    """Exact equality, not just embedding (codex finding on `secret != text`)."""
-    viewer = creator_factory(username="viewer9")
-    odd_token = "tok.a-b-c.d-e-f.g-h-i.j-k-l"
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(207, {
-            "success": False,
-            "error": {"code": 207, "message": odd_token},
-            "data": {"token": odd_token},
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert odd_token not in caplog.text
-
-
-@pytest.mark.django_db
-def test_a_token_copied_inside_the_error_subtree_is_redacted(
-    mocker, caplog, meeting, creator_factory,
-):
-    """Only `error.message` is excluded from the set -- not all of `error`."""
-    viewer = creator_factory(username="viewer10")
-    odd_token = "tok.a-b-c.d-e-f.g-h-i.j-k-l"
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(400, {
-            "success": False,
-            "error": {
-                "code": 400,
-                "message": f"see {odd_token}",
-                "details": {"token": odd_token},
-            },
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert odd_token not in caplog.text
-
-
-@pytest.mark.django_db
-def test_an_unvettably_large_body_drops_the_message(
-    mocker, caplog, meeting, creator_factory,
-):
-    """A body too big to vet exhaustively must not leak prose from it."""
-    viewer = creator_factory(username="viewer11")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(400, {
-            "success": False,
-            "error": {"code": 400, "message": "boom"},
-            "noise": {f"k{i}": f"value-{i:08d}" for i in range(500)},
-        }),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert "provider_message=[unvetted]" in caplog.text
-
-
-@pytest.mark.django_db
-@pytest.mark.parametrize("payload", [
-    {},
-    {"success": False},
-    {"data": {}},
-    {"data": {"token": None}},
-    {"data": "not-an-object"},
-])
-def test_a_malformed_2xx_is_not_logged_as_ok(
-    mocker, caplog, meeting, creator_factory, payload,
-):
-    """"ok" must mean a usable token came back, not merely a 2xx.
-
-    Callers do ``resp.json()['data']['token']`` on the next line; a 200 with
-    no token 500s them. Logging "ok" there made a provider incident look
-    healthy in Cloud Logging.
-    """
-    viewer = creator_factory(username=f"viewer_{abs(hash(str(payload))) % 9999}")
-    mocker.patch(
-        "dj.apps.dyte.client._SESSION.post",
-        return_value=_Resp(200, payload),
-    )
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert "add_participant ok" not in caplog.text
-    assert "add_participant failed" in caplog.text
-
-
-@pytest.mark.django_db
-def test_add_participant_survives_a_non_json_provider_response(
-    mocker, caplog, meeting, creator_factory,
-):
-    """An HTML 502 from an intermediary must not blow up the logging branch."""
-    viewer = creator_factory(username="viewer2")
-
-    class _Html:
-        status_code = 502
-        text = "<html>502 Bad Gateway</html>"
-
-        def json(self):
-            raise ValueError("not json")
-
-    mocker.patch("dj.apps.dyte.client._SESSION.post", return_value=_Html())
-
-    with caplog.at_level(logging.DEBUG, logger="dj.apps.dyte.client"):
-        DyteClient("org").add_participant(viewer, MEETING_ID)
-
-    assert "add_participant failed" in caplog.text
+@pytest.mark.parametrize('secret', ['a-b', TOKEN])
+@pytest.mark.parametrize('outcome', ['success', 'http', 'transport', 'json', 'malformed'])
+def test_shipping_create_meeting_has_safe_logs(outcome, secret, creator_factory, caplog):
+    caplog.set_level(logging.DEBUG)
+    from .models import CreatorMeeting
+    from .views import _create_meeting
+    creator = creator_factory(username='log-create')
+    cm = CreatorMeeting.objects.create(creator=creator, meeting_type='broadcast', is_public=True)
+    transport = Mock()
+    response = SimpleNamespace(status_code=200, json=lambda: {'success': True, 'data': {'id': ROOM, 'token': secret}})
+    transport.request.return_value = response
+    if outcome == 'transport':
+        transport.request.side_effect = requests.ConnectionError(secret)
+    elif outcome == 'http':
+        response.status_code = 400
+        response.json = lambda: {'success': False, 'error': {'message': secret}, 'data': {'token': secret}}
+    elif outcome == 'json':
+        response.json = Mock(side_effect=ValueError(secret))
+    elif outcome == 'malformed':
+        response.json = lambda: [secret]
+    dc = DyteClient(transport=transport)
+    if outcome == 'success':
+        assert _create_meeting(cm, dc).meeting_id == ROOM
+    else:
+        with pytest.raises(ProviderError):
+            try:
+                _create_meeting(cm, dc)
+            except ProviderError:
+                logging.getLogger('rtk.safe.caller').exception('Meeting creation failed')
+                raise
+    assert secret not in caplog.text

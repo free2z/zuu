@@ -277,3 +277,52 @@ queueing locks so delayed work cannot hold back a newly actionable eviction.
 Disabling the gate again stops execution and retries without
 clearing obligations; a subsequent enabled sweep recovers them. Do not roll back
 to worker code without the task registration while queued jobs can still exist.
+
+### Free2Z RealtimeKit v4 migration (#1275)
+
+Provider documentation reviewed **2026-11-10**:
+
+- [Web Core release notes](https://developers.cloudflare.com/realtime/realtimekit/release-notes/web-core/): 2.0 removes `joinRoom`/`leaveRoom`, deprecated chat and permission APIs, and server-discovered iframe plugins. Use `join`/`leave` and client-declared plugin components.
+- [Web UI release notes](https://developers.cloudflare.com/realtime/realtimekit/release-notes/web-ui-kit/): UI 2.x requires Core 2.x; 2.0.3 repairs reconnect audio and participant rendering. Prejoin errors supersede join errors.
+- [Create meeting](https://developers.cloudflare.com/api/resources/realtime_kit/subresources/meetings/methods/create/) and [RealtimeKit API inventory](https://developers.cloudflare.com/api/resources/realtime_kit/): account/app v4 routes, Bearer authorization, and `success`/`data` envelopes. SDK versions do not determine REST API versions.
+- [Webhook signatures](https://developers.cloudflare.com/realtime/realtimekit/webhooks/): public RSA key distribution remains at `https://api.realtime.cloudflare.com/.well-known/webhooks.json`, outside the authenticated control plane.
+
+Svelte (`ts/svelte/free2z`), classic React (`ts/react/free2z`), and native Free2Z's React WebView (`wallet/free2z`) target Core/UI **2.0.3**. Native Free2Z does not use the React Native SDK. The React 2.0.3 wrapper depends exactly on Core 2.0.3; React UI 2.0.3 depends exactly on UI 2.0.3 (npm manifests reviewed on the same date). Core 2.0.4 exists; this migration deliberately uses the common reviewed 2.0.3 set. Classic remains supported; its public/private routes are retained. No application declares provider plugins or uses removed chat/permission methods. Unused classic recording/addon/background package declarations are removed; the Svelte custom recorder retains its independent 0.0.4 recording SDK.
+
+The backend has one injectable control-plane boundary in `dj/apps/dyte/client.py`. It speaks **either** credential shape, so a rollout never waits on which one the Cloudflare dashboard issues. Configure these **server-only** values in the `free2z` Kubernetes secret (namespaces `stage` and `prod`) — never a Vite/public env:
+
+```dotenv
+# v4: Cloudflare API, Bearer token (Realtime or Realtime Admin permission)
+RTK_ACCOUNT_ID=<32-hex Cloudflare account ID>
+RTK_APP_ID=<RealtimeKit app ID — the former Dyte organization ID>
+RTK_API_TOKEN=<Cloudflare API token>
+# v2: legacy Dyte-compatible API, HTTP Basic org:key
+DYTE_ORG=<organization ID>
+DYTE_KEY=<organization API key>
+RTK_API_BASE_URL=https://api.realtime.cloudflare.com   # default; v2 only
+# Selection: auto (default) | v4 | v2
+RTK_API_MODE=auto
+DYTE_CONNECT_TIMEOUT_SECONDS=3
+DYTE_READ_TIMEOUT_SECONDS=10
+```
+
+`auto` uses v4 when all three `RTK_*` v4 values are present and v2 otherwise, so deploying with only the legacy secret changes nothing and adding the three v4 keys is the whole cut-over. `v4`/`v2` force a mode; a forced mode without its credentials fails closed without sending a request. An unknown `RTK_API_MODE` behaves as `auto` and is flagged. v4 routes are the v2 routes re-rooted at `https://api.cloudflare.com/client/v4/accounts/{account}/realtime/kit/{app}/`; the RealtimeKit app ID is the former Dyte organization ID (Cloudflare's session schema documents `organization_id` as "App id that hosted this session" and v2 meeting IDs as UUIDs), so existing meeting IDs carry over.
+
+Each serving process logs one `event=rtk_api_mode_selected` line (`configured_mode`, `auth_mode`, `v4_credentials_present`, `v2_credentials_present`, `credentials_present`; WARNING when the selected mode has no credentials). Every failed provider call logs one `event=rtk_provider_request_failed` line with `operation`, `status` (HTTP status; `0` when no response was received or credentials are unusable), `auth_mode` (`v4`|`v2`), `reason` (`http_status`|`transport`|`invalid_response`|`not_configured`|`invalid_request`) and, when the error envelope has an integer one, `provider_code`. ERROR for 401/403 and `not_configured`, WARNING otherwise. Documented "no active session"/"already gone" 404s that the client then confirms against the meeting are not failures and are not logged. No body, header, URL or credential is ever logged. Both lines are a single JSON message, which Cloud Logging stores as `jsonPayload`.
+
+`python manage.py rtk_check_credentials [--mode auto|v4|v2]` makes one read-only list-meetings call and prints the mode and HTTP status as JSON (exit 1 unless accepted) — run it as a detached Job to prove a new credential before relying on it. `--mode v4` probes newly added v4 keys while pods still run on v2.
+
+Preserve the existing app, `webinar1` host and `webinar-participant` viewer presets, webhook registration, and recorder origin; this code does not create or activate deployment configuration. Existing meeting IDs and participant claims remain unchanged. The client disables redirects and automatic retries; mutation timeouts remain ambiguous outcomes. Recording controls retain their shorter `(2, 3)` deadlines and admission policy. The public signing-key fetch sends no API credential. Recording file downloads and the same-origin recorder readiness probe are separate bounded HTTP boundaries, not control-plane calls.
+
+No live credentials, remote configuration changes, recording starts, or billed provider calls are part of local verification. Injected HTTP tests can prove request construction and failure classification; browser mocks can prove UI transitions. Neither establishes signed participant-token acceptance, SFU connectivity, real reconnect/media recovery, webhook delivery, recording success, or installed native WebView behavior. Those require a separately authorized integration run. Streaming lifecycle #1334, webhook settlement #1335, and CI gate selection #1528 are independent; this migration changes no schemas, activation holds, or workflows.
+
+Operation payloads reviewed on the same date: [kick participants](https://developers.cloudflare.com/api/resources/realtime_kit/subresources/active-session/methods/kick_participants/) accepts `participant_ids`; [start recording](https://developers.cloudflare.com/api/resources/realtime_kit/subresources/recordings/methods/start_recordings/) accepts `meeting_id`, `url`, and `max_seconds`. The API lists `Realtime`/`Realtime Admin` permissions. Select the required account scope in your token provisioning process; this change does not provision tokens. An active-session or active-recording 404 is treated as empty only after the meeting itself is confirmed to exist.
+
+Native WebView CSP changes are derived from the installed 2.0.3 bundle and Chromium tests: signaling uses `wss://api.realtime.cloudflare.com/ws`; `worker-timers@7.0.60` creates a blob worker during initialization. The native policy therefore permits that signaling origin and `worker-src 'self' blob:`. No eval, WASM, or iframe permission is added. The browser CSP test includes negative controls for both the API origin and blob worker source.
+
+[Delete participant](https://developers.cloudflare.com/api/resources/realtime_kit/subresources/meetings/methods/delete_meeting_participant/) returns a success acknowledgement with optional `data`; the client accepts absent data only for explicit mutation acknowledgements. Creation/read routes still require and validate their consumed data. Retirement 404s also require a confirmed meeting before being considered complete.
+
+
+Review follow-up: the pooled HTTP session preserves the CI-selected public CA path (`REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, otherwise Requests' normal verified default) while disabling ambient netrc and proxy credentials. This matches the pinned `scripts/ci-trust-bootstrap.mjs` helper's certificate-path contract; it never disables certificate verification. CA selection occurs when a worker thread first creates its session, after CI/bootstrap or deployment environment configuration.
+
+Classic React now owns browser-navigation and unmount cleanup in `DyteLeave`, with a per-meeting effect guard so repeated pagehide/popstate/unmount notifications call `leave()` once. `RtkMeeting.leaveOnUnmount` is explicitly false to avoid a second independent teardown owner. The browser harness exercises these application handlers and cleanup; its mocked UI does not establish provider media teardown or SFU behavior.
