@@ -75,6 +75,10 @@ RECONCILE_COOLDOWN = timedelta(minutes=15)
 
 #pg_advisory_xact_lock key serialising the cap check + reservation.
 _CAP_LOCK_KEY = 0x1865F2
+_KIND_SETTING_PREFIX = {
+    Announcement.ZPAGE_FIRST_PUBLISHED: "F2ZP2P_ZPAGE_FIRST_PUBLISHED",
+    Announcement.COMMENT_CREATED: "F2ZP2P_COMMENT_CREATED",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -130,7 +134,7 @@ def _record(event_key, kind, *, using, **fields):
     return ann
 
 
-def _never_block(producer):
+def _never_block(kind):
     """A social announcement must never fail a publish or a comment.
 
     The producer runs in a SAVEPOINT, so a database error inside it rolls
@@ -138,21 +142,36 @@ def _never_block(producer):
     any exception is logged and swallowed. The cost of a swallowed failure
     is one missing announcement, which is logged at ERROR.
     """
-    def wrapper(*args, using="default", **kwargs):
-        if settings.F2ZP2P_ANNOUNCEMENTS == OFF:
-            return None
-        try:
-            with transaction.atomic(using=using):
-                return producer(*args, using=using, **kwargs)
-        except Exception:
-            logger.exception("f2zp2p: could not record an announcement")
-            return None
-    wrapper.__name__ = producer.__name__
-    wrapper.__doc__ = producer.__doc__
-    return wrapper
+    def decorate(producer):
+        def wrapper(*args, using="default", **kwargs):
+            if settings.F2ZP2P_ANNOUNCEMENTS == OFF:
+                return None
+            try:
+                if not _kind_enabled(kind):
+                    return None
+                with transaction.atomic(using=using):
+                    return producer(*args, using=using, **kwargs)
+            except Exception:
+                logger.exception("f2zp2p: could not record an announcement")
+                return None
+        wrapper.__name__ = producer.__name__
+        wrapper.__doc__ = producer.__doc__
+        return wrapper
+    return decorate
 
 
-@_never_block
+def _kind_setting(kind, suffix):
+    prefix = _KIND_SETTING_PREFIX.get(kind)
+    if prefix is None:
+        raise ValueError(f"unknown announcement kind: {kind}")
+    return getattr(settings, f"{prefix}_{suffix}")
+
+
+def _kind_enabled(kind):
+    return _kind_setting(kind, "ENABLED")
+
+
+@_never_block(Announcement.ZPAGE_FIRST_PUBLISHED)
 def _record_zpage(zpage_id, using="default"):
     from dj.apps.g12f.models import zPage
 
@@ -175,7 +194,7 @@ def on_zpage_first_published(sender=None, zpage_id=None, using="default",
     return _record_zpage(zpage_id, using=using or "default")
 
 
-@_never_block
+@_never_block(Announcement.COMMENT_CREATED)
 def on_comment_created(comment, using="default"):
     """Called from the comment ``post_save`` receiver for ``created``."""
     reason = comment_suppression_reason(comment)
@@ -560,14 +579,26 @@ def _reserve_capacity(ann, *, dry_run=False):
         else:
             pool = pool.exclude(status=Announcement.DRY_RUN)
         hour = pool.filter(budget_reserved_at__gte=now - timedelta(hours=1))
+        kind_pool = pool.filter(kind=ann.kind)
+        kind_hour = kind_pool.filter(
+            budget_reserved_at__gte=now - timedelta(hours=1),
+        )
         if hour.count() >= settings.F2ZP2P_HOURLY_CAP:
             return "rate_capped"
         if pool.count() >= settings.F2ZP2P_DAILY_CAP:
             return "daily_capped"
+        if kind_hour.count() >= _kind_setting(ann.kind, "HOURLY_CAP"):
+            return "kind_rate_capped"
+        if kind_pool.count() >= _kind_setting(ann.kind, "DAILY_CAP"):
+            return "kind_daily_capped"
         if ann.subject_user_id is not None and hour.filter(
             subject_user_id=ann.subject_user_id,
         ).count() >= settings.F2ZP2P_AUTHOR_HOURLY_CAP:
             return "author_rate_capped"
+        if ann.subject_user_id is not None and kind_hour.filter(
+            subject_user_id=ann.subject_user_id,
+        ).count() >= _kind_setting(ann.kind, "AUTHOR_HOURLY_CAP"):
+            return "kind_author_rate_capped"
         Announcement.objects.filter(pk=ann.pk).update(budget_reserved_at=now)
         ann.budget_reserved_at = now
     return None
@@ -595,12 +626,21 @@ def _posting_cap_reached(ann) -> bool:
         posting_started_at__gte=now - timedelta(days=1),
     ).exclude(pk=ann.pk)
     hour = posted.filter(posting_started_at__gte=now - timedelta(hours=1))
+    kind_posted = posted.filter(kind=ann.kind)
+    kind_hour = kind_posted.filter(
+        posting_started_at__gte=now - timedelta(hours=1),
+    )
     return (
         hour.count() >= settings.F2ZP2P_HOURLY_CAP
         or posted.count() >= settings.F2ZP2P_DAILY_CAP
+        or kind_hour.count() >= _kind_setting(ann.kind, "HOURLY_CAP")
+        or kind_posted.count() >= _kind_setting(ann.kind, "DAILY_CAP")
         or (ann.subject_user_id is not None and hour.filter(
             subject_user_id=ann.subject_user_id,
         ).count() >= settings.F2ZP2P_AUTHOR_HOURLY_CAP)
+        or (ann.subject_user_id is not None and kind_hour.filter(
+            subject_user_id=ann.subject_user_id,
+        ).count() >= _kind_setting(ann.kind, "AUTHOR_HOURLY_CAP"))
     )
 
 
@@ -659,6 +699,8 @@ def _execute(ann, *, force_live):
     from dj.apps.twitter import client_x
 
     mode = effective_mode(force_live)
+    if not force_live and not _kind_enabled(ann.kind):
+        return _finish(ann, Announcement.SUPPRESSED, "kind_disabled")
     if mode == OFF:
         return _finish(ann, Announcement.SUPPRESSED, "disabled")
     if not force_live and timezone.now() - ann.created_at > timedelta(
@@ -752,9 +794,19 @@ def _execute(ann, *, force_live):
     # the window must not push the posts in this hour past the cap (codex
     # review). Over the cap: try again later, the copy and media are kept.
     with transaction.atomic():
-        cap_wait = False if force_live else _posting_cap_reached(ann)
+        current = Announcement.objects.select_for_update().get(pk=ann.pk)
+        kind_disabled = not force_live and not _kind_enabled(current.kind)
+        cap_wait = (False if force_live or kind_disabled else
+                    _posting_cap_reached(current))
+        if kind_disabled:
+            _owned(current, (Announcement.GENERATING,)).update(
+                status=Announcement.SUPPRESSED, reason="kind_disabled",
+                updated_at=timezone.now(),
+            )
+            ann.status = Announcement.SUPPRESSED
+            return Announcement.SUPPRESSED
         moved = 0 if cap_wait else _owned(
-            ann, (Announcement.GENERATING,),
+            current, (Announcement.GENERATING,),
         ).update(
             status=Announcement.POSTING, posting_started_at=timezone.now(),
             updated_at=timezone.now(),
