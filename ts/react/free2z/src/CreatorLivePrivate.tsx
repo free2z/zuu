@@ -149,7 +149,7 @@ export default function CreatorLive() {
                 }
             })
             .catch((err) => {
-                console.error("catch*********", err);
+                console.warn("Private meeting initialization failed");
                 setSnackbarState({
                     message: "Error initializing meeting",
                     severity: "error",
