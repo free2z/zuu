@@ -37,13 +37,14 @@ export async function renderBrandMedia(root) {
   });
 }
 
-export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, app), publish = false } = {}) {
+export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, app), publish = false, enforceCurrentSource = false } = {}) {
   assert(apps.includes(app), 'unknown store app');
   assert.equal(publish, false, 'surface catalogs are not approved for publication');
   const manifest = await readCanonicalJson(resolve(root, 'store/manifest.json'), 'surface manifest');
   exactKeys(manifest, ['schemaVersion', 'phase', 'publicationReady', 'application', 'locales', 'classification', 'brandMedia', 'screenshotSets', 'capturePolicy'], 'surface manifest');
   assert.equal(manifest.schemaVersion, 1);
   assert(['foundation', 'captured'].includes(manifest.phase), 'unknown draft phase');
+  if (enforceCurrentSource) assert.equal(manifest.phase, 'captured', 'current-source validation requires captured media');
   assert.equal(manifest.publicationReady, false);
   const identity = JSON.parse(await readFile(resolve(root, 'store-identity.json')));
   const tauri = JSON.parse(await readFile(resolve(root, 'src-tauri/tauri.conf.json')));
@@ -61,7 +62,7 @@ export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, a
   assert.equal(copy.title, app === 'free2z' ? 'Free2Z' : 'E2E2Z');
   assert.deepEqual(manifest.classification, { playCategory: app === 'free2z' ? 'SOCIAL' : 'COMMUNICATION', reviewStatus: 'proposed-owner-store-review-required', automaticRatingSubmissionAllowed: false });
   const captured = manifest.phase === 'captured'
-    ? (await validateSurfaceCaptureRecord(app, { root: dirname(root) })).record : null;
+    ? (await validateSurfaceCaptureRecord(app, { root: dirname(root), enforceCurrentSource })).record : null;
   const entries = captured?.entries ?? [];
   assert.deepEqual(manifest.screenshotSets, geometries.map(([name, apiType, width, height]) => ({ id: `play-${name}-portrait`, provider: 'play', apiType, locale: 'en-US', width, height, minCount: 2, maxCount: 8, maxBytes: 8388608, files: entries.filter((entry) => entry.setId === `play-${name}-portrait`).map(({ id, path, sha256, sourceSha }) => ({ id, path, sha256, sourceSha, reviewIssue: 989 })) })));
   assert.deepEqual(manifest.capturePolicy, {
@@ -93,7 +94,7 @@ export async function validateSurfaceCatalog({ app, root = resolve(walletRoot, a
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  assert(argv.every((arg) => ['--generate', '--publish'].includes(arg)), 'unknown argument');
+  assert(argv.every((arg) => ['--generate', '--publish', '--current-source'].includes(arg)), 'unknown argument');
   assert(!argv.includes('--publish'), 'surface catalogs are not approved for publication');
   for (const app of apps) {
     const root = resolve(walletRoot, app);
@@ -106,7 +107,7 @@ export async function main(argv = process.argv.slice(2)) {
       manifest.brandMedia = generated.map(({ spec }) => spec);
       await writeFile(manifestPath, canonical(manifest));
     }
-    process.stdout.write(`${JSON.stringify(await validateSurfaceCatalog({ app }))}\n`);
+    process.stdout.write(`${JSON.stringify(await validateSurfaceCatalog({ app, enforceCurrentSource: argv.includes('--current-source') }))}\n`);
   }
 }
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

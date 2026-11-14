@@ -6,9 +6,21 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { PNG } from 'pngjs';
 import { main, validateSurfaceCatalog } from './surface-store-catalogs.mjs';
-import { canonical, contractInputs, sha256 } from './surface-store-capture-contract.mjs';
+import { canonical, contractInputs, inputDigest, renderInputs, sha256, validateSurfaceCaptureRecord } from './surface-store-capture-contract.mjs';
 
 const walletRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+function withTextMarker(png) {
+  const data = Buffer.from('review\0fixture');
+  const typeAndData = Buffer.concat([Buffer.from('tEXt'), data]);
+  let crc = -1;
+  for (const byte of typeAndData) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  const length = Buffer.alloc(4), checksum = Buffer.alloc(4);
+  length.writeUInt32BE(data.length); checksum.writeUInt32BE((crc ^ -1) >>> 0);
+  return Buffer.concat([png.subarray(0, -12), length, typeAndData, checksum, png.subarray(-12)]);
+}
 for (const app of ['free2z', 'e2e2z']) {
   test(`${app} validates its captured draft catalog and refuses publication`, async () => {
     assert.deepEqual(await validateSurfaceCatalog({ app }), { app, phase: 'captured', publicationReady: false, brandMedia: 2, screenshots: 6 });
@@ -22,7 +34,7 @@ test('catalog and saved-pixel mutation controls fail closed', async (t) => {
   const fixture = await mkdtemp(resolve(tmpdir(), 'surface-store-test-'));
   const root = resolve(fixture, 'e2e2z');
   t.after(() => rm(fixture, { recursive: true, force: true }));
-  const inputs = new Set([...contractInputs('e2e2z'), ...['store', 'assets/store', 'src-tauri/icons/icon.png', 'src-tauri/tauri.conf.json', 'store-identity.json', 'package.json', 'package-lock.json'].map((p) => `e2e2z/${p}`)]);
+  const inputs = new Set([...contractInputs('e2e2z'), ...renderInputs('e2e2z'), ...['store', 'assets/store', 'src-tauri/icons/icon.png', 'store-identity.json'].map((p) => `e2e2z/${p}`)]);
   for (const file of inputs) {
     await mkdir(dirname(resolve(fixture, file)), { recursive: true });
     await cp(resolve(walletRoot, file), resolve(fixture, file), { recursive: true });
@@ -63,6 +75,7 @@ test('catalog and saved-pixel mutation controls fail closed', async (t) => {
     ['wrong dimensions even with repinned hashes', () => PNG.sync.write({ width: 1, height: 1, data: Buffer.from([0, 0, 0, 255]) }, { colorType: 2 }), true, /exactly 1080x1920/],
     ['RGBA even with repinned hashes', (b) => PNG.sync.write(PNG.sync.read(b), { colorType: 6 }), true, /encoded as RGB/],
     ['corrupt CRC even with repinned hashes', (b) => { const changed = Buffer.from(b); changed[29] ^= 1; return changed; }, true, /valid PNG/],
+    ['forbidden PNG marker even with repinned hashes', withTextMarker, true, /forbidden PNG marker/],
   ]) await t.test(name, async () => {
     const bytes = alter(originalPng);
     await writeFile(screenshotPath, bytes);
@@ -77,6 +90,23 @@ test('catalog and saved-pixel mutation controls fail closed', async (t) => {
     await assert.rejects(validateSurfaceCatalog({ app: 'e2e2z', root }), expected);
     await writeFile(screenshotPath, originalPng); await writeFile(recordPath, originalRecord); await writeFile(path, original);
   });
+  // A historical record stays valid after product development; a review of
+  // current listing media must explicitly refuse that same stale evidence.
+  for (const input of ['e2e2z/src/App.tsx', 'shared/src/index.ts', 'plugins/tauri-plugin-f2zmsg/internal-directory.conf']) await t.test(`current-source rejects drift in ${input}`, async () => {
+    const record = JSON.parse(originalRecord);
+    // Establish the test tree's baseline, independent of future product changes.
+    record.sourceDigest = await inputDigest(fixture, renderInputs('e2e2z'));
+    for (const entry of record.entries) entry.sourceDigest = record.sourceDigest;
+    const proof = sha256(canonical(record.entries));
+    record.reproducibility = { passes: 2, firstPassSha256: proof, secondPassSha256: proof };
+    await writeFile(recordPath, canonical(record));
+    const file = resolve(fixture, input), bytes = await readFile(file);
+    await writeFile(file, Buffer.concat([bytes, Buffer.from('\n// changed input\n')]));
+    await validateSurfaceCaptureRecord('e2e2z', { root: fixture });
+    await assert.rejects(validateSurfaceCaptureRecord('e2e2z', { root: fixture, enforceCurrentSource: true }), /capture render inputs are stale/);
+    await assert.rejects(validateSurfaceCatalog({ app: 'e2e2z', root, enforceCurrentSource: true }), /capture render inputs are stale/);
+    await writeFile(file, bytes); await writeFile(recordPath, originalRecord);
+  });
   await t.test('foundation phase still requires empty screenshot inventory', async () => {
     const manifest = JSON.parse(original); manifest.phase = 'foundation';
     manifest.capturePolicy.status = 'deferred';
@@ -86,5 +116,6 @@ test('catalog and saved-pixel mutation controls fail closed', async (t) => {
     await assert.rejects(validateSurfaceCatalog({ app: 'e2e2z', root }), /undeclared PNGs/);
     await rm(resolve(root, 'store/media'), { recursive: true });
     assert.equal((await validateSurfaceCatalog({ app: 'e2e2z', root })).phase, 'foundation');
+    await assert.rejects(validateSurfaceCatalog({ app: 'e2e2z', root, enforceCurrentSource: true }), /requires captured media/);
   });
 });

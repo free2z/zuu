@@ -57,7 +57,10 @@ export function installUnenrolledNativeFixture() {
       window.__STORE_NATIVE_CALLS__.push(cmd);
       // `models.rs` EngineStatus, serialized camelCase, for an engine that has
       // never been started because nothing installed an identity.
-      if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 1, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null, directoryBlocked: null };
+      // BundledDirectory reports policy.independent(): internal-directory.conf
+      // marks every bundled witness dependent, so the count is zero even
+      // before a connection. No connection means the threshold is not met.
+      if (cmd === 'plugin:f2zmsg|get_engine_status') return { state: 'stopped', enrolled: false, handle: null, relaysConnected: 0, relaysConfigured: 1, witnessThresholdMet: false, independentWitnesses: 0, pendingInbound: 0, unacknowledgedAlarms: 0, lastError: null, directoryBlocked: null };
       // `Engine::device_info` reads the stored identity and there is none, so
       // it refuses. f2zmsg's `Error` serializes as its bare §8 code string.
       if (cmd === 'plugin:f2zmsg|get_device_info') throw 'not-enrolled';
@@ -107,6 +110,7 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
   }, { app, fixedTime: config.fixedTime, safeArea: target.safeArea });
   if (app === 'e2e2z') await page.addInitScript(installUnenrolledNativeFixture);
   await page.goto(`${origin}${shot.route}`, { waitUntil: 'networkidle' });
+  assert.equal(new URL(page.url()).pathname, shot.route, 'capture route changed');
   await page.addStyleTag({ content: '*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important;scroll-behavior:auto!important}' });
   if (app === 'free2z') {
     const heading = shot.action === 'fresh' ? 'Articles' : 'Why Shielded Defaults Matter';
@@ -142,6 +146,7 @@ async function preparePage(context, { app, origin, config, target, shot, fixture
     assert.equal(await page.locator('[data-messages-loading], [data-messages-failure]').count(), 0, 'incomplete messaging surface');
     assert.equal(await page.getByRole('navigation', { name: 'Conversations' }).count(), 0, 'fabricated conversations');
     assert.equal(await page.getByRole('heading', { name: 'Claim your handle' }).count(), 0, 'fabricated enrollment');
+    assert.equal(await page.locator('[data-diagnostics-open]').innerText(), 'Diagnostics', 'unexpected recorded startup failure');
     let focus = page.getByText('Enrollment happens in the wallet app', { exact: true }).locator('..').locator('..');
     if (shot.action === 'local-diagnostics') {
       await page.getByRole('button', { name: /^Diagnostics/ }).click();
