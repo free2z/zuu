@@ -101,6 +101,10 @@ class Client(object):
             print("Using mainstream zcash_client_sqlite wallet")
             self.dummy = False
 
+    def verify_hydration(self):
+        from zcashrpc.wallet_hydration import verify_wallet
+        return verify_wallet(self.db_path)
+
     def _conn(self):
         # `mode=ro` means this connection CANNOT roll back a hot journal: if the
         # syncing process was SIGKILLed mid-write, sqlite needs write access to

@@ -737,8 +737,9 @@ def test_unknown_note_isolated_while_verified_purchase_credits_once(
     receipt = ZecCreditReceipt.objects.get()
     assert receipt.txid == "b2" * 32
     output = capsys.readouterr()
-    assert "credit_creators: CREDITING BLOCKED - 1" in output.err
-    assert "cycle ok" in output.out, "progress and degraded presence are separate"
+    assert "credit-loop: 1 positive" in output.err
+    assert "CREDITING BLOCKED" in output.out
+    assert "cycle ok" not in output.out, "blocked presence withholds heartbeat while verified notes progress"
 
 
 @pytest.mark.django_db
@@ -1421,3 +1422,63 @@ def test_a_broken_notifier_does_not_take_out_the_credit_cycle(
     assert "could not tell notifyfail" in out
     assert "credit_creators: cycle ok" not in out, (
         "a persistently broken notifier must trip the absence policy")
+
+
+def test_spending_an_unknown_note_does_not_resolve_it(adapter, wallet_file):
+    from zcashrpc.wallet_hydration import incomplete_received_transactions
+    identity = 'ca' * 32
+    wallet_file.add_note(txid_display=identity, pool='orchard', index=7,
+                         zats=123456, memo=None, raw=None, spent=True)
+    note, = adapter.Client().recieved_by('unused')
+    assert (note['txid'], note['pool'], note['output_index']) == (identity, 'orchard', 7)
+    assert note['amountZat'] == 123456 and note['confirmations'] >= 3
+    assert note['memo_available'] is False
+    assert incomplete_received_transactions(wallet_file.path) == 1
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('failure', ['exit', 'timeout', 'output', 'schema', 'corrupt', 'scan_rows', 'sql_work'])
+@pytest.mark.parametrize('credit_command', ['credit_creators', 'credit_pages_unified'])
+def test_real_wallet_gate_failure_never_credits_or_heartbeats(
+        adapter, wallet_file, creator_factory, mocker, capsys, tmp_path, monkeypatch, failure, credit_command):
+    from django.core.management.base import CommandError
+    from zcashrpc.wallet_hydration import main as audit
+    buyer = creator_factory(username='gatedbuyer', tuzis=Decimal('0'))
+    purchase = _memo_bytes({'act': 'buy_2z', 'id': buyer.username})
+    # The verified payment precedes the unknown note in wallet order. The
+    # gate must complete before any application effect, even for that buyer.
+    wallet_file.add_note(txid_display='da'*32, pool='sapling', index=0, zats=1000000, memo=purchase)
+    wallet_file.add_note(txid_display='db'*32, pool='sapling', index=0, zats=1000000, memo=None, raw=None)
+    child = tmp_path / 'controlled-provider'
+    bodies = {'exit': 'raise SystemExit(7)', 'timeout': 'import time; time.sleep(30)',
+              'output': 'import os; os.write(2,b"x"*1000000)'}
+    child.write_text('#!/usr/bin/python3\n' + bodies.get(failure, 'print("unavailable")') + '\n')
+    child.chmod(0o700)
+    for name, value in {'WALLET_DB': wallet_file.path, 'WALLET_RECOVERY_BINARY': str(child),
+                        'WALLET_RECOVERY_SERVER': 'https://provider.invalid', 'WALLET_RECOVERY_NETWORK': 'main',
+                        'WALLET_RECOVERY_STATE': str(tmp_path / 'retry.sqlite')}.items():
+        monkeypatch.setenv(name, value)
+    if failure == 'timeout':
+        monkeypatch.setattr('zcashrpc.wallet_recovery.COMMAND_SECONDS', .1)
+    elif failure == 'schema':
+        wallet_file.execute('CREATE TABLE future_received_notes (id INTEGER PRIMARY KEY)')
+    elif failure == 'corrupt':
+        Path(wallet_file.path).write_bytes(b'not a SQLite wallet')
+    elif failure == 'scan_rows':
+        monkeypatch.setattr('zcashrpc.wallet_recovery.SCAN_ROWS', 1)
+    elif failure == 'sql_work':
+        monkeypatch.setattr('zcashrpc.wallet_hydration.SQL_STEPS', 0)
+        # Force the VM progress callback during the real gate's schema query.
+        for i in range(180):
+            wallet_file.execute(f'CREATE TABLE extra_gate_{i}(value)')
+    mocker.patch(f'dj.apps.g12f.management.commands.{credit_command}.Client', adapter.Client)
+    mocker.patch(f'{_COMMAND}.current_tuzis_per_zec', return_value=RATE)
+    # Exercise both public audit CLI entry and the actual application command.
+    assert audit() == 1
+    monkeypatch.setenv('WALLET_RECOVERY_STATE', str(tmp_path / 'command-retry.sqlite'))
+    with pytest.raises(CommandError, match='no processing heartbeat'):
+        call_command(credit_command, no_color=True)
+    buyer.refresh_from_db()
+    assert buyer.tuzis == 0
+    assert not ZecCreditReceipt.objects.exists()
+    assert 'cycle ok' not in capsys.readouterr().out

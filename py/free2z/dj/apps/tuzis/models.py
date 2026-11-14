@@ -696,7 +696,7 @@ class ZecMemoDisposition(models.Model):
     """One durable observation and optional human disposition.
 
     This is deliberately separate from:class:`ZecCreditReceipt`. A row says
-    that a received note could not be routed -- an unreadable purchase memo,
+    that a received note could not be routed -- unavailable transaction details, an unreadable purchase memo,
     or  a page memo naming a zPage that does not exist -- and an
     optional decision says that an operator has dealt with that observation;
     neither ever says
@@ -709,6 +709,7 @@ class ZecMemoDisposition(models.Model):
     to replace it. Admin is read-only.
     """
 
+    TRANSACTION_UNAVAILABLE = 'transaction_unavailable'
     UNPARSEABLE_BUY_2Z = 'unparseable_buy_2z'
     #`credit_pages_unified` received ZEC whose memo is a page-funding
     # instruction (`page_fund` / `page_comment` /...) naming a zPage that
@@ -719,6 +720,7 @@ class ZecMemoDisposition(models.Model):
     # parse. The page-memo counterpart of UNPARSEABLE_BUY_2Z.
     UNPARSEABLE_PAGE_MEMO = 'unparseable_page_memo'
     CLASSIFICATION_CHOICES = [
+        (TRANSACTION_UNAVAILABLE, 'Transaction or memo unavailable'),
         (UNPARSEABLE_BUY_2Z, 'Unparseable buy_2z memo'),
         (PAGE_TARGET_NOT_FOUND, 'Page memo names a zPage that does not exist'),
         (UNPARSEABLE_PAGE_MEMO, 'Unparseable page memo'),
