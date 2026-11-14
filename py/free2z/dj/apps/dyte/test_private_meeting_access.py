@@ -39,8 +39,9 @@ JOIN_URL = '/api/dyte/{username}/private/{secret}'
 
 
 class _FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     def json(self):
         return self._payload
@@ -420,3 +421,76 @@ def test_owner_joins_private_room_through_case_variant_url(
         JOIN_URL.format(username=streamer.username.upper(), secret=cm.secret), {})
     assert response.status_code == 200, response.data
     assert dyte_client.add_participant.call_args.args == (streamer, cm.meeting_id)
+
+
+# ---------------------------------------------------------------------------
+# Provider failure while creating the room (production, November 2026:
+# RealtimeKit answered every create with HTTP 401 and the handler raised a
+# bare Exception -> HTML 500).
+# ---------------------------------------------------------------------------
+
+
+class _HtmlResponse(_FakeResponse):
+    def json(self):
+        raise ValueError('HTML body must not escape')
+
+
+@pytest.mark.parametrize('response', [
+    _FakeResponse({'success': False, 'error': {
+        'code': 401, 'message': 'Basic auth failed for org'}}, status_code=401),
+    _FakeResponse({'error': {'code': 429}}, status_code=429),
+    _FakeResponse({'data': {}}, status_code=200),
+    _HtmlResponse(None, status_code=502),
+])
+def test_first_private_create_provider_failure_is_structured_and_writes_nothing(
+    api_client, dyte_client, streamer, response,
+):
+    dyte_client.create_meeting.side_effect = None
+    dyte_client.create_meeting.return_value = response
+    api_client.force_authenticate(user=streamer)
+
+    result = api_client.post(MANAGE_URL.format(username=streamer.username))
+
+    assert result.status_code == 503
+    assert result.headers['Retry-After'] == '5'
+    assert result.data['code'] == 'provider_unavailable'
+    assert result.data['retryable'] is True
+    assert result.data['failure']['stage'] == 'create_private_room'
+    assert 'Basic auth failed' not in str(result.data)
+    # The row insert rolled back with the failed create: no NULL-room private
+    # row is left for GET to hand out as a joinable secret.
+    assert not CreatorMeeting.objects.filter(creator=streamer).exists()
+
+    dyte_client.create_meeting.side_effect = None
+    dyte_client.create_meeting.return_value = _FakeResponse(
+        {'data': {'id': 'recovered-private-room'}})
+    retried = api_client.post(MANAGE_URL.format(username=streamer.username))
+    assert retried.status_code == 200
+    cm = CreatorMeeting.objects.get(creator=streamer, meeting_type=PRIVATE)
+    assert cm.meeting_id == 'recovered-private-room'
+    assert str(cm.secret) == str(retried.data['secret'])
+
+
+def test_private_rotation_transport_failure_keeps_the_existing_invitation(
+    api_client, dyte_client, streamer,
+):
+    import requests
+
+    api_client.force_authenticate(user=streamer)
+    created = api_client.post(MANAGE_URL.format(username=streamer.username))
+    assert created.status_code == 200
+    before = CreatorMeeting.objects.get(creator=streamer, meeting_type=PRIVATE)
+
+    dyte_client.create_meeting.side_effect = requests.ConnectionError(
+        'secret transport prose must not escape')
+    failed = api_client.post(MANAGE_URL.format(username=streamer.username))
+
+    assert failed.status_code == 503
+    assert failed.data['failure'] == {
+        'stage': 'create_private_room', 'code': 'transport_error',
+        'request_id': failed.data['failure']['request_id'],
+    }
+    assert 'secret transport prose' not in str(failed.data)
+    after = CreatorMeeting.objects.get(pk=before.pk)
+    assert after.meeting_id == before.meeting_id
+    assert after.secret == before.secret

@@ -1529,3 +1529,92 @@ def test_eviction_catchup_cache_failure_preserves_obligation(settings, mocker, h
     provider.get_participants_count.assert_called_once_with('room')
     assert not ProcrastinateJob.objects.filter(task_name='dyte.retire_host_evictions').exists()
     assert 'host eviction catch-up: could not read cursor' in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# Production, November 2026: RealtimeKit answered every room create with
+# HTTP 401 "Basic auth failed for org". A refusal is definitive (no room
+# exists), so it must release everything without leaving one manual-review
+# reconciliation row per retry; ambiguous outcomes keep theirs.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize('meeting_type', [BROADCAST, PAY_PER_VIEW, SUBSCRIBERS_ONLY])
+@pytest.mark.parametrize('status_code', [400, 401, 403, 404, 409, 422, 429])
+def test_definitive_room_create_refusal_releases_everything_without_reconciliation(
+    api_client, provider, host, creator_factory, meeting_type, status_code,
+):
+    provider.create_meeting.side_effect = None
+    provider.create_meeting.return_value = _FakeResponse(
+        {'success': False, 'error': {
+            'code': status_code, 'message': 'Basic auth failed for org'}},
+        status_code=status_code,
+    )
+    extra = {'price_per_minute': '1'} if meeting_type == PAY_PER_VIEW else {}
+
+    for _ in range(3):
+        failed = _start(api_client, host, meeting_type=meeting_type, **extra)
+        assert failed.status_code == 503, failed.data
+        assert failed.data['code'] == 'provider_unavailable'
+        assert failed.data['failure']['stage'] == 'create_room'
+        assert failed.data['failure']['provider_status'] == status_code
+        assert 'Basic auth failed' not in str(failed.data)
+
+    cm = CreatorMeeting.objects.get(creator=host, meeting_type=meeting_type)
+    assert cm.meeting_id is None
+    assert cm.live_now is False
+    assert cm.host_start_claim is None
+    assert cm.host_session_id is None
+    assert cm.host_evictions == []
+    assert not ProviderRoomCleanup.objects.filter(creator_meeting=cm).exists()
+    assert provider.add_participant.call_count == 0
+
+    # Credentials restored: this creator and an unrelated creator both start.
+    provider.create_meeting.side_effect = lambda title: _FakeResponse(
+        {'data': {'id': f'room-{title}'}})
+    assert _start(api_client, host, meeting_type=meeting_type, **extra).status_code == 200
+    other = creator_factory(username='after-outage-host', tuzis=Decimal('1000'))
+    assert _start(api_client, other, meeting_type=meeting_type, **extra).status_code == 200
+
+
+@pytest.mark.parametrize('status_code', [408, 500, 502, 503, 504])
+def test_ambiguous_room_create_failure_keeps_one_reconciliation_per_attempt(
+    api_client, provider, host, status_code,
+):
+    provider.create_meeting.side_effect = None
+    provider.create_meeting.return_value = _FakeResponse(
+        {'error': {'code': status_code}}, status_code=status_code,
+    )
+
+    failed = _start(api_client, host, meeting_type=SUBSCRIBERS_ONLY)
+
+    assert failed.status_code == 503
+    cm = CreatorMeeting.objects.get(creator=host, meeting_type=SUBSCRIBERS_ONLY)
+    assert cm.meeting_id is None
+    assert cm.host_start_claim is None
+    cleanup = ProviderRoomCleanup.objects.get(creator_meeting=cm)
+    assert cleanup.status == 'manual_review'
+    assert cleanup.provider_meeting_id is None
+
+
+def test_definitive_replacement_room_refusal_drops_its_reconciliation(
+    api_client, provider, host,
+):
+    CreatorMeeting.objects.create(creator=host, meeting_id='gone-room', meeting_type=BROADCAST)
+    provider.add_participant.return_value = _FakeResponse(
+        {'error': {'code': 404}}, status_code=404,
+    )
+    provider.create_meeting.side_effect = None
+    provider.create_meeting.return_value = _FakeResponse(
+        {'success': False, 'error': {'code': 401}}, status_code=401,
+    )
+
+    failed = _start(api_client, host)
+
+    assert failed.status_code == 503
+    assert failed.data['failure']['stage'] == 'rotate_room'
+    cm = CreatorMeeting.objects.get(creator=host)
+    assert cm.meeting_id == 'gone-room'
+    assert cm.host_start_claim is None
+    assert cm.host_session_id is None
+    assert not ProviderRoomCleanup.objects.filter(creator_meeting=cm).exists()

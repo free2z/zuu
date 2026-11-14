@@ -173,6 +173,24 @@ def _host_room_response(response, stage):
     return room_id, _host_provider_diagnostic(response, stage, 'invalid_response')
 
 
+def _room_create_definitively_rejected(response, room_id):
+    """True when a failed room create provably minted no provider room.
+
+    A 4xx answer (credential, permission, validation, rate-limit) is a refusal
+    to act, so there is nothing for an operator to reconcile. Recording a
+    manual-review obligation for each such attempt would bury the real
+    ambiguous outcomes (transport errors, 5xx, malformed 2xx) under one row per
+    retry for the length of a provider outage. 408 is a timeout, not a
+    refusal, and any returned room ID is always kept for reconciliation.
+    """
+    status_code = getattr(response, 'status_code', None)
+    return (
+        room_id is None
+        and isinstance(status_code, int) and not isinstance(status_code, bool)
+        and 400 <= status_code < 500 and status_code != 408
+    )
+
+
 def _host_participant_response(response, stage, custom_participant_id):
     """Validate a participant response while preserving its precommitted cleanup key."""
     status_code = getattr(response, 'status_code', None)
@@ -1686,15 +1704,30 @@ def live_meeting_status(request, username):
     return Response(resp)
 
 
+class ProviderRoomCreateFailed(Exception):
+    """A provider room create failed; ``diagnostic`` is safe to return."""
+
+    def __init__(self, diagnostic):
+        super().__init__(diagnostic.get('code'))
+        self.diagnostic = diagnostic
+
+
 def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting:
     if not dc:
         dc = DyteClient(settings.DYTE_ORG)
-    resp = dc.create_meeting(cm.creator.username)
-    d = resp.json()
-    if d.get('error'):
-        logger.error(d)
-        raise Exception("Dyte Error")
-    cm.meeting_id = d['data']['id']
+    try:
+        resp = dc.create_meeting(cm.creator.username)
+    except requests.RequestException as exc:
+        raise ProviderRoomCreateFailed(_host_provider_diagnostic(
+            getattr(exc, 'response', None), 'create_private_room', 'transport_error',
+        )) from None
+    room_id, failure = _host_room_response(resp, 'create_private_room')
+    if failure:
+        # Raised inside the caller's transaction: nothing about this row,
+        # including a freshly inserted one, is committed. The response's body
+        # is never logged; the diagnostic carries only status/code.
+        raise ProviderRoomCreateFailed(failure)
+    cm.meeting_id = room_id
     # NOTE: `created_at` is deliberately NOT moved here, although the
     # host path's "rotate a room over a day old" rule reads it and so, from a
     # row's second day, every host start mints a new room and orphans the old
@@ -2035,6 +2068,17 @@ class PrivateMeetingManage(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
                 data="You need at least 150 to go live!"
             )
+        try:
+            return self._create_or_rotate(request)
+        except ProviderRoomCreateFailed as exc:
+            # The transaction rolled back: no new row, no rotated secret, and
+            # the previous invitation (if any) still points at its old room.
+            return _host_provider_retry_response(
+                None, exc.diagnostic['stage'], exc.diagnostic['code'],
+                diagnostic=exc.diagnostic,
+            )
+
+    def _create_or_rotate(self, request):
         # Serialize invitation/room rotation with private recording mutations.
         with transaction.atomic():
             cm, _ = CreatorMeeting.objects.select_for_update().get_or_create(
@@ -2655,7 +2699,9 @@ class DyteMeeting(APIView):
                                     keep_cleanup=False)
                 raise
             proposed_id, failure = _host_room_response(response, 'create_room')
-            if failure:
+            if failure and _room_create_definitively_rejected(response, proposed_id):
+                room_reconciliation.delete()
+            elif failure:
                 room_reconciliation.last_error = (
                     'Room create response was not safely verifiable; inspect '
                     'RealtimeKit meetings for this creator/title and reconcile manually'
@@ -2766,7 +2812,9 @@ class DyteMeeting(APIView):
                                     keep_cleanup=False)
                 raise
             proposed_id, failure = _host_room_response(room_response, 'rotate_room')
-            if failure:
+            if failure and _room_create_definitively_rejected(room_response, proposed_id):
+                room_reconciliation.delete()
+            elif failure:
                 room_reconciliation.last_error = (
                     'Replacement room create response was not safely verifiable; '
                     'inspect RealtimeKit meetings for this creator/title and reconcile manually'
