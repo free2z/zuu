@@ -4,13 +4,15 @@
 **Refs:** [#1047](https://github.com/free2z/zuu/issues/1047) (epic),
 [#1048](https://github.com/free2z/zuu/issues/1048) (this document set)
 
-This directory is the **contract** that every implementer of the platform
-builds against — the identity provider, the AI gateway, the account API and
-the SDKs — and it is also the public developer documentation. It is written
-for a third-party developer who has no other context and no privileged access:
-if something here cannot be done by a stranger with the published packages and
-a registered app, that is a defect in the platform, not a limitation of the
-reader.
+This directory contains the proposed platform contract and public developer
+documentation. The source preview supports compiling and integrating the SDK
+and exercising documented mock flows; it does not establish that live identity,
+account, AI, billing, or payment services are deployed for a registered client.
+Read [source-preview status](./SOURCE-PREVIEW.md) and
+[live prerequisites](./SOURCE-PREVIEW.md#live-prerequisites) before treating a
+documented flow or rail as available. The API and receipt details remain
+compatibility contracts; their presence here is not evidence of live service
+behavior.
 
 The first integrator is a separate company building an AI tutor app with
 Tauri 2 for desktop, iOS and Android. **iOS and Android are equal, first-class
@@ -28,8 +30,8 @@ xAI, the drop-in compatibility encodings and the build order — is in
 Tagged releases and the gateway compatibility matrix are in
 [RELEASES.md](./RELEASES.md). Package maintainers can use the
 [release verification guide](./RELEASING.md).
-It separates the implemented Rust preview and mock flows from the pending
-Tauri/TypeScript packages and live-platform prerequisites.
+The preview, mock flows, implementation work, proposals, and live prerequisites
+are identified separately below and in the linked guides.
 
 ## The three capabilities
 
@@ -41,7 +43,9 @@ Tauri/TypeScript packages and live-platform prerequisites.
    used. → [`spec/oidc.md`](./spec/oidc.md)
 2. **Show 2Z, and send users to Free2Z to get more.** An app reads the
    user's balance. **Apps don't sell 2Z**: a user gets them on their Free2Z
-   billing page, paying with Zcash (preferred, shown first) or by card. A
+   billing page. The active funding policy describes Zcash estimates and
+   settlement (with card described as a billing-page option); this source
+   evidence does not verify either rail's live availability. A
    web, direct-download desktop or Apple-US-storefront build may link it
    with `billingUrl()` / `openBilling()` (SDK 0.4.0) →
    [the billing URL contract](./INTEGRATION.md#get-2z--the-billing-url-contract).
@@ -49,7 +53,15 @@ Tauri/TypeScript packages and live-platform prerequisites.
    storefront, links no payment at all and shows only "Manage Free2Z
    account" → [`STORE-COMPLIANCE.md`](./STORE-COMPLIANCE.md). The older
    app-facing purchase API ([`spec/purchase.md`](./spec/purchase.md)) is
-   deprecated for apps.
+   deprecated for apps and remains for compatibility; its Zcash intent and
+   locked-quote terms are legacy proposal text, not the active funding policy.
+   The active policy says billing-page amounts are estimates that neither
+   reserve credits nor lock a rate. After required confirmations, credit is
+   calculated from a fresh recorded multi-source ZEC/USD price and the
+   processing-time settlement spread. The conservative estimate buffer is
+   disclosed separately and does not reduce actual credit. See the canonical
+   active text in
+   [`contracts.py`](../../../py/free2z/dj/apps/economy/contracts.py#L214-L216).
 3. **Call AI.** A low-latency streaming gateway at `https://ai.free2z.cash`
    exposes one unified chat API over several providers, metered in 2Z with
    cost-plus pricing and rounded **up** to a whole 2Z per call. A registered
@@ -63,13 +75,25 @@ Tauri/TypeScript packages and live-platform prerequisites.
 
 **2Z are platform credits.** They are not money, not a currency and not a
 crypto asset; they are not transferable between users by an app, and they are
-not redeemable. **1 2Z corresponds to $0.01 of usage.** A user buys 2Z from
-2Z Inc on Free2Z — with Zcash or a card on the web, or by in-app purchase in
-Free2Z's own apps — and spends them on AI calls made through apps they have
-authorized. Third-party apps never sell 2Z. Wherever this documentation says "price" or
+not redeemable. **1 2Z corresponds to $0.01 of usage.** A user gets 2Z through
+Free2Z funding flows and spends them on AI calls made through apps they have
+authorized. The source and design materials describe Zcash and card billing
+flows and specify first-party store receipt contracts; those descriptions do
+not prove that any rail is currently deployed or available. Third-party apps
+never sell 2Z. Wherever this documentation says "price" or
 "charge" it means a quantity of 2Z; wherever it says "cost" it means what a
 provider bills the platform in USD, which is the input to the price and never
 something a user pays directly.
+
+**Funding status and evidence.** The pricing and settlement description above
+reflects the active funding policy in the canonical resource linked above.
+The SDK purchase spec still contains an older locked-rate Zcash intent design;
+it is retained for API/client compatibility and must not be used to describe
+current billing behavior. This repository documents source and policy, not a
+live deployment: compiling the public source preview or finding an active
+policy resource does not verify that a service, payment rail, or client
+registration is deployed or available. See [source-preview status](./SOURCE-PREVIEW.md)
+and [live prerequisites](./SOURCE-PREVIEW.md#live-prerequisites).
 
 ### Units on the wire
 
@@ -181,7 +205,7 @@ Consequences that follow directly:
 | [`spec/chat-api.md`](./spec/chat-api.md) | Anyone calling or implementing the gateway. `POST /v1/chat` and the full SSE grammar with examples |
 | [`spec/metering.md`](./spec/metering.md) | Anyone who needs to explain a charge. Hold → stream → settle, the formula, worked examples, the edge cases |
 | [`spec/grant.md`](./spec/grant.md) | Apps verifying the current original consented limit, period and enforcement status |
-| [`spec/purchase.md`](./spec/purchase.md) | Legacy for apps: apps don't sell 2Z. The purchase-intent contract that Free2Z's own apps and SDK 0.3.0 clients rely on; StoreKit 2 and Play Billing in Free2Z's own apps |
+| [`spec/purchase.md`](./spec/purchase.md) | Legacy for apps: apps don't sell 2Z. Purchase-intent and first-party StoreKit 2 / Play Billing receipt designs are compatibility contracts, not proof of live rail availability |
 | [`STORE-COMPLIANCE.md`](./STORE-COMPLIANCE.md) | Anyone shipping to the App Store or Google Play. What a store build may show, age rating, consent, deletion, review notes |
 | [`spec/errors.md`](./spec/errors.md) | Everyone. The error catalogue: every status, code, whether to retry |
 | [`../ai-gateway/`](../ai-gateway/README.md) | Gateway implementers. The ADRs and the operational contract |
@@ -199,7 +223,7 @@ to this table first.
 | Developer markup cap | 5000 bps (50 %) | [`spec/oidc.md`](./spec/oidc.md) §2 |
 | Minimum charge per call | 1 2Z (never below) | [`spec/metering.md`](./spec/metering.md) §2.2 |
 | Card purchase (purchase API, legacy for apps) | 100–10,000 2Z per intent | [`spec/purchase.md`](./spec/purchase.md) §2 |
-| Zcash purchase (platform rail; never through an app) | 100–1,000,000 2Z per intent; 30-minute quote; 3 confirmations | [`spec/purchase.md`](./spec/purchase.md) §2, §5 |
+| Zcash purchase (legacy intent proposal; never through an app) | The old spec's 100–1,000,000 2Z range and 30-minute locked quote are not active funding terms; the active policy uses an estimate and processing-time settlement pricing | [`spec/purchase.md`](./spec/purchase.md) §2, §5; active policy in [`contracts.py`](../../../py/free2z/dj/apps/economy/contracts.py#L214-L216) |
 | Access token | 5 minutes | [`spec/oidc.md`](./spec/oidc.md) §6 |
 | Refresh token | 30 days, rotating; 60 s grace for a lost rotation | [`spec/oidc.md`](./spec/oidc.md) §8 |
 | Authorization code | 60 seconds, single use | [`spec/oidc.md`](./spec/oidc.md) §9.2 |
