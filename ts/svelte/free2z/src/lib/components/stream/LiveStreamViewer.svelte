@@ -34,6 +34,7 @@
   import SubscribeToCreator from "./SubscribeToCreator.svelte";
   import PayPerViewPrompt from "./PayPerViewPrompt.svelte";
   import InlineRtkMeeting from "./InlineRtkMeeting.svelte";
+  import ConcurrentScreenShares from "./ConcurrentScreenShares.svelte";
   import MeetingRecordingNotice from "./MeetingRecordingNotice.svelte";
   import RtkAudioHealth from "./RtkAudioHealth.svelte";
   import InsufficientFunds from "$lib/components/InsufficientFunds.svelte";
@@ -642,7 +643,12 @@
 >
   {#if meeting && connectionStatus !== "ended"}
     <div class="absolute inset-0">
-      <InlineRtkMeeting {meeting} translator={rtkTranslator} />
+      <div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div class="min-h-0 flex-1">
+          <InlineRtkMeeting {meeting} translator={rtkTranslator} />
+        </div>
+        <ConcurrentScreenShares {meeting} />
+      </div>
       <MeetingRecordingNotice {meeting} {serverRecording} />
       <RtkAudioHealth
         {meeting}

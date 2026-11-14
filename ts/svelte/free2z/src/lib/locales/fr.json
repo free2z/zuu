@@ -2297,6 +2297,13 @@
     }
   },
   "live": {
+    "screenShares": {
+      "title": "Écrans partagés",
+      "choose": "Choisir un écran partagé",
+      "you": "Vous",
+      "subscribeError": "Un écran est partagé, mais cet appareil n’a pas pu recevoir sa vidéo.",
+      "unsubscribeError": "Un partage d’écran a pris fin, mais son abonnement vidéo n’a pas pu être fermé."
+    },
     "backToProfile": "Retour au profil",
     "isLive": "{name} est en direct",
     "metaDescription": "Regardez la diffusion en direct de {name} sur Free2Z.",

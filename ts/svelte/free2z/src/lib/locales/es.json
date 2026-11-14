@@ -2297,6 +2297,13 @@
     }
   },
   "live": {
+    "screenShares": {
+      "title": "Pantallas compartidas",
+      "choose": "Elige una pantalla compartida",
+      "you": "Tú",
+      "subscribeError": "Hay una pantalla compartida, pero este dispositivo no pudo suscribirse a su vídeo.",
+      "unsubscribeError": "Terminó una pantalla compartida, pero no se pudo cerrar su suscripción de vídeo."
+    },
     "backToProfile": "Volver al perfil",
     "isLive": "{name} está transmitiendo en vivo",
     "metaDescription": "Mira la transmisión en vivo de {name} en Free2Z.",
