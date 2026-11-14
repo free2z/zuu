@@ -88,7 +88,33 @@ describe("article tag HTTP contract", () => {
       query: {
         query: "pri",
         type: "zpage",
+        article_facets: true,
         selected_tags: "zcash",
+        search: undefined,
+        homeSort: undefined,
+        category: undefined,
+        num_results: 10,
+      },
+      anonymous: true,
+    });
+  });
+
+  it("sends the feed's search, sort and category with facet requests", async () => {
+    requestMock.mockResolvedValue([{ name: "privacy", count: 2 }]);
+    await articles.suggestTags("pri", ["zcash"], {
+      search: "proofs",
+      sort: "score",
+      category: "research",
+    });
+    expect(requestMock).toHaveBeenCalledWith("/api/tagging/autocomplete", {
+      query: {
+        query: "pri",
+        type: "zpage",
+        article_facets: true,
+        selected_tags: "zcash",
+        search: "proofs",
+        homeSort: "score",
+        category: "research",
         num_results: 10,
       },
       anonymous: true,

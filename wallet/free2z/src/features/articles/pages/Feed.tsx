@@ -31,20 +31,32 @@ export function Feed() {
   const { t } = useTranslation();
   const { viewport } = useRouteScroll();
   const [params, setParams] = useSearchParams();
-  const [sort, setSort] = useState<ArticleSort>("popular");
+  const sortValue = params.get("sort");
+  const sort: ArticleSort = SORTS.some((option) => option.value === sortValue)
+    ? (sortValue as ArticleSort)
+    : "popular";
   const selectedTags = useMemo(
     () => parseArticleTagsParam(params.get("tags")),
     [params],
   );
-  const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
+  const search = params.get("search")?.trim() ?? "";
+  const [searchInput, setSearchInput] = useState(search);
+
+  useEffect(() => setSearchInput(search), [search]);
 
   // Debounce the search box so we hit the (semantic) endpoint on a pause,
   // not on every keystroke.
   useEffect(() => {
-    const id = setTimeout(() => setSearch(searchInput.trim()), 350);
+    const normalized = searchInput.trim();
+    if (normalized === search) return;
+    const id = setTimeout(() => {
+      const next = new URLSearchParams(params);
+      if (normalized) next.set("search", normalized);
+      else next.delete("search");
+      setParams(next);
+    }, 350);
     return () => clearTimeout(id);
-  }, [searchInput]);
+  }, [searchInput, search, params, setParams]);
 
   const {
     items,
@@ -151,7 +163,12 @@ export function Feed() {
               type="button"
               role="tab"
               aria-selected={sort === s.value}
-              onClick={() => setSort(s.value)}
+              onClick={() => {
+                const next = new URLSearchParams(params);
+                if (s.value === "popular") next.delete("sort");
+                else next.set("sort", s.value);
+                setParams(next);
+              }}
               className={cn(
                 "min-tap rounded-full px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 sort === s.value
@@ -168,6 +185,7 @@ export function Feed() {
       <TopicFilterAutocomplete
         selected={selectedTags}
         onChange={updateSelectedTags}
+        filters={{ search, sort }}
       />
 
       {/* Result count */}

@@ -1562,6 +1562,7 @@ export const articles = {
   async suggestTags(
     query: string,
     selected: string[] = [],
+    filters: Pick<ArticleFeedParams, "search" | "sort" | "category"> = {},
   ): Promise<ArticleTagSuggestion[]> {
     const selectedTags = normalizeArticleTags(selected);
     if (useMock()) {
@@ -1577,7 +1578,19 @@ export const articles = {
         throw new Error("Mock topic autocomplete unavailable");
       }
       const counts = new Map<string, number>();
-      for (const article of mockArticles) {
+      const corpus = mockArticles.filter((article) => {
+        const articleTags = sanitizeArticleTags(article.tags ?? []);
+        return (
+          (!filters.category || article.category === filters.category) &&
+          (!filters.sort || Boolean(article.image)) &&
+          selectedTags.every((tag) => articleTags.includes(tag)) &&
+          (!filters.search?.trim() ||
+            `${article.title} ${article.content}`
+              .toLocaleLowerCase("en-US")
+              .includes(filters.search.trim().toLocaleLowerCase("en-US")))
+        );
+      });
+      for (const article of corpus) {
         for (const tag of sanitizeArticleTags(article.tags ?? [])) {
           counts.set(tag, (counts.get(tag) ?? 0) + 1);
         }
@@ -1596,7 +1609,11 @@ export const articles = {
       query: {
         query: query.trim(),
         type: "zpage",
+        article_facets: true,
         selected_tags: selectedTags.join(","),
+        search: filters.search,
+        homeSort: filters.sort,
+        category: filters.category,
         num_results: 10,
       },
       anonymous: true,
