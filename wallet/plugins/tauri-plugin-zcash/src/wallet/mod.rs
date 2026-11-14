@@ -10,7 +10,7 @@ pub mod send;
 pub mod storage;
 pub mod sync;
 
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng;
 use secrecy::SecretVec;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -26,12 +26,25 @@ pub type WalletProposal = zcash_client_backend::proposal::Proposal<
     zcash_client_sqlite::ReceivedNoteId,
 >;
 
+/// The operating-system CSPRNG, in the infallible form librustzcash requires.
+///
+/// rand 0.10 exposes the OS generator as the fallible `SysRng`; `WalletDb` and
+/// our one-time tokens need the infallible `rand::Rng`. `UnwrapErr` provides it
+/// by panicking if the OS generator fails, which is what rand 0.8's `OsRng`
+/// did.
+pub type OsRng = rand::rand_core::UnwrapErr<rand::rngs::SysRng>;
+
+/// A handle to [`OsRng`]. It is stateless; every call reads the OS generator.
+pub(crate) fn os_rng() -> OsRng {
+    rand::rand_core::UnwrapErr(rand::rngs::SysRng)
+}
+
 /// Type alias for our concrete WalletDb.
 pub type WalletDatabase = zcash_client_sqlite::WalletDb<
     rusqlite::Connection,
     Network,
     zcash_client_sqlite::util::SystemClock,
-    rand::rngs::OsRng,
+    OsRng,
 >;
 
 /// Lazily authenticate and install spending authority for the active wallet.
@@ -199,7 +212,7 @@ impl WalletState {
             .as_ref()
             .map_or(0, |pending| pending.proposal_id.saturating_add(1));
         let mut send_session_id = [0_u8; 32];
-        OsRng.fill_bytes(&mut send_session_id);
+        os_rng().fill_bytes(&mut send_session_id);
 
         Ok(Self {
             network,

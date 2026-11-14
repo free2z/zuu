@@ -29,9 +29,9 @@ tokio = { version = "1", features = ["full"] }
 # lightwalletd over TLS, so declare those features here rather than relying on them
 # leaking in via zcash_client_backend's feature unification (which breaks clean builds).
 tonic = { version = "0.14", default-features = false, features = ["transport", "tls-webpki-roots"] }
-bip0039 = "0.12"
+bip0039 = "0.14"
 secrecy = "0.8"
-rand = "0.8"
+rand = "0.10"
 tracing = "0.1"
 libc = "0.2"
 # `array` for rusqlite::vtab::array (see wallet/storage.rs) — the `array` feature
@@ -39,7 +39,7 @@ libc = "0.2"
 # Declared explicitly for the same reason as tonic above: don't rely on another
 # crate's feature unification to turn it on, or clean builds break.
 rusqlite = { version = "0.37", features = ["bundled", "array"] }
-zip32 = { version = "0.2", default-features = false }
+zip32 = { version = "0.3", default-features = false }
 nonempty = "0.11"
 async-trait = "0.1"
 rustls = { version = "0.23", features = ["ring"] }
@@ -51,7 +51,7 @@ zeroize = "1.8"
 # backend can verify with zcashd `verifymessage`. All cross-platform → [dependencies].
 # secp256k1 is already in the tree (via librustzcash); we only add the `recovery`
 # feature here for the 65-byte recoverable signature zcashd emits/accepts.
-secp256k1 = { version = "0.29", features = ["recovery"] }
+secp256k1 = { version = "0.33", features = ["recovery"] }
 ripemd = "0.1"        # RIPEMD160 half of HASH160 for the P2PKH address
 bs58 = { version = "0.5", features = ["check"] }  # base58check for the t-address
 base64 = "0.22"       # standard padded base64 for the signature

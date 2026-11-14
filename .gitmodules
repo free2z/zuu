@@ -23,29 +23,23 @@
 	# TRANSIENT FORK (registered alongside the OpenMLS bridge). See
 	# AGENTS.md "It's a real upstream regression -> branch, PR, pin, resume".
 	#
-	# free2z/librustzcash `f2z/drop-stale-rustcrypto-rc-pins` is upstream
-	# `main` at 91f448b plus one 4-line deletion (and its lockfile): the workspace's
-	# `block-buffer = "=0.11.0-rc.3"` / `crypto-common = "=0.2.0-rc.1"` pins
-	# and the two `zcash_primitives` lines that consume them. Both carry
-	# upstream's own comment "later RCs require edition2024" / "remove after
-	# edition2024 upgrade"; that upgrade has landed (`edition = "2024"`,
-	# `rust-version = "1.88"`) and every current release of those crates
-	# declares `rust-version = "1.85"`. Neither crate is named anywhere in
-	# zcash_primitives' source.
+	# free2z/librustzcash `f2z/parameter-download-tls-nu7` is upstream `main`
+	# plus one commit: zcash_proofs parameter downloads move from minreq 2
+	# (rustls 0.21 and its obsolete certificate trust) to minreq 3 on the
+	# maintained rustls 0.23 line, with loopback tests for the lazy reader.
 	#
-	# Why it blocks us: `=0.2.0-rc.1` and the `^0.2` that `digest 0.11`
-	# requires cannot both be satisfied, so `wallet/zuuli/src-tauri` could not
-	# link `tauri-plugin-f2zmsg` at all.
+	# The earlier RustCrypto pre-release pin removal is gone from the delta:
+	# upstream dropped those pins itself when it moved to secp256k1 0.33 and
+	# bip32 0.6 (zcash/librustzcash c1d750af45).
 	#
-	# Move this back to https://github.com/zcash/librustzcash + `main` the
-	# moment the upstream PR (zcash/librustzcash#3010) merges. Until then the
+	# Move this back to https://github.com/zcash/librustzcash + `main` once
+	# upstream ships a maintained parameter-download TLS client. Until then the
 	# branch is rebased forward onto upstream `main` rather than left behind.
 	#
-	# Tracked as section 1 of docs/DEPENDENCIES.md; #3010's head is a
-	# *different* branch on the same fork, and the register says why that
-	# matters. scripts/check-dependency-register.mjs enforces both.
+	# Tracked as section 1 of docs/DEPENDENCIES.md;
+	# scripts/check-dependency-register.mjs enforces it.
 	url = https://github.com/free2z/librustzcash
-	branch = fix/parameter-download-tls-trust
+	branch = f2z/parameter-download-tls-nu7
 [submodule "z/zcash/orchard"]
 	path = z/zcash/orchard
 	url = https://github.com/zcash/orchard

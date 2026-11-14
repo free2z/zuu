@@ -5,7 +5,8 @@ use zcash_protocol::consensus::Network;
 
 use base64::Engine;
 use ripemd::Ripemd160;
-use secp256k1::{Message, PublicKey, Scalar, Secp256k1, SecretKey};
+use secp256k1::ecdsa::RecoverableSignature;
+use secp256k1::{Message, PublicKey, Scalar, SecretKey};
 use sha2::{Digest, Sha256, Sha512};
 
 use crate::error::{Error, Result};
@@ -88,22 +89,20 @@ pub fn sign_challenge(
     account_index: u32,
     challenge: &str,
 ) -> Result<ChallengeSignature> {
-    let secp = Secp256k1::new();
-
     // BIP44 m/44'/133'/{account}'/0/0
-    let signing_key = derive_transparent_p2pkh_key(&secp, seed, account_index)?;
-    let pubkey = PublicKey::from_secret_key(&secp, &signing_key);
+    let signing_key = derive_transparent_p2pkh_key(seed, account_index)?;
+    let pubkey = PublicKey::from_secret_key(&signing_key);
     let pubkey_compressed = pubkey.serialize(); // 33-byte compressed
 
     let address = p2pkh_address(&pubkey_compressed);
 
     let digest = message_digest(challenge);
     let msg = Message::from_digest(digest);
-    let recoverable = secp.sign_ecdsa_recoverable(&msg, &signing_key);
+    let recoverable = RecoverableSignature::sign_ecdsa_recoverable(msg, &signing_key);
     let (recovery_id, compact) = recoverable.serialize_compact();
 
     // header = 27 + recovery_id + 4 (compressed pubkey) => 31..=34
-    let header = 27u8 + recovery_id.to_i32() as u8 + 4;
+    let header = 27u8 + recovery_id.to_u8() + 4;
     let mut sig65 = Vec::with_capacity(65);
     sig65.push(header);
     sig65.extend_from_slice(&compact);
@@ -124,24 +123,22 @@ struct ExtendedKey {
 }
 
 /// Derive the transparent P2PKH signing key at BIP44 `m/44'/133'/{account}'/0/0`.
-fn derive_transparent_p2pkh_key(
-    secp: &Secp256k1<secp256k1::All>,
-    seed: &[u8],
-    account_index: u32,
-) -> Result<SecretKey> {
+fn derive_transparent_p2pkh_key(seed: &[u8], account_index: u32) -> Result<SecretKey> {
     let master = master_key(seed)?;
-    let purpose = derive_child(secp, &master, 44, true)?;
-    let coin = derive_child(secp, &purpose, 133, true)?;
-    let account = derive_child(secp, &coin, account_index, true)?;
-    let change = derive_child(secp, &account, 0, false)?;
-    let external = derive_child(secp, &change, 0, false)?;
+    let purpose = derive_child(&master, 44, true)?;
+    let coin = derive_child(&purpose, 133, true)?;
+    let account = derive_child(&coin, account_index, true)?;
+    let change = derive_child(&account, 0, false)?;
+    let external = derive_child(&change, 0, false)?;
     Ok(external.secret)
 }
 
 /// BIP32 master key from a seed: `HMAC-SHA512("Bitcoin seed", seed)`.
 fn master_key(seed: &[u8]) -> Result<ExtendedKey> {
     let i = hmac_sha512(b"Bitcoin seed", seed);
-    let secret = SecretKey::from_slice(&i[..32])
+    let mut il = [0u8; 32];
+    il.copy_from_slice(&i[..32]);
+    let secret = SecretKey::from_secret_bytes(il)
         .map_err(|e| Error::KeyError(format!("invalid master key: {e}")))?;
     let mut chain_code = [0u8; 32];
     chain_code.copy_from_slice(&i[32..]);
@@ -149,20 +146,15 @@ fn master_key(seed: &[u8]) -> Result<ExtendedKey> {
 }
 
 /// BIP32 private-parent → private-child derivation (CKDpriv).
-fn derive_child(
-    secp: &Secp256k1<secp256k1::All>,
-    parent: &ExtendedKey,
-    index: u32,
-    hardened: bool,
-) -> Result<ExtendedKey> {
+fn derive_child(parent: &ExtendedKey, index: u32, hardened: bool) -> Result<ExtendedKey> {
     let mut data = Vec::with_capacity(37);
     if hardened {
         // 0x00 || ser256(k_par)
         data.push(0x00);
-        data.extend_from_slice(&parent.secret.secret_bytes());
+        data.extend_from_slice(&parent.secret.to_secret_bytes());
     } else {
         // serP(point(k_par)) — compressed public key
-        let pk = PublicKey::from_secret_key(secp, &parent.secret);
+        let pk = PublicKey::from_secret_key(&parent.secret);
         data.extend_from_slice(&pk.serialize());
     }
     let child_number = if hardened { index | 0x8000_0000 } else { index };
@@ -326,6 +318,35 @@ mod tests {
         }
     }
 
+    /// The login key is derived by this module's own BIP32 code, not by
+    /// librustzcash. Bind the two: the login address must be the wallet's
+    /// first external transparent address (`m/44'/133'/{account}'/0/0`), so a change
+    /// in either derivation — such as a secp256k1 API port — cannot silently
+    /// sign as a different key.
+    #[test]
+    fn login_address_matches_librustzcash_transparent_derivation() {
+        use transparent::keys::{IncomingViewingKey, NonHardenedChildIndex};
+
+        let seed = [0x42_u8; 64];
+        for account in [0_u32, 1] {
+            let signed = sign_challenge(&seed, account, "cross-check").expect("sign");
+            let usk = derive_usk(&seed, &Network::MainNetwork, account).expect("derive usk");
+            let address = usk
+                .transparent()
+                .expect("seed-derived keys carry a transparent component")
+                .to_account_pubkey()
+                .derive_external_ivk()
+                .expect("external ivk")
+                .derive_address(NonHardenedChildIndex::ZERO)
+                .expect("first external address");
+            assert_eq!(
+                signed.address,
+                zcash_keys::encoding::encode_transparent_address_p(&Network::MainNetwork, &address),
+                "account {account}",
+            );
+        }
+    }
+
     /// Sign a fixed challenge with a fixed seed, then INDEPENDENTLY recover the
     /// signing pubkey from the recoverable signature + reconstructed digest and
     /// assert it matches the derived pubkey, and that HASH160(pubkey) matches the
@@ -366,7 +387,7 @@ mod tests {
             "header {header} out of compressed range 31..=34"
         );
         let recovery_id =
-            RecoveryId::from_i32(((header - 27) & 0x03) as i32).expect("valid recovery id");
+            RecoveryId::try_from(((header - 27) & 0x03) as i32).expect("valid recovery id");
         let compressed_flag = (header - 27) & 0x04 != 0;
         assert!(compressed_flag, "header must mark a compressed pubkey");
 
@@ -376,9 +397,8 @@ mod tests {
         let recoverable = RecoverableSignature::from_compact(&sig65[1..65], recovery_id)
             .expect("valid recoverable signature");
 
-        let secp = Secp256k1::new();
-        let recovered = secp
-            .recover_ecdsa(&msg, &recoverable)
+        let recovered = recoverable
+            .recover_ecdsa(msg)
             .expect("pubkey recovery must succeed");
         let recovered_compressed = recovered.serialize();
 

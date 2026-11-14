@@ -41,24 +41,14 @@ const MAX_PACKAGES = 10_000;
 // that carries them is itself bound by `CARGO_RUNTIME_CARGO_LOCK_SHA256`.
 const KNOWN_SOURCES = new Set(["crates.io", "local", "git"]);
 
-// TRANSIENT. `wallet/zuuli/src-tauri/Cargo.toml` carries a rev-pinned
-// `[patch.crates-io]` for `bip32`, because the only published 0.6 release
-// exact-pins three 2024-era RustCrypto pre-releases and librustzcash pins that
-// release with `=`, which made the wallet unlinkable with `tauri-plugin-f2zmsg`.
-// The full account is in that manifest and in
-// `wallet/plugins/tauri-plugin-f2zmsg/README.md`.
-//
 // An exact string and not a prefix: a different revision of the same fork is a
-// different dependency and must fail here until someone reviews it. Remove this
-// with the patch, when `bip32 0.6.0` is published.
+// different dependency and must fail here until someone reviews it.
 export const REVIEWED_GIT_SOURCES = new Set([
   // PR2265 preserves deployed MLS draft derivation with fixed DRBG/KEM; PR2266
   // adds strict small-order Ed25519 screening to the same provider source.
   // Retire with the exact registered bridge in docs/DEPENDENCIES.md.
   "git+https://github.com/0bkevin/openmls?rev=6e96a4411ea2669f05ac22dd0e0424c1c93f5055" +
     "#6e96a4411ea2669f05ac22dd0e0424c1c93f5055",
-  "git+https://github.com/free2z/crates?rev=131d490ef75ccd23111cc7f3df91e4a88fc971ae" +
-    "#131d490ef75ccd23111cc7f3df91e4a88fc971ae",
 ]);
 
 function sha256Bytes(value) {
