@@ -118,7 +118,7 @@ def test_shipping_join_failures_do_not_log_provider_secrets(
 def test_shipping_create_meeting_has_safe_logs(outcome, secret, creator_factory, caplog):
     caplog.set_level(logging.DEBUG)
     from .models import CreatorMeeting
-    from .views import _create_meeting
+    from .views import ProviderRoomCreateFailed, _create_meeting
     creator = creator_factory(username='log-create')
     cm = CreatorMeeting.objects.create(creator=creator, meeting_type='broadcast', is_public=True)
     transport = Mock()
@@ -137,10 +137,13 @@ def test_shipping_create_meeting_has_safe_logs(outcome, secret, creator_factory,
     if outcome == 'success':
         assert _create_meeting(cm, dc).meeting_id == ROOM
     else:
-        with pytest.raises(ProviderError):
+        # #1582: every provider failure surfaces as ProviderRoomCreateFailed,
+        # whose diagnostic carries only stage/code/status.
+        with pytest.raises(ProviderRoomCreateFailed) as caught:
             try:
                 _create_meeting(cm, dc)
-            except ProviderError:
+            except ProviderRoomCreateFailed:
                 logging.getLogger('rtk.safe.caller').exception('Meeting creation failed')
                 raise
+        assert secret not in repr(caught.value.diagnostic)
     assert secret not in caplog.text
