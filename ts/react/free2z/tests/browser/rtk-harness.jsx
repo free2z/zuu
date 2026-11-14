@@ -34,4 +34,15 @@ window.mountRtk = () => {
     </>
   );
 };
+// The application root renders under StrictMode, whose development effect
+// replay must not be mistaken for leaving the meeting.
+window.mountRtkStrict = () => {
+  window.rtkRoot = createRoot(document.getElementById("root"));
+  window.rtkRoot.render(
+    <React.StrictMode>
+      <DyteCreator />
+      <DyteLeave />
+    </React.StrictMode>
+  );
+};
 window.mountRtk();
