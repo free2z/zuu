@@ -375,3 +375,68 @@ def test_check_credentials_can_probe_v4_while_running_v2(monkeypatch, settings):
     assert code == 0 and report['auth_mode'] == 'v4'
     assert report['requested_mode'] == 'v4'
     assert t.request.call_args.args[1].startswith('https://api.cloudflare.com/client/v4/')
+
+
+# --------------------------------------------------------------------------- #
+# Review follow-ups: ambiguity of 408, recording-control classification
+# --------------------------------------------------------------------------- #
+def test_http_408_is_ambiguous_not_a_refusal(caplog):
+    body = SimpleNamespace(status_code=408, json=lambda: {})
+    with pytest.raises(ProviderUnavailableError) as caught:
+        DyteClient(transport=transport(body)).create_meeting('creator')
+    assert caught.value.status == 408
+
+
+@pytest.mark.parametrize('status', [401, 403])
+def test_recording_credential_refusal_is_a_definite_rejection(status):
+    from django.core.cache import cache
+    from . import recording_control as rc
+    cache.delete(rc.PROVIDER_CIRCUIT)
+    body = SimpleNamespace(status_code=status, json=lambda: {'success': False})
+    t = transport(body)
+    original = module._SESSION
+    module._SESSION = t
+    try:
+        with pytest.raises(rc.ProviderRejected):
+            rc.provider('POST', 'recordings', payload={'meeting_id': ROOM})
+    finally:
+        module._SESSION = original
+    assert not cache.get(rc.PROVIDER_CIRCUIT)
+
+
+def test_recording_408_keeps_start_outcome_ambiguous():
+    from django.core.cache import cache
+    from . import recording_control as rc
+    cache.delete(rc.PROVIDER_CIRCUIT)
+    t = transport(SimpleNamespace(status_code=408, json=lambda: {}))
+    original = module._SESSION
+    module._SESSION = t
+    try:
+        with pytest.raises(rc.ProviderUnavailable) as caught:
+            rc.provider('POST', 'recordings', payload={'meeting_id': ROOM})
+    finally:
+        module._SESSION = original
+    assert not isinstance(caught.value, rc.ProviderRejected)
+    assert cache.get(rc.PROVIDER_CIRCUIT)
+    cache.delete(rc.PROVIDER_CIRCUIT)
+
+
+def test_idle_recording_confirmation_uses_short_deadline_and_circuit():
+    from django.core.cache import cache
+    from . import recording_control as rc
+    cache.delete(rc.PROVIDER_CIRCUIT)
+    t = transport(response(404), response(data={'id': ROOM}))
+    original = module._SESSION
+    module._SESSION = t
+    try:
+        assert rc.provider('GET', f'recordings/active-recording/{ROOM}',
+                           allow_empty=True) is None
+        assert [c.kwargs['timeout'] for c in t.request.call_args_list] == [
+            rc.PROVIDER_TIMEOUT, rc.PROVIDER_TIMEOUT]
+        t.request.side_effect = [response(404), requests.ReadTimeout('x')]
+        with pytest.raises(rc.ProviderUnavailable):
+            rc.provider('GET', f'recordings/active-recording/{ROOM}', allow_empty=True)
+        assert cache.get(rc.PROVIDER_CIRCUIT)
+    finally:
+        module._SESSION = original
+        cache.delete(rc.PROVIDER_CIRCUIT)
