@@ -765,7 +765,7 @@ export function Send() {
               placeholder="Unified, Sapling, or transparent address"
               autoComplete="off"
               spellCheck={false}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-28 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-28 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden"
             />
             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex gap-1">
               <button
@@ -888,7 +888,7 @@ export function Send() {
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00000000"
               disabled={maxMode}
-              className={`w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-16 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none${maxMode ? " opacity-70" : ""}`}
+              className={`w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 pr-16 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden${maxMode ? " opacity-70" : ""}`}
             />
             <button
               onClick={handleMax}
@@ -934,7 +934,7 @@ export function Send() {
               onChange={(e) => setMemo(e.target.value)}
               placeholder="Encrypted memo (up to 512 bytes)"
               rows={3}
-              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none resize-none"
+              className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden resize-none"
             />
             <p
               className={`text-xs mt-1 ${memoBytes > 512 ? "text-red-400" : "text-zinc-500"}`}

@@ -210,7 +210,7 @@ export function SeedPhraseSection() {
             autoComplete="off"
             autoCapitalize="none"
             autoCorrect="off"
-            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none resize-none"
+            className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden resize-none"
           />
           {!sensitiveEntry.editable && (
             <div className="flex items-center justify-between gap-3 mt-1 text-xs text-zinc-500">
@@ -478,7 +478,7 @@ export function Settings() {
                 value={url}
                 onChange={(e) => setUrl(e.target.value)}
                 placeholder="https://your-server:443"
-                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none animate-fade-in"
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden animate-fade-in"
               />
             )}
           </div>

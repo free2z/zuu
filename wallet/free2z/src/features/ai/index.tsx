@@ -600,7 +600,7 @@ export default function AiFeature() {
       {/* ── Composer ────────────────────────────────────────────────── */}
       <div className="shrink-0 border-t border-border/60 bg-background/85 px-4 pb-3 pt-3 backdrop-blur md:px-8">
         <div className="mx-auto max-w-3xl">
-          <div className="relative rounded-xl border border-border bg-card/60 shadow-sm focus-within:border-primary/60">
+          <div className="relative rounded-xl border border-border bg-card/60 shadow-xs focus-within:border-primary/60">
             <Textarea
               ref={inputRef}
               value={input}
@@ -910,7 +910,7 @@ function EmptyHero({
             key={prompt}
             type="button"
             onClick={() => onPrefill(prompt)}
-            className="min-tap rounded-full border border-border bg-card/60 px-3.5 py-1.5 text-xs text-foreground/80 transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-tap rounded-full border border-border bg-card/60 px-3.5 py-1.5 text-xs text-foreground/80 transition-colors hover:border-primary/50 hover:bg-secondary hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             {prompt}
           </button>

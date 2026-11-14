@@ -54,7 +54,10 @@ test('public fixture allowlist never admits account requests or E2E2Z transport'
   assert(FORBIDDEN_TEXT.test('private key')); assert(FORBIDDEN_TEXT.test('person@example.com'));
 });
 test('source digest covers shared code and rejects symbolic links', async (t) => {
-  for (const app of ['free2z', 'e2e2z']) assert(renderInputs(app).includes('shared/src'));
+  for (const app of ['free2z', 'e2e2z']) {
+    assert(renderInputs(app).includes('shared/src'));
+    assert(renderInputs(app).includes('shared/tailwind-v3-colors.json'));
+  }
   const root = await mkdtemp(resolve(tmpdir(), 'surface-source-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   await mkdir(resolve(root, 'shared/src'), { recursive: true });
@@ -62,6 +65,10 @@ test('source digest covers shared code and rejects symbolic links', async (t) =>
   const before = await inputDigest(root, ['shared/src']);
   await writeFile(resolve(root, 'shared/src/index.ts'), 'export const value = 2;');
   assert.notEqual(await inputDigest(root, ['shared/src']), before);
+  await writeFile(resolve(root, 'shared/tailwind-v3-colors.json'), '{"purple":"#123456"}');
+  const paletteBefore = await inputDigest(root, ['shared/tailwind-v3-colors.json']);
+  await writeFile(resolve(root, 'shared/tailwind-v3-colors.json'), '{"purple":"#654321"}');
+  assert.notEqual(await inputDigest(root, ['shared/tailwind-v3-colors.json']), paletteBefore);
   await symlink(resolve(root, 'shared/src/index.ts'), resolve(root, 'shared/src/link.ts'));
   await assert.rejects(inputDigest(root, ['shared/src']), /symlink/);
 });

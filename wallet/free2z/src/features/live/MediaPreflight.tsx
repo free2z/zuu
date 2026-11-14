@@ -224,7 +224,7 @@ export function MediaPreflight({
             onChange={(event) =>
               void model.selectDevice("videoinput", event.target.value)
             }
-            className="min-tap w-full min-w-0 rounded-md border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-tap w-full min-w-0 rounded-md border border-border bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             {cameras.map((device) => (
               <option key={device.deviceId} value={device.deviceId}>
@@ -242,7 +242,7 @@ export function MediaPreflight({
             onChange={(event) =>
               void model.selectDevice("audioinput", event.target.value)
             }
-            className="min-tap w-full min-w-0 rounded-md border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-tap w-full min-w-0 rounded-md border border-border bg-background px-3 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             {microphones.map((device) => (
               <option key={device.deviceId} value={device.deviceId}>

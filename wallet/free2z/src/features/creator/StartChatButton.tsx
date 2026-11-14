@@ -394,7 +394,7 @@ export function StartChatButton({
                     tabIndex={-1}
                     role="status"
                     data-creator-chat-notice="price-changed"
-                    className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <p className="font-medium text-foreground">
                       {t(MESSAGE_KEYS.creatorChatOutcomePriceChangedTitle)}

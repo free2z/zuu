@@ -322,7 +322,7 @@ export default function SearchFeature() {
                   )
                 }
                 aria-label={`Remove topic ${topic}`}
-                className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-start text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-start text-xs font-medium text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <span className="min-w-0 break-words">#{topic}</span>
                 <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -391,7 +391,7 @@ export default function SearchFeature() {
                 inputRef.current?.focus();
               }}
               aria-label={t(MESSAGE_KEYS.searchClear)}
-              className="min-tap absolute end-1.5 top-6 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="min-tap absolute end-1.5 top-6 grid h-12 w-12 min-h-12 min-w-12 -translate-y-1/2 place-items-center rounded-md text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X className="h-4 w-4" aria-hidden />
             </button>
@@ -416,7 +416,7 @@ export default function SearchFeature() {
                     onPointerDown={(event) => event.preventDefault()}
                     onMouseEnter={() => setActiveIndex(index)}
                     onClick={() => chooseSuggestion(suggestion)}
-                    className="flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-start last:border-b-0 hover:bg-secondary aria-selected:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                    className="flex min-h-11 w-full items-center gap-3 border-b border-border px-3 py-2 text-start last:border-b-0 hover:bg-secondary aria-selected:bg-secondary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                   >
                     {suggestion.kind === "topic" ? (
                       <Hash
@@ -701,7 +701,7 @@ function CreatorResultCard({ creator }: { creator: SimpleCreator }) {
         to={`/creator/${creator.username}`}
         aria-label={`View ${name}'s profile`}
         data-search-creator-result
-        className="group flex w-full min-w-0 items-center gap-3 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group flex w-full min-w-0 items-center gap-3 rounded-xl border border-border bg-card/60 p-4 transition-colors hover:border-primary/40 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Avatar className="h-12 w-12 shrink-0">
           {creator.image ? (
@@ -784,7 +784,7 @@ function PageResultRow({ article }: { article: Article }) {
                 <Link
                   to={`/articles/${article.slug ?? article.id}`}
                   aria-label={`Read “${article.title}”`}
-                  className="block h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="block h-full focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <img
                     src={url}
@@ -804,7 +804,7 @@ function PageResultRow({ article }: { article: Article }) {
         <Link
           to={`/articles/${article.slug ?? article.id}`}
           aria-label={`Read “${article.title}”`}
-          className="min-w-0 flex-1 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-w-0 flex-1 rounded-md focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           <div className="flex items-start justify-between gap-3">
             <h3

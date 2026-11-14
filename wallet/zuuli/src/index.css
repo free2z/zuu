@@ -1,8 +1,15 @@
 @import "./fonts.css";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../tailwind.config.cjs";
+
+/* Restore the native button pointer while allowing utility cursors to override it. */
+@layer base {
+  button:not(:disabled):not([aria-disabled="true"]),
+  input:is([type="button"], [type="submit"], [type="reset"]):not(:disabled) {
+    cursor: pointer;
+  }
+}
 
 @layer base {
   :root {

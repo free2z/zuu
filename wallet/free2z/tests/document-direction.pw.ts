@@ -12,8 +12,6 @@
  */
 import { expect, test } from "@playwright/test";
 
-const MIRRORED = "matrix(-1, 0, 0, 1, 0, 0)";
-
 test("a locale change reaches <html dir> and the rtl: variants really apply", async ({
   page,
 }) => {
@@ -25,7 +23,9 @@ test("a locale change reaches <html dir> and the rtl: variants really apply", as
 
   // The bootstrap baseline: English resolves to LTR and the icon is unmirrored.
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
-  await expect(arrow).toHaveCSS("transform", "none");
+  await expect(arrow).toHaveCSS("scale", "none");
+  const baseline = await arrow.evaluate((element) => element.getScreenCTM()!.a);
+  expect(baseline).toBeGreaterThan(0);
 
   // The i18n kernel owns `<html lang>` and writes it exactly this way; the
   // observer installed in main.tsx is the only thing that derives `dir` from it.
@@ -34,7 +34,8 @@ test("a locale change reaches <html dir> and the rtl: variants really apply", as
   });
 
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
-  await expect(arrow).toHaveCSS("transform", MIRRORED);
+  await expect(arrow).toHaveCSS("scale", "-1 1");
+  await expect.poll(() => arrow.evaluate((element) => element.getScreenCTM()!.a)).toBeCloseTo(-baseline);
 
   // And back, so the observer is proven to track the locale rather than to have
   // flipped once.
@@ -43,5 +44,6 @@ test("a locale change reaches <html dir> and the rtl: variants really apply", as
   });
 
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
-  await expect(arrow).toHaveCSS("transform", "none");
+  await expect(arrow).toHaveCSS("scale", "none");
+  await expect.poll(() => arrow.evaluate((element) => element.getScreenCTM()!.a)).toBeCloseTo(baseline);
 });

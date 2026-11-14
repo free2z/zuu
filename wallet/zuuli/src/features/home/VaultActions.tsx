@@ -60,7 +60,7 @@ export function VaultActions() {
           <Link
             key={action.to}
             to={action.to}
-            className="group flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-4 transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="group flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-4 transition-colors hover:border-primary/50 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             <span
               className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-secondary text-primary"

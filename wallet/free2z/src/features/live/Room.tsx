@@ -409,7 +409,7 @@ function BackLink() {
   return (
     <Link
       to="/live"
-      className="min-tap inline-flex items-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="min-tap inline-flex items-center gap-1.5 rounded-md text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
     >
       <ArrowLeft className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
       All livestreams
@@ -670,7 +670,7 @@ function JoinPanel({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
       <div className="space-y-1 border-b border-border p-4">
         <div className="flex items-center justify-between gap-2">
           <span className="text-sm font-semibold">Join this stream</span>

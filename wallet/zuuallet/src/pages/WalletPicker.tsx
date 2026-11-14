@@ -90,7 +90,7 @@ export function WalletPicker() {
                       }}
                       onBlur={() => setRenamingId(null)}
                       onClick={(e) => e.stopPropagation()}
-                      className="bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-sm text-white focus:ring-1 focus:ring-purple-500 focus:outline-none"
+                      className="bg-zinc-800 border border-zinc-700 rounded px-2 py-0.5 text-sm text-white focus:ring-1 focus:ring-purple-500 focus:outline-hidden"
                     />
                   ) : (
                     <span className="text-sm font-medium text-white">
