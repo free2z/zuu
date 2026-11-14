@@ -9,6 +9,8 @@ import {
   enterSubscriberStream,
   MembershipReconciliationError,
   newMembershipIdempotencyKey,
+  membershipAttempt,
+  clearMembershipAttempt,
   runSingleFlight,
 } from "./membership";
 
@@ -245,5 +247,37 @@ describe("newMembershipIdempotencyKey", () => {
     expect(newMembershipIdempotencyKey()).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
+  });
+});
+
+describe("durable creator membership identity", () => {
+  function storage() { const values = new Map<string, string>(); return { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => { values.set(key, value); }, removeItem: (key: string) => { values.delete(key); } }; }
+  it("retains the same key and exact consented price after reload", () => {
+    const persisted = storage();
+    const first = membershipAttempt("Fan", "Creator", 500, persisted);
+    const afterReload = membershipAttempt("fan", "creator", 500, persisted);
+    expect(afterReload).toEqual(first);
+  });
+
+  it("keeps identities isolated by actor and creator", () => {
+    const persisted = storage();
+    const first = membershipAttempt("fan-a", "creator", 500, persisted);
+    clearMembershipAttempt("fan-a", "creator", first.key, persisted);
+    const second = membershipAttempt("fan-b", "creator", 500, persisted);
+    expect(second.key).not.toBe(first.key);
+  });
+
+  it("refuses changed price until the prior intent is explicitly cleared", () => {
+    const persisted = storage();
+    membershipAttempt("fan", "creator", 500, persisted);
+    expect(() => membershipAttempt("fan", "creator", 600, persisted)).toThrow(/price changed/i);
+    const first = membershipAttempt("fan", "creator", 500, persisted);
+    clearMembershipAttempt("fan", "creator", first.key, persisted);
+    expect(membershipAttempt("fan", "creator", 600, persisted).price).toBe(600);
+  });
+
+  it("fails closed when retry identity persistence is unavailable", () => {
+    const broken = { getItem: () => null, setItem: () => { throw new Error("denied"); }, removeItem: () => {} };
+    expect(() => membershipAttempt("fan", "creator", 500, broken)).toThrow(/purchase is blocked/i);
   });
 });
