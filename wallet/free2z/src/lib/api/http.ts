@@ -13,6 +13,8 @@
 import { API_BASE, MEDIA_BASE } from "../env";
 import { isTauri } from "../platform";
 
+import { digitalPurchasesUnavailable, isDigitalPurchaseRequest, DigitalPurchaseUnavailableError } from "../purchases/availability";
+
 const TOKEN_KEY = "zuuli.knox.token";
 
 let inMemoryToken: string | null = null;
@@ -129,7 +131,7 @@ async function getFetch(): Promise<FetchLike> {
   const useNativeHttp = isTauri() && !isDev;
   if (useNativeHttp) {
     const mod = await import("@tauri-apps/plugin-http");
-    fetchImpl = mod.fetch as unknown as FetchLike;
+    fetchImpl = ((input, init) => mod.fetch(input, digitalPurchasesUnavailable() ? { ...init, maxRedirections: 0 } : init)) as FetchLike;
   } else {
     fetchImpl = window.fetch.bind(window);
   }
@@ -169,6 +171,9 @@ export async function request<T>(
   path: string,
   opts: RequestOpts = {},
 ): Promise<T> {
+  if (digitalPurchasesUnavailable() && isDigitalPurchaseRequest(buildUrl(path, opts.query), opts.method)) {
+    throw new DigitalPurchaseUnavailableError();
+  }
   const headers: Record<string, string> = {
     Accept: "application/json",
     ...opts.headers,

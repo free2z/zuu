@@ -347,7 +347,10 @@ function main() {
 
   const blockers = [
     ...(required.includes("apple") ? appleBlockers(identity) : []),
-    ...(required.includes("android") ? androidBlockers(identity) : []),
+    ...(required.includes("android") ? [
+      ...androidBlockers(identity),
+      "Android digital purchases are unavailable pending release-owner policy review and signed-device acceptance (#1326). Public Android distribution remains blocked; see docs/free2z/app-suite/release/ANDROID-PURCHASES.md.",
+    ] : []),
   ];
   if (blockers.length) {
     console.error(blockers.join("\n\n"));

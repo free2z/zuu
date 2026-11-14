@@ -348,8 +348,8 @@ test("a @tauri-apps/plugin-* dependency with no crate behind it fails", () => {
 test("a linked plugin that is never initialized fails", () => {
   const content = inputs(CONTENT);
   content.entrypoint = content.entrypoint.replace(
-    ".plugin(tauri_plugin_http::init())\n        ",
-    "",
+    "tauri_plugin_http::init()",
+    "uninitialized_http()",
   );
   assert.ok(
     surfaceFailures(CONTENT, content).some((failure) =>

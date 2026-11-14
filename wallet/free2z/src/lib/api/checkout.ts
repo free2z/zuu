@@ -1,3 +1,4 @@
+import { assertDigitalPurchaseAvailable } from "../purchases/availability";
 import { STRIPE_CHECKOUT_CUSTOM_HOSTS } from "../env";
 
 const DEFAULT_STRIPE_CHECKOUT_HOST = "checkout.stripe.com";
@@ -45,6 +46,7 @@ export function validateStripeCheckoutUrl(
   value: unknown,
   allowedHosts: ReadonlySet<string> = ALLOWED_STRIPE_CHECKOUT_HOSTS,
 ): string {
+  assertDigitalPurchaseAvailable();
   if (typeof value !== "string" || value.length === 0) {
     throw new CheckoutLinkError("missing");
   }

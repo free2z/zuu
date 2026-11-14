@@ -19,12 +19,18 @@
 //! rather than an app command, holds no local authority, and reaches only the
 //! URL scope named in `../capabilities/*.json`.
 
+pub mod purchase_bridge;
+pub mod purchase_policy;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
+        .plugin(purchase_bridge::restrict(tauri_plugin_opener::init(), cfg!(target_os = "android")))
         .plugin(tauri_plugin_deep_link::init())
-        .plugin(tauri_plugin_http::init())
+        .plugin(purchase_bridge::restrict(tauri_plugin_http::init(), cfg!(target_os = "android")))
+        .append_invoke_initialization_script(if cfg!(target_os = "android") {
+            "Object.defineProperty(window, '__FREE2Z_ANDROID_PURCHASES_UNAVAILABLE__', { value: true, writable: false, configurable: false });"
+        } else { "" })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

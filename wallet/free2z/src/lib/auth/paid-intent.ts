@@ -1,3 +1,4 @@
+import { digitalPurchasesUnavailable } from "../purchases/availability";
 import {
   safeLoginDestination,
   type LoginDestination,
@@ -99,7 +100,7 @@ export function preservePaidIntent(
     // One intent owns this slot. Clear it first so an invalid replacement or a
     // failed write cannot leave a private draft available for a later visit.
     storage.removeItem(STORAGE_KEY);
-    if (returnTo !== "/" && validIntent(intent)) {
+    if (!digitalPurchasesUnavailable() && returnTo !== "/" && validIntent(intent)) {
       storage.setItem(
         STORAGE_KEY,
         JSON.stringify({ returnTo, createdAt: now, intent }),
@@ -161,6 +162,7 @@ export function consumePaidIntent(
       ? expectedKinds
       : [expectedKinds];
     if (
+      digitalPurchasesUnavailable() ||
       safeLoginDestination(parsed.returnTo) !==
         safeLoginDestination(returnToValue) ||
       safeLoginDestination(parsed.returnTo) === "/" ||

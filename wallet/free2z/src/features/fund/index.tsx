@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { PurchaseUnavailable } from "@/components/common/PurchaseUnavailable";
 import { useTranslation } from "react-i18next";
 import { Coins } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -18,10 +20,10 @@ export default function FundFeature() {
   const { t } = useTranslation();
   return (
     <section className="animate-slide-up pb-16">
-      <PageHeader title={t(MESSAGE_KEYS.fundTitle)} />
-      <Callout tone="info" icon={Coins} data-fund-pending>
+      <PageHeader title={t(digitalPurchasesUnavailable() ? MESSAGE_KEYS.navTuzisBalance : MESSAGE_KEYS.fundTitle)} />
+      {digitalPurchasesUnavailable() ? <PurchaseUnavailable /> : <Callout tone="info" icon={Coins} data-fund-pending>
         {t(MESSAGE_KEYS.fundBody)}
-      </Callout>
+      </Callout>}
     </section>
   );
 }

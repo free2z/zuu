@@ -1,3 +1,4 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
 import type { LucideIcon } from "lucide-react";
 import {
   BookOpen,
@@ -160,14 +161,20 @@ export function isNavigationRouteActive(
   );
 }
 
+function availabilityLabel(item: NavigationRoute): NavigationRoute {
+  return item.to === "/fund" && digitalPurchasesUnavailable()
+    ? { ...item, labelKey: MESSAGE_KEYS.navTuzisBalance, accessibleLabelKey: MESSAGE_KEYS.navTuzisBalance }
+    : item;
+}
+
 export function desktopNavigation(signedIn: boolean) {
   return NAVIGATION.filter(
     (item) => item.desktop !== null && isNavigationVisible(item, signedIn),
-  );
+  ).map(availabilityLabel);
 }
 
 export function mobileNavigation(signedIn: boolean) {
   return NAVIGATION.filter(
     (item) => item.mobileOrder !== null && isNavigationVisible(item, signedIn),
-  ).sort((left, right) => (left.mobileOrder ?? 0) - (right.mobileOrder ?? 0));
+  ).map(availabilityLabel).sort((left, right) => (left.mobileOrder ?? 0) - (right.mobileOrder ?? 0));
 }
