@@ -546,7 +546,7 @@ function walletProjectBoundaryInputs(repoRoot) {
 const REQUIRED_FRONTEND_PACKAGE_SCRIPTS = new Map([
   [
     "test",
-    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/media-permission-manifests.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/surface-capability-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/csp-policy.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs scripts/rtl-source-policy.node-test.mjs scripts/app-link-association.node-test.mjs && node scripts/app-link-association.mjs && node scripts/surface-capability-authority.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && node scripts/rtl-source-policy.mjs && node scripts/check-mermaid-security.mjs && node scripts/csp-policy.mjs --self-test && playwright test",
+    "vitest run && node --test scripts/safe-area-contract.node-test.mjs scripts/android-device-catalog.node-test.mjs scripts/media-permission-manifests.node-test.mjs scripts/android-release-artifact.node-test.mjs scripts/aab-payload-digest.node-test.mjs scripts/auth-session-boundary.node-test.mjs scripts/mermaid-security.node-test.mjs scripts/send-review-boundary.node-test.mjs scripts/mobile-webview-authority.node-test.mjs scripts/surface-capability-authority.node-test.mjs scripts/seed-capture-boundary.node-test.mjs scripts/ui-copy-truncation.node-test.mjs scripts/csp-policy.node-test.mjs scripts/fixture-privacy.node-test.mjs scripts/apple-credential-boundary.node-test.mjs scripts/macos-keychain-entitlements.node-test.mjs scripts/artifact-sbom.node-test.mjs scripts/release-tag-identity.node-test.mjs scripts/status-freshness.node-test.mjs scripts/production-read-smoke.node-test.mjs scripts/wasm-boundary.node-test.mjs scripts/messaging-contract.node-test.mjs scripts/rtl-source-policy.node-test.mjs scripts/app-link-association.node-test.mjs && node scripts/app-link-association.mjs && node scripts/surface-capability-authority.mjs && node scripts/apple-credential-boundary.mjs && node scripts/macos-keychain-entitlements.mjs && node scripts/rtl-source-policy.mjs && node scripts/check-mermaid-security.mjs && node scripts/csp-policy.mjs --self-test && playwright test",
   ],
   [
     "build",
@@ -6117,6 +6117,42 @@ function runFrontendBuildContractMutationTests(repoRoot) {
     },
     'package script "test" must equal',
   );
+  // Exercise every entry of the reviewed test inventory, not just a generic
+  // no-op. The smoke fixture belongs to the same mandatory node test run as
+  // the existing security and release contracts.
+  const requiredTestCommand = REQUIRED_FRONTEND_PACKAGE_SCRIPTS.get("test");
+  for (const testPath of requiredTestCommand.match(/scripts\/[\w-]+\.node-test\.mjs/g)) {
+    addMutation(
+      `live frontend package contract rejects removing ${testPath}`,
+      "wallet/zuuli/package.json",
+      (manifest) => {
+        manifest.scripts.test = manifest.scripts.test.replace(` ${testPath}`, "");
+      },
+      'package script "test" must equal',
+    );
+  }
+  for (const step of requiredTestCommand.split(" && ")) {
+    addMutation(
+      `live frontend package contract rejects removing step ${step.split(" ").slice(0, 2).join(" ")}`,
+      "wallet/zuuli/package.json",
+      (manifest) => {
+        manifest.scripts.test = manifest.scripts.test.split(" && ").filter((part) => part !== step).join(" && ");
+      },
+      'package script "test" must equal',
+    );
+  }
+  for (const [name, mutate] of [
+    ["soft-failing the suite", (command) => `${command} || true`],
+    ["filtering the node tests", (command) => command.replace("node --test ", "node --test --test-name-pattern=never ")],
+    ["skipping the smoke fixture", (command) => command.replace("scripts/production-read-smoke.node-test.mjs", "scripts/production-read-smoke.skipped.mjs")],
+  ]) {
+    addMutation(
+      `live frontend package contract rejects ${name}`,
+      "wallet/zuuli/package.json",
+      (manifest) => { manifest.scripts.test = mutate(manifest.scripts.test); },
+      'package script "test" must equal',
+    );
+  }
   addMutation(
     "live classic package contract rejects a no-op mounted route test",
     "wallet/zuuallet/package.json",

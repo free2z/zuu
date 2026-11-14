@@ -18,6 +18,9 @@ import {
 import {
   isReleaseImpactingPath,
   parseStatusMarker,
+  productReadinessPath,
+  productReadinessDigest,
+  verifyProductReadiness,
   releasingEvidenceDocumentDigest,
   releaseBumpPaths,
   statusEvidenceDocumentDigest,
@@ -35,6 +38,16 @@ const releaseEvidencePolicyFixture = readFileSync(
   "utf8",
 );
 const repositoryStatus = readFileSync(resolve(repositoryRoot, statusPath), "utf8");
+const productAudit = readFileSync(resolve(repositoryRoot, productReadinessPath), "utf8");
+const readyAudit = productAudit.replace(
+  /^\| (http|auth|wallet|card|activity) \| visible \| (?:unverified|blocked) \| [^|]+ \|/gm,
+  "| $1 | visible | ready | 2026-11-11 https://example.test/evidence |",
+);
+const fixtureAuditDigest = productReadinessDigest(readyAudit);
+function verifyFixtureFreshness(options) {
+  return verifyStatusFreshness({ ...options, expectedProductReadinessDigest: fixtureAuditDigest });
+}
+
 const repositoryStatusMarkerPattern =
   /^Last re-derived from `origin\/main` at\n`[0-9a-f]{40}` on \d{4}-\d{2}-\d{2}\. Before a release,\nupdate the evidence and disposition for every non-ready row; do not carry this\ncommit or date forward mechanically\.$/m;
 assert.match(repositoryStatus, repositoryStatusMarkerPattern);
@@ -131,6 +144,7 @@ function seedReleaseFiles(fixture) {
     fixture.write(zuuliPath(path), contents);
   }
   fixture.write(releasingPath, releaseEvidencePolicyFixture);
+  fixture.write(productReadinessPath, readyAudit);
 }
 
 function createAuditedHistory(t) {
@@ -759,7 +773,7 @@ test("accepts a status-only re-derivation, unrelated merge, and release bump", (
   const sourceSha = commitRelease(fixture);
 
   assert.deepEqual(
-    verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     {
       sourceSha,
       parentSha: git(fixture.root, ["rev-parse", `${sourceSha}^1`]),
@@ -779,7 +793,7 @@ test("accepts exactly the release-bump-owned source paths", (t) => {
     [...releaseBumpPaths].sort(),
   );
   assert.doesNotThrow(() =>
-    verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
   );
 });
 
@@ -801,7 +815,7 @@ for (const relativePath of releaseBumpRelativePaths) {
       new Map([[zuuliPath(relativePath), tampered]]),
     );
     assert.throws(
-      () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+      () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
       /non-mechanical changes in release-bump files/,
     );
   });
@@ -825,7 +839,7 @@ test("rejects a release-impacting change introduced through a second parent", (t
   ]);
   const sourceSha = commitRelease(fixture);
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /was not re-derived after release-impacting changes/,
   );
 });
@@ -844,7 +858,7 @@ for (const path of [
     fixture.commit("release-impacting change");
     const sourceSha = commitRelease(fixture);
     assert.throws(
-      () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+      () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
       /was not re-derived after release-impacting changes/,
     );
   });
@@ -880,7 +894,7 @@ test("accepts a re-derivation that also records its seal, anchored at the pre-ed
   const sourceSha = commitRelease(fixture);
 
   assert.deepEqual(
-    verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     {
       sourceSha,
       parentSha: git(fixture.root, ["rev-parse", `${sourceSha}^1`]),
@@ -904,7 +918,7 @@ test("still rejects a re-derivation that also changes the checker's code", (t) =
   );
   const sourceSha = commitRelease(fixture);
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /was not re-derived after release-impacting changes:\n- wallet\/zuuli\/scripts\/status-freshness\.mjs$/,
   );
 });
@@ -916,7 +930,7 @@ test("the release commit may carry a seal update beside STATUS.md", (t) => {
     new Map([[statusEvidenceSealsPath, '{ "status": "released" }\n']]),
   );
   assert.equal(
-    verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }).sourceSha,
+    verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }).sourceSha,
     sourceSha,
   );
 });
@@ -928,7 +942,7 @@ test("rejects a non-ceremony application change in the release commit", (t) => {
     new Map([["wallet/zuuli/src/App.tsx", "changed in release\n"]]),
   );
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /release source contains non-ceremony release-impacting changes/,
   );
 });
@@ -938,7 +952,7 @@ test("rejects a source after rather than at the release identity commit", (t) =>
   fixture.write("docs/unrelated.md", "not the identity commit\n");
   const sourceSha = fixture.commit("commit after release identity");
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /must be the commit that changes wallet\/zuuli\/release.json/,
   );
 });
@@ -949,7 +963,7 @@ test("rejects a missing recorded audit commit", (t) => {
   fixture.commit("record unavailable source");
   const sourceSha = commitRelease(fixture);
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /recorded STATUS.md audit source is not an available commit/,
   );
 });
@@ -979,7 +993,7 @@ test("rejects an audit commit reachable only through a second parent", (t) => {
   const sourceSha = commitRelease(fixture);
 
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /not on the release parent's first-parent history/,
   );
 });
@@ -1002,7 +1016,7 @@ test("rejects a release source with multiple parents", (t) => {
   ]);
   const sourceSha = git(fixture.root, ["rev-parse", "HEAD"]);
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /release source must have exactly one parent/,
   );
 });
@@ -1015,7 +1029,7 @@ test("rejects invalid UTF-8 in source STATUS.md", (t) => {
   fixture.commit("invalid status encoding");
   const sourceSha = commitRelease(fixture);
   assert.throws(
-    () => verifyStatusFreshness({ repoRoot: fixture.root, sourceSha }),
+    () => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }),
     /must contain valid UTF-8/,
   );
 });
@@ -1050,14 +1064,15 @@ test("exempts exactly the evidence seal file, and nothing beside it", () => {
   }
 });
 
-test("the evidence seal file holds exactly the two document digests", () => {
+test("the evidence seal file holds exactly the three document digests", () => {
   const seals = JSON.parse(
     readFileSync(
       resolve(repositoryRoot, "wallet/zuuli/scripts/status-evidence-seals.json"),
       "utf8",
     ),
   );
-  assert.deepEqual(Object.keys(seals).sort(), ["releasing", "status"]);
+  assert.deepEqual(Object.keys(seals).sort(), ["productReadiness", "releasing", "status"]);
+  assert.equal(seals.productReadiness, productReadinessDigest(productAudit));
   assert.equal(
     seals.releasing,
     releasingEvidenceDocumentDigest(
@@ -1070,4 +1085,40 @@ test("the evidence seal file holds exactly the two document digests", () => {
       readFileSync(resolve(repositoryRoot, statusPath), "utf8"),
     ),
   );
+});
+
+
+test("product readiness fails closed on missing evidence, broken paths and document tampering", () => {
+  assert.doesNotThrow(() => verifyProductReadiness(readyAudit, fixtureAuditDigest));
+  for (const modified of [
+    readyAudit.replace("| activity | visible | ready |", "| activity | visible | blocked |"),
+    readyAudit.replace("| card | visible | ready |", "| card | visible | internal-testing |"),
+    readyAudit.replace("| wallet | visible | ready | 2026-11-11 https://example.test/evidence", "| wallet | visible | ready | mock test"),
+    readyAudit.replace("| zec-funding | disabled | disabled |", "| zec-funding | visible | disabled |"),
+    readyAudit.replace(/^\| auth \|.*\n/m, ""),
+  ]) {
+    assert.throws(() => verifyProductReadiness(modified, productReadinessDigest(modified)), /release stop|incomplete/);
+  }
+  assert.throws(() => verifyProductReadiness(readyAudit + "tampered", fixtureAuditDigest), /reviewed seal/);
+  assert.throws(() => verifyProductReadiness(productAudit, productReadinessDigest(productAudit)), /release stop/);
+});
+
+test("candidate freshness rejects an altered product audit", (t) => {
+  const fixture = createAuditedHistory(t);
+  fixture.write(productReadinessPath, readyAudit + "tampered\n");
+  const sourceSha = commitRelease(fixture);
+  assert.throws(() => verifyFixtureFreshness({ repoRoot: fixture.root, sourceSha }), /reviewed seal/);
+});
+
+test("a resealed audit changed after the source audit still makes the candidate stale", (t) => {
+  const fixture = createAuditedHistory(t);
+  const changedAudit = readyAudit + "\nNew observation.\n";
+  fixture.write(productReadinessPath, changedAudit);
+  fixture.commit("change audited product evidence");
+  const sourceSha = commitRelease(fixture);
+  assert.throws(() => verifyStatusFreshness({
+    repoRoot: fixture.root,
+    sourceSha,
+    expectedProductReadinessDigest: productReadinessDigest(changedAudit),
+  }), /not re-derived after release-impacting changes/);
 });
