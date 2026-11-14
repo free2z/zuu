@@ -25,12 +25,11 @@ from f2z.ai.providers import (
     ANTHROPIC,
     PROVIDER_CHOICES,
     POLICY_DISABLED_PROVIDERS,
-    OPENAI,
-    RETIRED_OPENAI_MODEL_IDS,
     model_is_retired,
     configured_providers,
     reasoning_policy,
 )
+from f2z.ai.retirements import RETIREMENTS, retired_model_ids
 from .cache_pricing import cache_price_fractions, max_input_price_fraction
 
 User = get_user_model()
@@ -475,16 +474,22 @@ class AIModelQuerySet(models.QuerySet):
         content, but only after the user had been handed a conversation that
         503s on every prompt. Found by the codex adversarial review.
         """
+        retired = models.Q(pk__in=[])
+        for provider in {entry.provider for entry in RETIREMENTS}:
+            ids = retired_model_ids(provider)
+            identities = models.Q(model__in=ids) | models.Q(provider_model_id__in=ids)
+            if provider == "openai":
+                for model in ids:
+                    identities |= (models.Q(model__startswith=f"ft:{model}:")
+                                   | models.Q(provider_model_id__startswith=f"ft:{model}:"))
+            retired |= models.Q(provider=provider) & identities
         return self.filter(is_enabled=True).filter(
             models.Q(price_valid_until__isnull=True)
             | models.Q(price_valid_until__gt=timezone.now())
         ).exclude(
             provider__in=list(POLICY_DISABLED_PROVIDERS)
         ).exclude(
-            models.Q(provider=OPENAI) & (
-                models.Q(model__in=RETIRED_OPENAI_MODEL_IDS)
-                | models.Q(provider_model_id__in=RETIRED_OPENAI_MODEL_IDS)
-            )
+            retired
         )
 
     def configured(self):

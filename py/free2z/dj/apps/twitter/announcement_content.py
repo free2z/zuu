@@ -408,8 +408,9 @@ class CopyRefused(CopyUnavailable):
 
 def _call_claude(facts: Facts) -> dict:
     """One bounded Messages API call. Raises on any failure."""
-    from f2z.ai.providers import ANTHROPIC, get_client
+    from f2z.ai.providers import ANTHROPIC, get_client, refuse_retired_model
 
+    refuse_retired_model(ANTHROPIC, settings.F2ZP2P_COPY_MODEL)
     client = get_client(ANTHROPIC).with_options(
         timeout=float(settings.F2ZP2P_COPY_TIMEOUT_SECONDS),
         max_retries=1,
@@ -522,8 +523,9 @@ def _to_jpeg(data: bytes) -> bytes:
 
 def generate_image(theme: str, idempotency_key: str) -> bytes:
     """Generate a JPEG for ``theme``. Raises on any failure."""
-    from f2z.ai.providers import OPENAI, get_client
+    from f2z.ai.providers import OPENAI, get_client, refuse_retired_model
 
+    refuse_retired_model(OPENAI, settings.OPENAI_IMAGE_MODEL)
     client = get_client(OPENAI).with_options(
         timeout=float(settings.F2ZP2P_IMAGE_TIMEOUT_SECONDS), max_retries=0,
     )

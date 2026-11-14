@@ -228,4 +228,5 @@ def test_exact_provider_scope_and_supported_models_are_not_retired():
         assert not providers.model_is_retired("openai", model)
     frozen = importlib.import_module(f"dj.apps.openai.migrations.{MIGRATION}")
     assert set(frozen.RETIRED_IDS) == set(ALIASES + SNAPSHOTS)
-    assert providers.RETIRED_OPENAI_MODEL_IDS == set(ALIASES + SNAPSHOTS)
+    from f2z.ai.retirements import retired_model_ids
+    assert set(ALIASES + SNAPSHOTS) <= retired_model_ids("openai")
