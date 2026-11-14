@@ -44,5 +44,14 @@
       "label": "Preserved legacy wallet",
       "title": "Earlier wallet preserved"
     }
+  },
+  "wallet": {
+    "history": {
+      "missingTitle": "Transaction not found in this wallet",
+      "missingBody": "This link is not proof of payment. Check the active wallet and sync state, then refresh history.",
+      "refreshError": "Could not refresh wallet history.",
+      "refresh": "Refresh history",
+      "all": "All transactions"
+    }
   }
 }

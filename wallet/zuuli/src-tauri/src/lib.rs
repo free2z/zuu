@@ -3,6 +3,7 @@ mod directory_publish;
 pub mod intent;
 mod messaging;
 mod oauth;
+mod payment_privacy;
 mod session;
 
 fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {

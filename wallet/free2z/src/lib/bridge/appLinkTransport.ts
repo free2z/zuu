@@ -184,7 +184,7 @@ export function inboundAnswer(
     return null;
   }
   if (url.protocol !== "https:") return null;
-  if (url.hostname !== ASSOCIATION_HOST) return null;
+  if (url.origin !== `https://${ASSOCIATION_HOST}` || url.username || url.password) return null;
   if (url.pathname !== REPLY_PATH) return null;
   if (url.search !== "") return null;
 
@@ -227,21 +227,25 @@ export const appLinkIntentTransport: IntentTransport = {
     context: IntentExchangeContext,
   ): Promise<Uint8Array> {
     if (pending) return Promise.reject(new IntentExchangeBusyError());
+    const { requestId, expiresAtMs, family } = context;
 
     return new Promise<Uint8Array>((resolve, reject) => {
       // The request's own deadline, not a transport-invented one: ZUULI refuses
       // an expired intent anyway, so waiting past it can only produce an answer
       // that would be rejected.
-      const remaining = Math.max(0, context.expiresAtMs - Date.now());
+      const remaining = Math.max(0, expiresAtMs - Date.now());
       const timer = setTimeout(() => {
         settle((exchange) =>
-          exchange.reject(new IntentResponseTimeoutError(context.family)),
+          exchange.reject(new IntentResponseTimeoutError(family)),
         );
       }, remaining);
 
-      pending = { requestId: context.requestId, resolve, reject, timer };
+      pending = { requestId, resolve, reject, timer };
 
       void openUrl(authorityLink(request)).catch((error: unknown) => {
+        // The OS open may settle after a response/timeout and a newer request.
+        // An old link failure must never reject that newer exchange.
+        if (pending?.requestId !== requestId) return;
         settle((exchange) => exchange.reject(new AuthorityLinkError(error)));
       });
     });

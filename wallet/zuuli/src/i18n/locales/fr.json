@@ -44,5 +44,14 @@
       "label": "Ancien portefeuille conservé",
       "title": "Ancien portefeuille conservé"
     }
+  },
+  "wallet": {
+    "history": {
+      "missingTitle": "Transaction introuvable dans ce portefeuille",
+      "missingBody": "Ce lien ne prouve pas le paiement. Vérifiez le portefeuille actif et la synchronisation, puis actualisez l’historique.",
+      "refreshError": "Impossible d’actualiser l’historique du portefeuille.",
+      "refresh": "Actualiser l’historique",
+      "all": "Toutes les transactions"
+    }
   }
 }
