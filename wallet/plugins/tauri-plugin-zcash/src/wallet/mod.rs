@@ -6,6 +6,7 @@ pub mod history;
 pub mod keychain;
 pub mod keys;
 pub mod manifest;
+pub mod phone;
 pub mod send;
 pub mod storage;
 pub mod sync;
@@ -81,6 +82,7 @@ pub struct WalletTransitionGuard<'a> {
 }
 
 pub struct WalletState {
+    pub startup_blocked: bool,
     pub network: Network,
     pub data_dir: PathBuf,
     pub db: Arc<Mutex<Option<WalletDatabase>>>,
@@ -129,15 +131,46 @@ impl WalletState {
         seed_store: keychain::SeedStore,
     ) -> crate::Result<Self> {
         // Load or create the manifest, migrating legacy wallet.sqlite if needed
-        let mut manifest = manifest::WalletManifest::load(&data_dir)?;
-        manifest.migrate_legacy(&data_dir)?;
+        let (mut manifest, mut startup_blocked) = match manifest::WalletManifest::load(&data_dir) {
+            Ok(manifest) => (manifest, false),
+            Err(_) => (
+                manifest::WalletManifest {
+                    wallets: Vec::new(),
+                    active_wallet_id: None,
+                },
+                true,
+            ),
+        };
+        if !startup_blocked && manifest.migrate_legacy(&data_dir).is_err() {
+            startup_blocked = true;
+        }
 
         // A create/restore command may have returned successfully after the
         // manifest rename became visible but its directory fsync was
         // inconclusive. If that rename did not survive, restore the exact
         // journal-bound generation before opening a database or authorizing
         // any cleanup.
-        let recovery_diagnostics = cleanup::recover_published_wallets(&data_dir, &mut manifest);
+        let recovery_diagnostics = if startup_blocked {
+            Err(std::io::Error::other(
+                "wallet metadata unavailable; original data preserved; recovery requires the offline backup",
+            ))
+        } else {
+            cleanup::recover_published_wallets(&data_dir, &mut manifest).and_then(|diagnostics| {
+                // A protected publication journal can restore the exact identity
+                // for custody left by a lost manifest rename. Only classify it
+                // as orphaned after that recovery has had a chance to run.
+                if manifest.wallets.is_empty() && seed_store.has_orphaned_custody() {
+                    Err(std::io::Error::other(
+                        "wallet metadata unavailable; original data preserved; recovery requires the offline backup",
+                    ))
+                } else {
+                    Ok(diagnostics)
+                }
+            })
+        };
+        if recovery_diagnostics.is_err() {
+            startup_blocked = true;
+        }
 
         // Resolve manifest uncertainty and filesystem stages before opening DB
         // handles. Native custody may prompt or block, so those stages are
@@ -173,18 +206,22 @@ impl WalletState {
             let db_path = data_dir.join(&active.db_filename);
             match storage::open_existing_wallet_db(&db_path, network) {
                 Ok(db) => {
-                    tracing::info!("reopened existing wallet: {} ({})", active.name, active.id);
+                    tracing::info!("reopened existing wallet database");
                     let read_db = match storage::open_read_db(&db_path, network) {
                         Ok(read_db) => Some(read_db),
-                        Err(error) => {
-                            tracing::warn!("failed to open read-only db: {error}");
+                        Err(_) => {
+                            startup_blocked = true;
+                            tracing::warn!(
+                                "wallet read database unavailable; original data preserved"
+                            );
                             None
                         }
                     };
                     (Some(db), read_db)
                 }
-                Err(error) => {
-                    tracing::error!("failed to reopen wallet {}: {error}", active.id);
+                Err(_) => {
+                    startup_blocked = true;
+                    tracing::error!("wallet database unavailable; original data preserved");
                     (None, None)
                 }
             }
@@ -202,6 +239,7 @@ impl WalletState {
         OsRng.fill_bytes(&mut send_session_id);
 
         Ok(Self {
+            startup_blocked,
             network,
             data_dir,
             db: Arc::new(Mutex::new(db)),
@@ -286,9 +324,7 @@ impl WalletState {
             let db_guard = self.read_db.lock().await;
             match db_guard.as_ref() {
                 Some(db) => {
-                    let account_id = db
-                        .get_account_ids()
-                        .map_err(|error| crate::error::Error::DatabaseError(error.to_string()))?
+                    let account_id = accounts::ordered_account_ids(db)?
                         .first()
                         .copied()
                         .ok_or_else(|| {

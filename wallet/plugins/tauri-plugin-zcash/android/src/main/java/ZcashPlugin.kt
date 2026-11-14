@@ -2,6 +2,10 @@
 
 package cash.free2z.zuuli.zcash
 
+import android.app.AlertDialog
+import android.text.InputType
+import android.view.View
+import android.widget.EditText
 import android.app.Activity
 import android.content.Context
 import android.os.Build
@@ -47,7 +51,12 @@ class SensitiveDisplayArgs {
     lateinit var token: String
 }
 
+@InvokeArg
+class PhonePhraseArgs { lateinit var phrase: String; var locale: String = "en" }
+@InvokeArg
+class PhoneLocaleArgs { var locale: String = "en" }
 data class SeedValue(val phrase: String)
+private class MissingSeedKey : Exception()
 
 /**
  * Android seed custody.
@@ -61,6 +70,7 @@ data class SeedValue(val phrase: String)
 class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
     private val prefs = activity.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
     @Volatile private var sensitiveDisplayToken: String? = null
+    private var phoneDialogActive = false
     private var secureFlagReleasePending = false
     private var secureFlagAddedByPlugin = false
     private val sensitiveLifecycleObserver = object : DefaultLifecycleObserver {
@@ -146,6 +156,13 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(StoreSeedArgs::class.java)
         val plaintext = args.phrase.toByteArray(Charsets.UTF_8)
         try {
+            // Preserve original ciphertext before explicit recovery can replace it.
+            // It is never read as custody or removed by the migration ceremony.
+            val previous = prefs.getString(prefKey(args.walletId), null)
+            if (previous != null && !prefs.contains("preserved_${args.walletId}") && !prefs.edit().putString("preserved_${args.walletId}", previous).commit()) {
+                plaintext.fill(0)
+                return reject(invoke, "unavailable", "could not preserve original ciphertext")
+            }
             val key = getOrCreateKey()
             val encrypt: (Cipher) -> Unit = { authenticated ->
                 try {
@@ -237,6 +254,92 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
             }
         } catch (error: Exception) {
             rejectCrypto(invoke, error)
+        }
+    }
+
+    @Command
+    fun seedInventoryStatus(invoke: Invoke) {
+        // No manifest/ID is required to detect orphaned OS-restored ciphertext.
+        val present = prefs.all.keys.any { it.startsWith("seed_") || it.startsWith("preserved_") }
+        invoke.resolveObject(mapOf("state" to if (present) "present" else "empty"))
+    }
+
+    // Metadata only: no biometric prompt, no decryption, no key creation.
+    @Command
+    fun seedStatus(invoke: Invoke) {
+        val args = invoke.parseArgs(SeedKeyArgs::class.java)
+        val encoded = prefs.getString(prefKey(args.walletId), null)
+        if (encoded == null) { invoke.resolveObject(mapOf("state" to "missing")); return }
+        try {
+            val record = Base64.decode(encoded, Base64.NO_WRAP)
+            val state = if (record.size <= 1 + IV_LENGTH + 16 || record[0] != RECORD_VERSION) "corrupt"
+                else { requireKey(); "present" }
+            invoke.resolveObject(mapOf("state" to state))
+        } catch (_: MissingSeedKey) { invoke.resolveObject(mapOf("state" to "missingKey")) }
+        catch (_: Exception) { invoke.resolveObject(mapOf("state" to "unavailable")) }
+    }
+
+    @Command
+    fun phoneRecoveryInput(invoke: Invoke) { phoneRecoveryDialog(invoke, null, invoke.parseArgs(PhoneLocaleArgs::class.java).locale) }
+
+    @Command
+    fun phoneRecoveryDisplay(invoke: Invoke) {
+        val args = invoke.parseArgs(PhonePhraseArgs::class.java)
+        phoneRecoveryDialog(invoke, args.phrase, args.locale)
+    }
+
+    // Deliberately native. Phrase input/output never traverses the WebView.
+    private fun phoneRecoveryDialog(invoke: Invoke, phrase: String?, locale: String) {
+        activity.runOnUiThread {
+            val owner = activity as? FragmentActivity
+            if (phoneDialogActive) { reject(invoke, "unavailable", "native recovery is already open"); return@runOnUiThread }
+            if (owner == null || !owner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                reject(invoke, "locked", "open ZUULI in the foreground"); return@runOnUiThread
+            }
+            val entry = EditText(activity).apply {
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+                importantForAutofill = View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
+                imeOptions = android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+                isLongClickable = false
+                setText(phrase ?: "")
+                if (phrase != null) { isEnabled = false; transformationMethod = null }
+            }
+            var completed = false
+            val copy = when (locale) {
+                "es" -> arrayOf("Recuperar cartera ZUULI", "Copia de recuperación sin conexión", "Introduce tu frase sin conexión. Solo autoriza la recuperación nativa. No se admiten contraseñas BIP39. Cancela si no lo has solicitado.", "Escribe estas palabras en orden en papel, en privado. No las fotografíes ni subas. Verifica la recuperación en el teléfono nuevo antes de retirar este.", "Continuar", "Cancelar")
+                "fr" -> arrayOf("Récupérer le portefeuille ZUULI", "Sauvegarde de récupération hors ligne", "Saisissez votre phrase hors ligne. Cela autorise uniquement la récupération native. Les mots de passe BIP39 ne sont pas pris en charge. Annulez si vous ne l’avez pas demandé.", "Écrivez ces mots dans l’ordre sur papier, en privé. Ne les photographiez et ne les envoyez jamais. Vérifiez la récupération sur le nouveau téléphone avant de retirer celui-ci.", "Continuer", "Annuler")
+                else -> arrayOf("Recover ZUULI wallet", "Offline ZUULI recovery backup", "Enter your offline recovery phrase. This authorizes native wallet recovery only. No BIP39 passphrase is supported. Cancel if you did not request this.", "Write these words in order on paper, privately. Never photograph or upload them. Verify recovery on the new phone before retiring this one.", "Continue", "Cancel")
+            }
+            val dialog = AlertDialog.Builder(activity)
+                .setTitle(copy[if (phrase == null) 0 else 1])
+                .setMessage(copy[if (phrase == null) 2 else 3])
+                .setView(entry)
+                .setNegativeButton(copy[5]) { _, _ -> }
+                .setPositiveButton(copy[4]) { _, _ ->
+                    completed = true
+                    if (phrase == null) invoke.resolveObject(SeedValue(entry.text.toString())) else invoke.resolve()
+                }.create()
+            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            val observer = object : DefaultLifecycleObserver {
+                override fun onPause(owner: LifecycleOwner) { entry.text.clear(); dialog.dismiss() }
+            }
+            dialog.setOnDismissListener {
+                phoneDialogActive = false
+                entry.text.clear()
+                owner.lifecycle.removeObserver(observer)
+                if (!completed) reject(invoke, "auth_cancelled", "native recovery cancelled; original data preserved")
+            }
+            owner.lifecycle.addObserver(observer)
+            phoneDialogActive = true
+            try {
+                dialog.show()
+                dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            } catch (_: Exception) {
+                phoneDialogActive = false
+                owner.lifecycle.removeObserver(observer)
+                entry.text.clear()
+                reject(invoke, "unavailable", "native recovery could not open; original data preserved")
+            }
         }
     }
 
@@ -386,15 +489,16 @@ class ZcashPlugin(private val activity: Activity) : Plugin(activity) {
     private fun requireKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
         return keyStore.getKey(KEY_ALIAS, null) as? SecretKey
-            ?: throw IllegalStateException("AndroidKeyStore seed key is missing")
+            ?: throw MissingSeedKey()
     }
 
     private fun rejectCrypto(invoke: Invoke, error: Exception) {
         when (error) {
+            is MissingSeedKey -> reject(invoke, "missing_key", "device key did not transfer; use your offline recovery backup and preserve the original phone")
             is AEADBadTagException -> reject(invoke, "corrupt", "secure seed authentication failed")
             is UserNotAuthenticatedException -> reject(invoke, "locked", "device authentication is required")
             is KeyPermanentlyInvalidatedException -> reject(invoke, "corrupt", "device security changed; restore the wallet from its recovery phrase")
-            else -> reject(invoke, "unavailable", error.message ?: error.javaClass.simpleName)
+            else -> reject(invoke, "unavailable", "secure storage is unavailable; preserve the original data")
         }
     }
 

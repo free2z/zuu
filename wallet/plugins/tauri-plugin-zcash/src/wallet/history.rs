@@ -28,7 +28,7 @@ pub async fn get_transaction_history(
     // Get the account UUID for the given account index
     let account_uuid: Vec<u8> = conn
         .query_row(
-            "SELECT uuid FROM accounts ORDER BY id LIMIT 1 OFFSET ?1",
+            "SELECT uuid FROM accounts ORDER BY hd_account_index, id LIMIT 1 OFFSET ?1",
             [account_index],
             |row| row.get(0),
         )

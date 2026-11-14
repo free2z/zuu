@@ -18,6 +18,7 @@ export interface WalletRestored {
 }
 
 export interface WalletStatus {
+  custodyState?: string;
   initialized: boolean;
   hasSeed: boolean;
   syncedHeight: number | null;
@@ -178,4 +179,21 @@ export interface SignedChallenge {
   challenge: string;
   signature: string;
   pubkey?: string;
+}
+
+export interface RecoveryPlan {
+  version: number;
+  network: string;
+  accounts: { index: number; birthday: number; address: string }[];
+  history: string[];
+}
+export interface PhoneSnapshot {
+  walletId: string;
+  walletCount: number;
+  plan: RecoveryPlan;
+  fullyScanned: number | null;
+  chainTip: number;
+  syncCurrent: boolean;
+  pendingPayment: boolean;
+  recoveryUsable: boolean;
 }

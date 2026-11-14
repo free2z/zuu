@@ -168,3 +168,38 @@ test("Apple source, generated plist, and project generator declare no capture us
   assert.equal(occurrences(project, "NSFaceIDUsageDescription: "), 1);
   assert.equal(occurrences(macos, '<plist version="1.0">'), 1);
 });
+
+// Phone-replacement backup invariants (#1020).
+import { DOMParser } from 'linkedom';
+
+const phoneBackupDomains = ['root', 'file', 'database', 'sharedpref', 'external', 'device_root', 'device_file', 'device_database', 'device_sharedpref'];
+const parsePhoneBackup = (source) => new DOMParser().parseFromString(source, 'text/xml');
+function verifyPhoneBackup(source, modern) {
+  const doc = parsePhoneBackup(source);
+  for (const scope of modern ? ['cloud-backup', 'device-transfer'] : ['full-backup-content']) {
+    const lanes = [...doc.getElementsByTagName(scope)];
+    assert.equal(lanes.length, 1, scope);
+    assert.equal(lanes[0].getElementsByTagName('include').length, 0);
+    const exclusions = [...lanes[0].getElementsByTagName('exclude')];
+    assert.deepEqual(exclusions.map((e) => [e.getAttribute('domain'), e.getAttribute('path')]).sort(), phoneBackupDomains.map((d) => [d, '.']).sort());
+  }
+}
+for (const app of ['zuuli', 'free2z', 'e2e2z']) {
+  test(`${app}: every cloud and device-transfer domain excludes custody, databases and WebView state`, () => {
+    const root = new URL(`../../${app}/src-tauri/gen/android/app/src/main/`, import.meta.url);
+    const manifest = parsePhoneBackup(readFileSync(new URL('AndroidManifest.xml', root), 'utf8')).getElementsByTagName('application')[0];
+    assert.equal(manifest.getAttribute('android:allowBackup'), 'false');
+    assert.equal(manifest.getAttribute('android:dataExtractionRules'), '@xml/data_extraction_rules');
+    assert.equal(manifest.getAttribute('android:fullBackupContent'), '@xml/backup_rules');
+    const modern = readFileSync(new URL('res/xml/data_extraction_rules.xml', root), 'utf8');
+    const legacy = readFileSync(new URL('res/xml/backup_rules.xml', root), 'utf8');
+    verifyPhoneBackup(modern, true); verifyPhoneBackup(legacy, false);
+    for (const domain of phoneBackupDomains) {
+      // A weakened domain in either modern lane, or the legacy format, must fail.
+      for (const source of [modern, legacy]) {
+        assert.throws(() => verifyPhoneBackup(source.replace(`<exclude domain="${domain}" path="." />`, ''), source === modern));
+      }
+    }
+    assert.throws(() => verifyPhoneBackup(modern.replace('<device-transfer>', '<device-transfer><include domain="file" path="."/>'), true));
+  });
+}

@@ -44,5 +44,38 @@
       "label": "Preserved legacy wallet",
       "title": "Earlier wallet preserved"
     }
+  },
+  "phone": {
+    "title": "Move to a new phone",
+    "limitation": "Before you start: authenticated phone-to-phone transfer and portable encrypted backup files are not supported. Quick Start, Smart Switch and app backup do not recover wallet custody. This flow uses your offline recovery phrase in the native iPhone or Android app, including across platforms. BIP39 passphrases and viewing-key-only accounts are not supported. The current native wallet requires ZIP32 account zero as its primary account; additional sparse HD accounts are recovered too. Wallets without account zero must not use this ceremony.",
+    "preserve": "Keep the original phone, recovery files and pending payment records. Do not reset, uninstall or erase either installation during recovery.",
+    "old": "1. On the old phone",
+    "oldSteps": "For each wallet, record its discovery metadata below and verify your offline phrase is available. Authenticate to view the words privately in the native app. Keep metadata with the offline backup; it contains addresses and history identifiers, so do not publish it.",
+    "inventory": "Read this wallet’s metadata",
+    "backup": "Authenticate for native offline backup",
+    "new": "2. On the new phone",
+    "newSteps": "Install ZUULI, open this screen, and enter the expected metadata from the old phone or offline record. Recover once for each phrase. If the same wallet data already exists, select that wallet and recover custody in place; never import a second copy. Native recovery asks for your words without sending them to this page.",
+    "unavailable": "Old phone unavailable? You need the correct offline phrase and an account/address/birthday inventory. Without the phrase, ZUULI and Free2Z cannot recover funds. Without metadata, full account discovery is not verified; retain all backups and seek help before proceeding. Offline or interrupted? Preserve data and retry when connected.",
+    "metadata": "Expected discovery metadata (never recovery words)",
+    "metadataNote": "Compare the network, every ZIP32 account index, birthday and address with the trusted offline record. These instructions are not an authenticated backup and cannot prove recovery by themselves.",
+    "consent": "I have checked the expected metadata and want to open native recovery. I will keep the original phone and backups.",
+    "recover": "Open native recovery",
+    "checks": "3. Verify on the new phone",
+    "checkSteps": "Restart ZUULI, compare all expected accounts and addresses, then authenticate below. Native checks require usable custody for every listed derivation, matching birthdays, a fresh chain tip, full synchronization and expected history. Syncing or offline is not a verified zero balance. Pending or unknown payments must be resolved on the original wallet without making another payment.",
+    "verify": "Authenticate and check native wallet",
+    "scope": "{count, plural, one {# wallet on this installation. Check every phrase separately.} other {# wallets on this installation. Check every phrase separately.}}",
+    "checked": "Native checks passed for this wallet now. Device and payment verification remain pending.",
+    "incomplete": "Recovery is not verified. Continue synchronization and compare the original history; a copied app or an empty balance is not proof.",
+    "error": "Recovery could not be verified. No success is recorded. Keep both installations and backup files. Unlock the device and retry; check the phrase, network and metadata. Missing or incompatible device keys require the offline recovery path. Native phone entry is available only on iPhone and Android.",
+    "external": "Do not erase the old phone based on this screen. Real-device restart, OS migration behavior, recovery-backup usability and an explicitly authorized test payment still need separate verification.",
+    "family": "4. Free2Z and e2e2z",
+    "familySteps": "Free2Z sign-in is separate from wallet custody: sign in again. e2e2z needs a new device enrollment through ZUULI with native approval; OS backup must not clone device authorization. Device keys, message history, queues and local drafts do not recover from the wallet phrase. Keep the old messaging installation and review revocation of its device separately; no automatic revocation or data deletion occurs here.",
+    "separate": "This phrase belongs to another wallet. Add a separate identity and preserve existing wallets.",
+    "source": "This phone’s discovery metadata",
+    "wallet": "Wallet identity",
+    "missing": "Wallet data is present without usable device custody. Use the offline recovery backup here; keep the old phone and original files. Automatic replacement is blocked.",
+    "corrupt": "The encrypted recovery record could not be authenticated. Check your offline phrase and metadata. Keep the original data; if device-key failures persist, recover on a clean destination instead of clearing this installation.",
+    "locked": "Native authentication was cancelled or could not finish. Unlock this device, return to ZUULI and retry. If startup remains blocked, restart ZUULI after unlocking. Your original recovery data remains preserved.",
+    "files": "The wallet files or custody inventory could not be verified. Unlock and restart ZUULI once. If it remains blocked, preserve this installation and use the offline backup and metadata on a clean destination; never clear app data to bypass this screen."
   }
 }

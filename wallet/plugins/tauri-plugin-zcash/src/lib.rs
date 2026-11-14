@@ -119,7 +119,7 @@ mod command_registry_tests {
     #[test]
     fn sensitive_entry_is_in_the_runtime_and_permission_registry() {
         let commands: &[&str] = with_zcash_commands!(command_names);
-        assert_eq!(commands.len(), 39, "command registry population changed");
+        assert_eq!(commands.len(), 43, "command registry population changed");
         assert_eq!(
             commands
                 .iter()

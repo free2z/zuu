@@ -190,6 +190,9 @@ pub(crate) async fn run_wallet_cleanup_retry(
     state: &crate::wallet::WalletState,
     mode: crate::wallet::cleanup::RetryMode,
 ) -> WalletCleanupStatus {
+    if state.startup_blocked {
+        return state.cleanup_status.lock().await.clone();
+    }
     let manifest = state.manifest.lock().await.clone();
     let data_dir = state.data_dir.clone();
     let seed_store = state.seed_store.clone();
@@ -288,6 +291,11 @@ pub(crate) async fn create_wallet<R: Runtime>(
     args: CreateWalletArgs,
 ) -> Result<WalletCreated> {
     let zcash = app.zcash();
+    if zcash.state.startup_blocked {
+        return Err(Error::Other(
+            "wallet data unavailable; preserve the installation and offline recovery files".into(),
+        ));
+    }
     let transition_guard = Arc::clone(&zcash.state.wallet_transition)
         .lock_owned()
         .await;
@@ -939,7 +947,20 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     app: AppHandle<R>,
     args: RestoreWalletArgs,
 ) -> Result<WalletRestored> {
+    restore_from_phrase(app, args).await
+}
+
+async fn restore_from_phrase<R: Runtime>(
+    app: AppHandle<R>,
+    args: RestoreWalletArgs,
+) -> Result<WalletRestored> {
+    if app.zcash().state.startup_blocked {
+        return Err(Error::Other(
+            "wallet data unavailable; preserve the installation and offline recovery files".into(),
+        ));
+    }
     let RestoreWalletArgs {
+        recovery_plan,
         seed_phrase,
         birthday_height,
         name,
@@ -957,7 +978,56 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     // echo a phrase word.
     let mnemonic = keys::parse_mnemonic(seed_phrase.as_str())?;
     let seed = keys::mnemonic_to_seed(&mnemonic);
-    let birthday_height = birthday_height.unwrap_or(419200); // sapling activation
+    if let Some(plan) = &recovery_plan {
+        plan.validate_seed(seed.expose_secret(), zcash.state.network)?;
+    }
+    // Unknown response/restart/repeated import must never publish a duplicate.
+    // Do not overwrite, delete or switch the matching installation implicitly.
+    {
+        let manifest = zcash.state.manifest.lock().await;
+        for entry in &manifest.wallets {
+            let path = zcash.state.data_dir.join(&entry.db_filename);
+            let db = storage::open_read_db(&path, zcash.state.network).map_err(|_| {
+                Error::Other(
+                    "existing wallet needs recovery; preserve its data before importing".into(),
+                )
+            })?;
+            let ids = db
+                .get_account_ids()
+                .map_err(|_| Error::WalletNotInitialized)?;
+            for id in ids {
+                let account = db
+                    .get_account(id)
+                    .map_err(|_| Error::WalletNotInitialized)?
+                    .ok_or(Error::WalletNotInitialized)?;
+                if let Some(derivation) = account.source().key_derivation() {
+                    let derived = keys::derive_usk(
+                        seed.expose_secret(),
+                        &zcash.state.network,
+                        u32::from(derivation.account_index()),
+                    )?;
+                    if account.ufvk().is_some_and(|ufvk| {
+                        ufvk.encode(&zcash.state.network)
+                            == derived
+                                .to_unified_full_viewing_key()
+                                .encode(&zcash.state.network)
+                    }) {
+                        return Err(Error::Other("this recovery phrase already has a wallet here; select it and retry native recovery without importing another copy".into()));
+                    }
+                }
+            }
+        }
+    }
+    let birthday_height = recovery_plan
+        .as_ref()
+        .and_then(|p| {
+            p.accounts
+                .iter()
+                .map(|a| a.birthday.saturating_sub(1))
+                .min()
+        })
+        .or(birthday_height)
+        .unwrap_or(419200); // tree state precedes first scan block
     let wallet_name = name.unwrap_or_else(|| "Restored".to_string());
 
     // Stop any running sync and retain an identity-bound recovery obligation
@@ -1002,6 +1072,18 @@ pub(crate) async fn restore_wallet<R: Runtime>(
             ))
         })?;
 
+    let mut recovered_accounts = Vec::new();
+    if let Some(plan) = &recovery_plan {
+        for account in &plan.accounts {
+            if account.birthday == 0 || account.birthday > chain_tip { return Err(Error::Other("recovery birthday is outside the current chain".into())); }
+            let tree = client.get_tree_state(BlockId { height: account.birthday - 1, hash: vec![] }).await
+                .map_err(|_| Error::NetworkError("recovery needs a reachable chain server; original wallets are unchanged".into()))?.into_inner();
+            let birthday = AccountBirthday::from_treestate(tree, Some(recover_until))
+                .map_err(|_| Error::Other("recovery birthday could not be verified".into()))?;
+            recovered_accounts.push((account.index, birthday));
+        }
+    }
+
     // Allocate an identity, but keep it out of the durable manifest until its
     // database and native seed custody have both committed. Unlike a newly
     // generated key, restored custody is already backed up, so the prepared
@@ -1036,7 +1118,12 @@ pub(crate) async fn restore_wallet<R: Runtime>(
     };
 
     // Create account on the local db (no mutex contention)
-    if let Err(error) = db.create_account(&wallet_entry.name, &seed, &birthday, None) {
+    let account_result = if recovery_plan.is_some() {
+        crate::wallet::phone::import_accounts(&mut db, &seed, &recovered_accounts)
+    } else {
+        db.create_account(&wallet_entry.name, &seed, &birthday, None).map(|_| ()).map_err(|_| Error::Other("recovery account creation failed".into()))
+    };
+    if let Err(error) = account_result {
         drop(db);
         retry_staged_wallet_cleanup(&zcash.state, "restored account creation failed").await;
         return Err(Error::DatabaseError(format!(
@@ -1220,7 +1307,17 @@ pub(crate) async fn get_wallet_status<R: Runtime>(app: AppHandle<R>) -> Result<W
         (None, None)
     };
 
+    let custody_state = if zcash.state.startup_blocked || (!initialized && wallet_count > 0) {
+        "dataUnavailable"
+    } else {
+        active_wallet_id
+            .as_deref()
+            .map(|id| zcash.state.seed_store.inspect(id))
+            .unwrap_or("none")
+    }
+    .to_owned();
     Ok(WalletStatus {
+        custody_state,
         initialized,
         has_seed,
         synced_height,
@@ -1369,9 +1466,7 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
 
     let db_guard = zcash.state.read_db.lock().await;
     let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|e| Error::DatabaseError(format!("{e}")))?;
+    let account_ids = crate::wallet::accounts::ordered_account_ids(db)?;
     let account_id = account_ids
         .first()
         .copied()
@@ -1389,13 +1484,9 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
     let derived_encoded = derived_ufvk.encode(&zcash.state.network);
     let stored_encoded = stored_ufvk.encode(&zcash.state.network);
     if derived_encoded != stored_encoded {
-        let derived_prefix = &derived_encoded[..derived_encoded.len().min(20)];
-        let stored_prefix = &stored_encoded[..stored_encoded.len().min(20)];
-        return Err(Error::KeyError(format!(
-            "seed phrase does not match this wallet. \
-                 Derived UFVK starts with: {derived_prefix}... \
-                 Stored UFVK starts with: {stored_prefix}..."
-        )));
+        return Err(Error::KeyError(
+            "recovery phrase does not match this wallet".into(),
+        ));
     }
 
     // Store in platform-native custody only.
@@ -1427,9 +1518,7 @@ pub(crate) async fn get_viewing_key<R: Runtime>(
     let db_guard = zcash.state.read_db.lock().await;
     let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
 
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|e| Error::DatabaseError(format!("failed to get account ids: {e}")))?;
+    let account_ids = crate::wallet::accounts::ordered_account_ids(db)?;
 
     let account_id = account_ids
         .get(args.account_index as usize)
@@ -2156,9 +2245,7 @@ pub(crate) async fn get_account_balance<R: Runtime>(
         .map_err(|e| Error::DatabaseError(format!("failed to get wallet summary: {e}")))?;
 
     if let Some(summary) = summary {
-        let account_ids = db
-            .get_account_ids()
-            .map_err(|e| Error::DatabaseError(format!("failed to get account ids: {e}")))?;
+        let account_ids = crate::wallet::accounts::ordered_account_ids(db)?;
 
         if let Some(account_id) = account_ids.get(args.account_index as usize)
             && let Some(balance) = summary.account_balances().get(account_id)
@@ -2217,9 +2304,7 @@ pub(crate) async fn get_unified_address<R: Runtime>(
     let db_guard = zcash.state.read_db.lock().await;
     let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
 
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|e| Error::DatabaseError(format!("failed to get account ids: {e}")))?;
+    let account_ids = crate::wallet::accounts::ordered_account_ids(db)?;
 
     let account_id = account_ids
         .get(args.account_index as usize)
@@ -2491,4 +2576,186 @@ pub(crate) async fn sign_challenge<R: Runtime>(
         signature: signed.signature,
         pubkey: signed.pubkey,
     })
+}
+
+/// Read-only discovery inventory. No seed access and no filesystem argument.
+#[command]
+pub(crate) async fn get_phone_snapshot<R: Runtime>(
+    app: AppHandle<R>,
+) -> Result<crate::wallet::phone::PhoneSnapshot> {
+    let zcash = app.zcash();
+    let _guard = zcash.state.lock_wallet_transition().await;
+    crate::wallet::phone::snapshot(&zcash.state, false).await
+}
+
+/// Explicit OS authentication verifies ALL accounts without sending custody to JS.
+#[command]
+pub(crate) async fn verify_phone_recovery<R: Runtime>(
+    app: AppHandle<R>,
+    args: PhoneRecoveryArgs,
+) -> Result<crate::wallet::phone::PhoneSnapshot> {
+    if cfg!(not(mobile)) {
+        return Err(Error::Other(
+            "native custody verification requires the iPhone or Android app".into(),
+        ));
+    }
+    let zcash = app.zcash();
+    let _guard = zcash.state.lock_wallet_transition().await;
+    if args.wallet_id != zcash.state.active_wallet_id().await {
+        return Err(Error::WalletNotInitialized);
+    }
+    let id = args.wallet_id.ok_or(Error::WalletNotInitialized)?;
+    let store = zcash.state.seed_store.clone();
+    let phrase = tokio::task::spawn_blocking(move || store.get_native_seed_phrase(&id))
+        .await
+        .map_err(|_| Error::Other("native recovery interrupted".into()))??;
+    let mnemonic = keys::parse_mnemonic(&phrase)?;
+    let seed = keys::mnemonic_to_seed(&mnemonic);
+    args.plan
+        .validate_seed(seed.expose_secret(), zcash.state.network)?;
+    let mut snapshot = crate::wallet::phone::snapshot(&zcash.state, true).await?;
+    let url = zcash.state.lightwalletd_url.read().await.clone();
+    let tip = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        let mut client = connect_to_lightwalletd(&url).await?;
+        client
+            .get_latest_block(zcash_client_backend::proto::service::ChainSpec::default())
+            .await
+            .map(|r| r.into_inner())
+            .map_err(|_| Error::NetworkError("current chain tip unavailable".into()))
+    })
+    .await
+    .map_err(|_| Error::NetworkError("current chain tip unavailable".into()))??;
+    snapshot.chain_tip = tip.height;
+    let db_guard = zcash.state.read_db.lock().await;
+    let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
+    let height = zcash_protocol::consensus::BlockHeight::from_u32(
+        u32::try_from(tip.height).map_err(|_| Error::WalletNotInitialized)?,
+    );
+    let hash_matches = db
+        .block_metadata(height)
+        .map_err(|_| Error::WalletNotInitialized)?
+        .is_some_and(|b| b.block_hash().0.as_slice() == tip.hash.as_slice());
+    snapshot.sync_current = snapshot.sync_current
+        && tip.height > 0
+        && hash_matches
+        && snapshot.fully_scanned.is_some_and(|h| h >= tip.height);
+    drop(db_guard);
+    if !args.plan.matches(&snapshot.plan) {
+        return Err(Error::Other(
+            "expected accounts or history are still missing; preserve the original phone".into(),
+        ));
+    }
+    Ok(snapshot)
+}
+
+/// Native mobile input returns only to Rust. There is no phrase in IPC args/results.
+#[command]
+pub(crate) async fn recover_phone_wallet<R: Runtime>(
+    app: AppHandle<R>,
+    args: PhoneRecoveryArgs,
+) -> Result<WalletRestored> {
+    if app.zcash().state.startup_blocked {
+        return Err(Error::Other(
+            "wallet data unavailable; preserve the original installation".into(),
+        ));
+    }
+    args.plan.validate(app.zcash().state.network)?;
+    #[cfg(not(mobile))]
+    {
+        let _ = args;
+        Err(Error::Other(
+            "native phone recovery requires the iOS or Android app".into(),
+        ))
+    }
+    #[cfg(mobile)]
+    {
+        // Own the transition while the user enters recovery material; then the
+        // existing restore path revalidates under its own transition lock.
+        let zcash = app.zcash();
+        let guard = zcash.state.lock_wallet_transition().await;
+        if args.wallet_id.is_some() && args.wallet_id != zcash.state.active_wallet_id().await {
+            return Err(Error::WalletNotInitialized);
+        }
+        let phrase = zcash.read_phone_recovery_phrase(args.locale).await?;
+        if let Some(id) = args.wallet_id {
+            // Existing restored database: validate all expected accounts before
+            // re-linking custody; never create a second wallet or reset data.
+            let mnemonic = keys::parse_mnemonic(&phrase)?;
+            let seed = keys::mnemonic_to_seed(&mnemonic);
+            args.plan
+                .validate_seed(seed.expose_secret(), zcash.state.network)?;
+            let snapshot = crate::wallet::phone::snapshot(&zcash.state, false).await?;
+            if !args.plan.matches(&snapshot.plan) {
+                return Err(Error::Other(
+                    "wallet metadata does not match; preserve the installation".into(),
+                ));
+            }
+            if cfg!(target_os = "ios") {
+                let store = zcash.state.seed_store.clone();
+                let native_id = id.clone();
+                let canonical = Zeroizing::new(mnemonic.phrase().to_owned());
+                tokio::task::spawn_blocking(move || {
+                    store.relink_seed_preserving_existing(&native_id, &canonical)
+                })
+                .await
+                .map_err(|_| {
+                    Error::Other("native recovery interrupted; original record preserved".into())
+                })??;
+            } else {
+                // Android's native store archives the original ciphertext once
+                // before this explicit, authenticated replacement.
+                zcash
+                    .state
+                    .store_seed_phrase(&id, mnemonic.phrase())
+                    .await?;
+            }
+            return Ok(WalletRestored {
+                success: true,
+                wallet_id: id,
+            });
+        }
+        drop(guard);
+        restore_from_phrase(
+            app,
+            RestoreWalletArgs {
+                seed_phrase: phrase.to_string(),
+                birthday_height: None,
+                name: None,
+                recovery_plan: Some(args.plan),
+            },
+        )
+        .await
+    }
+}
+
+#[command]
+pub(crate) async fn show_phone_backup<R: Runtime>(
+    app: AppHandle<R>,
+    args: PhoneRecoveryArgs,
+) -> Result<()> {
+    #[cfg(not(mobile))]
+    {
+        let _ = (app, args);
+        Err(Error::Other(
+            "native phone backup requires the iOS or Android app".into(),
+        ))
+    }
+    #[cfg(mobile)]
+    {
+        let zcash = app.zcash();
+        let _guard = zcash.state.lock_wallet_transition().await;
+        if args.wallet_id != zcash.state.active_wallet_id().await {
+            return Err(Error::WalletNotInitialized);
+        }
+        let id = args.wallet_id.ok_or(Error::WalletNotInitialized)?;
+        let store = zcash.state.seed_store.clone();
+        let phrase = tokio::task::spawn_blocking(move || store.get_native_seed_phrase(&id))
+            .await
+            .map_err(|_| Error::Other("native recovery interrupted".into()))??;
+        args.plan.validate_seed(
+            keys::mnemonic_to_seed(&keys::parse_mnemonic(&phrase)?).expose_secret(),
+            zcash.state.network,
+        )?;
+        zcash.show_phone_backup(phrase, args.locale).await
+    }
 }
