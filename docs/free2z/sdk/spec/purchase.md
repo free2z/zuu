@@ -20,6 +20,21 @@
 > something an app can open. Read the rest of this page as the contract
 > those existing clients rely on.
 
+> **Legacy proposal and compatibility boundary:** this page's Zcash intent
+> details below, including the 30-minute locked quote, are a legacy design
+> contract. They do not describe active funding behavior. The active canonical
+> policy says displayed quantities and rates are estimates, do not reserve
+> credits or lock a conversion rate, and confirmed ZEC is credited using a
+> fresh recorded multi-source ZEC/USD price and the settlement spread in force
+> at processing. The estimate buffer is separate and does not reduce actual
+> credit. See
+> [`contracts.py`](../../../../py/free2z/dj/apps/economy/contracts.py#L214-L216).
+> Existing API fields, types, receipts and accepted canonical resources are
+> unchanged here for compatibility. Replacing this legacy contract requires
+> coordinated review by the financial-runtime owner, including API and receipt
+> compatibility, canonical resource/version handling, and corresponding tests;
+> this documentation correction does not claim that review or any deployment.
+
 An app lets a user buy 2Z without ever handling a payment itself. The app
 creates a **purchase intent** on the account API, opens the surface the
 rail returns (a hosted checkout page, the platform's store sheet, or a
@@ -278,9 +293,10 @@ agreement's §4.
 
 ## 4. In-app purchase — StoreKit 2 and Play Billing, as equals
 
-**First-party only in v1.** These rails are used by Free2Z's own apps
-(the store product belongs to Free2Z's own listing, and the store pays
-Free2Z); a third-party app's `POST /purchases` with an IAP rail is
+**First-party-only design in this legacy contract.** The specification assigns
+these rails to Free2Z's own apps (the store product belongs to Free2Z's own
+listing, and the store pays Free2Z); this does not establish that either rail
+is deployed or available. A third-party app's `POST /purchases` with an IAP rail is
 `400 rail_unavailable`. They are specified here because the SDK
 implements them for those apps and because a third party reading this
 contract should know exactly what its users do *not* have.
