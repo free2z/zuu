@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use rand::{RngCore, rngs::OsRng};
+use rand::Rng;
 use secrecy::ExposeSecret;
 use sha2::{Digest, Sha256};
 use zcash_client_backend::data_api::wallet::SpendingKeys;
@@ -304,7 +304,7 @@ impl PendingProposal {
             session_id,
         )?;
         let mut token_bytes = [0_u8; 32];
-        OsRng.fill_bytes(&mut token_bytes);
+        super::os_rng().fill_bytes(&mut token_bytes);
         let confirmation_token = encode_hex(&token_bytes);
         let expires_at_monotonic = now
             .monotonic
@@ -399,7 +399,7 @@ fn create_pending_proposal(
 ) -> (PendingProposal, SendProposal) {
     let review_digest = send_review_digest(&review, proposal_id, &wallet_id, &session_id);
     let mut token_bytes = [0_u8; 32];
-    OsRng.fill_bytes(&mut token_bytes);
+    super::os_rng().fill_bytes(&mut token_bytes);
     let proposal_token = encode_hex(&token_bytes);
     let pending = PendingProposal {
         authorization: ProposalAuthorization {
@@ -2512,7 +2512,7 @@ pub mod production_route_probe {
     };
     use zcash_client_backend::decrypt_transaction;
     use zcash_client_sqlite::testing::{BlockCache, db::TestDbFactory};
-    use zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA;
+    use zcash_primitives::transaction::builder::default_tx_expiry_delta;
     use zcash_protocol::memo::Memo;
 
     pub fn assert_ordinary_stateful_shipping_routes() {
@@ -2699,7 +2699,11 @@ pub mod production_route_probe {
             .expect("the stateful creation caller must persist its transaction");
         assert_eq!(
             tx.expiry_height(),
-            recovery_height + DEFAULT_TX_EXPIRY_DELTA,
+            recovery_height
+                + default_tx_expiry_delta(consensus::BranchId::for_height(
+                    &network,
+                    recovery_height
+                )),
             "shipping creation must retain the builder-derived expiry height",
         );
         let viewing_keys: HashMap<_, _> =
@@ -2738,7 +2742,7 @@ pub mod production_route_probe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use zcash_address::unified::{Address as UnifiedAddress, Encoding, Receiver};
+    use zcash_address::unified::{Address as UnifiedAddress, Encoding, Receiver, Revision, Uitem};
     use zcash_client_backend::data_api::testing::{
         orchard::OrchardPoolTester,
         pool::{ShieldedPoolTester, dsl::TestDsl},
@@ -3444,10 +3448,13 @@ mod tests {
 
     #[test]
     fn unified_address_requires_a_receiver_this_wallet_can_pay() {
-        let unknown_only = UnifiedAddress::try_from_items(vec![Receiver::Unknown {
-            typecode: 0x04,
-            data: vec![0x42; 32],
-        }])
+        let unknown_only = UnifiedAddress::try_from_items(
+            Revision::R0,
+            vec![Uitem::Data(Receiver::Unknown {
+                typecode: 0x04,
+                data: vec![0x42; 32],
+            })],
+        )
         .unwrap()
         .encode(&NetworkType::Main);
         let validation = validate_recipient_address(&Network::MainNetwork, &unknown_only);
@@ -3468,13 +3475,16 @@ mod tests {
 
     #[test]
     fn unified_address_with_a_supported_receiver_remains_valid() {
-        let supported = UnifiedAddress::try_from_items(vec![
-            Receiver::P2pkh([0x24; 20]),
-            Receiver::Unknown {
-                typecode: 0x04,
-                data: vec![0x42; 32],
-            },
-        ])
+        let supported = UnifiedAddress::try_from_items(
+            Revision::R0,
+            vec![
+                Uitem::Data(Receiver::P2pkh([0x24; 20])),
+                Uitem::Data(Receiver::Unknown {
+                    typecode: 0x04,
+                    data: vec![0x42; 32],
+                }),
+            ],
+        )
         .unwrap()
         .encode(&NetworkType::Main);
         let validation = validate_recipient_address(&Network::MainNetwork, &supported);
