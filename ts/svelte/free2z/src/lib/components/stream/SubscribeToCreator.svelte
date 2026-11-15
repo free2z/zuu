@@ -32,6 +32,7 @@
   export let creator: CreatorDetail;
   export let open = false;
   export let onOpenChange: (open: boolean) => void = () => {};
+  export let onSuccess: () => void = () => {};
   let isSubmitting = false;
   let isUnconfirmed = false;
   let isIntentConflict = false;
@@ -204,7 +205,10 @@
               username: creator.username,
             }),
       );
-      if (!storageCleanupFailed) onOpenChange(false);
+      if (!storageCleanupFailed) {
+        onOpenChange(false);
+        onSuccess();
+      }
       // Reconcile membership and refresh the balance without the auth cache.
       void authStore.checkAuth({ force: true, silent: true });
     } catch (e: any) {
