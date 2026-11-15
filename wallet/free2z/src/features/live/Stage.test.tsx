@@ -388,24 +388,26 @@ describe("RealtimeKit stage retry lifecycle", () => {
     expect(client.leave).not.toHaveBeenCalled();
   });
 
-  it("serializes a new ticket's init behind one still in flight", async () => {
-    const stale = fakeClient();
-    const fresh = fakeClient();
+  it("waits for an in-flight init with the same token, but never for another token", async () => {
     let resolveFirst!: (client: ReturnType<typeof fakeClient>) => void;
     const order: string[] = [];
+    const first = fakeClient();
+    const other = fakeClient();
+    const again = fakeClient();
     controls.initMeeting
       .mockImplementationOnce(({ authToken }: { authToken: string }) => {
         order.push(`start:${authToken}`);
         return new Promise((resolve) => {
-          resolveFirst = (client) => {
-            order.push(`end:${authToken}`);
-            resolve(client);
-          };
+          resolveFirst = resolve;
         });
       })
       .mockImplementationOnce(async ({ authToken }: { authToken: string }) => {
         order.push(`start:${authToken}`);
-        return fresh;
+        return other;
+      })
+      .mockImplementationOnce(async ({ authToken }: { authToken: string }) => {
+        order.push(`start:${authToken}`);
+        return again;
       });
 
     function Harness({ ticket }: { ticket: DyteJoinTicket }) {
@@ -417,24 +419,108 @@ describe("RealtimeKit stage retry lifecycle", () => {
     }
     await act(async () => root.render(<Harness ticket={firstTicket} />));
     await flush();
+    // A different token is a different Core lock: no waiting.
     await act(async () => root.render(<Harness ticket={freshTicket} />));
     await flush();
-    expect(order).toEqual(["start:first-private-token"]);
+    expect(order).toEqual([
+      "start:first-private-token",
+      "start:fresh-private-token",
+    ]);
+    // Back to the first token while its init is still running: wait for it.
+    await act(async () => root.render(<Harness ticket={firstTicket} />));
+    await flush();
+    expect(order).toHaveLength(2);
 
-    await act(async () => resolveFirst(stale));
+    await act(async () => resolveFirst(first));
     await flush();
     await flush();
     expect(order).toEqual([
       "start:first-private-token",
-      "end:first-private-token",
       "start:fresh-private-token",
+      "start:first-private-token",
     ]);
-    expect(stale.leave).toHaveBeenCalledOnce();
-    expect(lastRendered()).toBe(fresh);
-    expect(controls.rendered).not.toContain(stale);
+    expect(first.leave).toHaveBeenCalledOnce();
+    expect(other.leave).toHaveBeenCalledOnce();
+    expect(lastRendered()).toBe(again);
   });
 
-  it("retries a leave that rejected instead of treating it as done", async () => {
+  it("does not let a never-settling init block the same token past Core's lock", async () => {
+    vi.useFakeTimers();
+    try {
+      const recovered = fakeClient();
+      controls.initMeeting
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValueOnce(recovered);
+      function Harness({ attempt }: { attempt: number }) {
+        return (
+          <TestI18nProvider>
+            <Stage key={attempt} ticket={hostTicket} />
+          </TestI18nProvider>
+        );
+      }
+      await act(async () => root.render(<Harness attempt={1} />));
+      await flush();
+      // A remount (navigate away and back) with the hung init still pending.
+      await act(async () => root.render(<Harness attempt={2} />));
+      await flush();
+      expect(controls.initMeeting).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100);
+      });
+      expect(controls.initMeeting).toHaveBeenCalledTimes(2);
+      await flush();
+      expect(lastRendered()).toBe(recovered);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps retrying a rejected leave until Core's 3s media lock has expired", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient();
+      const lockError = new Error("Unsupported concurrent calls on method: meeting.self.disableAudio.");
+      client.leave
+        .mockRejectedValueOnce(lockError)
+        .mockRejectedValueOnce(lockError)
+        .mockRejectedValueOnce(lockError)
+        .mockResolvedValueOnce(undefined);
+      controls.initMeeting.mockResolvedValueOnce(client);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await act(async () =>
+        root.render(
+          <TestI18nProvider>
+            <Stage ticket={hostTicket} />
+          </TestI18nProvider>,
+        ),
+      );
+      await flush();
+      // Departure while a mic toggle holds the lock: the room UI goes away.
+      await act(async () => root.unmount());
+      await flush();
+      expect(client.leave).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_999);
+      });
+      // Still inside the lock window: not given up yet.
+      expect(client.leave).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_100);
+      });
+      // An attempt after the lock expired (t >= 3 s) succeeds; then it stops.
+      expect(client.leave).toHaveBeenCalledTimes(4);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(client.leave).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not leave a confirmed-left client again", async () => {
     vi.useFakeTimers();
     try {
       const client = fakeClient();
@@ -453,18 +539,13 @@ describe("RealtimeKit stage retry lifecycle", () => {
       await flush();
       await act(async () => client.emit("roomLeft", { state: "failed" }));
       await flush();
-      expect(client.leave).toHaveBeenCalledTimes(1);
-
       await act(async () => {
         await vi.advanceTimersByTimeAsync(1_000);
       });
       expect(client.leave).toHaveBeenCalledTimes(2);
-
-      // Confirmed left now: unmount does not leave a third time.
       await act(async () => root.unmount());
-      await flush();
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(5_000);
+        await vi.advanceTimersByTimeAsync(10_000);
       });
       expect(client.leave).toHaveBeenCalledTimes(2);
     } finally {

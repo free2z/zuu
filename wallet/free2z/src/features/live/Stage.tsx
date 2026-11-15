@@ -25,12 +25,17 @@ type StageStatus = "connecting" | "connected" | "failed" | "ended";
 const releasedClients = new WeakSet<object>();
 /** Clients whose leave() is in flight; a second request waits on it. */
 const releasingClients = new WeakSet<object>();
-const LEAVE_ATTEMPTS = 3;
-const LEAVE_RETRY_MS = 1_000;
+/**
+ * Core holds each media toggle lock (`Self.toggleAudio`, `Self.toggleVideo`)
+ * for up to 3 s, and leave() runs disableAudio/disableVideo under them. Retries
+ * at +1 s, +3 s and +7 s guarantee at least one attempt after a lock taken at
+ * the moment of departure has expired.
+ */
+const LEAVE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
 
 function releaseClient(
   client: RealtimeKitClient | null | undefined,
-  attemptsLeft = LEAVE_ATTEMPTS,
+  retry = 0,
 ) {
   if (!client || releasedClients.has(client) || releasingClients.has(client))
     return;
@@ -50,23 +55,44 @@ function releaseClient(
       },
       () => {
         releasingClients.delete(client);
-        if (attemptsLeft > 1) {
-          setTimeout(
-            () => releaseClient(client, attemptsLeft - 1),
-            LEAVE_RETRY_MS,
-          );
+        const delay = LEAVE_RETRY_DELAYS_MS[retry];
+        if (delay !== undefined) {
+          setTimeout(() => releaseClient(client, retry + 1), delay);
         }
       },
     );
 }
 
 /**
- * Core locks `init` per auth token and REJECTS an overlapping call
- * (`UnsupportedConcurrentMethodExecution`) rather than waiting. StrictMode's
- * effect replay and a ticket change mid-init both start a second attempt
- * before the first settles, so attempts are serialized here.
+ * Core locks `Client.init` per auth token and REJECTS an overlapping call
+ * (`UnsupportedConcurrentMethodExecution`) rather than waiting; the lock
+ * releases itself after 3 s even if init never settles (a host's
+ * getUserMedia prompt can hang). So a new attempt waits for the previous
+ * attempt WITH THE SAME TOKEN, and for no longer than that lock can be held.
+ * Other tokens (another stream, a refreshed ticket) never wait.
  */
-let initQueue: Promise<unknown> = Promise.resolve();
+const INIT_LOCK_MS = 3_000;
+const pendingInits = new Map<string, Promise<void>>();
+
+function afterPendingInit(authToken: string): Promise<void> {
+  const previous = pendingInits.get(authToken);
+  if (!previous) return Promise.resolve();
+  return Promise.race([
+    previous,
+    new Promise<void>((resolve) => setTimeout(resolve, INIT_LOCK_MS + 100)),
+  ]);
+}
+
+function trackPendingInit(authToken: string, attempt: Promise<unknown>) {
+  const settled = attempt.then(
+    () => {},
+    () => {},
+  );
+  pendingInits.set(authToken, settled);
+  void settled.then(() => {
+    if (pendingInits.get(authToken) === settled) pendingInits.delete(authToken);
+  });
+}
 
 function FailureMessage({
   messageKey,
@@ -157,9 +183,7 @@ export function Stage({
     setStatus("connecting");
     setFailure(null);
 
-    const attempt = initQueue
-      .catch(() => {})
-      .then(() =>
+    const attempt = afterPendingInit(ticket.authToken).then(() =>
         // An attempt cancelled while it waited (StrictMode replay, a newer
         // ticket) never reaches Core at all.
         cancelled
@@ -173,7 +197,7 @@ export function Stage({
               },
             }),
       );
-    initQueue = attempt.catch(() => {});
+    trackPendingInit(ticket.authToken, attempt);
 
     attempt
       .then((initialized) => {
