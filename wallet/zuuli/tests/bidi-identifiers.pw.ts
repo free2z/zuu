@@ -116,8 +116,8 @@ test("RTL mirrors desktop and mobile navigation, adornments, and dialogs", async
   const backIcon = page.getByRole("button", { name: "Go back" }).locator("svg");
   await expect(backIcon).toBeVisible();
   expect(
-    await backIcon.evaluate((element) => getComputedStyle(element).transform),
-  ).toMatch(/^matrix\(-1, 0, 0, 1,/);
+    await backIcon.evaluate((element) => getComputedStyle(element).scale),
+  ).toBe("-1 1");
 
   await page.setViewportSize({ width: 320, height: 568 });
   const home = page.locator('[data-navigation-id="home"]');

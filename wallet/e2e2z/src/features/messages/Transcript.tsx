@@ -213,7 +213,7 @@ export function Transcript({ conversation }: { conversation: Conversation }) {
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={`Message @${conversation.peerHandle}`}
-          className="min-h-[44px] flex-1 resize-y rounded-xl border border-border bg-card px-3 py-2 text-foreground placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+          className="min-h-[44px] flex-1 resize-y rounded-xl border border-border bg-card px-3 py-2 text-foreground placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
         />
         <Button
           type="submit"

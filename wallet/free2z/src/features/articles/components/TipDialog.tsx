@@ -123,7 +123,7 @@ export function TipDialog({ author }: { author: SimpleCreator }) {
                 onClick={() => setAmount(String(preset))}
                 aria-pressed={parsedAmount === preset}
                 className={cn(
-                  "min-tap rounded-lg border px-3 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "min-tap rounded-lg border px-3 py-2 text-sm font-medium bidi-number tabular-nums transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                   parsedAmount === preset
                     ? "border-primary bg-primary/15 text-primary"
                     : "border-border bg-transparent text-muted-foreground hover:bg-secondary",

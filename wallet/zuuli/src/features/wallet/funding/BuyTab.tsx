@@ -222,7 +222,7 @@ export function BuyTab() {
                 aria-pressed={active}
                 aria-label={`Buy ${formatTuzis(pack)} for ${formatUsd(tuzisToUsd(pack))}`}
                 className={cn(
-                  "min-tap group relative flex flex-col items-start gap-1 rounded-xl border p-4 text-start transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "min-tap group relative flex flex-col items-start gap-1 rounded-xl border p-4 text-start transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                   active
                     ? "border-primary bg-primary/10"
                     : "border-border bg-card hover:border-primary/40 hover:bg-primary/5",

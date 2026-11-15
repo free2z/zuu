@@ -645,7 +645,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 <button
                   type="button"
                   disabled={formLocked}
-                  className="min-tap inline-flex items-center justify-center rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="min-tap inline-flex items-center justify-center rounded-md text-xs text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
                   onClick={() => {
                     invalidateReview();
                     setAmount(formatZec(maxSpendable));

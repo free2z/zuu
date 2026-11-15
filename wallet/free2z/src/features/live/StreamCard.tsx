@@ -25,7 +25,7 @@ export function StreamCard({ stream }: { stream: Livestream }) {
           : `${stream.title} by ${creatorName} — offline`
       }
       className={cn(
-        "group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "group flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xs transition-all focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
         stream.live
           ? "hover:-translate-y-0.5 hover:border-primary/40"
           : "opacity-70 hover:opacity-100",
@@ -49,7 +49,7 @@ export function StreamCard({ stream }: { stream: Livestream }) {
 
         <div className="absolute start-3 top-3 flex flex-wrap items-center gap-2">
           {stream.live ? (
-            <Badge variant="live" className="gap-1.5 shadow-sm">
+            <Badge variant="live" className="gap-1.5 shadow-xs">
               <span
                 className="h-1.5 w-1.5 rounded-full bg-live animate-pulse-live"
                 aria-hidden

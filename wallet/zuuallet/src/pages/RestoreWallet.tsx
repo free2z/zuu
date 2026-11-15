@@ -49,7 +49,7 @@ export function RestoreWallet() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="My Restored Wallet"
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden"
         />
       </div>
 
@@ -67,7 +67,7 @@ export function RestoreWallet() {
           autoComplete="off"
           autoCapitalize="none"
           autoCorrect="off"
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none resize-none"
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm font-mono placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden resize-none"
         />
         {!sensitiveEntry.editable && (
           <div className="flex items-center justify-between gap-3 mt-1 text-xs text-zinc-500">
@@ -108,7 +108,7 @@ export function RestoreWallet() {
           value={birthday}
           onChange={(e) => setBirthday(e.target.value)}
           placeholder="Block height when wallet was created"
-          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-none"
+          className="w-full bg-zinc-900 border border-zinc-800 rounded-xl p-3 text-white text-sm placeholder-zinc-600 focus:ring-2 focus:ring-purple-500 focus:border-transparent focus:outline-hidden"
         />
         <p className="text-xs text-zinc-500 mt-1">
           Speeds up sync by skipping blocks before this height

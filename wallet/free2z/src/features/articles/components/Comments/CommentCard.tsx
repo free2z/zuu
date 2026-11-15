@@ -130,7 +130,7 @@ export function CommentCard({
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
               <Link
                 to={`/creator/${name}`}
-                className="min-tap flex items-center gap-2 rounded-md font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-tap flex items-center gap-2 rounded-md font-medium text-foreground transition-colors hover:text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Avatar className="h-6 w-6">
                   {comment.author.avatar_image ? (

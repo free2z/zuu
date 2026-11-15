@@ -593,7 +593,7 @@ function AuthenticatedAuthor({ username }: { username: string }) {
                   <ChevronDown className="h-4 w-4 opacity-60" aria-hidden />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent className="w-[--radix-dropdown-menu-trigger-width]">
+              <DropdownMenuContent className="w-(--radix-dropdown-menu-trigger-width)">
                 {CATEGORIES.map((cat) => (
                   <DropdownMenuItem
                     key={cat}

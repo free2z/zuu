@@ -39,7 +39,7 @@ function BuildRow({
 }) {
   return (
     <div className="grid min-w-0 gap-1 sm:grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] sm:gap-4">
-      <dt className="min-w-0 break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+      <dt className="min-w-0 wrap-anywhere text-sm text-muted-foreground">
         {label}
       </dt>
       <dd
@@ -76,13 +76,13 @@ export function AboutBuildCard({
   return (
     <Card className="min-w-0 overflow-hidden" data-about-build-card>
       <CardHeader className="min-w-0 p-4 sm:p-6">
-        <CardTitle className="min-w-0 break-words text-lg [overflow-wrap:anywhere]">
-          <h2 className="min-w-0 break-words [overflow-wrap:anywhere]">
+        <CardTitle className="min-w-0 wrap-anywhere text-lg">
+          <h2 className="min-w-0 wrap-anywhere">
             <Info className="me-2 inline h-5 w-5" aria-hidden />
             {messages.buildHeading}
           </h2>
         </CardTitle>
-        <CardDescription className="min-w-0 break-words [overflow-wrap:anywhere]">
+        <CardDescription className="min-w-0 wrap-anywhere">
           {messages.buildDescription}
         </CardDescription>
       </CardHeader>
@@ -110,7 +110,7 @@ export function AboutBuildCard({
           <Button
             type="button"
             variant="outline"
-            className="h-auto min-h-11 max-w-full whitespace-normal break-words text-center [overflow-wrap:anywhere]"
+            className="h-auto min-h-11 max-w-full whitespace-normal wrap-anywhere text-center"
             onClick={() => void copyBuildInfo()}
           >
             {copyState === "success" ? <Check aria-hidden /> : <Clipboard aria-hidden />}
@@ -130,7 +130,7 @@ export function AboutBuildCard({
         </div>
 
         <details className="group min-w-0 border-t border-border pt-3">
-          <summary className="min-tap flex min-w-0 cursor-pointer list-none items-center break-words text-sm font-medium text-link [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+          <summary className="min-tap flex min-w-0 cursor-pointer list-none items-center wrap-anywhere text-sm font-medium text-link focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring">
             {messages.provenanceSummary}
           </summary>
           <dl className="mt-3 min-w-0 space-y-3">

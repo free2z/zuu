@@ -127,7 +127,7 @@ export function ArticleTagInput({
               onClick={() => removeTag(tag)}
               aria-label={`Remove tag ${tag}`}
               disabled={disabled}
-              className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-start text-xs font-medium text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              className="min-tap inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/40 bg-primary/10 px-3 py-1 text-start text-xs font-medium text-primary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             >
               <span className="min-w-0 break-words">#{tag}</span>
               <X className="h-3.5 w-3.5 shrink-0" aria-hidden />
@@ -194,7 +194,7 @@ export function ArticleTagInput({
               aria-selected="false"
               onMouseDown={(event) => event.preventDefault()}
               onClick={() => addTag(suggestion.name)}
-              className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-start last:border-b-0 hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              className="flex min-h-11 w-full items-center justify-between gap-3 border-b border-border px-3 py-2 text-start last:border-b-0 hover:bg-secondary focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
             >
               <span className="min-w-0 break-words text-sm">
                 #{suggestion.name}

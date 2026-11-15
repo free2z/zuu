@@ -196,14 +196,14 @@ export function FeedbackComposer({
             ref={headingRef}
             id="feedback-preview-title"
             tabIndex={-1}
-            className="max-w-full break-words text-xl font-semibold [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="max-w-full wrap-anywhere text-xl font-semibold focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             {messages.feedbackPreviewTitle}
           </h2>
-          <p className="max-w-full break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+          <p className="max-w-full wrap-anywhere text-sm text-muted-foreground">
             {messages.feedbackPreviewDescription}
           </p>
-          <p className="max-w-full break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
+          <p className="max-w-full wrap-anywhere text-sm font-medium text-foreground">
             {channel === "email"
               ? messages.feedbackEmailName
               : messages.feedbackGithubName}
@@ -221,7 +221,7 @@ export function FeedbackComposer({
             aria-live={notice === "copied" || notice === "handoff-opened" ? "polite" : "assertive"}
             tone={notice === "copied" || notice === "handoff-opened" ? "success" : "warning"}
             icon={notice === "copied" || notice === "handoff-opened" ? Check : AlertTriangle}
-            className="min-w-0 break-words [overflow-wrap:anywhere]"
+            className="min-w-0 wrap-anywhere"
           >
             {noticeMessage(notice, messages)}
           </Callout>
@@ -262,23 +262,23 @@ export function FeedbackComposer({
         </div>
 
         <div className="min-w-0 space-y-1">
-          <Button type="button" variant="outline" disabled aria-describedby="preview-diagnostics-state" className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+          <Button type="button" variant="outline" disabled aria-describedby="preview-diagnostics-state" className="h-auto min-h-11 max-w-full whitespace-normal wrap-anywhere">
             {messages.feedbackRemoveDiagnosticsAction}
           </Button>
-          <p id="preview-diagnostics-state" className="max-w-full break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+          <p id="preview-diagnostics-state" className="max-w-full wrap-anywhere text-xs text-muted-foreground">
             {messages.feedbackDiagnosticsUnavailable}
           </p>
         </div>
 
         <div className="grid min-w-0 gap-2 sm:grid-cols-2 lg:grid-cols-5">
-          <Button type="button" variant="outline" disabled={busy} onClick={() => void copyReviewed()} className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+          <Button type="button" variant="outline" disabled={busy} onClick={() => void copyReviewed()} className="h-auto min-h-11 max-w-full whitespace-normal wrap-anywhere">
             <Copy aria-hidden />
             {messages.feedbackCopyAction}
           </Button>
           <Button type="button" variant="outline" disabled={busy} onClick={() => {
             setStage("compose");
             setNotice(null);
-          }} className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+          }} className="h-auto min-h-11 max-w-full whitespace-normal wrap-anywhere">
             {messages.feedbackEditAction}
           </Button>
           <Button type="button" variant="ghost" disabled={busy} onClick={() => {
@@ -287,10 +287,10 @@ export function FeedbackComposer({
             setDescription("");
             setDraft({ subject: "", body: "" });
             setNotice(null);
-          }} className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+          }} className="h-auto min-h-11 max-w-full whitespace-normal wrap-anywhere">
             {messages.feedbackCancelAction}
           </Button>
-          <Button type="button" className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere] sm:col-span-2" disabled={busy} onClick={() => void continueToApp()}>
+          <Button type="button" className="h-auto min-h-11 max-w-full whitespace-normal wrap-anywhere sm:col-span-2" disabled={busy} onClick={() => void continueToApp()}>
             <ExternalLink aria-hidden />
             {messages.feedbackContinueAction}
           </Button>
@@ -306,17 +306,17 @@ export function FeedbackComposer({
           ref={headingRef}
           id="feedback-compose-title"
           tabIndex={-1}
-          className="max-w-full break-words text-xl font-semibold [overflow-wrap:anywhere] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="max-w-full wrap-anywhere text-xl font-semibold focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           {messages.feedbackHeading}
         </h2>
-        <p className="max-w-full break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+        <p className="max-w-full wrap-anywhere text-sm text-muted-foreground">
           {messages.feedbackDescription}
         </p>
       </div>
 
       <fieldset className="min-w-0 space-y-3">
-        <legend id={channelLegendId} className="max-w-full break-words text-sm font-semibold [overflow-wrap:anywhere]">
+        <legend id={channelLegendId} className="max-w-full wrap-anywhere text-sm font-semibold">
           {messages.feedbackChannelLegend}
         </legend>
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
@@ -330,8 +330,8 @@ export function FeedbackComposer({
               onChange={() => setChannel("email")}
             />
             <span className="min-w-0 space-y-1">
-              <span className="flex min-w-0 flex-wrap items-center gap-2 break-words font-semibold [overflow-wrap:anywhere]"><Mail className="h-4 w-4" aria-hidden />{messages.feedbackEmailName}</span>
-              <span className="block max-w-full break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{messages.feedbackEmailPrivacy}</span>
+              <span className="flex min-w-0 flex-wrap items-center gap-2 wrap-anywhere font-semibold"><Mail className="h-4 w-4" aria-hidden />{messages.feedbackEmailName}</span>
+              <span className="block max-w-full wrap-anywhere text-sm text-muted-foreground">{messages.feedbackEmailPrivacy}</span>
             </span>
           </Label>
           <Label className="min-tap flex min-w-0 max-w-full cursor-pointer items-start gap-3 rounded-xl border border-border p-4 leading-normal [overflow-wrap:anywhere] has-[:checked]:border-primary has-[:checked]:bg-primary/10">
@@ -344,8 +344,8 @@ export function FeedbackComposer({
               onChange={() => setChannel("github")}
             />
             <span className="min-w-0 space-y-1">
-              <span className="flex min-w-0 flex-wrap items-center gap-2 break-words font-semibold [overflow-wrap:anywhere]"><MessagesSquare className="h-4 w-4" aria-hidden />{messages.feedbackGithubName}</span>
-              <span className="block max-w-full break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">{messages.feedbackGithubPrivacy}</span>
+              <span className="flex min-w-0 flex-wrap items-center gap-2 wrap-anywhere font-semibold"><MessagesSquare className="h-4 w-4" aria-hidden />{messages.feedbackGithubName}</span>
+              <span className="block max-w-full wrap-anywhere text-sm text-muted-foreground">{messages.feedbackGithubPrivacy}</span>
             </span>
           </Label>
         </div>
@@ -363,10 +363,10 @@ export function FeedbackComposer({
           aria-describedby="feedback-description-hint feedback-mnemonic-scope-hint"
           onChange={(event) => setDescription(event.target.value)}
         />
-        <p id="feedback-description-hint" className="max-w-full break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        <p id="feedback-description-hint" className="max-w-full wrap-anywhere text-xs text-muted-foreground">
           {messages.feedbackDescriptionHint}
         </p>
-        <p id="feedback-mnemonic-scope-hint" className="max-w-full break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
+        <p id="feedback-mnemonic-scope-hint" className="max-w-full wrap-anywhere text-xs text-muted-foreground">
           {messages.feedbackMnemonicLanguageScope}
         </p>
       </div>
@@ -382,16 +382,16 @@ export function FeedbackComposer({
             single-column grid at mobile widths. */}
         <Switch checked={diagnostics !== null} disabled aria-describedby={diagnosticsDescriptionId} aria-label={messages.feedbackDiagnosticsLabel} className="min-tap justify-self-start" />
         <div className="min-w-0 space-y-1">
-          <p className="max-w-full break-words text-sm font-medium [overflow-wrap:anywhere]">
+          <p className="max-w-full wrap-anywhere text-sm font-medium">
             {messages.feedbackDiagnosticsLabel}
           </p>
-          <p id={diagnosticsDescriptionId} className="max-w-full break-words text-sm text-muted-foreground [overflow-wrap:anywhere]">
+          <p id={diagnosticsDescriptionId} className="max-w-full wrap-anywhere text-sm text-muted-foreground">
             {messages.feedbackDiagnosticsUnavailable}
           </p>
         </div>
       </div>
 
-      <Button type="button" disabled={channel === null || description.trim().length === 0} onClick={beginReview} className="h-auto min-h-11 max-w-full whitespace-normal break-words [overflow-wrap:anywhere]">
+      <Button type="button" disabled={channel === null || description.trim().length === 0} onClick={beginReview} className="h-auto min-h-11 max-w-full whitespace-normal wrap-anywhere">
         {messages.feedbackReviewAction}
       </Button>
     </section>

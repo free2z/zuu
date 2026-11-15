@@ -53,7 +53,7 @@ export function UploadSlot({
             href={url}
             target="_blank"
             rel="noreferrer"
-            className="min-tap flex items-center gap-2 rounded-md text-sm text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="min-tap flex items-center gap-2 rounded-md text-sm text-primary hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
           >
             <FileCheck2 className="h-4 w-4" aria-hidden />
             View uploaded file

@@ -120,7 +120,7 @@ export function TaxFormStep({
           href={form.url}
           target="_blank"
           rel="noreferrer"
-          className="min-tap inline-flex items-center rounded-md text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="min-tap inline-flex items-center rounded-md text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
         >
           Download the {form.kind} form (IRS.gov)
         </a>

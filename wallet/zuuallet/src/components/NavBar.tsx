@@ -112,7 +112,7 @@ export function NavBar({ currentPage, onNavigate }: Props) {
       </nav>
 
       {/* Mobile bottom tabs */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-zuuallet-surface/95 backdrop-blur-sm border-t border-zinc-800/50 flex z-50" aria-label="Main navigation">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-zuuallet-surface/95 backdrop-blur-xs border-t border-zinc-800/50 flex z-50" aria-label="Main navigation">
         {navItems.map(({ page, label, icon }) => (
           <button
             key={page}

@@ -4,6 +4,8 @@ module.exports = {
   theme: {
     extend: {
       colors: {
+        // Keep the reviewed v3 palette while the v4 engine handles utilities.
+        ...require("../shared/tailwind-v3-colors.json"),
         zuuallet: {
           bg: "#09090b",
           surface: "#18181b",

@@ -132,7 +132,7 @@ export function Feed() {
                 type="button"
                 onClick={() => setSearchInput("")}
                 aria-label="Clear search"
-                className="min-tap absolute end-0 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="min-tap absolute end-0 top-1/2 grid -translate-y-1/2 place-items-center rounded-md text-muted-foreground hover:text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X className="h-4 w-4" aria-hidden />
               </button>
@@ -153,7 +153,7 @@ export function Feed() {
               aria-selected={sort === s.value}
               onClick={() => setSort(s.value)}
               className={cn(
-                "min-tap rounded-full px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "min-tap rounded-full px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
                 sort === s.value
                   ? "bg-primary/15 text-primary"
                   : "text-muted-foreground hover:text-foreground",
