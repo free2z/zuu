@@ -24,7 +24,7 @@ export default function DyteLeave() {
     };
     // A UI leave button also calls Core.leave(). Its terminal event means
     // navigation/unmount must not issue another leave for that meeting.
-    // "failed" is deliberately NOT terminal here: Core 2.0.3 emits it when
+    // "failed" is deliberately NOT terminal here: Core 2.x emits it when
     // joining the media server fails WITHOUT running its media cleanup, so
     // unmount must still call leave() or camera/microphone capture can
     // outlive the meeting.

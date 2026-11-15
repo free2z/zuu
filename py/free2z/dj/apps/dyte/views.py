@@ -553,9 +553,11 @@ def authenticate_dyte_webhook(request: HttpRequest):
     not confirm — is 503, so a genuine delivery is redelivered rather than
     lost forever.
     """
-    # Cloudflare RealtimeKit still signs with the legacy dyte-signature header
-    # (and the same key pair) as of the 2026 migration, but accept the
-    # rtk-signature name too in case they rename it after the cutover.
+    # Cloudflare's webhook documentation (reviewed 2026-11-15) names
+    # `rtk-signature` (with `rtk-uuid` and `rtk-webhook-id`) and publishes ONE
+    # signing key at RTK_WEBHOOK_KEY_URL for every app. Deliveries from
+    # organizations migrated from Dyte have been observed with the legacy
+    # `dyte-signature` name instead, so both are accepted against that key.
     #
     # Try EVERY candidate header rather than picking the first present one:
     # mid-migration a proxy may attach both names, and if the legacy one is

@@ -155,7 +155,7 @@ test("classic wrapper retains the room during reconnect and releases lifecycle l
     .toBe(5);
 });
 
-test("published Core 2.0.3 surfaces a mocked participant-token rejection before join", async ({
+test("installed Core surfaces a mocked participant-token rejection before join", async ({
   page,
 }) => {
   let attempts = 0;

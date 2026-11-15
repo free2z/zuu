@@ -1,4 +1,4 @@
-import { act, useState } from "react";
+import { act, StrictMode, useState } from "react";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,15 +8,45 @@ import type { DyteJoinTicket } from "@/lib/api/types";
 
 const controls = vi.hoisted(() => ({
   initMeeting: vi.fn(),
+  rendered: [] as unknown[],
 }));
 
+vi.mock("@cloudflare/realtimekit", () => ({
+  default: { init: controls.initMeeting },
+}));
 vi.mock("@cloudflare/realtimekit-react", () => ({
   RealtimeKitProvider: ({ children }: { children: unknown }) => children,
-  useRealtimeKitClient: () => [null, controls.initMeeting],
 }));
 vi.mock("@cloudflare/realtimekit-react-ui", () => ({
-  RtkMeeting: () => null,
+  RtkMeeting: ({ meeting }: { meeting: unknown }) => {
+    controls.rendered.push(meeting);
+    return null;
+  },
 }));
+
+type Listener = (payload?: unknown) => void;
+
+const lastRendered = () => controls.rendered[controls.rendered.length - 1];
+
+/** A Core client double: listeners on `self`, and a counted `leave()`. */
+function fakeClient() {
+  const listeners = new Map<string, Set<Listener>>();
+  return {
+    leave: vi.fn().mockResolvedValue(undefined),
+    self: {
+      on(event: string, fn: Listener) {
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event)!.add(fn);
+      },
+      off(event: string, fn: Listener) {
+        listeners.get(event)?.delete(fn);
+      },
+    },
+    emit(event: string, payload?: unknown) {
+      listeners.get(event)?.forEach((fn) => fn(payload));
+    },
+  };
+}
 
 import { Stage } from "./Stage";
 
@@ -94,6 +124,7 @@ async function flush() {
 
 beforeEach(async () => {
   controls.initMeeting.mockReset();
+  controls.rendered.length = 0;
   await installDom(true);
 });
 
@@ -110,7 +141,7 @@ describe("RealtimeKit stage retry lifecycle", () => {
       .mockRejectedValueOnce(
         new Error(`[ERR0004] rejected ${rawSecret} at https://private.invalid/join`),
       )
-      .mockResolvedValueOnce({});
+      .mockResolvedValueOnce(fakeClient());
     const refresh = vi.fn().mockResolvedValue(freshTicket);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -211,7 +242,7 @@ describe("RealtimeKit stage retry lifecycle", () => {
   it("reconnects a host locally without refreshing or replacing the live room", async () => {
     controls.initMeeting
       .mockRejectedValueOnce(new Error("ERR0004 host connection rejected"))
-      .mockResolvedValueOnce({});
+      .mockResolvedValueOnce(fakeClient());
     const refresh = vi.fn().mockResolvedValue(freshTicket);
     const replaceTicket = vi.fn();
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -264,5 +295,124 @@ describe("RealtimeKit stage retry lifecycle", () => {
     expect(
       controls.initMeeting.mock.calls.map(([options]) => options.authToken),
     ).toEqual(["existing-host-token", "existing-host-token"]);
+  });
+
+  it("leaves a client whose init resolves after the stage is gone", async () => {
+    let resolveInit!: (client: ReturnType<typeof fakeClient>) => void;
+    controls.initMeeting.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveInit = resolve;
+      }),
+    );
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={hostTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    await act(async () => root.unmount());
+
+    const late = fakeClient();
+    await act(async () => resolveInit(late));
+    await flush();
+
+    // The host was initialized with camera and microphone on; an abandoned
+    // client that is never left keeps both captured.
+    expect(late.leave).toHaveBeenCalledOnce();
+    expect(controls.rendered).not.toContain(late);
+  });
+
+  it("does not report StrictMode's effect replay as a connection failure", async () => {
+    const clients = [fakeClient(), fakeClient()];
+    controls.initMeeting
+      .mockResolvedValueOnce(clients[0])
+      .mockResolvedValueOnce(clients[1]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <TestI18nProvider>
+            <Stage ticket={hostTicket} />
+          </TestI18nProvider>
+        </StrictMode>,
+      ),
+    );
+    await flush();
+
+    expect(warn).not.toHaveBeenCalled();
+    expect(container.querySelector("button")).toBeNull();
+    // The replayed attempt's client is left; only the surviving one renders.
+    expect(clients[0].leave).toHaveBeenCalledOnce();
+    expect(clients[1].leave).not.toHaveBeenCalled();
+    expect(lastRendered()).toBe(clients[1]);
+    expect(controls.rendered).not.toContain(clients[0]);
+  });
+
+  it("leaves a failed room once and never remounts it on host reconnect", async () => {
+    const failed = fakeClient();
+    const fresh = fakeClient();
+    controls.initMeeting
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce(fresh);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={hostTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    expect(lastRendered()).toBe(failed);
+
+    await act(async () => failed.emit("roomJoined"));
+    await act(async () => failed.emit("roomLeft", { state: "disconnected" }));
+    // Transient: Core reconnects by itself; the room stays mounted.
+    expect(failed.leave).not.toHaveBeenCalled();
+    expect(container.querySelector("button")).toBeNull();
+
+    await act(async () => failed.emit("roomLeft", { state: "failed" }));
+    await flush();
+    expect(failed.leave).toHaveBeenCalledOnce();
+    const renderedBeforeRetry = controls.rendered.length;
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toBe("Reconnect");
+    await act(async () => {
+      button?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    });
+    await flush();
+
+    // Mounting <RtkMeeting> with the setup screen off calls join(); the failed
+    // client must never be handed to it again.
+    expect(controls.rendered.slice(renderedBeforeRetry)).not.toContain(failed);
+    expect(lastRendered()).toBe(fresh);
+    expect(failed.leave).toHaveBeenCalledOnce();
+
+    await act(async () => root.unmount());
+    await flush();
+    expect(fresh.leave).toHaveBeenCalledOnce();
+  });
+
+  it("does not leave again after the provider ended the room", async () => {
+    const client = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={firstTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    await act(async () => client.emit("roomLeft", { state: "ended" }));
+    expect(container.textContent).toContain("ended");
+    await act(async () => root.unmount());
+    await flush();
+    expect(client.leave).not.toHaveBeenCalled();
   });
 });

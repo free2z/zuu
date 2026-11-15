@@ -38,7 +38,7 @@ const REQUIRED_SOURCES: Record<string, string> = {
     "reactions picker inside <RtkMeeting>. It is not wrapped in try/catch, so a block " +
     "surfaces as an unhandled rejection rather than a degraded control.",
   "wss://api.realtime.cloudflare.com":
-    "The 2.0.3 meeting transport. Its socket URL helper composes " +
+    "The Core 2.x meeting transport (2.0.3+). Its socket URL helper composes " +
     "`wss://api.${baseURI}/ws`; without it no signaling session is established.",
 };
 
@@ -55,15 +55,16 @@ const REFUSED_SOURCES: Record<string, string> = {
   "https://location-legacy.realtime.cloudflare.com":
     "The legacy fallback for the same IP lookup, in the same try/catch.",
   "https://da-collector.realtime.cloudflare.com":
-    "Device-analytics event collector (/api/v1/message). Best-effort: guarded by a " +
-    "try/catch and a 3s AbortController timeout.",
+    "Retired by Core 2.0.3: call statistics now go to /telemetry on the API origin. " +
+    "The installed SDK no longer names this host.",
   "https://api-silos.realtime.cloudflare.com":
-    "OpenTelemetry log shipping (/otel/logs). Best-effort and caught.",
+    "Retired by Core 2.0.3: SDK logs now go to /logs on the API origin. The " +
+    "installed SDK no longer names this host.",
   "https://r2.cloudflarestorage.com":
     "Referenced nowhere in the installed dependency tree — `grep -rl cloudflarestorage " +
     "node_modules` returns zero files. ZUULI carries it speculatively.",
   "https://*.dyte.io":
-    "Dead. RealtimeKit 2.0.3 throws 'Dyte Base URIs are no longer supported. Use " +
+    "Dead. RealtimeKit Core 2.x throws 'Dyte Base URIs are no longer supported. Use " +
     "RealtimeKit Base URIs.' when the base URI contains dyte.io, so the bundled SDK " +
     "can never reach this origin.",
   "wss://*.dyte.io": "Dead, for the same reason as https://*.dyte.io.",
@@ -209,7 +210,7 @@ test("Live needs no frames, no eval and no wasm", () => {
   // from RealtimeKit: `grep -rl WebAssembly` over the three @cloudflare
   // packages returns nothing.
   expect(directiveSources(csp, "script-src")).toEqual(["'self'"]);
-  // Core 2.0.3 imports worker-timers@7.0.60. Its bundled timer worker
+  // Core 2.x imports worker-timers@7.0.60. Its bundled timer worker
   // uses a generated blob URL even during initialization (not only E2EE).
   expect(directiveSources(csp, "worker-src")).toEqual(["'self'", "blob:"]);
 });

@@ -8,6 +8,10 @@ test("Stage handles joined, disconnected, left, ended, and init rejection", asyn
   await page.addInitScript(() => {
     const listeners = new Map<string, Set<(value?: unknown) => void>>();
     const meeting = {
+      leaves: 0,
+      async leave() {
+        meeting.leaves += 1;
+      },
       self: {
         on(event: string, fn: (value?: unknown) => void) {
           if (!listeners.has(event)) listeners.set(event, new Set());
@@ -28,22 +32,33 @@ test("Stage handles joined, disconnected, left, ended, and init rejection", asyn
   await page.route("**/src/features/live/Stage.tsx*", async (route) => {
     const source = await (await route.fetch()).text();
     const rewritten = source.replace(
-      /from "[^"\n]*@cloudflare_realtimekit-react[^"\n]*"/g,
+      /from "[^"\n]*@cloudflare_realtimekit(?:-react(?:-ui)?)?\.js[^"\n]*"/g,
       (match) =>
         match.includes("react-ui")
           ? 'from "/__rtk_ui.js"'
-          : 'from "/__rtk_core.js"'
+          : match.includes("-react")
+            ? 'from "/__rtk_react.js"'
+            : 'from "/__rtk_client.js"'
     );
+    if (!rewritten.includes("/__rtk_client.js"))
+      throw new Error("Stage no longer imports the Core client");
     await route.fulfill({
       contentType: "application/javascript",
       body: rewritten,
     });
   });
-  await page.route("**/__rtk_core.js", (route) =>
+  await page.route("**/__rtk_client.js", (route) =>
     route.fulfill({
       contentType: "application/javascript",
       body: `
-    export const useRealtimeKitClient = () => [window.__rtk.meeting, window.__rtk.init];
+    export default { init: (options) => window.__rtk.init(options) };
+  `,
+    })
+  );
+  await page.route("**/__rtk_react.js", (route) =>
+    route.fulfill({
+      contentType: "application/javascript",
+      body: `
     export const RealtimeKitProvider = ({children}) => children;
   `,
     })
@@ -93,6 +108,10 @@ test("Stage handles joined, disconnected, left, ended, and init rejection", asyn
   await expect(page.getByTestId("mock-meeting")).toBeVisible();
   await emit("roomLeft", { state: "ended" });
   await expect(page.getByTestId("mock-meeting")).toHaveCount(0);
+  // "left" and "ended" are the SDK's own leave; Stage must not leave again.
+  expect(
+    await page.evaluate(() => (window as any).__rtk.meeting.leaves)
+  ).toBe(0);
   await page.evaluate(async () => {
     (window as any).__rtk.init = async () => {
       throw new Error("Invalid auth token");
