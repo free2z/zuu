@@ -214,7 +214,7 @@ scopes future work on this assumption.
 >   any choice about our own Ed25519, which is why the fix is two transient
 >   upstream pins (free2z/librustzcash and a `[patch.crates-io]` on bip32) and
 >   not a crypto migration. `wallet/plugins/tauri-plugin-f2zmsg/README.md`
->   carries the full account and the conditions for removing both.
+>   carries the full account; both pins have since retired upstream.
 > * Desktop takes `f2zmsg:default`; mobile enumerates 42 named identifiers —
 >   everything except `set_relay_trust`, the one grant that is a security
 >   downgrade. The enrollment trio appears in neither, because app-crate
