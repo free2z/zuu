@@ -138,7 +138,7 @@ def retire_host_evictions(creator_id: int, meeting_id: int):
     # Preserve durable queue order among due entries. A failed attempt moves to
     # the tail with its own deadline, so fresh arrivals cannot starve old work.
     from .client import DyteClient
-    dc = DyteClient(settings.DYTE_ORG)
+    dc = DyteClient()
     outcomes = []
     # One provider operation per invocation bounds occupancy of the shared
     # worker. Untouched entries retain their attempts and durable state.
@@ -626,7 +626,7 @@ def sweep_live_meetings(timestamp: int):
     from dj.apps.dyte.models import CreatorMeeting
 
     _enqueue_deferred_host_evictions()
-    dc = DyteClient(settings.DYTE_ORG)
+    dc = DyteClient()
     now = timezone.now()
     grace_cutoff = now - timedelta(seconds=settings.DYTE_LIVE_SWEEP_GRACE_SECONDS)
     stale_cutoff = now - timedelta(

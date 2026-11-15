@@ -33,9 +33,9 @@ def test_participant_picture_uses_canonical_origin(mocker, settings, creator_fac
         path = thumbnail or path
     post = mocker.patch("dj.apps.dyte.client._SESSION.post")
     post.return_value.status_code = 200
-    post.return_value.json.return_value = {"success": True}
+    post.return_value.json.return_value = {"success": True, "data": {"id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", "token": "test-token"}}
 
-    DyteClient("org").add_participant(participant, meeting.meeting_id, role="viewer")
+    DyteClient().add_participant(participant, meeting.meeting_id, role="viewer")
 
     payload = post.call_args.kwargs["json"]
     assert payload["picture"] == origin.rstrip("/") + path
