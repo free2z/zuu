@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@cloudflare/realtimekit": "2.0.3",
-    "@cloudflare/realtimekit-react": "2.0.3",
+    "@cloudflare/realtimekit": "2.0.4",
+    "@cloudflare/realtimekit-react": "2.0.4",
     "@cloudflare/realtimekit-react-ui": "2.0.3",
     "@cloudflare/realtimekit-ui": "2.0.3",
     "@emotion/react": "^11.14.0",
@@ -128,9 +128,9 @@
     "@types/testing-library__react": "^10.2.0",
     "@types/three": "^0.168.0",
     "@types/uuid": "^10.0.0",
+    "acorn": "^8.19.0",
     "prettier": "2.8.8",
-    "react-app-rewired": "^2.2.1",
-    "acorn": "^8.19.0"
+    "react-app-rewired": "^2.2.1"
   },
   "overrides": {
     "minimatch": "11.0.1",

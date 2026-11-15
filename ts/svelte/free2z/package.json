@@ -70,7 +70,7 @@
     "zod": "^4.6.7"
   },
   "dependencies": {
-    "@cloudflare/realtimekit": "2.0.3",
+    "@cloudflare/realtimekit": "2.0.4",
     "@cloudflare/realtimekit-recording-sdk": "0.0.4",
     "@cloudflare/realtimekit-ui": "2.0.3",
     "@resvg/resvg-js": "^2.6.2",

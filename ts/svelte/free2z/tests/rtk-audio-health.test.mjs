@@ -166,7 +166,7 @@ test("screenshare audio and mic audio of one participant stay independent", () =
   );
 });
 
-test("Core and UI Kit are pinned to the same 2.x major, as upstream builds them", () => {
+test("Core and UI Kit are pinned to the same 2.x minor line, as upstream builds them", () => {
   const pkg = JSON.parse(
     fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
   );
@@ -178,7 +178,20 @@ test("Core and UI Kit are pinned to the same 2.x major, as upstream builds them"
     `core must be an exact 2.x pin, got ${core}`,
   );
   assert.match(ui, /^2\.\d+\.\d+$/, `ui must be an exact 2.x pin, got ${ui}`);
-  assert.equal(core, ui, "upstream releases Core and UI Kit in lockstep");
+  // Upstream releases Core and UI Kit on the same minor line, but not every
+  // patch in lockstep: Core 2.0.4 (2026-10-19) is fixes only and has no UI Kit
+  // counterpart. Cloudflare's own React packages pair exactly that way
+  // (`realtimekit-react@2.0.4` -> Core 2.0.4, `realtimekit-react-ui@2.0.3` ->
+  // UI 2.0.3). Never let the UI patch run ahead of Core.
+  const [coreMinor, uiMinor] = [core, ui].map((v) =>
+    v.split(".").slice(0, 2).join("."),
+  );
+  assert.equal(coreMinor, uiMinor, "Core and UI Kit share a 2.x minor line");
+  const patch = (v) => Number(v.split(".")[2]);
+  assert.ok(
+    patch(ui) <= patch(core),
+    `UI Kit ${ui} must not be newer than Core ${core}`,
+  );
   // There is no `@cloudflare/realtimekit-web` on npm (checked 2026-09-28);
   // the quickstart snippet that names it is wrong, see.
   assert.equal(pkg.dependencies["@cloudflare/realtimekit-web"], undefined);
