@@ -1,0 +1,22 @@
+{
+  "name": "@free2z-example/hello-ai",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "build:tauri": "tsc --noEmit && vite build --mode tauri",
+    "test": "tsc -p tsconfig.test.json && node --test --test-timeout=10000 test/*.test.mjs"
+  },
+  "dependencies": {
+    "@free2z/sdk": "0.4.0",
+    "@free2z/tauri-plugin-f2z-api": "0.4.0",
+    "@tauri-apps/api": "^2.5.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "6.4.5"
+  },
+  "license": "MIT"
+}

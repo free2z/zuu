@@ -1535,6 +1535,10 @@ jobs:
         run: npm test --prefix ts/free2z/sdk
       - name: Verify isolated package consumer
         run: npm run test:package --prefix ts/free2z/sdk
+      - name: Verify hello-ai package consumer and native guest types
+        run: |
+          npm ci --prefix wallet/plugins/tauri-plugin-f2z
+          npm run test:example --prefix ts/free2z/sdk
       - name: Free2Z MCP contract, protocol and installed package
         run: |
           npm ci --prefix ts/free2z/mcp

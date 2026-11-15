@@ -19,6 +19,14 @@ screens for "not enough 2Z" and "this app's budget is used up".
 The Rust version of this app runs against local fakes:
 [`rs/crates/f2z-sdk/examples/first_app.rs`](../../../rs/crates/f2z-sdk/examples/first_app.rs)
 (`cargo run -p f2z-sdk --example first_app`). The TypeScript version is below.
+For a UI you can copy into your own app, use the
+[hello-ai consumer](../../../wallet/examples/free2z/hello-ai/README.md): it
+uses ordinary package dependencies and explains registered-client setup. Its
+web/Tauri frontend builds are checked with locally packed packages; publication
+and native-host/device acceptance remain separate. The
+[API reference](./REFERENCE.md) and [security guide](./SECURITY.md) describe
+current-source support and release differences.
+
 The public-export regression [`first-app.test.mjs`](../../../ts/free2z/sdk/test/first-app.test.mjs)
 checks this sequence through both transports; `npm run test:package` also runs it
 against an installed tarball and compiles a strict public TypeScript consumer.
