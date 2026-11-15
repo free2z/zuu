@@ -79,7 +79,7 @@ from dj.apps.tuzis.serializers import (
     InsufficientFundsErrorSerializer,
     StreamEntitlementErrorSerializer,
 )
-from .client import DyteClient
+from .client import DyteClient, ProviderError
 
 import logging
 
@@ -89,12 +89,215 @@ logger = logging.getLogger(__name__)
 VIEWER_PROVIDER_RETRY_AFTER = "5"
 
 
+class _ProviderAnswer:
+    """Response-shaped view of a typed provider failure the provider ANSWERED.
+
+    Host start classifies raw responses (``_host_room_response``,
+    ``_host_participant_response``, ``_settle_failed_room_create``), while
+    DyteClient raises typed errors instead of returning error responses. This
+    carries only what the error kept -- the HTTP status, the integer provider
+    code, whether the body was a JSON object, and a validated ``data.id`` --
+    so a 4xx stays a definitive refusal unless it named a room, a JSON 404
+    stays "room gone", and a non-JSON body stays unverifiable. It never holds
+    a provider body or token.
+    """
+
+    def __init__(self, exc):
+        self.status_code = exc.status
+        self._code = exc.provider_code
+        self._envelope = exc.provider_envelope
+        self._resource_id = exc.provider_resource_id
+
+    def json(self):
+        if not self._envelope:
+            raise ValueError('provider error body was not a JSON object')
+        body = {'success': False}
+        if self._code is not None:
+            body['error'] = {'code': self._code}
+        if self._resource_id is not None:
+            # A room/participant the failed response still named stays
+            # reconcilable (#1582 keeps returned ids for operators).
+            body['data'] = {'id': self._resource_id}
+        return body
+
+
+def _provider_answer(exc):
+    """A ``_ProviderAnswer`` when the typed failure carries an HTTP status;
+    None for a transport failure or a request that was never sent."""
+    status_code = getattr(exc, 'status', None)
+    if (isinstance(exc, ProviderError) and isinstance(status_code, int)
+            and not isinstance(status_code, bool) and 100 <= status_code <= 599):
+        return _ProviderAnswer(exc)
+    return None
+
+
+def _provider_never_sent(exc):
+    """The client refused locally (credentials unusable): nothing reached
+    the provider, so nothing can have been created there."""
+    return isinstance(exc, ProviderError) and exc.request_sent is False
+
+
 def _provider_retry_response():
     return Response(
         {"error": "The live-stream provider did not respond; try again."},
         status=status.HTTP_503_SERVICE_UNAVAILABLE,
         headers={"Retry-After": VIEWER_PROVIDER_RETRY_AFTER},
     )
+
+
+def _host_provider_diagnostic(response, stage, fallback_code):
+    """Return bounded provider diagnostics without exposing response content."""
+    status_code = getattr(response, 'status_code', None)
+    if isinstance(status_code, bool) or not isinstance(status_code, int) or not 100 <= status_code <= 599:
+        status_code = None
+
+    provider_code = None
+    try:
+        payload = response.json() if response is not None else None
+    except (ValueError, TypeError):
+        payload = None
+    if isinstance(payload, dict):
+        error = payload.get('error')
+        if isinstance(error, dict):
+            raw_code = error.get('code')
+            if isinstance(raw_code, int) and not isinstance(raw_code, bool):
+                provider_code = str(raw_code)[:12]
+            elif isinstance(raw_code, str) and raw_code.isdecimal():
+                provider_code = raw_code[:12]
+
+    # Generate the support reference locally. Even a syntactically valid
+    # upstream request-id header can contain a credential or arbitrary prose.
+    request_id = uuid.uuid4().hex
+    diagnostic = {'stage': stage, 'code': fallback_code, 'request_id': request_id}
+    if status_code is not None:
+        diagnostic['provider_status'] = status_code
+    if provider_code is not None:
+        diagnostic['provider_code'] = provider_code
+    logger.warning(
+        'host provider start failed stage=%s code=%s provider_status=%s '
+        'provider_code=%s request_id=%s',
+        stage, fallback_code, status_code or '?', provider_code or '?',
+        request_id or '?',
+    )
+    return diagnostic
+
+
+def _host_provider_retry_response(response, stage, code, *, diagnostic=None):
+    diagnostic = diagnostic or _host_provider_diagnostic(response, stage, code)
+    return Response(
+        {
+            'code': 'provider_unavailable',
+            'error': 'The live-stream provider could not complete the start. Try again.',
+            'retryable': True,
+            'failure': diagnostic,
+        },
+        status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        headers={'Retry-After': '5'},
+    )
+
+
+def _host_room_response(response, stage):
+    """Validate a room-create response; the caller retains reconciliation on failure."""
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        return None, _host_provider_diagnostic(response, stage, 'invalid_json')
+    data = payload.get('data') if isinstance(payload, dict) else None
+    room_id = data.get('id') if isinstance(data, dict) else None
+    if not (isinstance(room_id, str) and room_id and len(room_id) <= 64):
+        room_id = None
+    response_status = getattr(response, 'status_code', None)
+    valid = (
+        isinstance(response_status, int) and not isinstance(response_status, bool)
+        and 200 <= response_status < 300
+        and isinstance(payload, dict)
+        and 'error' not in payload
+        and payload.get('success') is not False
+        and isinstance(data, dict)
+        and room_id is not None
+    )
+    if valid:
+        return room_id, None
+    return room_id, _host_provider_diagnostic(response, stage, 'invalid_response')
+
+
+def _room_create_definitively_rejected(response, room_id):
+    """True when a failed room create provably minted no provider room.
+
+    A 4xx answer (credential, permission, validation, rate-limit) is a refusal
+    to act, so there is nothing for an operator to reconcile. Recording a
+    manual-review obligation for each such attempt would bury the real
+    ambiguous outcomes (transport errors, 5xx, malformed 2xx) under one row per
+    retry for the length of a provider outage. 408 is a timeout, not a
+    refusal, and any returned room ID is always kept for reconciliation.
+    """
+    status_code = getattr(response, 'status_code', None)
+    return (
+        room_id is None
+        and isinstance(status_code, int) and not isinstance(status_code, bool)
+        and 400 <= status_code < 500 and status_code != 408
+    )
+
+
+def _settle_failed_room_create(room_reconciliation, response, room_id, creator,
+                               row_id, meeting_type, claim, what):
+    """Resolve the in-flight room marker after a failed create.
+
+    The caller still releases the start claim and returns the retry response;
+    this only decides what an operator must reconcile.
+    """
+    if _room_create_definitively_rejected(response, room_id):
+        room_reconciliation.delete()
+        return
+    room_reconciliation.last_error = (
+        f'{what} response was not safely verifiable; inspect RealtimeKit '
+        'meetings for this creator/title and reconcile manually'
+    )[:255]
+    room_reconciliation.save(update_fields=['last_error'])
+    if room_id:
+        _record_unidentified_room(
+            creator, row_id, meeting_type, room_id=room_id, claim=claim,
+            error=f'{what} response was not safely verifiable; deletion is unsupported',
+        )
+        room_reconciliation.delete()
+
+
+def _host_participant_response(response, stage, custom_participant_id):
+    """Validate a participant response while preserving its precommitted cleanup key."""
+    status_code = getattr(response, 'status_code', None)
+    try:
+        payload = response.json()
+    except (ValueError, TypeError):
+        # Rotation replaces a possibly live, billable room. A bare 404 with a
+        # non-JSON body may come from an intermediary, not the provider, so it
+        # is a retryable failure rather than proof the room is gone.
+        return None, None, _host_provider_diagnostic(response, stage, 'invalid_json')
+
+    data = payload.get('data') if isinstance(payload, dict) else None
+    token = data.get('token') if isinstance(data, dict) else None
+    participant_id = data.get('id') if isinstance(data, dict) else None
+    error = payload.get('error') if isinstance(payload, dict) else None
+    provider_code = error.get('code') if isinstance(error, dict) else None
+    if status_code == 404 or provider_code in (404, '404'):
+        return None, None, {'stage': stage, 'code': 'missing_room'}
+    canonical_id = participant_id if (
+        isinstance(participant_id, str) and participant_id and len(participant_id) <= 128
+    ) else None
+    valid = (
+        isinstance(payload, dict)
+        and 'error' not in payload
+        and payload.get('success') is not False
+        and isinstance(status_code, int) and not isinstance(status_code, bool)
+        and 200 <= status_code < 300
+        and isinstance(data, dict)
+        and isinstance(token, str) and bool(token)
+        and (participant_id is None or (
+            isinstance(participant_id, str) and bool(participant_id)
+            and len(participant_id) <= 128))
+    )
+    if not valid:
+        return None, canonical_id, _host_provider_diagnostic(response, stage, 'invalid_response')
+    return token, canonical_id or custom_participant_id, None
 
 
 def _viewer_token(response):
@@ -210,14 +413,7 @@ def get_or_load_dyte_public_key(force_refresh: bool = False):
     _DYTE_PUBLIC_KEY_ATTEMPTED_AT = now
 
     try:
-        response = requests.get(
-            f"{settings.RTK_API_BASE_URL}/.well-known/webhooks.json",
-            timeout=settings.DYTE_KEY_FETCH_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        public_key_pem = response.json().get("data", {}).get("publicKey")
-        if not public_key_pem:
-            raise ValueError("Public key not found in the provider's response")
+        public_key_pem = DyteClient().webhook_public_key()
         key = serialization.load_pem_public_key(
             public_key_pem.encode('utf-8')
         )
@@ -228,7 +424,7 @@ def get_or_load_dyte_public_key(force_refresh: bool = False):
         logger.exception(
             "Could not load the webhook signing key from %s; %s for the next "
             "%ss",
-            settings.RTK_API_BASE_URL,
+            settings.RTK_WEBHOOK_KEY_URL,
             "continuing with the cached key" if DYTE_PUBLIC_KEY is not None
             else "rejecting webhook deliveries",
             settings.DYTE_KEY_FETCH_RETRY_SECONDS,
@@ -357,9 +553,11 @@ def authenticate_dyte_webhook(request: HttpRequest):
     not confirm — is 503, so a genuine delivery is redelivered rather than
     lost forever.
     """
-    # Cloudflare RealtimeKit still signs with the legacy dyte-signature header
-    # (and the same key pair) as of the 2026 migration, but accept the
-    # rtk-signature name too in case they rename it after the cutover.
+    # Cloudflare's webhook documentation (reviewed 2026-11-15) names
+    # `rtk-signature` (with `rtk-uuid` and `rtk-webhook-id`) and publishes ONE
+    # signing key at RTK_WEBHOOK_KEY_URL for every app. Deliveries from
+    # organizations migrated from Dyte have been observed with the legacy
+    # `dyte-signature` name instead, so both are accepted against that key.
     #
     # Try EVERY candidate header rather than picking the first present one:
     # mid-migration a proxy may attach both names, and if the legacy one is
@@ -1531,7 +1729,7 @@ class PublicMeetingViewSet(viewsets.ReadOnlyModelViewSet):
 @permission_classes([AllowAny])
 @throttle_classes(POLLING_THROTTLES)
 def live_meeting_status(request, username):
-    dc = DyteClient(settings.DYTE_ORG)
+    dc = DyteClient()
     live_meetings = CreatorMeeting.objects.filter(
         creator__username=username,
         creator__is_active=True,
@@ -1571,15 +1769,34 @@ def live_meeting_status(request, username):
     return Response(resp)
 
 
+class ProviderRoomCreateFailed(Exception):
+    """A provider room create failed; ``diagnostic`` is safe to return."""
+
+    def __init__(self, diagnostic, room_id=None):
+        super().__init__(diagnostic.get('code'))
+        self.diagnostic = diagnostic
+        self.room_id = room_id
+
+
 def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting:
     if not dc:
-        dc = DyteClient(settings.DYTE_ORG)
-    resp = dc.create_meeting(cm.creator.username)
-    d = resp.json()
-    if d.get('error'):
-        logger.error(d)
-        raise Exception("Dyte Error")
-    cm.meeting_id = d['data']['id']
+        dc = DyteClient()
+    try:
+        resp = dc.create_meeting(cm.creator.username)
+    except requests.RequestException as exc:
+        resp = _provider_answer(exc)
+        if resp is None:
+            raise ProviderRoomCreateFailed(_host_provider_diagnostic(
+                None, 'create_private_room',
+                'not_configured' if _provider_never_sent(exc) else 'transport_error',
+            )) from None
+    room_id, failure = _host_room_response(resp, 'create_private_room')
+    if failure:
+        # Raised inside the caller's transaction: nothing about this row,
+        # including a freshly inserted one, is committed. The response's body
+        # is never logged; the diagnostic carries only status/code.
+        raise ProviderRoomCreateFailed(failure, room_id)
+    cm.meeting_id = room_id
     # NOTE: `created_at` is deliberately NOT moved here, although the
     # host path's "rotate a room over a day old" rule reads it and so, from a
     # row's second day, every host start mints a new room and orphans the old
@@ -1744,6 +1961,28 @@ def _host_start_claim_is_current(cm, claim, now=None):
     )
 
 
+def _remember_host_participant_id(creator, row_id, claim, meeting_id, participant_id):
+    """Retain a known canonical cleanup ID even when its token is unusable."""
+    if not participant_id:
+        return
+    with transaction.atomic():
+        _lock_host_seat(creator)
+        cm = CreatorMeeting.objects.get(pk=row_id)
+        updated = False
+        for entry in cm.host_evictions:
+            if entry.get('claim_id') == str(claim):
+                entry['participant_id'] = participant_id
+                entry['meeting_id'] = meeting_id
+                if not _host_start_claim_is_current(cm, claim):
+                    entry['state'] = 'pending'
+                    entry['claim_id'] = None
+                updated = True
+        if updated:
+            cm.save(update_fields=['host_evictions'])
+            if cm.host_start_claim != claim:
+                _defer_host_evictions(cm)
+
+
 def _record_unidentified_room(creator, meeting_id, meeting_type, *, room_id=None,
                               claim=None,
                               error='Provider create outcome requires reconciliation'):
@@ -1898,6 +2137,27 @@ class PrivateMeetingManage(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
                 data="You need at least 150 to go live!"
             )
+        try:
+            return self._create_or_rotate(request)
+        except ProviderRoomCreateFailed as exc:
+            # The transaction rolled back: no new row, no rotated secret, and
+            # the previous invitation (if any) still points at its old room.
+            if exc.room_id:
+                # The provider named a room in a response we could not trust.
+                # Keep it for an operator outside the rolled-back transaction.
+                existing = CreatorMeeting.objects.filter(
+                    creator=request.user, meeting_type=PRIVATE, is_public=False,
+                ).values_list('pk', flat=True).first()
+                _record_unidentified_room(
+                    request.user, existing, PRIVATE, room_id=exc.room_id,
+                    error='Private room create response was not safely verifiable; deletion is unsupported',
+                )
+            return _host_provider_retry_response(
+                None, exc.diagnostic['stage'], exc.diagnostic['code'],
+                diagnostic=exc.diagnostic,
+            )
+
+    def _create_or_rotate(self, request):
         # Serialize invitation/room rotation with private recording mutations.
         with transaction.atomic():
             cm, _ = CreatorMeeting.objects.select_for_update().get_or_create(
@@ -1986,7 +2246,7 @@ class PrivateMeeting(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        dc = DyteClient(settings.DYTE_ORG)
+        dc = DyteClient()
         stream_owner = kwargs.get('username')
         secret = kwargs.get('secret')
 
@@ -2134,7 +2394,7 @@ class DyteMeeting(APIView):
                 status=status.HTTP_404_NOT_FOUND,
                 data="Unknown meeting type",
             )
-        dc: DyteClient = DyteClient(settings.DYTE_ORG)
+        dc: DyteClient = DyteClient()
 
         star: Creator = get_object_or_404(
             Creator, username=username, is_active=True
@@ -2216,7 +2476,7 @@ class DyteMeeting(APIView):
         get_object_or_404(
             Creator, username=stream_owner, is_active=True
         )
-        dc: DyteClient = DyteClient(settings.DYTE_ORG)
+        dc: DyteClient = DyteClient()
 
         body = MeetingJoinRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
@@ -2243,14 +2503,17 @@ class DyteMeeting(APIView):
                 data="You need at least 150 to go live!"
             )
 
-        logger.info(f"POST to start/join: {request.data}")
+        logger.info("stream admission requested role=%s meeting_type=%s", role, meeting_type)
 
         if is_host_start:
-            return self._start_or_resume_host(
-                request, meeting_type, dc,
-                host_session=body.validated_data.get('host_session'),
-                takeover=body.validated_data.get('takeover', False),
-            )
+            try:
+                return self._start_or_resume_host(
+                    request, meeting_type, dc,
+                    host_session=body.validated_data.get('host_session'),
+                    takeover=body.validated_data.get('takeover', False),
+                )
+            except ProviderError:
+                return _provider_retry_response()
 
         # Viewer -- including the creator on their own public stream page.
         # Meeting must exist and be live
@@ -2502,23 +2765,41 @@ class DyteMeeting(APIView):
             )
             try:
                 response = dc.create_meeting(creator.username)
+            except requests.RequestException as exc:
+                # A typed failure the provider answered is classified below
+                # exactly like a raw response; only a transport failure (or a
+                # request never sent) is handled here.
+                response = _provider_answer(exc)
+                if response is None and _provider_never_sent(exc):
+                    room_reconciliation.delete()
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'create_room', 'not_configured')
+                if response is None:
+                    room_reconciliation.last_error = (
+                        'Room create outcome is unknown; inspect RealtimeKit meetings '
+                        'for this creator/title and reconcile manually'
+                    )
+                    room_reconciliation.save(update_fields=['last_error'])
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'create_room', 'transport_error')
             except Exception:
-                room_reconciliation.last_error = (
-                    'Room create outcome is unknown; inspect RealtimeKit meetings '
-                    'for this creator/title and reconcile manually'
-                )
-                room_reconciliation.save(update_fields=['last_error'])
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 raise
-            payload = response.json()
-            if payload.get('error'):
-                room_reconciliation.delete()
+            proposed_id, failure = _host_room_response(response, 'create_room')
+            if failure:
+                _settle_failed_room_create(
+                    room_reconciliation, response, proposed_id,
+                    creator, row_id, meeting_type, start_claim, 'Room create',
+                )
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
-                return Response(status=status.HTTP_502_BAD_GATEWAY,
-                    data="The live-stream provider did not respond; try again.")
-            proposed_id = payload['data']['id']
+                return _host_provider_retry_response(
+                    response, failure['stage'], failure['code'],
+                    diagnostic=failure,
+                )
             with transaction.atomic():
                 _lock_host_seat(creator)
                 cm = CreatorMeeting.objects.get(pk=row_id)
@@ -2565,14 +2846,33 @@ class DyteMeeting(APIView):
         try:
             resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
                                       custom_participant_id=participant_id)
+        except requests.RequestException as exc:
+            resp = _provider_answer(exc)
+            if resp is None:
+                never_sent = _provider_never_sent(exc)
+                # A request never sent created no participant to clean up.
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=not never_sent)
+                return _host_provider_retry_response(
+                    None, 'add_participant', 'not_configured' if never_sent else 'transport_error',
+                )
         except Exception:
             _abandon_host_start(creator, row_id, host_session, start_claim,
                                 keep_cleanup=True)
             raise
-        payload = resp.json() or {}
-        error = payload.get('error') if isinstance(payload, dict) else None
-        error_code = error.get('code') if isinstance(error, dict) else None
-        if error_code in (404, '404') or getattr(resp, 'status_code', None) == 404:
+        auth_token, provider_participant_id, failure = _host_participant_response(
+            resp, 'add_participant', participant_id,
+        )
+        if failure and failure['code'] != 'missing_room':
+            _remember_host_participant_id(
+                creator, row_id, start_claim, meeting_id, provider_participant_id,
+            )
+            _abandon_host_start(creator, row_id, host_session, start_claim,
+                                keep_cleanup=True)
+            return _host_provider_retry_response(
+                resp, failure['stage'], failure['code'], diagnostic=failure,
+            )
+        if failure and failure['code'] == 'missing_room':
             # Only a confirmed missing room permits rotation.
             room_reconciliation = _record_unidentified_room(
                 creator, row_id, meeting_type, claim=start_claim,
@@ -2580,23 +2880,39 @@ class DyteMeeting(APIView):
             )
             try:
                 room_response = dc.create_meeting(creator.username)
+            except requests.RequestException as exc:
+                room_response = _provider_answer(exc)
+                if room_response is None and _provider_never_sent(exc):
+                    room_reconciliation.delete()
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'rotate_room', 'not_configured')
+                if room_response is None:
+                    room_reconciliation.last_error = (
+                        'Replacement room create outcome is unknown; inspect '
+                        'RealtimeKit meetings for this creator/title and reconcile manually'
+                    )
+                    room_reconciliation.save(update_fields=['last_error'])
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=False)
+                    return _host_provider_retry_response(None, 'rotate_room', 'transport_error')
             except Exception:
-                room_reconciliation.last_error = (
-                    'Replacement room create outcome is unknown; inspect '
-                    'RealtimeKit meetings for this creator/title and reconcile manually'
-                )
-                room_reconciliation.save(update_fields=['last_error'])
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
                 raise
-            room_payload = room_response.json()
-            if room_payload.get('error'):
-                room_reconciliation.delete()
+            proposed_id, failure = _host_room_response(room_response, 'rotate_room')
+            if failure:
+                _settle_failed_room_create(
+                    room_reconciliation, room_response, proposed_id,
+                    creator, row_id, meeting_type, start_claim,
+                    'Replacement room create',
+                )
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=False)
-                return Response(status=status.HTTP_502_BAD_GATEWAY,
-                    data="The live-stream provider did not respond; try again.")
-            proposed_id = room_payload['data']['id']
+                return _host_provider_retry_response(
+                    room_response, failure['stage'], failure['code'],
+                    diagnostic=failure,
+                )
             with transaction.atomic():
                 _lock_host_seat(creator)
                 cm = CreatorMeeting.objects.get(pk=row_id)
@@ -2639,41 +2955,43 @@ class DyteMeeting(APIView):
             try:
                 resp = dc.add_participant(creator, meeting_id, role=HOST_ROLE,
                                           custom_participant_id=participant_id)
+            except requests.RequestException as exc:
+                resp = _provider_answer(exc)
+                if resp is None:
+                    never_sent = _provider_never_sent(exc)
+                    # A request never sent created no participant to clean up.
+                    _abandon_host_start(creator, row_id, host_session, start_claim,
+                                        keep_cleanup=not never_sent)
+                    return _host_provider_retry_response(
+                        None, 'add_participant_after_rotation', 'not_configured' if never_sent else 'transport_error',
+                    )
             except Exception:
                 _abandon_host_start(creator, row_id, host_session, start_claim,
                                     keep_cleanup=True)
                 raise
-            payload = resp.json() or {}
+            auth_token, provider_participant_id, failure = _host_participant_response(
+                resp, 'add_participant_after_rotation', participant_id,
+            )
+            if failure:
+                _remember_host_participant_id(
+                    creator, row_id, start_claim, meeting_id, provider_participant_id,
+                )
+                _abandon_host_start(creator, row_id, host_session, start_claim,
+                                    keep_cleanup=True)
+                return _host_provider_retry_response(
+                    resp, failure['stage'], failure['code'],
+                    diagnostic=(
+                        failure if failure['code'] != 'missing_room' else None
+                    ),
+                )
 
-        data = (payload.get('data') or {}) if isinstance(payload, dict) else {}
-        auth_token = data.get('token')
-        provider_participant_id = str(data.get('id') or participant_id)[:128]
         # Reconcile the provider's canonical participant id into the durable
         # pre-mint obligation before any response path can return or race a
         # takeover. The custom id is the crash-recovery key; this update keeps
         # provider-specific normalization represented as well.
-        with transaction.atomic():
-            _lock_host_seat(creator)
-            cm = CreatorMeeting.objects.get(pk=row_id)
-            updated = False
-            for entry in cm.host_evictions:
-                if entry.get('claim_id') == str(start_claim):
-                    entry['participant_id'] = provider_participant_id
-                    entry['meeting_id'] = meeting_id
-                    if not _host_start_claim_is_current(cm, start_claim):
-                        entry['state'] = 'pending'
-                        entry['claim_id'] = None
-                    updated = True
-            if updated:
-                cm.save(update_fields=['host_evictions'])
-                if cm.host_start_claim != start_claim:
-                    _defer_host_evictions(cm)
-        if not auth_token:
-            _abandon_host_start(creator, row_id, host_session, start_claim,
-                                keep_cleanup=True)
-            return Response(status=status.HTTP_502_BAD_GATEWAY,
-                data="The live-stream provider did not respond; try again.")
-
+        _remember_host_participant_id(
+            creator, row_id, start_claim, meeting_id, provider_participant_id,
+        )
         lost_race = False
         with transaction.atomic():
             _lock_host_seat(creator)
