@@ -91,13 +91,13 @@ def test_a_concurrent_publish_cannot_lend_its_revision_to_the_old_card(monkeypat
     real_revision = catalog.content_revision
     fired = []
 
-    def revision_after_a_concurrent_commit(card):
+    def revision_after_a_concurrent_commit(card, now_unix=None):
         # Card A has been read; the concurrent transaction commits now,
         # between the card read and the revision read.
         if not fired:
             _publish_card_b_and_save_a_model(other)
             fired.append(True)
-        return real_revision(card)
+        return real_revision(card, now_unix)
 
     monkeypatch.setattr(catalog, "content_revision", revision_after_a_concurrent_commit)
     try:

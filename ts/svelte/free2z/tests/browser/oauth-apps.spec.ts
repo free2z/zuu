@@ -790,7 +790,7 @@ test("manage account: removing this app's access leaves the account page, not a 
   await page.getByTestId("connected-app-revoke-confirm").click();
 
   await expect(page.getByTestId("connected-apps-empty")).toHaveText(
-    "This app is not connected to your Free2Z account.",
+    "This app is not connected directly to your Free2Z account.",
   );
   expect(deleted).toEqual([GRANTS[0].application_id]);
   await expect(page.getByTestId("manage-delete-account")).toHaveCount(
@@ -807,7 +807,7 @@ test("manage account: an app that is not connected says so, without listing the 
   await page.goto("/account/apps?client_id=unknown-client");
 
   await expect(page.getByTestId("connected-apps-empty")).toHaveText(
-    "This app is not connected to your Free2Z account.",
+    "This app is not connected directly to your Free2Z account.",
   );
   await expect(page.getByTestId("connected-app")).toHaveCount(0);
   await expect(page.getByTestId("manage-balance")).toHaveText("1,234.56 2Z");
@@ -825,7 +825,7 @@ test("manage account: an unusable client_id is a calm page, never an error or th
     );
     expect(response?.status()).toBe(200);
     await expect(page.getByTestId("connected-apps-empty")).toHaveText(
-      "This app is not connected to your Free2Z account.",
+      "This app is not connected directly to your Free2Z account.",
     );
     await expect(page.getByTestId("connected-app")).toHaveCount(0);
     expect(await sameSiteLinks(page)).toEqual(MANAGE_LINKS);

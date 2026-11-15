@@ -70,6 +70,8 @@ def webhook_boundaries(mocker, keypair):
 
 
 class _FakeResponse:
+    status_code = 200
+
     def __init__(self, payload):
         self._payload = payload
 
@@ -184,7 +186,7 @@ def broadcast(creator_factory):
 # --------------------------------------------------------------------------
 
 def test_a_host_restart_orphans_the_old_room_and_its_leaves_are_counted(
-    api_client, keypair, provider, broadcast, caplog,
+    api_client, keypair, provider, broadcast, caplog, settings,
 ):
     """A host restart on an aged row replaces room A; A's guest leave follows.
 
@@ -194,6 +196,7 @@ def test_a_host_restart_orphans_the_old_room_and_its_leaves_are_counted(
     ids an operator needs, instead of a bare 404. The old room's
     `meeting.ended` must not take the NEW room off the live list.
     """
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
     private_key, _ = keypair
     caplog.set_level(logging.INFO, logger='dj.apps.dyte.views')
     CreatorMeeting.objects.filter(pk=broadcast.pk).update(

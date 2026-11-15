@@ -52,6 +52,20 @@ ignore = [
   # reach it from the committed lockfiles.
   # ---------------------------------------------------------------------------
 
+  # Bundled SQLite < 3.54.0 (libsqlite3-sys 0.35.0 via rusqlite 0.37.0). The fix
+  # is libsqlite3-sys >= 0.39 (rusqlite >= 0.41), but the intermediate crate has
+  # to move first: upstream zcash_client_sqlite requires rusqlite 0.37, and
+  # libsqlite3-sys `links = "sqlite3"` forbids a second copy in any graph that
+  # links tauri-plugin-zcash. Affected roots (free2z/zuu#1531):
+  # wallet/e2e2z/src-tauri, wallet/plugins/tauri-plugin-f2zmsg,
+  # wallet/plugins/tauri-plugin-zcash, wallet/zuuallet/src-tauri and
+  # wallet/zuuli/src-tauri. Exploiting it requires the app to open its database
+  # next to an attacker-crafted -wal file with a mismatched page size, i.e. an
+  # attacker who already has local write access to the app's data directory.
+  # Remove this entry when upstream zcash_client_sqlite allows rusqlite >= 0.41 /
+  # libsqlite3-sys >= 0.39.
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.35.0 bundles SQLite < 3.54.0 via rusqlite 0.37.0 in wallet/e2e2z/src-tauri, wallet/plugins/tauri-plugin-f2zmsg, wallet/plugins/tauri-plugin-zcash, wallet/zuuallet/src-tauri and wallet/zuuli/src-tauri; needs an intermediate crate to move first: upstream zcash_client_sqlite pins rusqlite 0.37 and libsqlite3-sys links = sqlite3 allows one copy. Exploit needs the app to open its DB beside an attacker-crafted WAL with a mismatched page size, i.e. local write access to the app's data directory. Remove when upstream zcash_client_sqlite allows rusqlite >=0.41 / libsqlite3-sys >=0.39. free2z/zuu#1531" },
+
   # ---------------------------------------------------------------------------
   # Unmaintained. None of these has a fixed version to move to — the advisory is
   # that the crate is no longer developed. Clearing them means the *dependent*
@@ -168,7 +182,7 @@ name = "openmls_rust_crypto"
 name = "openmls_basic_credential"
 
 # =============================================================================
-# Sources. Registry packages plus the two registered source bridges; the
+# Sources. Registry packages plus the registered OpenMLS source bridge; the
 # in-source Zcash dependencies are path dependencies into z/, not git ones. This
 # makes that a rule instead of a coincidence, so a `git = "..."` dependency on a
 # personal fork cannot be introduced without amending this file.
@@ -177,22 +191,6 @@ name = "openmls_basic_credential"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# TRANSIENT bip32 bridge (alongside the registered OpenMLS bridge below).
-#
-# `wallet/zuuli/src-tauri` carries a rev-pinned `[patch.crates-io]` for `bip32`,
-# because the only published 0.6 release exact-pins three 2024-era RustCrypto
-# pre-releases (`sha2 =0.11.0-pre.4`, `hmac =0.13.0-pre.4`,
-# `ripemd =0.2.0-pre.4`) and librustzcash pins that release with `=`, which
-# makes the wallet unlinkable with anything on the released RustCrypto lines —
-# `tauri-plugin-f2zmsg` included. free2z/crates `f2z/bip32-secp256k1-0.29` is
-# iqlusioninc/crates `main` (which already moved bip32 to the released lines)
-# with `secp256k1-ffi` held at 0.29, because the same upstream branch bumped it
-# to 0.31 and `zcash_script 0.4.5` cannot take that.
-#
-# The allowance is the *repository*, and the lock pins an exact `rev`, so this
-# does not admit an arbitrary git dependency — it admits one reviewed commit of
-# one fork we control. Remove the entry with the patch, when `bip32 0.6.0` is
-# published and the Zcash stack moves to secp256k1 0.31.
 # Fixed unreleased OpenMLS provider / PR2265 compatibility and PR2266 strictness bridge; exact packages/revision are
 # enforced by the dependency register and four-lock crypto identity check.
-allow-git = ["https://github.com/free2z/crates", "https://github.com/0bkevin/openmls"]
+allow-git = ["https://github.com/0bkevin/openmls"]

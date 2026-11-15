@@ -1,4 +1,5 @@
 import base64
+from contextlib import nullcontext
 import hashlib
 from decimal import Decimal, InvalidOperation
 import binascii
@@ -973,9 +974,9 @@ AI_SERVICE_ERROR_RESPONSE = OpenApiResponse(
 )
 
 
-def _ai_settled_interruption_response(error, amount):
+def _ai_settled_interruption_response(error, amount, *, fractional=False):
     """Explain that an accepted but interrupted call was settled."""
-    amount = int(amount)
+    amount = amount if fractional else int(amount)
     if amount:
         error.data["detail"] = (
             f"Generation was interrupted. {amount} 2Z was charged for "
@@ -989,7 +990,7 @@ def _ai_settled_interruption_response(error, amount):
             "You can retry or choose another model."
         )
     error.data["charge_status"] = "settled"
-    error.data["tuzis_charged"] = amount
+    error.data["tuzis_charged"] = str(amount) if fractional else amount
     error.data["response_saved"] = False
     return error
 
@@ -2152,7 +2153,9 @@ def charge_clamped_payload(ai_model, input_tokens, output_tokens, metered,
         )
         + Decimal(int(output_tokens)) * Decimal(str(ai_model.output_price))
     ) * 100
-    absorbed = max(Decimal(0), provider_cost - Decimal(int(charged)))
+    absorbed = max(Decimal(0), provider_cost - Decimal(str(charged)))
+    # Preserve fractional MCP amounts in telemetry without changing legacy integers.
+    money = str if isinstance(metered, Decimal) else int
     return {
         "severity": "WARNING",
         "message": (
@@ -2169,16 +2172,16 @@ def charge_clamped_payload(ai_model, input_tokens, output_tokens, metered,
         "input_tokens": int(input_tokens),
         "output_tokens": int(output_tokens),
         "reasoning_allowance_tokens": ai_model.get_reasoning_allowance(),
-        "metered_2z": int(metered),
-        "charged_2z": int(charged),
-        "uncharged_2z": int(metered) - int(charged),
+        "metered_2z": money(metered),
+        "charged_2z": money(charged),
+        "uncharged_2z": money(metered - charged),
         "provider_cost_2z": float(round(provider_cost, 3)),
         "absorbed_2z": float(round(absorbed, 3)),
     }
 
 
 def _clamp_to_ceiling(ai_model, input_tokens, output_tokens, max_price, *,
-                      endpoint, user_id, usage=None):
+                      endpoint, user_id, usage=None, quantum=None):
     """The metered price, never above the ceiling the request was admitted at.
 
     When the clamp BINDS, the platform absorbs the difference. The likeliest
@@ -2199,6 +2202,7 @@ def _clamp_to_ceiling(ai_model, input_tokens, output_tokens, max_price, *,
         cached_input_tokens=getattr(usage, "cached_input_tokens", 0),
         cache_write_tokens=getattr(usage, "cache_write_tokens", 0),
         cache_write_1h_tokens=getattr(usage, "cache_write_1h_tokens", 0),
+        **({"quantum": quantum} if quantum is not None else {}),
     )
     if metered > max_price:
         logger.warning(json.dumps(charge_clamped_payload(
@@ -2304,6 +2308,71 @@ class MeteredPromptView(views.APIView):
     # Deliberately a comment, not a docstring: drf-spectacular publishes view
     # docstrings as operation descriptions in the public f2z.yaml.
     permission_classes = [IsAuthenticated]
+    pricing_quantum = None
+    idempotency_scope = "ai_prompt"
+
+    def billing_transaction(self):
+        return transaction.atomic()
+
+    def claim_context(self):
+        return nullcontext()
+
+    def release_claim(self, claim):
+        return idempotency.release(claim)
+
+    def release_reservation(self, reservation):
+        return ledger.release_reservation(reservation)
+
+    def reservation_context(self, request, ai_model, max_price):
+        """Internal callers can recheck authority atomically with the hold."""
+        return nullcontext()
+
+    def settle_result(self, request, ai_model, reservation, price, claim, response_status, data):
+        """The authoritative debit, event and replay receipt commit together."""
+        with self.billing_transaction():
+            from dj.apps.ledger import api as ledger_api
+            ledger_api.lock_creator(request.user.pk)
+            if self.pricing_quantum is not None and claim is not None:
+                finished = idempotency.IdempotencyKey.objects.filter(
+                    pk=claim.pk, response_status__isnull=False,
+                ).first()
+                if finished is not None:
+                    if finished.response_status != response_status or finished.response_body != data:
+                        raise idempotency.DuplicateRequest(finished)
+                    return
+            ledger.settle_reservation(reservation, amount=price)
+            Event.objects.create(
+                read=False, type="CHAT2Z", receiving_user=request.user,
+                contributor=request.user, amount=price,
+                content_type=ContentType.objects.get_for_model(ai_model), object_id=ai_model.id,
+            )
+            if claim is not None:
+                claim.finish(response_status, data)
+
+    def metering_details(self, ai_model, input_tokens, output_tokens, usage, max_price):
+        if self.pricing_quantum is None:
+            return {}
+        cache_usage = {
+            name: getattr(usage, name, 0) for name in (
+                "cached_input_tokens", "cache_write_tokens", "cache_write_1h_tokens",
+            )
+        }
+        source = "estimate" if usage is None else (
+            "provider" if getattr(usage, "input_tokens", None) is not None
+            else "provider_with_input_estimate"
+        )
+        return {
+            "charge_status": "settled", "provider": ai_model.provider, "model": ai_model.model,
+            "max_charge_tuzis": str(max_price), "input_tokens": input_tokens,
+            "settlement_output_tokens": output_tokens, "usage_source": source,
+            "cache_usage": cache_usage,
+            "provider_usage_cost_usd": str(
+                ai_model.get_provider_input_cost(input_tokens, **cache_usage)
+                + Decimal(output_tokens) * Decimal(str(ai_model.output_price))
+            ),
+            "markup_multiplier": str(ai_model.markup),
+        }
+
 
     # Issue: opt OUT of `AtomicMiddleware`'s request-wide transaction.
     # The provider call below is 10-90s of third-party I/O and must not hold
@@ -2385,17 +2454,18 @@ class MeteredPromptView(views.APIView):
             "system_message": system_message,
             "max_output_tokens": requested_output,
         }
-        claim, duplicate_response = _provider_claim(
-            request,
-            "ai_prompt",
-            stable_intent,
-            intent_snapshot=_creator_model_intent_snapshot(requested_model),
-            # The stream endpoint has no upstream idempotency contract. Once
-            # a call may have reached the provider, a stale claim must never
-            # make an automatic second paid call.
-            allow_stale_takeover=True,
-            stale_takeover_requires_matching_hash=True,
-        )
+        with self.claim_context():
+            claim, duplicate_response = _provider_claim(
+                request,
+                self.idempotency_scope,
+                stable_intent,
+                intent_snapshot=_creator_model_intent_snapshot(requested_model),
+                # The stream endpoint has no upstream idempotency contract. Once
+                # a call may have reached the provider, a stale claim must never
+                # make an automatic second paid call.
+                allow_stale_takeover=True,
+                stale_takeover_requires_matching_hash=True,
+            )
         if duplicate_response is not None:
             return duplicate_response
 
@@ -2409,7 +2479,7 @@ class MeteredPromptView(views.APIView):
             and claim is not None
             and not getattr(claim, "stale_takeover", False)
         ):
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {"detail": "No such model."}, status=status.HTTP_404_NOT_FOUND
             )
@@ -2424,7 +2494,7 @@ class MeteredPromptView(views.APIView):
                 ),
             }
             from dj.apps.ledger import api as ledger_api
-            with transaction.atomic():
+            with self.billing_transaction():
                 ledger_api.lock_creator(request.user.pk)
                 reservation = _provider_reservation(request.user, claim.key, "ai_prompt")
                 snapshot = (claim.response_body or {}).get("_provider_intent_snapshot")
@@ -2437,7 +2507,7 @@ class MeteredPromptView(views.APIView):
                     "reservation_released": reservation is None,
                 }
                 if reservation is not None:
-                    ledger.release_reservation(reservation)
+                    self.release_reservation(reservation)
                     operation["reservation_released"] = True
                 claim.finish(status.HTTP_409_CONFLICT, {
                     **result, "_provider_intent_snapshot": snapshot,
@@ -2474,14 +2544,14 @@ class MeteredPromptView(views.APIView):
         # same clean 409 the conversation path gives, before anything costs
         # anything.
         if requested_model is None or not requested_model.is_ga:
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {"detail": "No such model."}, status=status.HTTP_404_NOT_FOUND)
         ai_model = requested_model
         if not AIModel.objects.selectable().filter(
             pk=ai_model.pk, input_price__gt=0, output_price__gt=0,
         ).exists():
-            idempotency.release(claim)
+            self.release_claim(claim)
             return model_unavailable_response(ai_model)
 
         # STEP 0 -- ADMISSION. Price the CEILING of this request and refuse
@@ -2498,7 +2568,7 @@ class MeteredPromptView(views.APIView):
         try:
             input_tokens = num_tokens_from_messages(messages, ai_model.model)
         except Exception as exc:
-            idempotency.release(claim)
+            self.release_claim(claim)
             return _ai_error_response(exc, model_label=str(ai_model))
 
         # A single turn has nothing to trim. A prompt that does not leave the
@@ -2509,7 +2579,7 @@ class MeteredPromptView(views.APIView):
         # count for the charge -- see the conversation endpoint.
         window_tokens = count_prompt_tokens(messages, ai_model.model)
         if window_tokens > ai_model.get_input_token_budget():
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {
                     "detail": (
@@ -2554,32 +2624,36 @@ class MeteredPromptView(views.APIView):
         # killed worker is swept by the periodic L2 expiry worker (or lazily
         # by the next reservation for that account after 15 min, past the 170s generation
         # deadline). Same mechanism as ImageView.
-        max_price = ai_model.get_admission_price(input_tokens, output_cap)
+        max_price = ai_model.get_admission_price(
+            input_tokens, output_cap,
+            **({"quantum": self.pricing_quantum} if self.pricing_quantum is not None else {}),
+        )
         if quote_token is not None and quote_token != _creator_prompt_quote_token(
             ai_model, prompt, system_message, requested_output, input_tokens,
             window_tokens, output_cap, max_price,
         ):
-            idempotency.release(claim)
+            self.release_claim(claim)
             return Response(
                 {"detail": "The model price or settings changed. Review the updated quote before submitting."},
                 status=status.HTTP_409_CONFLICT,
             )
         reservation = None
-        if max_price > 0:
-            operation_key = idempotency.request_key(request) or uuid.uuid4()
-            try:
-                reservation = ledger.reserve(
-                    request.user, max_price,
-                    scope="ai_prompt", operation_key=operation_key,
-                )
-            except ledger.InsufficientFunds as exc:
-                idempotency.release(claim)
-                return Response(
-                    _ai_not_charged_payload(
-                        ledger.insufficient_funds_payload(exc, action="ai_prompt")
-                    ),
-                    status=status.HTTP_402_PAYMENT_REQUIRED,
-                )
+        operation_key = idempotency.request_key(request) or uuid.uuid4()
+        try:
+            with self.reservation_context(request, ai_model, max_price):
+                if max_price > 0:
+                    reservation = ledger.reserve(
+                        request.user, max_price,
+                        scope="ai_prompt", operation_key=operation_key,
+                    )
+        except ledger.InsufficientFunds as exc:
+            self.release_claim(claim)
+            return Response(
+                _ai_not_charged_payload(
+                    ledger.insufficient_funds_payload(exc, action="ai_prompt")
+                ),
+                status=status.HTTP_402_PAYMENT_REQUIRED,
+            )
 
         # STEP 1 -- generate, OUTSIDE any transaction. Failures
         # before the provider returns a stream release the hold. An accepted
@@ -2598,24 +2672,17 @@ class MeteredPromptView(views.APIView):
                     exc, model_label=f"metered prompt on {ai_model.model}")
                 price = _clamp_to_ceiling(
                     ai_model, exc.input_tokens, exc.settlement_output_tokens,
-                    max_price, endpoint="ai_prompt", user_id=request.user.pk, usage=exc.usage)
-                error = _ai_settled_interruption_response(error, price)
-                with transaction.atomic():
-                    ledger.settle_reservation(reservation, amount=price)
-                    Event.objects.create(
-                        read=False,
-                        type="CHAT2Z",
-                        receiving_user=request.user,
-                        contributor=request.user,
-                        amount=price,
-                        content_type=ContentType.objects.get_for_model(ai_model),
-                        object_id=ai_model.id,
-                    )
-                    if claim is not None:
-                        claim.finish(error.status_code, error.data)
+                    max_price, endpoint="ai_prompt", user_id=request.user.pk, usage=exc.usage, quantum=self.pricing_quantum)
+                error = _ai_settled_interruption_response(error, price, fractional=self.pricing_quantum is not None)
+                error.data.update(self.metering_details(
+                    ai_model, exc.input_tokens, exc.settlement_output_tokens, exc.usage, max_price,
+                ))
+                self.settle_result(
+                    request, ai_model, reservation, price, claim, error.status_code, error.data,
+                )
             except ledger.InsufficientFunds as settle_exc:
-                ledger.release_reservation(reservation)
-                idempotency.release(claim)
+                self.release_reservation(reservation)
+                self.release_claim(claim)
                 return Response(
                     _ai_not_charged_payload(
                         ledger.insufficient_funds_payload(
@@ -2625,14 +2692,14 @@ class MeteredPromptView(views.APIView):
                     status=status.HTTP_402_PAYMENT_REQUIRED,
                 )
             except Exception:
-                ledger.release_reservation(reservation)
-                idempotency.release(claim)
+                self.release_reservation(reservation)
+                self.release_claim(claim)
                 raise
             return error
         except Exception as exc:
-            ledger.release_reservation(reservation)
+            self.release_reservation(reservation)
             if claim is not None and _provider_rejected_before_generation(exc):
-                idempotency.release(claim)
+                self.release_claim(claim)
             return _ai_error_response(exc, model_label=str(ai_model))
 
         # STEP 2 -- settle the L2 reservation at the actual fixed price.
@@ -2659,37 +2726,30 @@ class MeteredPromptView(views.APIView):
             price = _clamp_to_ceiling(
                 ai_model, input_tokens, generation.settlement_output_tokens,
                 max_price,
-                endpoint="ai_prompt", user_id=request.user.pk, usage=usage)
+                endpoint="ai_prompt", user_id=request.user.pk, usage=usage, quantum=self.pricing_quantum)
             data = {
                 "response": response_text,
                 "provider": ai_model.provider,
                 "model": ai_model.model,
                 "display_name": ai_model.display_name,
-                "tuzis_charged": price,
+                "tuzis_charged": str(price) if self.pricing_quantum is not None else price,
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
             }
-            with transaction.atomic():
-                ledger.settle_reservation(reservation, amount=price)
-                Event.objects.create(
-                    read=False,
-                    type="CHAT2Z",
-                    receiving_user=request.user,
-                    contributor=request.user,
-                    amount=price,
-                    content_type=ContentType.objects.get_for_model(ai_model),
-                    object_id=ai_model.id,
-                )
-                if claim is not None:
-                    claim.finish(status.HTTP_200_OK, data)
+            data.update(self.metering_details(
+                ai_model, input_tokens, generation.settlement_output_tokens, usage, max_price,
+            ))
+            self.settle_result(
+                request, ai_model, reservation, price, claim, status.HTTP_200_OK, data,
+            )
         except ledger.InsufficientFunds as exc:
             # The rollback above undid the release too. Return the hold from
             # OUTSIDE the failed transaction so the user is not left with
             # their balance depleted until the stale sweep 15 minutes later.
             # Idempotent: a hold the sweep already returned is a no-op. Found
             # by the codex adversarial review.
-            ledger.release_reservation(reservation)
-            idempotency.release(claim)
+            self.release_reservation(reservation)
+            self.release_claim(claim)
             return Response(
                 _ai_not_charged_payload(
                     ledger.insufficient_funds_payload(exc, action="ai_prompt")
@@ -2701,8 +2761,8 @@ class MeteredPromptView(views.APIView):
             # failure writing the receipt): nothing was charged, so nothing
             # may stay held. The error itself still surfaces as a 500 -- see
             # the note at the end of PromptResponseViewSet.create.
-            ledger.release_reservation(reservation)
-            idempotency.release(claim)
+            self.release_reservation(reservation)
+            self.release_claim(claim)
             raise
         return Response(data)
 

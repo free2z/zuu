@@ -255,7 +255,7 @@ def test_constants_are_the_v1_contract():
     assert catalog.VALIDITY_SECONDS == 72 * 3600
     assert catalog.ALERT_REMAINING_SECONDS == 48 * 3600
     assert catalog.REISSUE_SECONDS <= 24 * 3600
-    worst_fresh = catalog.VALIDITY_SECONDS - catalog.REISSUE_SECONDS
+    worst_fresh = catalog.VALIDITY_SECONDS - 3600
     assert worst_fresh > catalog.ALERT_REMAINING_SECONDS
 
 
@@ -619,7 +619,9 @@ def test_the_seeded_lineup_publishes_on_the_seeded_card(db):
     assert c["rate_card_version"] == RateCard.objects.filter(active=True).order_by("-version")[0].version
     ids = {m["id"] for m in c["models"]}
     expected = set(
-        AIModel.objects.enabled().filter(is_ga=True).values_list("model", flat=True)
+        row.model for row in AIModel.objects.enabled().filter(is_ga=True)
+        if (row.provider, row.model) not in catalog.GATEWAY_MODEL_EXCLUSIONS
+        and (row.price_valid_until is None or row.price_valid_until.timestamp() > SAMPLE_NOW)
     )
     assert ids == expected and ids
     assert not any(m["provider"] == "kimi" for m in c["models"])
@@ -857,9 +859,9 @@ def test_the_revision_is_read_before_the_content(sample_dataset, monkeypatch):
     original = catalog.catalogue_models
     order = []
 
-    def revision_then(card):
+    def revision_then(card, now_unix=None):
         order.append("revision")
-        return real_revision(card)
+        return real_revision(card, now_unix)
 
     def content_with_a_concurrent_disable():
         order.append("content")
@@ -1444,7 +1446,10 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
     c = catalog.build_catalog(SAMPLE_NOW + 1)
     retired = {"gpt-4.1-nano", "o1", "o3-mini", "o4-mini"}
     assert retired <= set(card.model_rows.values_list("model_id", flat=True))
-    expected = sorted(m for p, m, *_ in seed_ai_models.LINEUP if p != "kimi" and m not in retired)
+    expected = sorted(m for p, m, *_ in seed_ai_models.LINEUP if p != "kimi" and m not in retired
+                      and (p, m) not in catalog.GATEWAY_MODEL_EXCLUSIONS
+                      and (m not in seed_ai_models.PRICE_VALID_UNTIL
+                           or seed_ai_models.PRICE_VALID_UNTIL[m].timestamp() > SAMPLE_NOW + 1))
     assert sorted(_ids(c)) == expected  # the builder orders by DB collation
     by_id = {m["id"]: m for m in c["models"]}
     for model in ("gpt-5.4",):
@@ -1461,7 +1466,7 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
                 "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-nano"}
     # OpenAI documents no Chat Completions tool calling for these at the
     # gateway's default reasoning effort (migration 0027).
-    for model in ("gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
+    for model in ("gpt-5.5", "gpt-5.6-terra", "gpt-5.6-luna",
                   "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"):
         assert by_id[model]["context_window"] == 236_000
         assert by_id[model]["max_output_tokens"] == 128_000
@@ -1486,7 +1491,7 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
     assert by_id["gpt-4o"]["context_window"] == 128_000
     assert by_id["gpt-4o"]["prices"]["input_nusd_per_mtok"] == 2_500_000_000
     assert by_id["gpt-5.6-luna"]["prices"]["input_nusd_per_mtok"] == 200_000_000
-    assert by_id["gpt-5.6-sol"]["prices"]["cache_write_nusd_per_mtok"] == 6_250_000_000
+    assert "gpt-5.6-sol" not in by_id  # promotional price expired at SAMPLE_NOW
 
 
 def rate_card_seeds_newest_version():
@@ -1652,3 +1657,57 @@ def test_schema2_ttl_publication_preserves_v1(sample_dataset, at_sample_now):
         bad["models"][0]["prices"]["cache_write_1h_nusd_per_mtok"] = value
         with pytest.raises(catalog.CatalogRefused):
             catalog.validate_catalog(bad)
+
+
+def test_catalog_drops_promotion_early_and_preserves_full_validity(sample_dataset):
+    cutoff = SAMPLE_NOW + 1
+    assert catalog.window_start(cutoff) == catalog.window_start(SAMPLE_NOW)
+    expiry = cutoff + catalog.VALIDITY_SECONDS
+    AIModel.objects.filter(model="gpt-5.6-luna").update(price_valid_until=_at(expiry))
+    document = catalog.build_catalog(SAMPLE_NOW)
+    assert document["expires_at"] == document["issued_at"] + catalog.VALIDITY_SECONDS
+    assert document["expires_at"] < expiry
+    assert "gpt-5.6-luna" in {m["id"] for m in document["models"]}
+    after = catalog.build_catalog(cutoff)
+    assert "gpt-5.6-luna" not in {m["id"] for m in after["models"]}
+    assert after["version"] > document["version"]
+    assert after["expires_at"] == after["issued_at"] + catalog.VALIDITY_SECONDS
+    assert after["expires_at"] == expiry
+    assert {m["id"] for m in after["models"]} == {m["id"] for m in document["models"]} - {"gpt-5.6-luna"}
+
+
+def test_new_claude_rows_are_not_advertised_with_unreviewed_gateway_controls(db, caplog):
+    caplog.set_level(logging.INFO, logger=catalog.logger.name)
+    from dj.apps.openai.management.commands import seed_ai_models
+    call_command("seed_ai_models", stdout=io.StringIO())
+    document = catalog.build_catalog(catalog.now_unix())
+    ids = {row["id"] for row in document["models"]}
+    for provider, model in catalog.GATEWAY_MODEL_EXCLUSIONS:
+        assert model not in ids
+        assert AIModel.objects.enabled().filter(provider=provider, model=model, is_ga=True).exists()
+    assert "gateway_adapter_capabilities_not_reviewed" in caplog.text
+    assert any(getattr(record, "event", "") == "ai_catalog_model_intentionally_excluded" for record in caplog.records)
+    assert not any(getattr(record, "event", "") == "ai_catalog_model_excluded" for record in caplog.records)
+    for name in seed_ai_models.NO_SAMPLING_MODELS:
+        row = AIModel.objects.get(model=name)
+        assert row.sampling_temperature is False and row.sampling_top_p is False
+
+
+def test_new_grok_reasoning_is_signed_independently_of_effort_controls(db):
+    call_command("seed_ai_models", stdout=io.StringIO())
+    document = catalog.build_catalog(catalog.now_unix())
+    rows = {row["id"]: row for row in document["models"]}
+    for name in ("grok-4.20-0309-reasoning", "grok-build-0.1"):
+        assert rows[name]["capabilities"]["reasoning"] is True
+        assert rows[name]["capabilities"]["reasoning_effort"] is False
+    assert rows["grok-4.20-0309-non-reasoning"]["capabilities"]["reasoning"] is False
+
+
+def test_promotional_price_covers_catalog_expiry_even_with_accepted_clock_skew(sample_dataset):
+    expiry = SAMPLE_NOW + catalog.VALIDITY_SECONDS + 60
+    AIModel.objects.filter(model="gpt-5.6-luna").update(
+        price_valid_until=_at(expiry), updated_at=_at(SAMPLE_NOW + 120))
+    document = catalog.build_catalog(SAMPLE_NOW)
+    assert document["issued_at"] == SAMPLE_NOW + 120
+    assert "gpt-5.6-luna" not in {row["id"] for row in document["models"]}
+    assert document["expires_at"] == document["issued_at"] + catalog.VALIDITY_SECONDS

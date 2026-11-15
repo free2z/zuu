@@ -284,6 +284,7 @@ export function markupPercent(bps: number, locale?: string): string {
 /** The authorization parameters the backend reads (views.AUTHORIZATION_PARAMETERS). */
 export const AUTHORIZATION_PARAMETERS = [
   "response_type",
+  "resource",
   "client_id",
   "redirect_uri",
   "scope",

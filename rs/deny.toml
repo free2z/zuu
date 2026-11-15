@@ -2,14 +2,14 @@
 #
 # Separate from wallet/deny.toml on purpose. "Which advisories we accept" is a
 # judgement about a *particular dependency graph*, and this one is not the
-# wallet's: no Tauri, no GTK, no librustzcash, no SQLite. Sharing a policy
+# wallet's: no Tauri, no GTK, no librustzcash. Sharing a policy
 # between two graphs that have nothing in common would mean every entry is
 # either irrelevant to one of them or hiding something in the other.
 #
 # `scripts/check-rust-deny.sh --root rs` enforces this file.
 #
 # =============================================================================
-# THE `ignore` LIST IS EMPTY, AND IT STAYS THAT WAY UNTIL SOMEONE MEASURES ONE.
+# EVERY `ignore` ENTRY IS MEASURED AGAINST THIS GRAPH, NEVER COPIED IN.
 # =============================================================================
 #
 # wallet/deny.toml's list is the *measured* backlog from the day the wallet gate
@@ -107,7 +107,24 @@ yanked = "warn"
 # not about libcrux, and it will be true again the next time someone tries this.
 ignore = [
   # ---------------------------------------------------------------------------
-  # BUILD-TIME ONLY, and the only entry left. `proc-macro-error2` is
+  # Bundled SQLite < 3.54.0 in the rs/ workspace lock (libsqlite3-sys 0.35.0 via
+  # rusqlite 0.37.0, used by the relay and messaging stores). A fresh entry for
+  # this graph, not a copy of wallet/deny.toml's: rs/ holds rusqlite at 0.37
+  # because its crates are linked into wallet/zuuli/src-tauri beside
+  # tauri-plugin-zcash, and libsqlite3-sys `links = "sqlite3"` allows only one
+  # copy there (see rusqlite in rs/Cargo.toml). The fix (libsqlite3-sys >= 0.39,
+  # rusqlite >= 0.41) needs an intermediate crate to move first: upstream
+  # zcash_client_sqlite. rs/zcash-payment-hooks is an independent graph and is
+  # already on the fixed line (#1580), so it does not need this entry.
+  # Exploiting it requires opening a database next to an attacker-crafted -wal
+  # file with a mismatched page size, i.e. local write access to the data
+  # directory. Remove when upstream zcash_client_sqlite allows rusqlite >= 0.41 /
+  # libsqlite3-sys >= 0.39. free2z/zuu#1531.
+  # ---------------------------------------------------------------------------
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.35.0 bundles SQLite < 3.54.0 via rusqlite 0.37.0 in the rs workspace (rs/Cargo.lock), held to the wallet's single-copy SQLite; needs an intermediate crate to move first: upstream zcash_client_sqlite pins rusqlite 0.37. Exploit needs a DB opened beside an attacker-crafted WAL with a mismatched page size, i.e. local write access to the data directory. Remove when upstream zcash_client_sqlite allows rusqlite >=0.41 / libsqlite3-sys >=0.39. free2z/zuu#1531" },
+
+  # ---------------------------------------------------------------------------
+  # BUILD-TIME ONLY. `proc-macro-error2` is
   # unmaintained (a fork of an already unmaintained crate). It reaches this
   # graph as a proc-macro dependency of `hax-lib-macros`, which libcrux uses for
   # its formal-verification annotations. It runs on the build host and no code
@@ -206,8 +223,8 @@ exceptions = [
   # Zcash libraries. Measured on this graph; scope to exact crate versions,
   # without admitting CC0 for every Rust service or changing advisory ignores.
   { name = "bounded-vec", version = "=0.9.0", allow = ["CC0-1.0"] },
-  { name = "secp256k1", version = "=0.29.1", allow = ["CC0-1.0"] },
-  { name = "secp256k1-sys", version = "=0.10.1", allow = ["CC0-1.0"] },
+  { name = "secp256k1", version = "=0.33.1", allow = ["CC0-1.0"] },
+  { name = "secp256k1-sys", version = "=0.14.1", allow = ["CC0-1.0"] },
   # ---------------------------------------------------------------------------
   # MPL-2.0, arriving with HPKE, and **this one needs an owner's eye**.
   #
