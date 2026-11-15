@@ -28,24 +28,60 @@ type Listener = (payload?: unknown) => void;
 
 const lastRendered = () => controls.rendered[controls.rendered.length - 1];
 
-/** A Core client double: listeners on `self`, and a counted `leave()`. */
-function fakeClient() {
+/** An event-emitter double with Core's on/off/removeListener surface. */
+function emitter() {
   const listeners = new Map<string, Set<Listener>>();
   return {
-    leave: vi.fn().mockResolvedValue(undefined),
-    self: {
-      on(event: string, fn: Listener) {
-        if (!listeners.has(event)) listeners.set(event, new Set());
-        listeners.get(event)!.add(fn);
-      },
-      off(event: string, fn: Listener) {
-        listeners.get(event)?.delete(fn);
-      },
+    on(event: string, fn: Listener) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(fn);
+    },
+    off(event: string, fn: Listener) {
+      listeners.get(event)?.delete(fn);
+    },
+    removeListener(event: string, fn: Listener) {
+      listeners.get(event)?.delete(fn);
     },
     emit(event: string, payload?: unknown) {
       listeners.get(event)?.forEach((fn) => fn(payload));
     },
   };
+}
+
+/** A Core client double: `self` and `connectedMeetings` emitters, counted `leave()`. */
+function fakeClient() {
+  const self = emitter();
+  const connectedMeetings = emitter();
+  return {
+    leave: vi.fn().mockResolvedValue(undefined),
+    self,
+    connectedMeetings,
+    emit: self.emit,
+  };
+}
+
+/**
+ * Core's `init` lock: an overlapping call for the same token is REJECTED
+ * (`UnsupportedConcurrentMethodExecution`), not queued.
+ */
+function lockedInit(clients: ReturnType<typeof fakeClient>[]) {
+  const inFlight = new Set<string>();
+  return vi.fn(async ({ authToken }: { authToken: string }) => {
+    if (inFlight.has(authToken)) {
+      const error = new Error("Unsupported concurrent calls on method: init.");
+      error.name = "UnsupportedConcurrentMethodExecution";
+      throw error;
+    }
+    inFlight.add(authToken);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const next = clients.shift();
+      if (!next) throw new Error("no client left");
+      return next;
+    } finally {
+      inFlight.delete(authToken);
+    }
+  });
 }
 
 import { Stage } from "./Stage";
@@ -325,10 +361,8 @@ describe("RealtimeKit stage retry lifecycle", () => {
   });
 
   it("does not report StrictMode's effect replay as a connection failure", async () => {
-    const clients = [fakeClient(), fakeClient()];
-    controls.initMeeting
-      .mockResolvedValueOnce(clients[0])
-      .mockResolvedValueOnce(clients[1]);
+    const client = fakeClient();
+    controls.initMeeting.mockImplementation(lockedInit([client]));
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     await act(async () =>
@@ -340,15 +374,135 @@ describe("RealtimeKit stage retry lifecycle", () => {
         </StrictMode>,
       ),
     );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
     await flush();
 
+    // The replayed (cancelled) attempt never reaches Core, so Core's per-token
+    // init lock is never contended and the surviving attempt connects.
     expect(warn).not.toHaveBeenCalled();
     expect(container.querySelector("button")).toBeNull();
-    // The replayed attempt's client is left; only the surviving one renders.
-    expect(clients[0].leave).toHaveBeenCalledOnce();
-    expect(clients[1].leave).not.toHaveBeenCalled();
-    expect(lastRendered()).toBe(clients[1]);
-    expect(controls.rendered).not.toContain(clients[0]);
+    expect(controls.initMeeting).toHaveBeenCalledOnce();
+    expect(lastRendered()).toBe(client);
+    expect(client.leave).not.toHaveBeenCalled();
+  });
+
+  it("serializes a new ticket's init behind one still in flight", async () => {
+    const stale = fakeClient();
+    const fresh = fakeClient();
+    let resolveFirst!: (client: ReturnType<typeof fakeClient>) => void;
+    const order: string[] = [];
+    controls.initMeeting
+      .mockImplementationOnce(({ authToken }: { authToken: string }) => {
+        order.push(`start:${authToken}`);
+        return new Promise((resolve) => {
+          resolveFirst = (client) => {
+            order.push(`end:${authToken}`);
+            resolve(client);
+          };
+        });
+      })
+      .mockImplementationOnce(async ({ authToken }: { authToken: string }) => {
+        order.push(`start:${authToken}`);
+        return fresh;
+      });
+
+    function Harness({ ticket }: { ticket: DyteJoinTicket }) {
+      return (
+        <TestI18nProvider>
+          <Stage ticket={ticket} />
+        </TestI18nProvider>
+      );
+    }
+    await act(async () => root.render(<Harness ticket={firstTicket} />));
+    await flush();
+    await act(async () => root.render(<Harness ticket={freshTicket} />));
+    await flush();
+    expect(order).toEqual(["start:first-private-token"]);
+
+    await act(async () => resolveFirst(stale));
+    await flush();
+    await flush();
+    expect(order).toEqual([
+      "start:first-private-token",
+      "end:first-private-token",
+      "start:fresh-private-token",
+    ]);
+    expect(stale.leave).toHaveBeenCalledOnce();
+    expect(lastRendered()).toBe(fresh);
+    expect(controls.rendered).not.toContain(stale);
+  });
+
+  it("retries a leave that rejected instead of treating it as done", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient();
+      client.leave
+        .mockRejectedValueOnce(new Error("disableAudio lock held"))
+        .mockResolvedValueOnce(undefined);
+      controls.initMeeting.mockResolvedValueOnce(client);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await act(async () =>
+        root.render(
+          <TestI18nProvider>
+            <Stage ticket={hostTicket} />
+          </TestI18nProvider>,
+        ),
+      );
+      await flush();
+      await act(async () => client.emit("roomLeft", { state: "failed" }));
+      await flush();
+      expect(client.leave).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(client.leave).toHaveBeenCalledTimes(2);
+
+      // Confirmed left now: unmount does not leave a third time.
+      await act(async () => root.unmount());
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(5_000);
+      });
+      expect(client.leave).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("adopts a breakout replacement client and moves teardown to it", async () => {
+    const parent = fakeClient();
+    const breakout = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(parent);
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={firstTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    expect(lastRendered()).toBe(parent);
+
+    await act(async () =>
+      parent.emit("roomLeft", { state: "connected-meeting" }),
+    );
+    await act(async () =>
+      parent.connectedMeetings.emit("meetingChanged", breakout),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(lastRendered()).toBe(breakout);
+    expect(container.querySelector("button")).toBeNull();
+
+    await act(async () => root.unmount());
+    await flush();
+    // Core already left the parent for the handoff; the replacement is ours.
+    expect(breakout.leave).toHaveBeenCalledOnce();
+    expect(parent.leave).not.toHaveBeenCalled();
   });
 
   it("leaves a failed room once and never remounts it on host reconnect", async () => {
