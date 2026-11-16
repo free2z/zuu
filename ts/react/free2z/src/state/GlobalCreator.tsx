@@ -30,6 +30,18 @@ export default function GlobalCreator() {
   });
 
   useEffect(() => {
+    if (error) {
+      const status = (error as { response?: { status?: number } }).response
+        ?.status;
+      if (status !== 401 && status !== 403 && data) {
+        // An unavailable profile read is not a logout. Invalidate private
+        // caches without replacing the current identity with retained data.
+        retireAuthSession({ hostIdentityChanged: false });
+      } else {
+        setAuthStatus(false);
+      }
+      return;
+    }
     if (data) {
       // console.log("GLOBAL authstatus true")
       setAuthStatus(true);
@@ -52,10 +64,6 @@ export default function GlobalCreator() {
         data.star_ids,
         data.username
       );
-    }
-    if (error) {
-      // console.log("GLOBAL authstatus false", error)
-      setAuthStatus(false);
     }
     // console.log("GLOBAL CREATOR USEEFFECT")
     // console.log("data", data)

@@ -190,6 +190,102 @@ test.each(["explicit", "account-roundtrip", "status-roundtrip"])(
   }
 );
 
+test.each(["network", "server"])(
+  "a %s failure refreshing the host profile preserves the authenticated seat while heartbeats succeed",
+  async (kind) => {
+    mount();
+    await flush();
+    const hostEpoch = getGlobalState("hostAuthEpoch");
+    const cacheEpoch = getGlobalState("authEpoch");
+    const profile = getGlobalState("creator");
+    http.get.mockRejectedValueOnce(
+      kind === "network" ? new Error("offline") : { response: { status: 500 } }
+    );
+    await act(async () =>
+      socket.onmessage?.({
+        data: JSON.stringify({
+          content: { id: "synthetic-event", type: "donation" },
+        }),
+      })
+    );
+    await flush();
+    expect(http.get).toHaveBeenCalledWith("/api/auth/user/");
+    expect(getGlobalState("creator")).toBe(profile);
+    expect(getGlobalState("authStatus")).toBe(true);
+    expect(getGlobalState("hostAuthEpoch")).toBe(hostEpoch);
+    expect(getGlobalState("authEpoch")).toBeGreaterThan(cacheEpoch);
+    expect(meeting.leave).not.toHaveBeenCalled();
+    for (let i = 0; i < 5; i++) await flush(15_000);
+    expect(starts()).toHaveLength(1);
+    expect(calls("heartbeat")).toHaveLength(6);
+    expect(calls("release")).toHaveLength(0);
+  }
+);
+
+test.each([401, 403])(
+  "definitive profile authentication denial %i retires the host",
+  async (status) => {
+    mount();
+    await flush();
+    http.get.mockRejectedValueOnce({ response: { status } });
+    await act(async () => {
+      await queryClient.invalidateQueries("creatorData");
+    });
+    await flush(75_000);
+    expect(getGlobalState("authStatus")).toBe(false);
+    expect(meeting.leave).toHaveBeenCalledTimes(1);
+    expect(starts()).toHaveLength(1);
+    expect(calls("heartbeat")).toHaveLength(1);
+  }
+);
+
+test.each(["logout", "account-switch"])(
+  "a failed pending refresh after %s cannot re-adopt cached identity",
+  async (transition) => {
+    mount();
+    await flush();
+    let reject!: (error: Error) => void;
+    http.get.mockImplementationOnce(
+      () =>
+        new Promise((_done, fail) => {
+          reject = fail;
+        })
+    );
+    await act(async () => {
+      void queryClient.invalidateQueries("creatorData");
+    });
+    const next = transition === "logout" ? defaultCreator : bob;
+    await act(async () => {
+      if (transition === "logout") {
+        retireAuthSession();
+        setGlobalState("authStatus", false);
+      }
+      setGlobalState("creator", next);
+      reject(new Error("offline"));
+    });
+    await flush(75_000);
+    expect(getGlobalState("creator")).toBe(next);
+    expect(getGlobalState("authStatus")).toBe(transition !== "logout");
+    expect(meeting.leave).toHaveBeenCalledTimes(1);
+    expect(starts()).toHaveLength(1);
+    expect(calls("heartbeat")).toHaveLength(1);
+    expect(calls("release")).toHaveLength(0);
+  }
+);
+
+test("an initial profile failure without authoritative cached data does not authenticate", async () => {
+  queryClient.removeQueries("creatorData");
+  http.get.mockRejectedValueOnce(new Error("offline"));
+  render(
+    <QueryClientProvider client={queryClient}>
+      <GlobalCreator />
+    </QueryClientProvider>
+  );
+  await flush();
+  expect(getGlobalState("authStatus")).toBe(false);
+  expect(starts()).toHaveLength(0);
+});
+
 test.each([bob, { ...alice, username: "RenamedAlice" }])(
   "authoritative identity $username fences pending initialization before adoption",
   async (next) => {
