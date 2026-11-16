@@ -5,6 +5,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Barrier
+from threading import Event as ThreadEvent
 from unittest.mock import patch
 
 import pytest
@@ -202,3 +203,42 @@ def test_recovery_branches_continue_independently(mocker, caplog, failed):
     recording.assert_called_once_with(); credit.assert_called_once_with()
     if failed == 'ppv_credit':
         assert 'ppv_credit_recovery_required' in caplog.text
+
+
+def test_locked_recording_row_cannot_block_credit_recovery_or_undo_prior_enqueue(refused_delivery, monkeypatch):
+    from dj.apps.dyte import tasks
+    from dj.apps.dyte.models import RecordingDelivery
+    observation, host, viewer, _, _ = refused_delivery
+    ready(observation)
+    now = timezone.now()
+    good = RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), creator=host,
+        download_url='https://synthetic.invalid/recording',next_retry_at=now-timedelta(minutes=2))
+    blocked = RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), creator=host,
+        download_url='https://synthetic.invalid/recording',next_retry_at=now-timedelta(minutes=1))
+    monkeypatch.setattr(tasks,'RECORDING_RECOVERY_DB_TIMEOUT_MS',100,raising=False)
+    acquired, release = ThreadEvent(), ThreadEvent()
+    def hold_recording():
+        other = connection.Database.connect(**connection.get_connection_params())
+        try:
+            with other, other.cursor() as cursor:
+                cursor.execute('SELECT idempotency_key FROM dyte_recordingdelivery WHERE idempotency_key=%s FOR UPDATE',[blocked.pk])
+                acquired.set()
+                release.wait(timeout=3)
+        finally:
+            other.close()
+    before = sql("SELECT current_setting('statement_timeout'),current_setting('lock_timeout')")[0]
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        holder = pool.submit(hold_recording)
+        assert acquired.wait(timeout=2)
+        try:
+            with pytest.raises(DatabaseError,match='timeout'):
+                tasks.recover_recording_deliveries(0)
+            assert not holder.done()
+            assert_once(observation,host,viewer)
+        finally:
+            release.set()
+        holder.result(timeout=3)
+    good.refresh_from_db(); blocked.refresh_from_db()
+    assert good.recovery_queued_at is not None and blocked.recovery_queued_at is None
+    assert sql("SELECT count(*) FROM procrastinate_jobs WHERE task_name='dyte.retry_recording_delivery' AND args->>'delivery_id'=%s",[str(good.pk)])[0][0] == 1
+    assert sql("SELECT current_setting('statement_timeout'),current_setting('lock_timeout')")[0] == before
