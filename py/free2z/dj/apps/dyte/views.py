@@ -2166,11 +2166,13 @@ class PrivateMeetingManage(APIView):
                 is_public=False,
             )
             if cm.meeting_id and not cm.e2ee:
-                from .recording_control import ACTIVE, ProviderUnavailable, recording_status
+                from .recording_control import (
+                    ACTIVE, ProviderUnavailable, private_rotation_recording_status,
+                )
                 from .models import RecordingDelivery
 
                 try:
-                    current = recording_status(cm)
+                    current = private_rotation_recording_status(cm)
                 except (ProviderUnavailable, requests.RequestException, ValueError, TypeError, KeyError):
                     return Response(
                         {"code": "recording_status_unknown", "error": "Recording status could not be confirmed. Retry before creating another private link."},
