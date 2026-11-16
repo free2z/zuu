@@ -1915,8 +1915,8 @@ export const live = {
       };
     }
     const originalAuth = getTokenSnapshot();
-    const me = await auth.me(originalAuth.token ?? undefined);
     if (kind === "private") {
+      const me = await auth.me(originalAuth.token ?? undefined);
       const created = await request<unknown>(
         `/api/dyte/${encodeURIComponent(me.username)}/private`,
         { method: "POST" },
@@ -1931,14 +1931,18 @@ export const live = {
       const ticket = await live.join(me.username, "private", secret, "host");
       return { ticket, inviteSecret: secret };
     }
-    if (!Number.isSafeInteger(me.id) || !me.id || !originalAuth.token)
-      throw new Error("Sign in again before starting a stream.");
-    const hostSeat = registerHostSeat(me.username, me.id, originalAuth);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    let hostSeat: ReturnType<typeof registerHostSeat> | undefined;
     try {
+      const me = await auth.me(originalAuth.token ?? undefined, controller.signal);
+      if (!Number.isSafeInteger(me.id) || !me.id || !originalAuth.token)
+        throw new Error("Sign in again before starting a stream.");
+      hostSeat = registerHostSeat(me.username, me.id, originalAuth);
       if (!isCurrentHostSeat(hostSeat)) throw new Error("Your account changed. Start the stream again.");
       const r = await request<{ host_session?: string }>(
         `/api/dyte/${encodeURIComponent(me.username)}/${meetingType}`,
-        { method: "POST", authToken: originalAuth.token,
+        { method: "POST", authToken: originalAuth.token, signal: controller.signal,
           body: { role: "host", host_session: hostSeat.session, expected_actor_id: me.id,
             ...(kind === "ppv" ? { price_per_minute: `${pricePerMinute}.00` } : {}) } },
       );
@@ -1949,8 +1953,10 @@ export const live = {
         as: "host", responseMeetingIdRequired: true,
       }), hostSeat } };
     } catch (error) {
-      releaseHostSeat(hostSeat);
+      if (hostSeat) releaseHostSeat(hostSeat);
       throw error;
+    } finally {
+      clearTimeout(timeout);
     }
   },
 
