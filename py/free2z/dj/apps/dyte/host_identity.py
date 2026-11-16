@@ -1,7 +1,8 @@
-"""Server-authenticated host identities for delayed provider departures.
+"""Unique signed cleanup keys for host participant mints.
 
 The claim is unique per mint, so retirement can resolve one participant.
-A signature preserves host attribution after takeover and provider deletion.
+The signature is not role authority. Webhook attribution requires a canonical
+provider participant binding; custom identifiers are visible to participants.
 """
 import uuid
 

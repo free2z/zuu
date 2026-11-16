@@ -177,7 +177,8 @@ def test_stale_lease_rejoin_preserves_host_and_provider_fences(
         CreatorMeeting.objects.filter(pk=cm.pk).update(host_start_claim=uuid.uuid4())
     cm.refresh_from_db()
     before = tuple(getattr(cm, field) for field in HOST_PRESENCE_FIELDS)
-    assert event(api_client, keypair, meeting, 'meeting.participantJoined', current).status_code == 200
+    # A fabricated, never-minted claim has no canonical participant binding.
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', current).status_code == (503 if fence == 'old_claim' else 200)
     cm.refresh_from_db()
     assert tuple(getattr(cm, field) for field in HOST_PRESENCE_FIELDS) == before
     heartbeat = _seat(api_client, host, session, 'heartbeat')

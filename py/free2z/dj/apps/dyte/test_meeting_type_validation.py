@@ -14,6 +14,7 @@ These tests pin the contract: valid types still work end to end, and anything
 else is a clean 404 with zero rows written and zero provider calls made.
 """
 from decimal import Decimal
+import uuid
 
 import pytest
 from django.urls import Resolver404, resolve
@@ -60,7 +61,7 @@ def dyte_client(mocker):
     client.create_meeting.return_value = _FakeResponse(
         {'data': {'id': 'meeting-from-provider'}})
     client.add_participant.return_value = _FakeResponse(
-        {'data': {'token': 'auth-token'}})
+        {'data': {'token': 'auth-token', 'id': str(uuid.uuid4())}})
     client.get_participants_count.return_value = 3
     client.get_cached_participants_count.return_value = 3
     mocker.patch('dj.apps.dyte.views.DyteClient', return_value=client)

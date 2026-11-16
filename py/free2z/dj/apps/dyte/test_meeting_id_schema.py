@@ -72,7 +72,7 @@ def test_retained_legacy_blank_does_not_block_another_creators_host_start(
         {"data": {"id": f"room-{uuid.uuid4()}"}},
     )
     provider.add_participant.return_value = _ProviderResponse(
-        {"data": {"token": "host-token"}},
+        {"data": {"token": "host-token", "id": str(uuid.uuid4())}},
     )
     mocker.patch("dj.apps.dyte.views.DyteClient", return_value=provider)
     mocker.patch("dj.apps.dyte.client.DyteClient", return_value=provider)

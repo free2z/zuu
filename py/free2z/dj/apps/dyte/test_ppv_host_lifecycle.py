@@ -120,7 +120,6 @@ def test_host_departure_after_takeover_is_free(api_client, actors, provider, key
 @pytest.mark.parametrize('identity_kind', ['unsigned', 'wrong_owner', 'tampered'])
 def test_unproved_host_departure_never_bypasses_paid_admission(api_client, actors, provider, keypair, identity_kind):
     from dj.apps.dyte.host_identity import host_participant_identity
-    from dj.apps.economy.services import EconomicRefusal
     host, viewer = actors
     supplier_contract(host)
     _, meeting, valid_identity, _ = go_live(api_client, host, provider, keypair)
@@ -129,8 +128,7 @@ def test_unproved_host_departure_never_bypasses_paid_admission(api_client, actor
         'wrong_owner': host_participant_identity(viewer.public_id, uuid.uuid4()),
         'tampered': valid_identity[:-1] + ('A' if valid_identity[-1] != 'A' else 'B'),
     }[identity_kind]
-    with pytest.raises(EconomicRefusal, match='livestream_delivery_integration_unavailable'):
-        leave(api_client, keypair, meeting, identity)
+    assert leave(api_client, keypair, meeting, identity).status_code == 503
     assert not ServiceAdmission.objects.exists()
     assert not PayableJournal.objects.exists()
 
