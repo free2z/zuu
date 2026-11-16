@@ -2500,8 +2500,8 @@ class DyteMeeting(APIView):
         # are still active, before constructing a provider client or touching
         # a meeting row; an in-flight request must not start/join a room after
         # the creator has been deactivated.
-        get_object_or_404(
-            Creator, username=stream_owner, is_active=True
+        stream_creator = get_object_or_404(
+            Creator, username__iexact=stream_owner, is_active=True
         )
         dc: DyteClient = DyteClient()
 
@@ -2521,7 +2521,7 @@ class DyteMeeting(APIView):
         # (an old bundle) keeps the legacy inference, but even then a host
         # start cannot take a seat another tab holds.
         is_host_start = (
-            request.user.username == stream_owner and role != VIEWER_ROLE
+            request.user.pk == stream_creator.pk and role != VIEWER_ROLE
         )
 
         if is_host_start and not request.user.can_stream:
@@ -2546,7 +2546,7 @@ class DyteMeeting(APIView):
         # Meeting must exist and be live
         cm = get_object_or_404(
             CreatorMeeting,
-            creator__username=stream_owner,
+            creator_id=stream_creator.pk,
             creator__is_active=True,
             meeting_type=meeting_type,
             is_public=True,
@@ -2582,7 +2582,7 @@ class DyteMeeting(APIView):
         # User must be subscribed for subscribers-only
         if meeting_type == SUBSCRIBERS_ONLY and not is_own_stream:
             subs = Subscription.objects.filter(
-                star__username=stream_owner,
+                star_id=cm.creator_id,
                 fan=request.user,
                 expires__gt=timezone.now(),
             )

@@ -764,7 +764,9 @@
         {/if}
       </div>
       <h3 class="text-xl font-bold">
-        {$t("stream.unableToJoin", "Unable to Join")}
+        {streamType === "subscribers-only" && isPaymentRequired
+          ? $t("live.gatedPreviewSubscribersOnly", "Subscribers-only stream")
+          : $t("stream.unableToJoin", "Unable to Join")}
       </h3>
       <p class="text-gray-300">{error}</p>
 
@@ -885,11 +887,9 @@
     bind:open={showSubscribe}
     onOpenChange={(open) => {
       showSubscribe = open;
-      if (!open) {
-        // Optional: retry joining if they closed the modal (assuming they might have subscribed)
-        // But better to let them click "Try Again" or handle it in onSuccess if we added it.
-        // For now, manual retry is fine.
-      }
+    }}
+    onSuccess={() => {
+      void joinStream();
     }}
   />
 
