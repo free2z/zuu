@@ -121,7 +121,7 @@ gunicorn==26.2.0
 # docker/py3base/Dockerfile is python:3.12-bookworm since the application contract and the
 # `dependency-security` job resolves under the same 3.12, so the constraint
 # that blocked it is gone -- verified by resolving main.txt under 3.12 here.
-ipython==9.17.1
+ipython==9.18.1
 jsonlines==4.0.0
 # BCP-47 validation + CLDR canonicalization for the language registry
 # (f2z/languages.py, the application contract). Pure-Python `py3-none-any` wheel, 183 KB, and
