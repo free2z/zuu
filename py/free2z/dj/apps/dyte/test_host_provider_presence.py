@@ -107,6 +107,90 @@ def test_same_token_same_session_rejoin_recovers_after_departure(api_client, act
     assert viewer_join(api_client, viewer, host).status_code == 200
 
 
+@pytest.mark.parametrize('missing_heartbeat', [False, True])
+@pytest.mark.parametrize('new_provider_session', [False, True])
+def test_host_rejoin_during_stale_lease_recovers_on_later_heartbeat(
+        api_client, actors, provider, keypair, missing_heartbeat, new_provider_session):
+    host, viewer = actors
+    cm, meeting, original, session = live_host(api_client, host, provider, keypair)
+    # A viewer keeps the provider session open while the host loses both its
+    # dashboard heartbeat and SDK connection.
+    assert viewer_join(api_client, viewer, host).status_code == 200
+    CreatorMeeting.objects.filter(pk=cm.pk).update(host_session_seen_at=(
+        None if missing_heartbeat else timezone.now() - timedelta(seconds=61)))
+    assert event(api_client, keypair, meeting, 'meeting.participantLeft', departure(original)).status_code == 200
+    if new_provider_session:
+        meeting = dict(meeting, sessionId=str(uuid.uuid4()),
+            startedAt=(datetime.fromisoformat(meeting['startedAt']) + timedelta(seconds=10)).isoformat())
+    current = rejoin(original, 11 if new_provider_session else 2)
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', current).status_code == 200
+    assert_unavailable(api_client, viewer, host)
+    assert ServiceAdmission.objects.count() == 1
+    assert provider.add_participant.call_count == 2
+    assert not PayableJournal.objects.exists()
+    # No second provider event or token mint is needed after HTTP recovers.
+    assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+    admitted = viewer_join(api_client, viewer, host)
+    assert admitted.status_code == 200, admitted.data
+    cm.refresh_from_db()
+    assert cm.host_peer_id == uuid.UUID(current['peerId']) and cm.host_left_at is None
+    assert cm.lifecycle_state == LIFECYCLE_LIVE
+    assert ServiceAdmission.objects.count() == 2
+    assert provider.add_participant.call_count == 3
+    assert not PayableJournal.objects.exists()
+
+
+@pytest.mark.parametrize('fence', [
+    'departed_peer', 'older_peer', 'ended_session', 'older_session', 'tied_session',
+    'old_claim', 'canonical_replaced', 'released_seat', 'missing_owner', 'pending_claim',
+])
+def test_stale_lease_rejoin_preserves_host_and_provider_fences(
+        api_client, actors, provider, keypair, fence):
+    from dj.apps.dyte.host_identity import host_participant_identity
+    from dj.apps.dyte.host_presence import HOST_PRESENCE_FIELDS
+    host, viewer = actors
+    cm, meeting, original, session = live_host(api_client, host, provider, keypair)
+    CreatorMeeting.objects.filter(pk=cm.pk).update(host_session_seen_at=timezone.now() - timedelta(seconds=61))
+    assert event(api_client, keypair, meeting, 'meeting.participantLeft', departure(original)).status_code == 200
+    current = rejoin(original, 2)
+    if fence == 'departed_peer':
+        current = original
+    elif fence == 'older_peer':
+        assert event(api_client, keypair, meeting, 'meeting.participantLeft', departure(rejoin(original, 10))).status_code == 200
+    elif fence == 'ended_session':
+        assert event(api_client, keypair, meeting, 'meeting.ended').status_code == 200
+    elif fence in ('older_session', 'tied_session'):
+        observed = dict(meeting, sessionId=str(uuid.uuid4()))
+        if fence == 'older_session':
+            observed['startedAt'] = (datetime.fromisoformat(meeting['startedAt']) + timedelta(seconds=10)).isoformat()
+        assert event(api_client, keypair, observed, 'meeting.started').status_code == 200
+    elif fence == 'old_claim':
+        current['customParticipantId'] = host_participant_identity(host.public_id, uuid.uuid4())
+    elif fence == 'canonical_replaced':
+        CreatorMeeting.objects.filter(pk=cm.pk).update(host_participant_id=str(uuid.uuid4()))
+    elif fence == 'released_seat':
+        assert _seat(api_client, host, session, 'release').status_code == 200
+    elif fence == 'missing_owner':
+        # Retained signed proof cannot replace missing HTTP seat ownership.
+        CreatorMeeting.objects.filter(pk=cm.pk).update(host_session_id=None)
+    elif fence == 'pending_claim':
+        CreatorMeeting.objects.filter(pk=cm.pk).update(host_start_claim=uuid.uuid4())
+    cm.refresh_from_db()
+    before = tuple(getattr(cm, field) for field in HOST_PRESENCE_FIELDS)
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', current).status_code == 200
+    cm.refresh_from_db()
+    assert tuple(getattr(cm, field) for field in HOST_PRESENCE_FIELDS) == before
+    heartbeat = _seat(api_client, host, session, 'heartbeat')
+    assert heartbeat.status_code == (409 if fence in ('released_seat', 'missing_owner') else 200)
+    refused = viewer_join(api_client, viewer, host)
+    assert refused.status_code == (404 if fence in ('ended_session', 'tied_session') else 409)
+    if refused.status_code == 409:
+        assert refused.data['code'] == 'livestream_offer_unavailable'
+    assert provider.add_participant.call_count == 1
+    assert not ServiceAdmission.objects.exists()
+    assert not PayableJournal.objects.exists()
+
+
 @pytest.mark.parametrize('leave_delivered_first', [True, False])
 def test_older_overlapping_peer_departure_cannot_close_newer_join(api_client, actors, provider, keypair, leave_delivered_first):
     host, viewer = actors

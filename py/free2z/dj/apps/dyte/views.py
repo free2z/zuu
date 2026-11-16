@@ -1345,9 +1345,11 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             return
         claim = host_participant_claim(event_data.participant.customParticipantId, cm.creator.public_id)
         started_at = event_data.meeting.startedAt
+        # Keep ordered provider presence while the owner's HTTP heartbeat is
+        # stale. Paid admission separately requires a fresh seat lease.
         if (claim is None or claim != cm.start_id or cm.host_start_claim is not None
                 or not cm.live_now or cm.lifecycle_state not in (LIFECYCLE_STARTING, LIFECYCLE_LIVE)
-                or not _seat_is_fresh(cm, timezone.now())):
+                or cm.host_session_id is None):
             return
         if (event_data.participant.joinedAt is None
                 or not timezone.is_aware(event_data.participant.joinedAt)
