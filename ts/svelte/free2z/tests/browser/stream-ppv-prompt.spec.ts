@@ -683,11 +683,18 @@ test("an established paid viewer leaves its original meeting when the displayed 
     if (!sdkPath) throw new Error("Actual manager SDK import was not found");
     const { default: SDK } = await import(sdkPath);
     const handlers: Record<string, (...args: any[]) => void> = {};
+    const joined = Object.assign(new Map(), {
+      on: () => {},
+      off: () => {},
+      toArray: () => [],
+    });
     (window as any).__actorLeaveCalls = 0;
     SDK.init = async () => ({
-      meta: {},
+      meta: { viewType: "LIVESTREAM" },
       self: {
+        id: "synthetic-paid-viewer",
         roomJoined: false,
+        permissions: { transcriptionEnabled: false },
         on: (name: string, callback: (...args: any[]) => void) => {
           handlers[name] = callback;
         },
@@ -696,7 +703,7 @@ test("an established paid viewer leaves its original meeting when the displayed 
       participants: {
         on: () => {},
         off: () => {},
-        joined: { on: () => {}, off: () => {}, toArray: () => [] },
+        joined,
       },
       join: async () => {},
       leave: async () => {
