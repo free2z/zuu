@@ -20,6 +20,26 @@ class CIContract(unittest.TestCase):
 
     def test_actual_contract(self):self.check()
 
+    def test_mixed_attempt_retry_guidance_preserves_producer_binding(self):
+        guidance = 'Re-run jobs -> Re-run all jobs (not Re-run failed jobs)'
+        publish = self.release['jobs']['publish']['steps']
+        release = self.release['jobs']['release']['steps']
+        for steps in (publish, release):
+            bootstrap = steps[0]
+            self.assertEqual(bootstrap.get('name'), 'Select verified CI trust before clients')
+            retry = steps[1]
+            self.assertEqual(retry.get('name'), 'Explain safe workflow retry')
+            self.assertEqual(retry.get('if'), 'github.run_attempt > 1')
+            self.assertIn('::warning::', retry.get('run', ''))
+            self.assertIn('GITHUB_STEP_SUMMARY', retry['run'])
+            self.assertIn(guidance, retry.get('run', ''))
+            self.assertIn('Do not select or rename artifacts across attempts', retry['run'])
+        image_download = next(s for s in publish if s.get('with', {}).get('name', '').startswith('free2z-image-'))
+        registry_download = next(s for s in release if s.get('with', {}).get('name', '').startswith('free2z-task-registry-'))
+        self.assertIn('free2z-image-${{ matrix.kind }}-${{ github.sha }}-${{ github.run_attempt }}', image_download['with']['name'])
+        self.assertIn('free2z-task-registry-${{ github.sha }}-${{ github.run_attempt }}', registry_download['with']['name'])
+        self.assertIn('--run-attempt "$GITHUB_RUN_ATTEMPT"', next(s['run'] for s in release if 'release-manifest.py create' in s.get('run', '')))
+
     def test_omitted_shard_fails(self):
         for job,key in [('backend','group'),('ui-browser','shard')]:
             with self.subTest(job=job):
