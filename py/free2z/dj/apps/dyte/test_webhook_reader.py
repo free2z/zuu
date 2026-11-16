@@ -18,7 +18,7 @@ def test_isolated_reader_probe_has_no_database_or_provider_work(path, monkeypatc
         response = Client().get(path, HTTP_AUTHORIZATION='Basic invalid', HTTP_COOKIE='sessionid=invalid')
     assert response.status_code == 200
     assert response.json() == {'ok': True, 'commit': 'a' * 40, 'deployment_commit': 'b' * 40,
-        'release_id': 'sha256:' + 'c' * 64, 'reader_protocol': 1, 'role': READER_ROLE}
+        'release_id': 'sha256:' + 'c' * 64, 'reader_protocol': 2, 'role': READER_ROLE}
     assert response['Cache-Control'] == 'no-store'
     provider.assert_not_called()
     auth.assert_not_called()
@@ -41,7 +41,7 @@ def test_reader_urlconf_cannot_resolve_api_writers(path):
 
 def test_reader_capability_check_is_independent_of_active_process_settings(monkeypatch):
     monkeypatch.delenv('FREE2Z_PROCESS_ROLE', raising=False)
-    assert validate_reader_contract() == {'reader_protocol': 1, 'role': READER_ROLE,
+    assert validate_reader_contract() == {'reader_protocol': 2, 'role': READER_ROLE,
         'wsgi_module': 'dj.apps.dyte.webhook_wsgi:application'}
 
 

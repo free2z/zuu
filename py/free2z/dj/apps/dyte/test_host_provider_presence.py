@@ -13,7 +13,8 @@ from dj.apps.dyte.test_ppv_host_lifecycle import actors as actors, viewer_join
 from dj.apps.dyte.test_webhook_idempotency import (
     _meeting, _post, keypair as keypair, webhook_boundaries as webhook_boundaries,
 )
-from dj.apps.economy.models import PayableJournal, ServiceAdmission
+from dj.apps.economy.models import PayableJournal
+from dj.apps.dyte.models import PpvCreditAdmission
 from dj.apps.economy.tests.test_products import supplier_contract
 
 pytestmark = pytest.mark.django_db
@@ -73,7 +74,7 @@ def test_departed_host_heartbeats_cannot_keep_paid_admission_open(api_client, ac
     refused = viewer_join(api_client, viewer, host)
     assert refused.status_code == 409
     assert refused.data['code'] == 'livestream_offer_unavailable'
-    assert ServiceAdmission.objects.count() == 1
+    assert PpvCreditAdmission.objects.count() == 1
     assert provider.add_participant.call_count == 2
     assert not PayableJournal.objects.exists()
 
@@ -91,7 +92,7 @@ def test_departure_tombstone_survives_late_join_and_started(api_client, actors, 
     cm.refresh_from_db()
     assert cm.host_peer_id == uuid.UUID(participant['peerId']) and cm.host_left_at is not None
     assert_unavailable(api_client, viewer, host)
-    assert not ServiceAdmission.objects.exists()
+    assert not PpvCreditAdmission.objects.exists()
 
 
 def test_same_token_same_session_rejoin_recovers_after_departure(api_client, actors, provider, keypair):
@@ -125,7 +126,7 @@ def test_host_rejoin_during_stale_lease_recovers_on_later_heartbeat(
     current = rejoin(original, 11 if new_provider_session else 2)
     assert event(api_client, keypair, meeting, 'meeting.participantJoined', current).status_code == 200
     assert_unavailable(api_client, viewer, host)
-    assert ServiceAdmission.objects.count() == 1
+    assert PpvCreditAdmission.objects.count() == 1
     assert provider.add_participant.call_count == 2
     assert not PayableJournal.objects.exists()
     # No second provider event or token mint is needed after HTTP recovers.
@@ -135,7 +136,7 @@ def test_host_rejoin_during_stale_lease_recovers_on_later_heartbeat(
     cm.refresh_from_db()
     assert cm.host_peer_id == uuid.UUID(current['peerId']) and cm.host_left_at is None
     assert cm.lifecycle_state == LIFECYCLE_LIVE
-    assert ServiceAdmission.objects.count() == 2
+    assert PpvCreditAdmission.objects.count() == 2
     assert provider.add_participant.call_count == 3
     assert not PayableJournal.objects.exists()
 
@@ -188,7 +189,7 @@ def test_stale_lease_rejoin_preserves_host_and_provider_fences(
     if refused.status_code == 409:
         assert refused.data['code'] == 'livestream_offer_unavailable'
     assert provider.add_participant.call_count == 1
-    assert not ServiceAdmission.objects.exists()
+    assert not PpvCreditAdmission.objects.exists()
     assert not PayableJournal.objects.exists()
 
 
@@ -308,7 +309,7 @@ def test_inflight_host_refresh_refuses_viewers_until_new_provider_join(api_clien
     provider.add_participant.side_effect = during_provider_request
     refreshed = _start(api_client, host, meeting_type='ppv', session=session)
     assert refreshed.status_code == 200
-    assert not ServiceAdmission.objects.exists()
+    assert not PpvCreditAdmission.objects.exists()
 
 
 def test_old_pod_participant_replacement_invalidates_presence_and_old_callbacks(api_client, actors, provider, keypair):
@@ -322,7 +323,7 @@ def test_old_pod_participant_replacement_invalidates_presence_and_old_callbacks(
     assert_unavailable(api_client, viewer, host)
     assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(participant, 2)).status_code == 200
     assert_unavailable(api_client, viewer, host)
-    assert ServiceAdmission.objects.count() == 1
+    assert PpvCreditAdmission.objects.count() == 1
 
 
 def test_old_pod_session_advance_cannot_reuse_an_absent_host_projection(api_client, actors, provider, keypair):
@@ -438,7 +439,7 @@ def test_completed_session_delivery_order_cannot_reopen_paid_admission(
     assert not cm.live_now and cm.lifecycle_state == 'offline'
     assert str(cm.provider_session_id) == meeting['sessionId']
     assert viewer_join(api_client, viewer, host).status_code == 404
-    assert not ServiceAdmission.objects.exists()
+    assert not PpvCreditAdmission.objects.exists()
     later = dict(meeting, sessionId=str(uuid.uuid4()),
         startedAt=(datetime.fromisoformat(meeting['startedAt']) + timedelta(seconds=20)).isoformat())
     assert event(api_client, keypair, later, 'meeting.participantJoined', rejoin(current, 21)).status_code == 200
@@ -462,7 +463,7 @@ def test_nonhost_new_session_observation_closes_old_paid_presence(api_client, ac
         assert event(api_client, keypair, meeting, kind, participant).status_code == 200
     assert _seat(api_client, host, session, 'heartbeat').status_code == 200
     assert_unavailable(api_client, viewer, host)
-    assert not ServiceAdmission.objects.exists()
+    assert not PpvCreditAdmission.objects.exists()
     assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(host_participant, 12)).status_code == 200
     assert viewer_join(api_client, viewer, host).status_code == 200
 

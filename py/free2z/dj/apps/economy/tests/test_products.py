@@ -1,3 +1,4 @@
+from .historical_ppv import prepare_historical_ppv_admission
 from dj.apps.economy.tests.test_integration import historical_note_observation
 """Prepared product boundaries on actual PostgreSQL; activation stays blocked."""
 import json
@@ -248,7 +249,7 @@ def test_installed_ppv_still_refuses_unknown_offer_before_delivery(creator_facto
 
     host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
     with pytest.raises(money.EconomicRefusal, match='livestream_offer_unavailable'):
-        products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
+        prepare_historical_ppv_admission(host_id=host.pk, viewer_id=viewer.pk,
             meeting_id='actual-provider-room', price_per_minute=Decimal('1.23'),
             idempotency_key=str(uuid.uuid4()),
             viewer_account_epoch=viewer.kt_account_epoch)
@@ -271,7 +272,7 @@ def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(cre
     cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
     cursor.fetchone.return_value = ('economy.settle_service_delivery',)
     admission = mocker.patch.object(products, 'admit_product_service')
-    products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
+    prepare_historical_ppv_admission(host_id=host.pk, viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'),
         idempotency_key=str(uuid.uuid4()),
         viewer_account_epoch=viewer.kt_account_epoch)
@@ -282,7 +283,7 @@ def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(cre
     admission.reset_mock()
     CreatorMeeting.objects.filter(pk=meeting.pk).update(price_per_minute=Decimal('2.34'))
     with pytest.raises(money.EconomicRefusal, match='livestream_price_changed'):
-        products.prepare_livestream_admission(host_id=host.pk, viewer_id=viewer.pk,
+        prepare_historical_ppv_admission(host_id=host.pk, viewer_id=viewer.pk,
             meeting_id=meeting.meeting_id, price_per_minute=Decimal('1.23'),
             idempotency_key=str(uuid.uuid4()),
             viewer_account_epoch=viewer.kt_account_epoch)
@@ -321,7 +322,7 @@ def test_livestream_ppv_retry_after_ambiguous_provider_timeout_stays_unresolved(
         if len(provider_participant_ids) == 1:
             raise TimeoutError('provider response timed out after accepting request')
 
-    admission = products.prepare_livestream_admission(
+    admission = prepare_historical_ppv_admission(
         host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
         price_per_minute=meeting.price_per_minute,
         idempotency_key=request_key,
@@ -331,7 +332,7 @@ def test_livestream_ppv_retry_after_ambiguous_provider_timeout_stays_unresolved(
         add_to_provider(admission)
 
     with pytest.raises(money.EconomicRefusal, match='livestream_provider_outcome_unknown'):
-        products.prepare_livestream_admission(
+        prepare_historical_ppv_admission(
             host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
             price_per_minute=meeting.price_per_minute,
             idempotency_key=request_key,
@@ -351,7 +352,7 @@ def test_livestream_ppv_retry_after_ambiguous_provider_timeout_stays_unresolved(
 
 
 def test_ppv_endpoint_does_not_repeat_provider_post_after_ambiguous_timeout(
-    creator_factory, enabled, mocker,
+    creator_factory, enabled, mocker, settings,
 ):
     """Replay the actual HTTP path: the same key must stop before provider POST #2."""
     import uuid
@@ -359,6 +360,8 @@ def test_ppv_endpoint_does_not_repeat_provider_post_after_ambiguous_timeout(
     from rest_framework.test import APIClient
     from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
 
+    settings.RTK_API_MODE = 'v4'
+    settings.RTK_APP_ID = str(uuid.uuid4())
     host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
     fund_viewer(viewer, 500_000, 'ppv-endpoint-timeout-viewer')
     supplier_contract(host)
@@ -396,11 +399,10 @@ def test_ppv_endpoint_does_not_repeat_provider_post_after_ambiguous_timeout(
     assert second.status_code == 409
     assert second.data['code'] == 'livestream_provider_outcome_unknown'
     provider.add_participant.assert_called_once()
-    assert ServiceAdmission.objects.filter(
-        service='livestream_ppv', creator_id=host.pk,
-        source__meeting_id=meeting.meeting_id,
-        source__subject_creator_id=viewer.pk,
-    ).count() == 1
+    from dj.apps.dyte.models import PpvCreditAdmission
+    assert PpvCreditAdmission.objects.filter(host_id=host.pk, viewer_id=viewer.pk,
+        meeting_id=meeting.meeting_id).count() == 1
+    assert not ServiceAdmission.objects.exists()
 
 
 @pytest.mark.django_db
@@ -432,7 +434,7 @@ def test_livestream_ppv_replay_rejects_changed_admission_identity(
     cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
     cursor.fetchone.return_value = ('economy.settle_service_delivery',)
     key = str(uuid.uuid4())
-    products.prepare_livestream_admission(
+    prepare_historical_ppv_admission(
         host_id=host.pk, viewer_id=viewer.pk, meeting_id=meeting.meeting_id,
         price_per_minute=meeting.price_per_minute, idempotency_key=key,
         viewer_account_epoch=viewer.kt_account_epoch,
@@ -449,7 +451,7 @@ def test_livestream_ppv_replay_rejects_changed_admission_identity(
             meeting_id=changed_meeting_id)
 
     with pytest.raises(money.EconomicRefusal, match='livestream_admission_identity_conflict'):
-        products.prepare_livestream_admission(
+        prepare_historical_ppv_admission(
             host_id=host.pk, viewer_id=viewer.pk, meeting_id=changed_meeting_id,
             price_per_minute=changed_price, idempotency_key=key,
             viewer_account_epoch=viewer.kt_account_epoch,

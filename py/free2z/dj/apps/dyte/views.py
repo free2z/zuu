@@ -801,6 +801,12 @@ def claim_webhook_delivery(
     transaction, alongside all billing effects.
     """
     payload_sha256 = hashlib.sha256(payload).hexdigest()
+    return claim_webhook_digest(provider_event_id=provider_event_id, event_type=event_type,
+        endpoint=endpoint, payload_sha256=payload_sha256, business_event_key=business_event_key)
+
+
+def claim_webhook_digest(*, provider_event_id, event_type, endpoint, payload_sha256, business_event_key):
+    """Internal claim for verified raw bytes or retained authenticated evidence."""
     try:
         with transaction.atomic():
             WebhookDelivery.objects.create(
@@ -1061,6 +1067,38 @@ def webhook(request: HttpRequest):
             return HttpResponse('OK')
         if event_data.event == 'meeting.participantLeft':
             _observe_bound_host_departure(cm, event_data)
+    if event_data.event == 'meeting.participantLeft':
+        token = event_data.participant.customParticipantId
+        if isinstance(token, str) and token.startswith('pc_'):
+            from .models import PpvCreditAdmission, ProviderParticipantBinding
+            from .participant_binding import current_provider_app_id
+            from types import SimpleNamespace
+            try:
+                candidate = uuid.UUID(hex=token[3:])
+            except ValueError:
+                candidate = None
+            credit = PpvCreditAdmission.objects.filter(pk=candidate,
+                meeting_id=str(event_data.meeting.id),
+                provider_session_id=event_data.meeting.sessionId,
+                provider_session_started_at=event_data.meeting.startedAt).first() if candidate else None
+            if credit is not None:
+                # Delayed delivery follows the original host even if the
+                # reusable room or its owner's profile has changed.
+                try:
+                    if credit.app_id != current_provider_app_id():
+                        raise ParticipantIdentityUnproven('provider_app_changed')
+                    original = SimpleNamespace(creator_id=credit.host_id,
+                        host_participant_id='', host_evictions=[], meeting_type=PAY_PER_VIEW)
+                    identity = resolve_participant(event_data, original)
+                    if not identity.bound or identity.role != VIEWER_ROLE or identity.actor_id != credit.viewer_id:
+                        raise ParticipantIdentityUnproven('credit_viewer_binding_mismatch')
+                    binding = ProviderParticipantBinding.objects.get(app_id=credit.app_id,
+                        meeting_id=credit.meeting_id, participant_id=str(identity.participant_id))
+                except (requests.RequestException, ParticipantIdentityUnproven):
+                    return _provider_retry_response()
+                _process_credit_ppv_event(event_data=event_data, admission=credit, binding=binding,
+                    provider_event_id=provider_event_id, payload=request.body)
+                return HttpResponse('OK')
     admission_token = None
     if event_data.event=='meeting.participantLeft':
         token=event_data.participant.customParticipantId
@@ -1110,6 +1148,24 @@ def webhook(request: HttpRequest):
         identity=identity,
     )
     return HttpResponse("OK")
+
+
+def _process_credit_ppv_event(*, event_data, admission, binding, provider_event_id, payload):
+    from .credit_recovery import capture_observation, attempt_observation
+    participant = event_data.participant
+    key = normalized_event_key('participant-left', event_data.meeting.id, event_data.meeting.sessionId,
+        participant.peerId, participant.customParticipantId, participant.joinedAt.isoformat(),
+        participant.leftAt.isoformat())
+    observation = capture_observation(admission_id=admission.pk, event_key=key, evidence={
+        'provider_event_id': str(provider_event_id), 'payload_sha256': hashlib.sha256(payload).hexdigest(),
+        'meeting_id': str(event_data.meeting.id), 'provider_session_id': str(event_data.meeting.sessionId),
+        'provider_session_started_at': event_data.meeting.startedAt.isoformat(),
+        'binding_id': binding.pk, 'canonical_participant_id': str(binding.participant_id),
+        'participant_id': participant.customParticipantId, 'peer_id': str(participant.peerId),
+        'joined_at': participant.joinedAt.isoformat(), 'left_at': participant.leftAt.isoformat()})
+    # The non-atomic webhook commits authenticated evidence first. A failed
+    # financial attempt cannot erase the recovery item or mark a claim settled.
+    attempt_observation(observation.pk, raise_failure=True)
 
 
 @transaction.atomic
@@ -2699,7 +2755,7 @@ class DyteMeeting(APIView):
                     },
                 )
 
-        compensation_admission = None
+        credit_admission = None
         participant_custom_id = (request.user.username if request.user.is_authenticated
             else f'Guest {uuid.uuid4()}')
         if meeting_type == PAY_PER_VIEW and is_own_stream:
@@ -2709,8 +2765,8 @@ class DyteMeeting(APIView):
         if meeting_type == PAY_PER_VIEW and not is_own_stream:
             # User must have enough tuzis
             price_per_minute = cm.price_per_minute
-            # A viewer must reserve 30 minutes of creator fees plus the
-            # 15 2Z platform reserve before they are admitted.
+            # Minimum required balance: 30 minutes at the creator rate plus
+            # 15 2Z for platform fees. This eligibility check creates no hold.
             total_price = ppv_join_threshold(price_per_minute)
             if total_price is None:
                 return Response(
@@ -2750,22 +2806,24 @@ class DyteMeeting(APIView):
                     viewer = actors.get(request.user.pk)
                     if viewer is None or not viewer.is_active or viewer.kt_account_epoch != request.user.kt_account_epoch:
                         return Response({'code': 'actor_authentication_changed', 'error': 'Viewer authorization changed. Authenticate again.'}, status=409)
-                    from dj.apps.economy.products import prepare_livestream_admission
+                    from .ppv_credits import prepare_credit_admission
                     try:
-                        compensation_admission = prepare_livestream_admission(host_id=cm.creator_id,
+                        credit_admission = prepare_credit_admission(host_id=cm.creator_id,
                             viewer_id=request.user.pk, meeting_id=cm.meeting_id,
                             price_per_minute=cm.price_per_minute,
                             idempotency_key=str(admission_key),
                             viewer_account_epoch=request.user.kt_account_epoch)
                     except EconomicRefusal as exc:
-                        return Response({'code': str(exc), 'error': 'Paid livestream compensation is unavailable.'}, status=409)
+                        return Response({'code': str(exc), 'error': 'Paid livestream access is temporarily unavailable.'}, status=409)
+                    except ParticipantIdentityUnproven:
+                        return _provider_retry_response()
         logger.info(f"Adding Participant! {request.user.username}")
         # role=viewer, always: this branch must never hand out the host
         # preset, whoever the caller is.
         try:
-            if compensation_admission is not None:
+            if credit_admission is not None:
                 resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE,
-                    custom_participant_id=f'ea_{compensation_admission.pk.hex}', cm=cm)
+                    custom_participant_id=f'pc_{credit_admission.pk.hex}', cm=cm)
             else:
                 resp = dc.add_participant(
                     request.user, cm.meeting_id, role=VIEWER_ROLE,
@@ -2781,8 +2839,8 @@ class DyteMeeting(APIView):
             bind_participant(meeting_id=cm.meeting_id,
                 participant_id=resp.json()['data'].get('id'), creator_id=cm.creator_id,
                 actor_id=request.user.pk if request.user.is_authenticated else None,
-                role=VIEWER_ROLE, custom_id=(f'ea_{compensation_admission.pk.hex}'
-                    if compensation_admission is not None else participant_custom_id))
+                role=VIEWER_ROLE, custom_id=(f'pc_{credit_admission.pk.hex}'
+                    if credit_admission is not None else participant_custom_id))
         except (requests.RequestException, ParticipantIdentityUnproven):
             return _provider_retry_response()
         # Neither resp.text nor resp.json() may be logged: the success
@@ -2813,22 +2871,12 @@ class DyteMeeting(APIView):
         with transaction.atomic():
             policy_version = pin_supported_policy()
             if meeting_type == PAY_PER_VIEW and policy_version == 1:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT to_regprocedure('economy.settle_service_delivery(uuid,text,bigint,jsonb)')")
-                    if cursor.fetchone()[0] is None:
-                        return Response({'code': 'livestream_compensation_integration_unavailable',
-                            'error': 'Paid livestream compensation is unavailable.'}, status=409)
-                from dj.apps.economy.products import compensation_terms
+                from .ppv_credits import require_credit_integration
                 try:
-                    compensation_terms(creator_id=creator.pk, service='livestream_ppv')
+                    require_credit_integration()
                 except EconomicRefusal as exc:
-                    messages = {
-                        'compensation_onboarding_required': 'Before starting a paid stream, complete identity intake at /kyc, contact support for verification, and accept the creator compensation agreement in Billing.',
-                        'compensation_schedule_acceptance_required': 'Before starting a paid stream, review and accept the livestream compensation schedule in Billing.',
-                        'compensation_schedule_unavailable': 'Paid livestream pricing is temporarily unavailable. Please contact support.',
-                    }
-                    return Response({'code': str(exc), 'error': messages.get(str(exc),
-                        'Paid livestream compensation is unavailable.')}, status=409)
+                    return Response({'code': str(exc),
+                        'error': 'Paid livestream access is temporarily unavailable.'}, status=409)
             _lock_host_seat(creator)
             if (not settings.DYTE_HOST_EVICTION_JOBS_ENABLED
                     and CreatorMeeting.objects.filter(creator=creator).filter(

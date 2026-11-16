@@ -1,6 +1,9 @@
 import uuid
 from django.db import models
 from django.utils import timezone
+from django.db.models.functions import Now
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import DateTimeRangeField, RangeOperators
 
 # Meeting type constants
 BROADCAST = 'broadcast'
@@ -27,6 +30,73 @@ MEETING_TYPES = tuple(value for value, _ in MEETING_TYPE_CHOICES)
 # matched ahead of `<type>` in urls.py, so `private` never reaches
 # DyteMeeting anyway.
 PUBLIC_MEETING_TYPES = (BROADCAST, PAY_PER_VIEW, SUBSCRIBERS_ONLY)
+
+
+class PpvCreditAdmission(models.Model):
+    """Immutable original offer for credit sharing, with no cash-payable link."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    host = models.ForeignKey('g12f.Creator', models.PROTECT, related_name='+')
+    viewer = models.ForeignKey('g12f.Creator', models.PROTECT, related_name='+')
+    viewer_account_epoch = models.PositiveBigIntegerField()
+    idempotency_key = models.UUIDField()
+    app_id = models.UUIDField()
+    meeting_id = models.CharField(max_length=64)
+    creator_meeting_id = models.BigIntegerField()
+    provider_session_id = models.UUIDField()
+    provider_session_started_at = models.DateTimeField()
+    host_session_id = models.UUIDField()
+    price_per_minute = models.DecimalField(max_digits=6, decimal_places=2)
+    pricing_version = models.PositiveSmallIntegerField(default=1)
+    admitted_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['viewer', 'idempotency_key'], name='dyte_ppv_credit_join_identity'),
+            models.CheckConstraint(condition=models.Q(price_per_minute__gt=0, pricing_version=1)
+                & ~models.Q(host=models.F('viewer')), name='dyte_ppv_credit_offer'),
+        ]
+
+
+class PpvCreditObservation(models.Model):
+    """Authenticated delivery evidence retained independently of credit issuance."""
+    provider_key = models.CharField(max_length=64, primary_key=True)
+    admission = models.ForeignKey(PpvCreditAdmission, models.PROTECT)
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(db_default=Now())
+    attempts = models.PositiveIntegerField(default=0)
+    next_retry_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True)
+    review_required_at = models.DateTimeField(null=True)
+    last_error = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        indexes = [models.Index(fields=['completed_at','next_retry_at'], name='dyte_credit_recovery_due')]
+
+
+class PpvCreditDelivery(models.Model):
+    """Original collected credits and ledger references for one provider interval."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    admission = models.ForeignKey(PpvCreditAdmission, models.PROTECT)
+    provider_key = models.CharField(max_length=240, unique=True)
+    cohort = models.CharField(max_length=240)
+    interval = DateTimeRangeField()
+    platform_collected_m2z = models.BigIntegerField()
+    creator_collected_m2z = models.BigIntegerField()
+    creator_credited_m2z = models.BigIntegerField()
+    creator_debt_repaid_m2z = models.BigIntegerField()
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            ExclusionConstraint(name='dyte_ppv_credit_nonoverlap', expressions=[
+                ('cohort', RangeOperators.EQUAL), ('interval', RangeOperators.OVERLAPS)]),
+            models.CheckConstraint(condition=models.Q(platform_collected_m2z__gte=0,
+                creator_collected_m2z__gte=0, creator_credited_m2z__gte=0,
+                creator_debt_repaid_m2z__gte=0,
+                creator_collected_m2z=models.F('creator_credited_m2z') + models.F('creator_debt_repaid_m2z')),
+                name='dyte_ppv_credit_conservation'),
+        ]
 
 LIFECYCLE_OFFLINE = 'offline'
 LIFECYCLE_STARTING = 'starting'
