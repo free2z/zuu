@@ -225,7 +225,21 @@ def test_inflight_host_refresh_refuses_viewers_until_new_provider_join(api_clien
     assert not ServiceAdmission.objects.exists()
 
 
-@pytest.mark.parametrize('missing', ['host_peer_id', 'host_joined_at'])
+def test_old_pod_participant_replacement_invalidates_presence_and_old_callbacks(api_client, actors, provider, keypair):
+    host, viewer = actors
+    cm, meeting, participant, session = live_host(api_client, host, provider, keypair)
+    assert viewer_join(api_client, viewer, host).status_code == 200
+    # A prior application version knows only the canonical participant field;
+    # it cannot clear the new presence projection or update the signed claim.
+    CreatorMeeting.objects.filter(pk=cm.pk).update(host_participant_id=str(uuid.uuid4()))
+    assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+    assert_unavailable(api_client, viewer, host)
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(participant, 2)).status_code == 200
+    assert_unavailable(api_client, viewer, host)
+    assert ServiceAdmission.objects.count() == 1
+
+
+@pytest.mark.parametrize('missing', ['host_peer_id', 'host_joined_at', 'host_presence_participant_id'])
 def test_null_provider_projection_never_inherits_live_readiness(api_client, actors, provider, keypair, missing):
     host, viewer = actors
     cm, _, _, _ = live_host(api_client, host, provider, keypair)
@@ -259,7 +273,7 @@ def test_invalid_departure_time_does_not_replace_current_evidence(api_client, ac
     assert viewer_join(api_client, viewer, host).status_code == 200
 
 
-@pytest.mark.parametrize('invalid', ['missing_joined', 'naive_joined', 'naive_session', 'before_session'])
+@pytest.mark.parametrize('invalid', ['missing_joined', 'naive_joined', 'naive_session'])
 def test_invalid_provider_join_time_cannot_open_admission(api_client, actors, provider, keypair, invalid):
     host, viewer = actors
     _, meeting, participant, _ = live_host(api_client, host, provider, keypair, announce=False)
@@ -269,9 +283,20 @@ def test_invalid_provider_join_time_cannot_open_admission(api_client, actors, pr
         participant['joinedAt'] = datetime.fromisoformat(participant['joinedAt']).replace(tzinfo=None).isoformat()
     elif invalid == 'naive_session':
         meeting['startedAt'] = datetime.fromisoformat(meeting['startedAt']).replace(tzinfo=None).isoformat()
-    else:
-        participant['joinedAt'] = (datetime.fromisoformat(meeting['startedAt']) - timedelta(seconds=1)).isoformat()
     assert event(api_client, keypair, meeting, 'meeting.participantJoined', participant).status_code == 200
+    assert_unavailable(api_client, viewer, host)
+
+
+def test_provider_join_and_session_timestamps_need_no_cross_field_order(api_client, actors, provider, keypair):
+    host, viewer = actors
+    _, meeting, participant, _ = live_host(api_client, host, provider, keypair, announce=False)
+    # The provider does not promise cross-field clock/precision ordering.
+    # Signed session identity and each peer's own joinedAt define our fences.
+    participant['joinedAt'] = (datetime.fromisoformat(meeting['startedAt']) - timedelta(milliseconds=1)).isoformat()
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', participant).status_code == 200
+    assert event(api_client, keypair, meeting, 'meeting.started').status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
+    assert event(api_client, keypair, meeting, 'meeting.participantLeft', departure(participant)).status_code == 200
     assert_unavailable(api_client, viewer, host)
 
 
@@ -299,6 +324,7 @@ def test_nullable_presence_migration_preserves_old_pod_inserts_without_fabricati
         for pk in (before.pk, after.pk):
             meeting = CreatorMeeting.objects.get(pk=pk)
             assert meeting.host_peer_id is None and meeting.host_joined_at is None and meeting.host_left_at is None
+            assert meeting.host_presence_participant_id is None
             assert not host_is_present(meeting)
         retained = CreatorMeeting.objects.get(pk=before.pk)
         assert retained.live_now and retained.lifecycle_state == 'live'

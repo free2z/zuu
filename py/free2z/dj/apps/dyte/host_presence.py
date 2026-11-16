@@ -17,8 +17,14 @@ def clear_host_presence(meeting):
         setattr(meeting, field, None)
 
 
+def host_generation_is_bound(meeting):
+    return bool(meeting.host_presence_participant_id
+        and meeting.host_presence_participant_id == meeting.host_participant_id)
+
+
 def host_is_present(meeting):
-    return (meeting.host_peer_id is not None and meeting.host_joined_at is not None
+    return (host_generation_is_bound(meeting)
+        and meeting.host_peer_id is not None and meeting.host_joined_at is not None
         and meeting.host_left_at is None and meeting.host_start_claim is None)
 
 
@@ -30,6 +36,8 @@ def record_host_presence(meeting, participant, *, departed):
     leave time: an older peer can finish leaving after its replacement joined.
     Equal join times from different peers cannot establish a newer generation.
     """
+    if not host_generation_is_bound(meeting):
+        return PresenceUpdate.IGNORED
     joined_at = participant.joinedAt
     left_at = participant.leftAt
     if joined_at is None or not timezone.is_aware(joined_at):

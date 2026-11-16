@@ -1190,8 +1190,7 @@ def _record_host_departure(cm, event_data):
     joined_at = event_data.participant.joinedAt
     if (claim != cm.start_id or cm.host_session_id is None
             or not timezone.is_aware(started_at)
-            or joined_at is None or not timezone.is_aware(joined_at)
-            or joined_at < started_at):
+            or joined_at is None or not timezone.is_aware(joined_at)):
         return
     if (cm.provider_session_started_at is not None
             and (started_at < cm.provider_session_started_at
@@ -1383,8 +1382,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             return
         if (event_data.participant.joinedAt is None
                 or not timezone.is_aware(event_data.participant.joinedAt)
-                or not timezone.is_aware(started_at)
-                or event_data.participant.joinedAt < started_at):
+                or not timezone.is_aware(started_at)):
             return
         if newer_session or cm.provider_session_id is None:
             clear_host_presence(cm)
@@ -3145,6 +3143,7 @@ class DyteMeeting(APIView):
                     cm.host_session_id = host_session
                     cm.host_session_seen_at = now
                     cm.host_participant_id = provider_participant_id
+                    cm.host_presence_participant_id = provider_participant_id
                     cm.host_start_claim = None
                     cm.host_start_claim_at = None
                     cm.start_id = start_claim
@@ -3156,6 +3155,7 @@ class DyteMeeting(APIView):
                     cm.save(update_fields=['price_per_minute', 'live_now', 'lifecycle_state', 'start_id', 'last_seen_at',
                         'zero_probe_since',
                         *HOST_PRESENCE_FIELDS,
+                        'host_presence_participant_id',
                         'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim', 'host_start_claim_at'])
                     _defer_host_evictions(cm)
 
