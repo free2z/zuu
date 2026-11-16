@@ -24,12 +24,11 @@ budget and age are bounded, and incomplete receipts are logged for alerting.
 import logging
 import time
 from collections import Counter
-from contextlib import contextmanager
 from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import DatabaseError, connection, transaction
+from django.db import DatabaseError
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -343,23 +342,9 @@ def recover_recording_deliveries(timestamp: int):
         raise failure
 
 
-@contextmanager
 def _recording_recovery_db(deadline):
-    """Bound one read or atomic enqueue, restoring the caller's DB settings."""
-    remaining = deadline-time.monotonic()
-    if remaining <= 0:
-        raise TimeoutError('recording recovery budget exhausted')
-    timeout = str(max(1,min(RECORDING_RECOVERY_DB_TIMEOUT_MS,int(remaining*1000))))+'ms'
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT current_setting('statement_timeout'),current_setting('lock_timeout')")
-            previous = cursor.fetchone()
-            cursor.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",[timeout,timeout])
-        yield
-        # A failure rolls back this savepoint/transaction and its LOCAL values.
-        # On success restore explicitly, including callers with an outer tx.
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT set_config('statement_timeout',%s,true),set_config('lock_timeout',%s,true)",previous)
+    from .recovery_db import recovery_database
+    return recovery_database(deadline=deadline, timeout_ms=RECORDING_RECOVERY_DB_TIMEOUT_MS)
 
 
 def _recover_recording_deliveries():
@@ -370,6 +355,38 @@ def _recover_recording_deliveries():
 
     deadline = time.monotonic()+RECORDING_RECOVERY_BUDGET_SECONDS
     now = timezone.now()
+    # Alert before queue work can consume this sweep's finite budget.
+    stale_cutoff = now - timedelta(
+        seconds=settings.DYTE_RECORDING_STUCK_AFTER_SECONDS)
+    # `RECORDING DOWNLOAD RETRY EXHAUSTED` is the immediate terminal-failure
+    # signal. This CRITICAL signal is specifically for staleness, so a fresh
+    # terminal 400 must still age past the threshold before it is called
+    # "stuck"; retry_exhausted_at is not an age substitute.
+    stuck_candidates = RecordingDelivery.objects.filter(
+        completed_at__isnull=True,
+        stuck_alerted_at__isnull=True,
+        recovery_started_at__lte=stale_cutoff,
+    ).filter(
+        Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now),
+    )
+    with _recording_recovery_db(deadline):
+        stuck_ids = list(stuck_candidates.values_list('pk', flat=True))
+        oldest = stuck_candidates.order_by('recovery_started_at').values_list(
+            'recovery_started_at', flat=True).first()
+        stuck_count = RecordingDelivery.objects.filter(
+            pk__in=stuck_ids,
+            stuck_alerted_at__isnull=True,
+        ).update(stuck_alerted_at=now)
+    if stuck_count:
+        from dj.apps.dyte.management.commands.dyte_download_upload import (
+            RECORDING_INGESTION_STUCK_SIGNAL,
+        )
+        logger.error(
+            "%s: incomplete=%d oldest_age_seconds=%d",
+            RECORDING_INGESTION_STUCK_SIGNAL,
+            stuck_count,
+            max(0, round((now - oldest).total_seconds())) if oldest else 0,
+        )
     with _recording_recovery_db(deadline):
         due = list(
             RecordingDelivery.objects.filter(
@@ -405,37 +422,6 @@ def _recover_recording_deliveries():
                 delivery.idempotency_key,
             )
 
-    stale_cutoff = now - timedelta(
-        seconds=settings.DYTE_RECORDING_STUCK_AFTER_SECONDS)
-    # `RECORDING DOWNLOAD RETRY EXHAUSTED` is the immediate terminal-failure
-    # signal. This CRITICAL signal is specifically for staleness, so a fresh
-    # terminal 400 must still age past the threshold before it is called
-    # "stuck"; retry_exhausted_at is not an age substitute.
-    stuck_candidates = RecordingDelivery.objects.filter(
-        completed_at__isnull=True,
-        stuck_alerted_at__isnull=True,
-        recovery_started_at__lte=stale_cutoff,
-    ).filter(
-        Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now),
-    )
-    with _recording_recovery_db(deadline):
-        stuck_ids = list(stuck_candidates.values_list('pk', flat=True))
-        oldest = stuck_candidates.order_by('recovery_started_at').values_list(
-            'recovery_started_at', flat=True).first()
-        stuck_count = RecordingDelivery.objects.filter(
-            pk__in=stuck_ids,
-            stuck_alerted_at__isnull=True,
-        ).update(stuck_alerted_at=now)
-    if stuck_count:
-        from dj.apps.dyte.management.commands.dyte_download_upload import (
-            RECORDING_INGESTION_STUCK_SIGNAL,
-        )
-        logger.error(
-            "%s: incomplete=%d oldest_age_seconds=%d",
-            RECORDING_INGESTION_STUCK_SIGNAL,
-            stuck_count,
-            max(0, round((now - oldest).total_seconds())) if oldest else 0,
-        )
     logger.info(
         "dyte recording recovery sweep: due=%d queued=%d stuck=%d",
         len(due), queued, stuck_count,

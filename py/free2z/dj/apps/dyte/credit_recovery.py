@@ -1,9 +1,10 @@
 """Durable authenticated PPV evidence; credits post only when the ledger permits."""
 import logging
+import time
 from datetime import timedelta
 from decimal import Decimal
 
-from django.db import connection, transaction
+from django.db import transaction
 from django.db.models import Count, Q
 from django.utils import timezone
 
@@ -12,13 +13,15 @@ from dj.apps.events.dispatch import create_durable_event
 from dj.apps.jobs.logs import emit_json_line
 from .models import PpvCreditObservation, PpvCreditDelivery
 from .ppv_credits import settle_credit_delivery
+from .recovery_db import recovery_database
 
 logger = logging.getLogger(__name__)
 MAX_ATTEMPTS = 12
 BATCH_SIZE = 50
+RECOVERY_BUDGET_SECONDS = 30
 
 
-@transaction.atomic
+@recovery_database()
 def capture_observation(*, admission_id, event_key, evidence):
     """Called only after webhook signature and canonical provider proof succeed."""
     observation, created = PpvCreditObservation.objects.get_or_create(
@@ -53,13 +56,10 @@ def _post_observation(observation):
         contributor_id=admission.viewer_id, payee_id=admission.host_id, amount=amount)
 
 
-def attempt_observation(key, *, force=False, raise_failure=False):
+def attempt_observation(key, *, force=False, raise_failure=False, deadline=None):
     """One serialized attempt; failed claims/ledger/events roll back together."""
     failure = None
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute("SET LOCAL statement_timeout='5s'")
-            cursor.execute("SET LOCAL lock_timeout='5s'")
+    with recovery_database(deadline=deadline):
         observation = PpvCreditObservation.objects.select_for_update().get(pk=key)
         if observation.completed_at is not None:
             return True
@@ -95,20 +95,9 @@ def attempt_observation(key, *, force=False, raise_failure=False):
 
 def recover_credit_observations():
     """Bounded durable scan, independent of provider redelivery and queue retries."""
-    with transaction.atomic(), connection.cursor() as cursor:
-        cursor.execute("SET LOCAL statement_timeout='5s'")
-        keys = list(PpvCreditObservation.objects.filter(completed_at__isnull=True,
-            review_required_at__isnull=True, next_retry_at__lte=timezone.now()).order_by(
-            'next_retry_at','provider_key').values_list('pk',flat=True)[:BATCH_SIZE])
-    for key in keys:
-        try:
-            attempt_observation(key)
-        except Exception:
-            emit_json_line(logger, {
-                'alert':'ppv_credit_recovery_required', 'observation_key':key,
-                'reason':'recovery_unavailable'}, 'ERROR', 'PPV credit recovery unavailable')
-    with transaction.atomic(), connection.cursor() as cursor:
-        cursor.execute("SET LOCAL statement_timeout='5s'")
+    deadline = time.monotonic() + RECOVERY_BUDGET_SECONDS
+    # Report age before attempts can consume the batch budget.
+    with recovery_database(deadline=deadline):
         stuck = PpvCreditObservation.objects.filter(completed_at__isnull=True,
             created_at__lte=timezone.now()-timedelta(hours=1)).aggregate(
                 pending_count=Count('pk'), manual_review_count=Count('pk',
@@ -116,4 +105,17 @@ def recover_credit_observations():
     if stuck['pending_count']:
         emit_json_line(logger, {'alert':'ppv_credit_recovery_required', 'reason':'stuck',
             **stuck}, 'ERROR', 'PPV credit evidence requires recovery')
+    with recovery_database(deadline=deadline):
+        keys = list(PpvCreditObservation.objects.filter(completed_at__isnull=True,
+            review_required_at__isnull=True, next_retry_at__lte=timezone.now()).order_by(
+            'next_retry_at','provider_key').values_list('pk',flat=True)[:BATCH_SIZE])
+    for key in keys:
+        if time.monotonic() >= deadline:
+            raise TimeoutError('credit recovery budget exhausted')
+        try:
+            attempt_observation(key, deadline=deadline)
+        except Exception:
+            emit_json_line(logger, {
+                'alert':'ppv_credit_recovery_required', 'observation_key':key,
+                'reason':'recovery_unavailable'}, 'ERROR', 'PPV credit recovery unavailable')
     return len(keys)

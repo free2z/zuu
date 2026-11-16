@@ -355,7 +355,12 @@ created, and retained evidence does not reserve the viewer's credits.
 The existing five-minute `dyte.recover_recording_deliveries` task independently
 recovers recording work and at most 50 due credit observations. Credit retries
 use the captured evidence without provider calls, with exponential backoff up
-to six hours and at most twelve automatic attempts. Failed or exhausted work
+to six hours and at most twelve automatic attempts. Each branch stops starting
+work after its 30-second budget and checks stuck work before processing its
+queue. Database operations have server timeouts and a client watchdog covering
+setup through commit. A lost commit response requires rereading the original
+receipt on a fresh connection; it does not authorize another credit posting.
+Failed or exhausted work
 emits the structured `ppv_credit_recovery_required` alert; observations older
 than one hour also produce a stuck-work signal. Exhausted evidence is retained
 for review. The readonly admin and `ppv_credit_recovery` command expose pending

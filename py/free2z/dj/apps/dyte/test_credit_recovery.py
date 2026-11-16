@@ -1,6 +1,7 @@
 """Committed provider evidence survives financial refusal and has bounded recovery."""
 import io
 import json
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -242,3 +243,91 @@ def test_locked_recording_row_cannot_block_credit_recovery_or_undo_prior_enqueue
     assert good.recovery_queued_at is not None and blocked.recovery_queued_at is None
     assert sql("SELECT count(*) FROM procrastinate_jobs WHERE task_name='dyte.retry_recording_delivery' AND args->>'delivery_id'=%s",[str(good.pk)])[0][0] == 1
     assert sql("SELECT current_setting('statement_timeout'),current_setting('lock_timeout')")[0] == before
+
+
+def test_stalled_recording_setup_reconnects_before_credit_settlement(refused_delivery, monkeypatch):
+    from dj.apps.dyte import tasks
+    from dj.apps.dyte.test_recovery_db import terminate_test_backend
+    observation, host, viewer, _, _ = refused_delivery
+    ready(observation)
+    monkeypatch.setattr(tasks, 'RECORDING_RECOVERY_BUDGET_SECONDS', .25)
+    params = connection.get_connection_params()
+    pids = []
+    def first_query(execute, query, params, many, context):
+        if not pids:
+            pids.append(connection.connection.info.backend_pid)
+            connection.connection.execute("SET statement_timeout='0'")
+            connection.connection.execute('SELECT pg_sleep(2)')
+        return execute(query, params, many, context)
+    started = time.monotonic()
+    try:
+        with connection.execute_wrapper(first_query), pytest.raises((DatabaseError, TimeoutError)):
+            tasks.recover_recording_deliveries(0)
+        assert time.monotonic() - started < 1.5
+        assert_once(observation, host, viewer)
+    finally:
+        if pids:
+            terminate_test_backend(pids[0], params)
+
+
+@pytest.mark.parametrize('after_commit', [False, True])
+def test_credit_commit_response_loss_uses_retained_outcome(refused_delivery, monkeypatch, after_commit):
+    from django.db import connections
+    from dj.apps.dyte import recovery_db
+    from dj.apps.dyte.test_recovery_db import terminate_test_backend
+    observation, host, viewer, _, _ = refused_delivery
+    ready(observation)
+    wrapper = connections['default']
+    params = wrapper.get_connection_params()
+    raw = wrapper.connection
+    pid = raw.info.backend_pid
+    original_commit = wrapper._commit
+    def commit():
+        if after_commit:
+            original_commit()
+        raw.execute("SET statement_timeout='0'")
+        raw.execute('SELECT pg_sleep(2)')
+        if not after_commit:
+            original_commit()
+    monkeypatch.setattr(wrapper, '_commit', commit)
+    monkeypatch.setattr(recovery_db, 'CLIENT_TIMEOUT_SECONDS', .25)
+    started = time.monotonic()
+    try:
+        with pytest.raises((DatabaseError, TimeoutError)):
+            attempt_observation(observation.pk)
+        assert time.monotonic() - started < 1.5
+    finally:
+        monkeypatch.undo()
+        terminate_test_backend(pid, params)
+    observation.refresh_from_db()
+    assert (observation.completed_at is not None) is after_commit
+    assert PpvCreditDelivery.objects.count() == int(after_commit)
+    assert attempt_observation(observation.pk) is True
+    assert_once(observation, host, viewer)
+
+
+def test_stuck_recording_alert_precedes_exhausted_enqueue_budget(refused_delivery, monkeypatch, caplog, settings):
+    from dj.apps.dyte import tasks
+    from dj.apps.dyte.models import RecordingDelivery
+    from dj.apps.dyte.management.commands import dyte_download_upload
+    observation, host, viewer, _, _ = refused_delivery
+    ready(observation)
+    now = timezone.now()
+    stuck = RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), creator=host,
+        recovery_started_at=now-timedelta(seconds=settings.DYTE_RECORDING_STUCK_AFTER_SECONDS+60))
+    for _ in range(3):
+        RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), creator=host,
+            download_url='https://synthetic.invalid/recording',next_retry_at=now-timedelta(minutes=1))
+    original = dyte_download_upload.enqueue_recording_recovery
+    def slow_enqueue(*args):
+        result = original(*args)
+        time.sleep(.15)
+        return result
+    monkeypatch.setattr(tasks, 'RECORDING_RECOVERY_BUDGET_SECONDS', .25)
+    monkeypatch.setattr(dyte_download_upload, 'enqueue_recording_recovery', slow_enqueue)
+    with pytest.raises((DatabaseError, TimeoutError)):
+        tasks.recover_recording_deliveries(0)
+    assert 'RECORDING INGESTION STUCK' in caplog.text
+    stuck.refresh_from_db()
+    assert stuck.stuck_alerted_at is not None
+    assert_once(observation, host, viewer)

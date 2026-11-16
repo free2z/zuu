@@ -3,9 +3,9 @@ import json
 import re
 
 from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
 
 from dj.apps.dyte.credit_recovery import attempt_observation
+from dj.apps.dyte.recovery_db import recovery_database
 from dj.apps.dyte.models import PpvCreditObservation
 from dj.apps.jobs.models import OperatorAction
 from dj.apps.jobs.ops import actor_name
@@ -20,6 +20,7 @@ class Command(BaseCommand):
         parser.add_argument('--money', action='store_true')
         parser.add_argument('--reason')
 
+    @recovery_database()
     def handle(self, *args, **options):
         key = options['key']
         if key is not None and not re.fullmatch('[0-9a-f]{64}', key):
@@ -34,7 +35,7 @@ class Command(BaseCommand):
         if options['execute']:
             if key is None or not options['money'] or not (options['reason'] or '').strip():
                 raise CommandError('execution requires --key, --money and a nonempty --reason')
-            with transaction.atomic():
+            with recovery_database():
                 OperatorAction.objects.create(actor=actor_name(), verb='ppv_credit_retry',
                     job_ids=[], reason=f'observation={key}; {options["reason"].strip()}', dry_run=False)
                 attempt_observation(key, force=True)
