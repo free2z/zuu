@@ -567,6 +567,7 @@ def bind_provider_fixture(settings, meeting, actor, *, role='viewer', canonical=
     """Represent the immutable attribution created by the token-issuance route."""
     from dj.apps.dyte.participant_binding import bind_participant
     settings.RTK_APP_ID = '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'
+    settings.RTK_API_MODE = 'v4'
     return bind_participant(meeting_id=meeting.meeting_id, participant_id=canonical or uuid.uuid4(),
         creator_id=meeting.creator_id, actor_id=actor.pk, role=role,
         custom_id=custom_id or actor.username, start_claim=uuid.uuid4() if role == 'host' else None)

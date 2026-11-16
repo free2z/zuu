@@ -644,6 +644,28 @@ def test_legacy_recording_duplicate_publishes_once(
 
 
 @pytest.mark.django_db
+def test_legacy_recording_claim_and_outbox_roll_back_together(
+    api_client, creator_factory, keypair, mocker,
+):
+    from django.db import connection
+    from dj.apps.dyte import views
+    from dj.apps.jobs.models import OutboxMessage
+    cm = CreatorMeeting.objects.create(creator=creator_factory(), meeting_id=str(uuid.uuid4()))
+    original = views.publish_recording_ready
+    def fail_after_outbox(*args, **kwargs):
+        assert connection.in_atomic_block
+        original(*args, **kwargs)
+        raise RuntimeError('synthetic recording failure')
+    mocker.patch.object(views, 'publish_recording_ready', side_effect=fail_after_outbox)
+    event_id = uuid.uuid4()
+    with pytest.raises(RuntimeError, match='synthetic recording failure'):
+        _post(api_client, keypair[0], _legacy_recording_payload(cm), event_id,
+            url=LEGACY_URL, drain=False)
+    assert not WebhookDelivery.objects.filter(pk=event_id).exists()
+    assert not OutboxMessage.objects.exists()
+
+
+@pytest.mark.django_db
 def test_general_and_legacy_endpoints_share_recording_business_key(
     api_client, creator_factory, keypair, webhook_boundaries,
 ):

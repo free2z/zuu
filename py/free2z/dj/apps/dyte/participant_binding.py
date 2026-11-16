@@ -5,7 +5,7 @@ import uuid
 from django.conf import settings
 from django.db import DatabaseError, transaction
 
-from .client import DyteClient, ProviderInvalidResponse
+from .client import AUTH_MODE_V4, DyteClient, ProviderInvalidResponse, resolve_auth_mode
 from .models import ProviderParticipantBinding
 
 
@@ -22,13 +22,22 @@ class ParticipantIdentity:
     bound: bool = False
 
 
+def current_provider_app_id():
+    """Use the same effective app/organization as the control-plane client."""
+    value = settings.RTK_APP_ID if resolve_auth_mode() == AUTH_MODE_V4 else settings.DYTE_ORG
+    try:
+        return uuid.UUID(value)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise ParticipantIdentityUnproven('provider_app_identity_unavailable') from exc
+
+
 def bind_participant(*, meeting_id, participant_id, creator_id, actor_id,
         role, custom_id, start_claim=None):
     try:
         if (not isinstance(meeting_id, (str, uuid.UUID)) or not 1 <= len(str(meeting_id)) <= 64
                 or not isinstance(participant_id, (str, uuid.UUID)) or not 1 <= len(str(participant_id)) <= 128):
             raise ValueError('missing provider identity')
-        key = {'app_id': uuid.UUID(settings.RTK_APP_ID),
+        key = {'app_id': current_provider_app_id(),
             'meeting_id': str(meeting_id), 'participant_id': str(participant_id)}
     except (ValueError, TypeError, AttributeError) as exc:
         raise ProviderInvalidResponse() from exc
@@ -52,7 +61,7 @@ def resolve_participant(event_data, cm):
         raise ParticipantIdentityUnproven('provider_participant_evidence_mismatch')
     canonical = evidence['user_id']
     binding = ProviderParticipantBinding.objects.filter(
-        app_id=settings.RTK_APP_ID, meeting_id=event_data.meeting.id,
+        app_id=current_provider_app_id(), meeting_id=event_data.meeting.id,
         participant_id=canonical).first()
     if binding is not None:
         if (binding.creator_id != cm.creator_id

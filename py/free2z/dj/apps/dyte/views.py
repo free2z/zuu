@@ -66,7 +66,7 @@ from .models import (
 )
 from .host_identity import host_participant_identity
 from .participant_binding import (
-    ParticipantIdentity, ParticipantIdentityUnproven, bind_participant, resolve_participant,
+    ParticipantIdentity, ParticipantIdentityUnproven, bind_participant, current_provider_app_id, resolve_participant,
 )
 from .webhook_reader import reader_probe
 from .host_presence import HOST_PRESENCE_FIELDS, PresenceUpdate, clear_host_presence, record_host_presence
@@ -1306,8 +1306,12 @@ def _observe_bound_host_departure(cm, event_data):
         canonical = uuid.UUID(cm.host_participant_id)
     except (ValueError, TypeError):
         return
+    try:
+        app_id = current_provider_app_id()
+    except ParticipantIdentityUnproven:
+        return
     binding = ProviderParticipantBinding.objects.filter(
-        app_id=settings.RTK_APP_ID, meeting_id=event_data.meeting.id,
+        app_id=app_id, meeting_id=event_data.meeting.id,
         participant_id=canonical, creator_id=cm.creator_id, actor_id=cm.creator_id,
         role=HOST_ROLE, custom_participant_id=participant.customParticipantId,
         start_claim=cm.start_id).first()

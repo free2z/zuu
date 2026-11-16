@@ -99,9 +99,13 @@ def test_retired_real_host_is_not_charged_to_account_with_same_custom_name(
 
 
 @pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize('mode', ['v4', 'v2'])
 def test_known_host_departure_commits_before_provider_timeout(
-    api_client, creator_factory, provider, keypair, mocker, request,
+    api_client, creator_factory, provider, keypair, mocker, request, settings, mode,
 ):
+    settings.RTK_API_MODE = mode
+    settings.DYTE_ORG = str(uuid.uuid4())
+    settings.DYTE_KEY = 'synthetic-v2-key'
     host = creator_factory(username='timeout-host', tuzis=1000)
     # Procrastinate's unmanaged jobs are not included in Django's test flush.
     def cleanup_jobs():
@@ -301,3 +305,26 @@ def test_legacy_provider_host_requires_retained_canonical_evidence_and_cannot_op
     host.refresh_from_db()
     other.refresh_from_db()
     assert host.tuzis == other.tuzis == Decimal('1000')
+
+
+@pytest.mark.parametrize('mode', ['auto', 'v2'])
+def test_binding_scope_follows_resolved_v2_app_despite_other_v4_configuration(
+    api_client, creator_factory, provider, keypair, settings, mode,
+):
+    from dj.apps.dyte.client import resolve_auth_mode
+    settings.RTK_API_MODE = mode
+    settings.DYTE_ORG = str(uuid.uuid4())
+    settings.DYTE_KEY = 'synthetic-v2-key'
+    if mode == 'auto':
+        settings.RTK_APP_ID = ''
+        settings.RTK_API_TOKEN = ''
+    else:
+        settings.RTK_APP_ID = str(uuid.uuid4())
+    assert resolve_auth_mode() == 'v2'
+    host = creator_factory(tuzis=1000)
+    cm, _, _, _ = go_live(api_client, host, provider, keypair, 'broadcast')
+    binding = ProviderParticipantBinding.objects.get(creator=host, role='host')
+    assert binding.app_id == uuid.UUID(settings.DYTE_ORG)
+    assert str(binding.app_id) != settings.RTK_APP_ID
+    assert cm.lifecycle_state == 'live'
+    assert cm.host_peer_id is not None
