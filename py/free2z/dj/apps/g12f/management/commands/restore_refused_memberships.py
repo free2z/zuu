@@ -224,9 +224,17 @@ def _conflicts(sub, expected, now):
             amount__gt=0, created_at__gte=boundary,
     ).exists():
         conflicts.append('payment_event_at_or_after_cycle_boundary')
+    # Only a payment to this membership's creator is an intervening purchase
+    # or renewal. ``Subscription.extend`` posts it through
+    # ``ledger.transfer_users``: every leg debits the fan's user account and
+    # credits an account the creator owns (``user``, or ``user_debt`` for the
+    # debt-repay leg), with ``ref_kind='subscription'`` and an empty
+    # ``ref_id``. The fan's memberships to other creators are not conflicts.
     fan_accounts = Account.objects.filter(owner_id=sub.fan_id).values('pk')
+    star_accounts = Account.objects.filter(owner_id=sub.star_id).values('pk')
     if Transfer.objects.filter(
             debit_account_id__in=fan_accounts,
+            credit_account_id__in=star_accounts,
             ref_kind='subscription', created_at__gte=boundary,
     ).exists():
         conflicts.append('subscription_transfer_at_or_after_cycle_boundary')
