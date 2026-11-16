@@ -3,7 +3,8 @@ from enum import Enum
 
 from django.utils import timezone
 
-HOST_PRESENCE_FIELDS = ('host_peer_id', 'host_joined_at', 'host_left_at')
+HOST_PRESENCE_FIELDS = ('host_peer_id', 'host_joined_at', 'host_left_at',
+    'host_presence_session_id', 'host_presence_session_started_at')
 
 
 class PresenceUpdate(Enum):
@@ -24,11 +25,15 @@ def host_generation_is_bound(meeting):
 
 def host_is_present(meeting):
     return (host_generation_is_bound(meeting)
+        and meeting.host_presence_session_id is not None
+        and meeting.host_presence_session_id == meeting.provider_session_id
+        and meeting.host_presence_session_started_at is not None
+        and meeting.host_presence_session_started_at == meeting.provider_session_started_at
         and meeting.host_peer_id is not None and meeting.host_joined_at is not None
         and meeting.host_left_at is None and meeting.host_start_claim is None)
 
 
-def record_host_presence(meeting, participant, *, departed):
+def record_host_presence(meeting, participant, *, departed, session_id, session_started_at):
     """Apply one peer generation; a leave is terminal for that exact join.
 
     Call only after locking the meeting and verifying owner, start claim and
@@ -47,6 +52,13 @@ def record_host_presence(meeting, participant, *, departed):
             return PresenceUpdate.IGNORED
     elif left_at is not None:
         return PresenceUpdate.IGNORED
+    if (meeting.host_presence_session_id != session_id
+            or meeting.host_presence_session_started_at != session_started_at):
+        # An old application may already have advanced the room session. Its
+        # retained peer timestamp cannot order a callback in this new session.
+        clear_host_presence(meeting)
+    meeting.host_presence_session_id = session_id
+    meeting.host_presence_session_started_at = session_started_at
     if meeting.host_joined_at is not None:
         if joined_at < meeting.host_joined_at:
             return PresenceUpdate.IGNORED

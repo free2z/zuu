@@ -255,7 +255,7 @@ def test_late_meeting_ended_from_previous_session_keeps_room_live(
     ended = _post(
         api_client, private_key,
         _lifecycle('meeting.ended', broadcast.meeting_id, 'Big_dre',
-                   session_id=session_a),
+                   session_id=session_a, started_at='2026-09-07T17:53:51Z'),
     )
 
     assert started.status_code == 200
@@ -269,7 +269,7 @@ def test_late_meeting_ended_from_previous_session_keeps_room_live(
     ('2026-09-07T17:53:52Z', '2026-09-07T17:53:51Z'),
     ('2026-09-07T17:53:52Z', '2026-09-07T17:53:52Z'),
 ])
-def test_late_or_tied_meeting_started_cannot_replace_current_session(
+def test_late_start_is_ignored_and_tied_distinct_start_closes_ambiguous_session(
     api_client, keypair, broadcast, current_started_at, incoming_started_at,
 ):
     private_key, _ = keypair
@@ -291,8 +291,12 @@ def test_late_or_tied_meeting_started_cannot_replace_current_session(
 
     assert response.status_code == 200
     broadcast.refresh_from_db()
-    assert broadcast.live_now is True
-    assert broadcast.provider_session_id == current_session
+    if current_started_at == incoming_started_at:
+        assert broadcast.live_now is False
+        assert broadcast.provider_session_id is None
+    else:
+        assert broadcast.live_now is True
+        assert broadcast.provider_session_id == current_session
     assert broadcast.provider_session_started_at.isoformat().startswith(
         '2026-09-07T17:53:52'
     )
@@ -378,23 +382,27 @@ def test_replacing_room_resets_recorded_provider_session(
     assert broadcast.provider_session_started_at is None
 
 
-def test_end_with_unknown_recorded_session_preserves_fresh_seat(
+def test_end_with_unknown_recorded_session_closes_room_but_preserves_fresh_seat(
     api_client, keypair, broadcast,
 ):
     private_key, _ = keypair
+    seat, ended_session = uuid.uuid4(), uuid.uuid4()
     CreatorMeeting.objects.filter(pk=broadcast.pk).update(
-        live_now=True, provider_session_id=None, host_session_id=uuid.uuid4(),
+        live_now=True, provider_session_id=None, host_session_id=seat,
         host_session_seen_at=timezone.now(),
     )
     api_client.force_authenticate(user=None)
     response = _post(
         api_client, private_key,
         _lifecycle('meeting.ended', broadcast.meeting_id, 'Big_dre',
-                   session_id=uuid.uuid4()),
+                   session_id=ended_session),
     )
     assert response.status_code == 200
     broadcast.refresh_from_db()
-    assert broadcast.live_now is True
+    assert broadcast.live_now is False
+    assert broadcast.lifecycle_state == 'offline'
+    assert broadcast.provider_session_id == ended_session
+    assert broadcast.host_session_id == seat
 
 
 # --------------------------------------------------------------------------

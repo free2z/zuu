@@ -108,6 +108,12 @@ class CreatorMeeting(models.Model):
     host_presence_participant_id = models.CharField(
         max_length=128, null=True, blank=True, editable=False,
     )
+    # Older callbacks can advance the room session without clearing presence.
+    # Bind the proof to the exact provider session it actually observed.
+    host_presence_session_id = models.UUIDField(null=True, blank=True, editable=False)
+    host_presence_session_started_at = models.DateTimeField(
+        null=True, blank=True, editable=False,
+    )
     # Private room creation is a lease: the provider room can be attached
     # before the HTTP response reaches the browser.  These fields let the
     # server distinguish an unadopted response-loss lease from a room that a

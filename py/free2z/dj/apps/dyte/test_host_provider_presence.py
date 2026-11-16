@@ -2,6 +2,7 @@
 import json
 import uuid
 from datetime import datetime, timedelta
+from itertools import permutations
 
 import pytest
 from django.utils import timezone
@@ -239,7 +240,82 @@ def test_old_pod_participant_replacement_invalidates_presence_and_old_callbacks(
     assert ServiceAdmission.objects.count() == 1
 
 
-@pytest.mark.parametrize('missing', ['host_peer_id', 'host_joined_at', 'host_presence_participant_id'])
+def test_old_pod_session_advance_cannot_reuse_an_absent_host_projection(api_client, actors, provider, keypair):
+    host, viewer = actors
+    cm, original_meeting, participant, session = live_host(api_client, host, provider, keypair)
+    assert viewer_join(api_client, viewer, host).status_code == 200
+    # Exact legacy callback writes: ended clears only public room presence;
+    # a viewer's new session then advances only the provider session fields.
+    CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+    meeting = dict(original_meeting, sessionId=str(uuid.uuid4()),
+        startedAt=(datetime.fromisoformat(original_meeting['startedAt']) + timedelta(seconds=10)).isoformat())
+    CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=True,
+        provider_session_id=meeting['sessionId'],
+        provider_session_started_at=datetime.fromisoformat(meeting['startedAt']))
+    assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+    assert_unavailable(api_client, viewer, host)
+    assert event(api_client, keypair, original_meeting, 'meeting.participantLeft', departure(participant, 20)).status_code == 200
+    assert_unavailable(api_client, viewer, host)
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(participant, 30)).status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
+
+
+@pytest.mark.parametrize('late_leave', [False, True])
+def test_old_pod_end_remains_terminal_for_same_session_callbacks(api_client, actors, provider, keypair, late_leave):
+    host, viewer = actors
+    cm, meeting, participant, session = live_host(api_client, host, provider, keypair)
+    CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+    if late_leave:
+        assert event(api_client, keypair, meeting, 'meeting.participantLeft', departure(participant)).status_code == 200
+    assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(participant, 2)).status_code == 200
+    cm.refresh_from_db()
+    assert not cm.live_now
+    assert viewer_join(api_client, viewer, host).status_code == 404
+
+
+def test_old_pod_end_after_departure_blocks_delayed_replacement_join(api_client, actors, provider, keypair):
+    host, viewer = actors
+    cm, meeting, participant, _ = live_host(api_client, host, provider, keypair)
+    assert event(api_client, keypair, meeting, 'meeting.participantLeft', departure(participant)).status_code == 200
+    cm.refresh_from_db()
+    assert cm.lifecycle_state == LIFECYCLE_STARTING
+    CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+    replacement = rejoin(participant, 2)
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', replacement).status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 404
+
+
+def test_new_session_departure_before_started_preserves_tombstone_and_can_rejoin(api_client, actors, provider, keypair):
+    host, viewer = actors
+    cm, old_meeting, participant, _ = live_host(api_client, host, provider, keypair)
+    CreatorMeeting.objects.filter(pk=cm.pk).update(live_now=False)
+    meeting = dict(old_meeting, sessionId=str(uuid.uuid4()),
+        startedAt=(datetime.fromisoformat(old_meeting['startedAt']) + timedelta(seconds=10)).isoformat())
+    first = rejoin(participant, 11)
+    assert event(api_client, keypair, meeting, 'meeting.participantLeft', departure(first)).status_code == 200
+    assert event(api_client, keypair, meeting, 'meeting.started').status_code == 200
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', first).status_code == 200
+    assert_unavailable(api_client, viewer, host)
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(participant, 13)).status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
+
+
+def test_old_pod_same_session_start_time_change_invalidates_projection(api_client, actors, provider, keypair):
+    host, viewer = actors
+    cm, meeting, participant, _ = live_host(api_client, host, provider, keypair)
+    changed = datetime.fromisoformat(meeting['startedAt']) + timedelta(milliseconds=1)
+    CreatorMeeting.objects.filter(pk=cm.pk).update(provider_session_started_at=changed)
+    assert_unavailable(api_client, viewer, host)
+    # A callback can rebuild the session proof only when it agrees with the
+    # current room's full provider session tuple.
+    corrected = dict(meeting, startedAt=changed.isoformat())
+    assert event(api_client, keypair, corrected, 'meeting.participantJoined', rejoin(participant, 2)).status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
+
+
+@pytest.mark.parametrize('missing', ['host_peer_id', 'host_joined_at', 'host_presence_participant_id',
+    'host_presence_session_id', 'host_presence_session_started_at'])
 def test_null_provider_projection_never_inherits_live_readiness(api_client, actors, provider, keypair, missing):
     host, viewer = actors
     cm, _, _, _ = live_host(api_client, host, provider, keypair)
@@ -258,6 +334,97 @@ def test_ended_session_departure_cannot_enable_a_delayed_join(api_client, actors
     cm.refresh_from_db()
     assert cm.lifecycle_state == 'offline' and not cm.live_now
     assert viewer_join(api_client, viewer, host).status_code == 404
+
+
+@pytest.mark.parametrize('known_session', [False, True])
+@pytest.mark.parametrize('delivery_order', list(permutations(('started', 'participantJoined', 'participantLeft', 'ended'))))
+def test_completed_session_delivery_order_cannot_reopen_paid_admission(
+        api_client, actors, provider, keypair, known_session, delivery_order):
+    host, viewer = actors
+    cm, initial, participant, session = live_host(api_client, host, provider, keypair, announce=known_session)
+    meeting = dict(initial, sessionId=str(uuid.uuid4()),
+        startedAt=(datetime.fromisoformat(initial['startedAt']) + timedelta(seconds=10)).isoformat()) if known_session else initial
+    current = rejoin(participant, 11) if known_session else participant
+    for kind in delivery_order:
+        observed = departure(current) if kind == 'participantLeft' else current
+        assert event(api_client, keypair, meeting, f'meeting.{kind}', observed).status_code == 200
+    assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+    cm.refresh_from_db()
+    assert not cm.live_now and cm.lifecycle_state == 'offline'
+    assert str(cm.provider_session_id) == meeting['sessionId']
+    assert viewer_join(api_client, viewer, host).status_code == 404
+    assert not ServiceAdmission.objects.exists()
+    later = dict(meeting, sessionId=str(uuid.uuid4()),
+        startedAt=(datetime.fromisoformat(meeting['startedAt']) + timedelta(seconds=20)).isoformat())
+    assert event(api_client, keypair, later, 'meeting.participantJoined', rejoin(current, 21)).status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
+
+
+@pytest.mark.parametrize('kind', ['meeting.participantJoined', 'meeting.participantLeft'])
+def test_nonhost_new_session_observation_closes_old_paid_presence(api_client, actors, provider, keypair, kind):
+    from dj.apps.economy.services import EconomicRefusal
+    host, viewer = actors
+    _, initial, host_participant, session = live_host(api_client, host, provider, keypair)
+    meeting = dict(initial, sessionId=str(uuid.uuid4()),
+        startedAt=(datetime.fromisoformat(initial['startedAt']) + timedelta(seconds=10)).isoformat())
+    participant = dict(rejoin(host_participant, 11), customParticipantId=viewer.username)
+    if kind.endswith('Left'):
+        # The unknown viewer's financial refusal cannot roll back the signed
+        # room observation and resurrect readiness from the previous session.
+        with pytest.raises(EconomicRefusal, match='livestream_delivery_integration_unavailable'):
+            event(api_client, keypair, meeting, kind, departure(participant))
+    else:
+        assert event(api_client, keypair, meeting, kind, participant).status_code == 200
+    assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+    assert_unavailable(api_client, viewer, host)
+    assert not ServiceAdmission.objects.exists()
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(host_participant, 12)).status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
+
+
+@pytest.mark.parametrize('kind', ['meeting.started', 'meeting.ended', 'meeting.participantJoined', 'meeting.participantLeft'])
+def test_equal_start_distinct_sessions_close_until_strictly_later_session(api_client, actors, provider, keypair, kind):
+    host, viewer = actors
+    cm, original, participant, session = live_host(api_client, host, provider, keypair)
+    ambiguous = dict(original, sessionId=str(uuid.uuid4()))
+    observed = departure(participant) if kind.endswith('Left') else participant
+    assert event(api_client, keypair, ambiguous, kind, observed).status_code == 200
+    for meeting in (original, ambiguous, original):
+        assert event(api_client, keypair, meeting, 'meeting.started').status_code == 200
+        assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(participant, 2)).status_code == 200
+        assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+        assert viewer_join(api_client, viewer, host).status_code == 404
+    cm.refresh_from_db()
+    assert cm.provider_session_id is None
+    assert cm.provider_session_started_at == datetime.fromisoformat(original['startedAt'])
+    later = dict(original, sessionId=str(uuid.uuid4()),
+        startedAt=(datetime.fromisoformat(original['startedAt']) + timedelta(seconds=10)).isoformat())
+    assert event(api_client, keypair, later, 'meeting.participantJoined', rejoin(participant, 11)).status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
+
+
+@pytest.mark.parametrize('intervening', ['ended', 'newer'])
+def test_room_observation_between_dispatch_and_host_handler_cannot_be_overwritten(
+        api_client, actors, provider, keypair, mocker, intervening):
+    from dj.apps.dyte import views
+    from dj.apps.dyte.types import WebhookEvent
+    host, viewer = actors
+    cm, meeting, participant, _ = live_host(api_client, host, provider, keypair)
+    observe = views._observe_provider_session
+
+    def interleave(**kwargs):
+        observe(**kwargs)
+        advanced = meeting if intervening == 'ended' else dict(meeting, sessionId=str(uuid.uuid4()),
+            startedAt=(datetime.fromisoformat(meeting['startedAt']) + timedelta(seconds=10)).isoformat())
+        observe(cm=cm, event_data=WebhookEvent.model_validate({
+            'event': 'meeting.ended' if intervening == 'ended' else 'meeting.started', 'meeting': advanced}))
+
+    mocker.patch.object(views, '_observe_provider_session', side_effect=interleave)
+    assert event(api_client, keypair, meeting, 'meeting.participantJoined', rejoin(participant, 2)).status_code == 200
+    if intervening == 'ended':
+        assert viewer_join(api_client, viewer, host).status_code == 404
+    else:
+        assert_unavailable(api_client, viewer, host)
 
 
 @pytest.mark.parametrize('invalid', ['naive', 'before_join'])
@@ -325,6 +492,7 @@ def test_nullable_presence_migration_preserves_old_pod_inserts_without_fabricati
             meeting = CreatorMeeting.objects.get(pk=pk)
             assert meeting.host_peer_id is None and meeting.host_joined_at is None and meeting.host_left_at is None
             assert meeting.host_presence_participant_id is None
+            assert meeting.host_presence_session_id is None and meeting.host_presence_session_started_at is None
             assert not host_is_present(meeting)
         retained = CreatorMeeting.objects.get(pk=before.pk)
         assert retained.live_now and retained.lifecycle_state == 'live'

@@ -8,6 +8,14 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
+            model_name='creatormeeting', name='host_presence_session_id',
+            field=models.UUIDField(null=True, blank=True, editable=False),
+        ),
+        migrations.AddField(
+            model_name='creatormeeting', name='host_presence_session_started_at',
+            field=models.DateTimeField(null=True, blank=True, editable=False),
+        ),
+        migrations.AddField(
             model_name='creatormeeting', name='host_presence_participant_id',
             field=models.CharField(max_length=128, null=True, blank=True, editable=False),
         ),
