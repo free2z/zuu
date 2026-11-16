@@ -537,8 +537,8 @@ for (const code of [
         .getByRole("main")
         .getByText(
           code === "livestream_credit_integration_unavailable"
-            ? "Stream startup is temporarily unavailable. Please try again shortly."
-            : "Failed to join stream.",
+            ? "⚠️ Stream startup is temporarily unavailable. Please try again shortly."
+            : "⚠️ Failed to join stream.",
           { exact: true },
         ),
     ).toBeVisible();
