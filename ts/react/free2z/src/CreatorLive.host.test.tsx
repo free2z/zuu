@@ -11,13 +11,21 @@ const mockState = jest.fn();
 let mockActor = { id: 41, username: "Alice", can_stream: true };
 let mockParams = { id: "Alice", type: "ppv" };
 let mockEpoch = 0;
+let mockProvidedMeeting: any;
 jest.mock("@cloudflare/realtimekit", () => ({
   __esModule: true,
   default: { init: (...args: any[]) => mockInit(...args) },
 }));
 jest.mock("@cloudflare/realtimekit-react", () => ({
   useRealtimeKitClient: () => [null, mockViewerInit],
-  RealtimeKitProvider: ({ children }: any) => children,
+  RealtimeKitProvider: ({ children, value }: any) => {
+    mockProvidedMeeting = value;
+    return children;
+  },
+  useRealtimeKitMeeting: () => ({ meeting: mockProvidedMeeting }),
+}));
+jest.mock("@cloudflare/realtimekit-react-ui", () => ({
+  RtkMeeting: () => null,
 }));
 jest.mock("react-helmet-async", () => ({
   Helmet: ({ children }: any) => children,
@@ -27,7 +35,6 @@ jest.mock("./hooks/useTransitionNavigate", () => ({
   useTransitionNavigate: () => mockNavigate,
 }));
 jest.mock("./components/DyteLeave", () => () => null);
-jest.mock("./components/DyteCreator", () => () => null);
 jest.mock("./components/SubscribeToCreator", () => () => null);
 jest.mock("./state/persist", () => ({ useStoreState: () => "23.00" }));
 jest.mock("./state/global", () => ({
@@ -53,7 +60,7 @@ const mockFetch = jest.fn();
 const originalFetch = globalThis.fetch;
 function client() {
   const listeners = new Set<(event: { state: string }) => void>();
-  const handoffs = new Set<(next: any) => void>();
+  const handoffs = new Map<string, Set<(next?: any) => void>>();
   return {
     leave: jest.fn().mockResolvedValue(undefined),
     self: {
@@ -61,11 +68,17 @@ function client() {
       removeListener: jest.fn((_event, fn) => listeners.delete(fn)),
     },
     connectedMeetings: {
-      on: jest.fn((_event, fn) => handoffs.add(fn)),
-      removeListener: jest.fn((_event, fn) => handoffs.delete(fn)),
+      on: jest.fn((event, fn) => {
+        if (!handoffs.has(event)) handoffs.set(event, new Set());
+        handoffs.get(event)!.add(fn);
+      }),
+      removeListener: jest.fn((event, fn) => handoffs.get(event)?.delete(fn)),
     },
     emit: (state: string) => listeners.forEach((fn) => fn({ state })),
-    handoff: (next: any) => handoffs.forEach((fn) => fn(next)),
+    changing: () => handoffs.get("changingMeeting")?.forEach((fn) => fn()),
+    handoff: (next: any) =>
+      handoffs.get("meetingChanged")?.forEach((fn) => fn(next)),
+    pendingHandoffListeners: () => handoffs.get("meetingChanged")?.size ?? 0,
   };
 }
 let meeting: ReturnType<typeof client>;
@@ -94,6 +107,7 @@ beforeEach(() => {
   mockActor = { id: 41, username: "Alice", can_stream: true };
   mockParams = { id: "Alice", type: "ppv" };
   mockEpoch = 0;
+  mockProvidedMeeting = null;
   meeting = client();
   mockInit.mockResolvedValue(meeting);
   mockViewerInit.mockResolvedValue({});
@@ -283,9 +297,12 @@ test("connected-meeting handoff transfers media cleanup while retaining the same
   const view = render(<CreatorLive />);
   await flush();
   await act(async () => {
+    meeting.changing();
     meeting.emit("connected-meeting");
-    meeting.handoff(next);
   });
+  await flush(50);
+  expect(mockNavigate).not.toHaveBeenCalled();
+  await act(async () => meeting.handoff(next));
   await flush(100);
   await flush(15_000);
   expect(calls("release")).toHaveLength(0);
@@ -295,6 +312,31 @@ test("connected-meeting handoff transfers media cleanup while retaining the same
   expect(meeting.leave).not.toHaveBeenCalled();
   expect(calls("release")).toHaveLength(1);
 });
+
+test.each(["unmount", "authentication"])(
+  "cancelled pending handoff on %s stops old media and disposes its eventual replacement",
+  async (reason) => {
+    const next = client();
+    const view = render(<CreatorLive />);
+    await flush();
+    await act(async () => {
+      meeting.changing();
+      meeting.emit("connected-meeting");
+    });
+    if (reason === "unmount") view.unmount();
+    else {
+      mockEpoch++;
+      view.rerender(<CreatorLive />);
+    }
+    await flush();
+    expect(meeting.leave).toHaveBeenCalledTimes(1);
+    await act(async () => meeting.handoff(next));
+    await flush(100);
+    expect(next.leave).toHaveBeenCalledTimes(1);
+    expect(meeting.pendingHandoffListeners()).toBe(0);
+    expect(calls("release")).toHaveLength(reason === "unmount" ? 1 : 0);
+  }
+);
 
 test("account switch stops the old lease without using the new actor for release", async () => {
   const view = render(<CreatorLive />);

@@ -14,14 +14,13 @@ export type HostClient = {
     ) => void;
   };
   connectedMeetings?: {
-    on: (
+    on(event: "meetingChanged", listener: (client: HostClient) => void): void;
+    on(event: "changingMeeting", listener: () => void): void;
+    removeListener(
       event: "meetingChanged",
       listener: (client: HostClient) => void
-    ) => void;
-    removeListener: (
-      event: "meetingChanged",
-      listener: (client: HostClient) => void
-    ) => void;
+    ): void;
+    removeListener(event: "changingMeeting", listener: () => void): void;
   };
 };
 
@@ -60,6 +59,7 @@ export function createHostSeat({
   let pending = false;
   let left = false;
   let handoff: ReturnType<typeof setTimeout> | undefined;
+  let handoffPending = false;
   const current = () => isCurrent() && isIntentCurrent();
   const release = () => {
     // Cookie credentials belong to the current actor. Never send an old
@@ -83,8 +83,8 @@ export function createHostSeat({
       .catch(() => {})
       .finally(() => clearTimeout(timeout));
   };
-  const leave = (target = client) => {
-    if (!target || (target === client && left)) return;
+  const leave = (target = client, force = false) => {
+    if (!target || (target === client && left && !force)) return;
     if (target === client) left = true;
     void target.leave().catch(() => {});
   };
@@ -97,7 +97,22 @@ export function createHostSeat({
     window.removeEventListener("pagehide", pageHide);
     client?.self.removeListener("roomLeft", roomLeft);
     client?.connectedMeetings?.removeListener("meetingChanged", meetingChanged);
-    leave();
+    client?.connectedMeetings?.removeListener(
+      "changingMeeting",
+      changingMeeting
+    );
+    if (handoffPending && client?.connectedMeetings) {
+      // Core preserves media across its async switch and has no switch-failed
+      // event. Keep only disposal on that emitter until a replacement arrives;
+      // no global listener or timer keeps an abandoned emitter alive.
+      const source = client.connectedMeetings;
+      const dispose = (next: HostClient) => {
+        source.removeListener("meetingChanged", dispose);
+        leave(next);
+      };
+      source.on("meetingChanged", dispose);
+    }
+    leave(client, handoffPending);
     if (giveBack) release();
     onClosed();
   };
@@ -106,21 +121,36 @@ export function createHostSeat({
       left = true;
       close();
     } else if (state === "failed") close();
-    else if (state === "connected-meeting") left = true;
+    else if (state === "connected-meeting") {
+      left = true;
+      handoffPending = true;
+    }
     // A disconnected socket keeps ownership while RTK reconnects.
   };
+  const changingMeeting = () => {
+    handoffPending = true;
+    if (!current()) close();
+  };
   const meetingChanged = (next: HostClient) => {
+    const wasPending = handoffPending;
+    handoffPending = false;
     if (closed || !current()) {
       leave(next);
+      if (wasPending) leave(client, true);
       close();
       return;
     }
     client?.self.removeListener("roomLeft", roomLeft);
     client?.connectedMeetings?.removeListener("meetingChanged", meetingChanged);
+    client?.connectedMeetings?.removeListener(
+      "changingMeeting",
+      changingMeeting
+    );
     client = next;
     left = false;
     next.self.on("roomLeft", roomLeft);
     next.connectedMeetings?.on("meetingChanged", meetingChanged);
+    next.connectedMeetings?.on("changingMeeting", changingMeeting);
     onClosed();
     clearTimeout(handoff);
     handoff = setTimeout(() => {
@@ -197,6 +227,7 @@ export function createHostSeat({
       client = initialized;
       client.self.on("roomLeft", roomLeft);
       client.connectedMeetings?.on("meetingChanged", meetingChanged);
+      client.connectedMeetings?.on("changingMeeting", changingMeeting);
       onReady(client);
     } catch (error) {
       const report = !closed && current();

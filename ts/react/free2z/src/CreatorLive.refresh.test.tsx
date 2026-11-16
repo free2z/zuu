@@ -42,6 +42,22 @@ Object.defineProperty(globalThis, "crypto", {
   value: require("crypto").webcrypto,
 });
 const http = axios as jest.Mocked<typeof axios>;
+// Load the application's actual response interceptor. Use its registered
+// callbacks with real Axios dispatch, rather than assuming its error shape.
+require("./CreatorLoginModal");
+const responseInterceptor = (
+  http.interceptors.response.use as jest.Mock
+).mock.calls.at(-1)!;
+const actualAxios = jest.requireActual("axios");
+function interceptedFailure(error: unknown) {
+  const client = actualAxios.create({
+    adapter: async () => {
+      throw error;
+    },
+  });
+  client.interceptors.response.use(...responseInterceptor);
+  return client.get("/synthetic-profile");
+}
 const mockFetch = jest.fn();
 const originalFetch = globalThis.fetch;
 const alice = {
@@ -322,3 +338,54 @@ test.each([bob, { ...alice, username: "RenamedAlice" }])(
     expect(meeting.leave).toHaveBeenCalledTimes(1);
   }
 );
+
+test.each([401, 403, 500, undefined])(
+  "actual Axios interceptor profile error %s preserves the intended authentication boundary",
+  async (status) => {
+    mount();
+    await flush();
+    http.get.mockImplementationOnce(() =>
+      interceptedFailure(
+        status ? { response: { status } } : new Error("offline")
+      )
+    );
+    await act(async () => {
+      await queryClient.invalidateQueries("creatorData");
+    });
+    await flush();
+    for (let i = 0; i < 5; i++) await flush(15_000);
+    const denied = status === 401 || status === 403;
+    expect(getGlobalState("authStatus")).toBe(!denied);
+    expect(meeting.leave).toHaveBeenCalledTimes(denied ? 1 : 0);
+    expect(calls("heartbeat")).toHaveLength(denied ? 1 : 6);
+  }
+);
+
+test("an actual Axios network rejection after logout cannot reauthenticate cached identity", async () => {
+  mount();
+  await flush();
+  let reject!: (error: Error) => void;
+  const client = actualAxios.create({
+    adapter: () =>
+      new Promise((_done, fail) => {
+        reject = fail;
+      }),
+  });
+  client.interceptors.response.use(...responseInterceptor);
+  http.get.mockImplementationOnce(() => client.get("/synthetic-profile"));
+  await act(async () => {
+    void queryClient.invalidateQueries("creatorData");
+  });
+  await act(async () => {
+    retireAuthSession();
+    setGlobalState("authStatus", false);
+    setGlobalState("creator", defaultCreator);
+    reject(new Error("offline"));
+  });
+  await flush();
+  for (let i = 0; i < 5; i++) await flush(15_000);
+  expect(getGlobalState("creator")).toBe(defaultCreator);
+  expect(getGlobalState("authStatus")).toBe(false);
+  expect(meeting.leave).toHaveBeenCalledTimes(1);
+  expect(calls("heartbeat")).toHaveLength(1);
+});

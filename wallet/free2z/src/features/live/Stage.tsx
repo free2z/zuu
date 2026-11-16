@@ -282,6 +282,8 @@ export function Stage({
   useEffect(() => {
     if (!meeting) return;
     const ownsMeeting = () => ownerRef.current?.client === meeting && ownsTicket();
+    let handoffPending = false;
+    const onChangingMeeting = () => { handoffPending = true; };
 
     const onJoined = () => {
       if (!ownsMeeting()) return;
@@ -290,6 +292,7 @@ export function Stage({
     };
     const onLeft = ({ state }: { state: string }) => {
       if (!ownsMeeting()) return;
+      if (state === "connected-meeting") handoffPending = true;
       if (state === "left" || state === "ended" || state === "kicked") {
         // The SDK already ran its own leave for these terminal states.
         releasedClients.add(meeting);
@@ -328,6 +331,7 @@ export function Stage({
     const onMeetingChanged = (next: RealtimeKitClient) => {
       const owner = ownerRef.current;
       if (!next) return;
+      handoffPending = false;
       if (!owner || !ownsMeeting()) {
         if (ownerRef.current?.client !== next) releaseClient(next);
         return;
@@ -346,6 +350,7 @@ export function Stage({
     meeting.self.on("roomJoined", onJoined);
     meeting.self.on("roomLeft", onLeft);
     meeting.connectedMeetings?.on("meetingChanged", onMeetingChanged);
+    meeting.connectedMeetings?.on("changingMeeting", onChangingMeeting);
     window.addEventListener("pagehide", onPageHide);
 
     return () => {
@@ -355,6 +360,17 @@ export function Stage({
         "meetingChanged",
         onMeetingChanged,
       );
+      meeting.connectedMeetings?.removeListener("changingMeeting", onChangingMeeting);
+      if (handoffPending && meeting.connectedMeetings) {
+        // A cancelled Core switch may still produce an already-joined client.
+        // Its emitter owns this disposal callback, with no global keepalive.
+        const dispose = (next: RealtimeKitClient) => {
+          meeting.connectedMeetings?.removeListener("meetingChanged", dispose);
+          if (ownerRef.current?.client !== next) releaseClient(next);
+        };
+        meeting.connectedMeetings.on("meetingChanged", dispose);
+        releaseClient(meeting);
+      }
       window.removeEventListener("pagehide", onPageHide);
     };
   }, [meeting, ticket.hostSeat]);

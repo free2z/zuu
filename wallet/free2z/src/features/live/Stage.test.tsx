@@ -291,6 +291,24 @@ describe("RealtimeKit stage retry lifecycle", () => {
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  it.each(["unmount", "authentication"])("disposes a pending handoff after %s and passive cleanup", async (reason) => {
+    const ticket = leasedTicket(); const client = fakeClient(); const next = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => {
+      client.connectedMeetings.emit("changingMeeting", "synthetic-room");
+      client.emit("roomLeft", { state: "connected-meeting" });
+    });
+    if (reason === "unmount") await act(async () => root.unmount());
+    else await act(async () => setToken("synthetic-new-owner"));
+    await flush();
+    expect(client.leave).toHaveBeenCalledOnce();
+    await act(async () => client.connectedMeetings.emit("meetingChanged", next));
+    await flush();
+    expect(next.leave).toHaveBeenCalledOnce();
+  });
+
   it("leaving the host route stops renewal and retires a late initialized client", async () => {
     vi.useFakeTimers();
     const ticket = leasedTicket(); const client = fakeClient();

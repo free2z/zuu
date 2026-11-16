@@ -14,7 +14,8 @@ export default function DyteCreator() {
 
   const onRoomLeft = ({ state }: { state: leaveRoomState }) => {
     // maybe "left" should count here too
-    const doRedirect = state !== "disconnected";
+    const doRedirect =
+      state !== "disconnected" && state !== "connected-meeting";
     if (doRedirect) {
       if (creator.username) {
         navigate("/profile");

@@ -14,7 +14,7 @@ export default function GlobalCreator() {
   const [creator, setCreator] = useGlobalState("creator");
   const [authStatus, setAuthStatus] = useGlobalState("authStatus");
 
-  const { data, error } = useQuery("creatorData", fetchUserData, {
+  const { data, error, isError } = useQuery("creatorData", fetchUserData, {
     // no retry so we get the error on the first try
     retry: 0,
     // Refresh private caches on every authoritative response. Host ownership
@@ -30,9 +30,12 @@ export default function GlobalCreator() {
   });
 
   useEffect(() => {
-    if (error) {
-      const status = (error as { response?: { status?: number } }).response
-        ?.status;
+    if (isError) {
+      // The application's Axios interceptor rejects a response directly, and
+      // rejects undefined on a network failure. Query status is authoritative.
+      const response =
+        (error as { response?: unknown } | undefined)?.response ?? error;
+      const status = (response as { status?: number } | undefined)?.status;
       if (status !== 401 && status !== 403 && data) {
         // An unavailable profile read is not a logout. Invalidate private
         // caches without replacing the current identity with retained data.
@@ -68,7 +71,7 @@ export default function GlobalCreator() {
     // console.log("GLOBAL CREATOR USEEFFECT")
     // console.log("data", data)
     // console.log("error", error)
-  }, [data, error]);
+  }, [data, error, isError]);
 
   return null;
 }
