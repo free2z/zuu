@@ -207,6 +207,7 @@ def _snapshot(job_ids, as_of, deadline):
                 conflicts.append('payment_in_retained_job_history')
             row['later_subscription_transfer'] = Transfer.objects.filter(
                 debit_account_id__in=Account.objects.filter(owner_id=sub.fan_id).values('pk'),
+                credit_account_id__in=Account.objects.filter(owner_id=sub.star_id).values('pk'),
                 ref_kind='subscription', created_at__gte=since,
             ).order_by('-created_at', '-pk').values('id', 'created_at').first()
             if row['later_subscription_transfer']:
