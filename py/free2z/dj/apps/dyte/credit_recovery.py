@@ -56,11 +56,17 @@ def _post_observation(observation):
         contributor_id=admission.viewer_id, payee_id=admission.host_id, amount=amount)
 
 
-def attempt_observation(key, *, force=False, raise_failure=False, deadline=None):
+def attempt_observation(key, *, force=False, raise_failure=False, deadline=None, skip_locked=False):
     """One serialized attempt; failed claims/ledger/events roll back together."""
     failure = None
     with recovery_database(deadline=deadline):
-        observation = PpvCreditObservation.objects.select_for_update().get(pk=key)
+        query = PpvCreditObservation.objects.select_for_update(skip_locked=skip_locked)
+        if skip_locked:
+            observation = query.filter(pk=key).first()
+            if observation is None:
+                return False
+        else:
+            observation = query.get(pk=key)
         if observation.completed_at is not None:
             return True
         if not force and (observation.review_required_at is not None
@@ -106,14 +112,16 @@ def recover_credit_observations():
         emit_json_line(logger, {'alert':'ppv_credit_recovery_required', 'reason':'stuck',
             **stuck}, 'ERROR', 'PPV credit evidence requires recovery')
     with recovery_database(deadline=deadline):
-        keys = list(PpvCreditObservation.objects.filter(completed_at__isnull=True,
+        # Skip unavailable rows before LIMIT, then release these selection
+        # locks. Each attempt owns only its own row/financial transaction.
+        keys = list(PpvCreditObservation.objects.select_for_update(skip_locked=True).filter(completed_at__isnull=True,
             review_required_at__isnull=True, next_retry_at__lte=timezone.now()).order_by(
             'next_retry_at','provider_key').values_list('pk',flat=True)[:BATCH_SIZE])
     for key in keys:
         if time.monotonic() >= deadline:
             raise TimeoutError('credit recovery budget exhausted')
         try:
-            attempt_observation(key, deadline=deadline)
+            attempt_observation(key, deadline=deadline, skip_locked=True)
         except Exception:
             emit_json_line(logger, {
                 'alert':'ppv_credit_recovery_required', 'observation_key':key,

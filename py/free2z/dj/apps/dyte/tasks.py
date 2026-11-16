@@ -33,6 +33,7 @@ from django.db.models import F, Q
 from django.utils import timezone
 
 from procrastinate.contrib.django import app
+from procrastinate.exceptions import ConnectorException
 
 from .models import LIFECYCLE_OFFLINE, RecordingDelivery
 
@@ -355,6 +356,7 @@ def _recover_recording_deliveries():
 
     deadline = time.monotonic()+RECORDING_RECOVERY_BUDGET_SECONDS
     now = timezone.now()
+    failure = None
     # Alert before queue work can consume this sweep's finite budget.
     stale_cutoff = now - timedelta(
         seconds=settings.DYTE_RECORDING_STUCK_AFTER_SECONDS)
@@ -369,14 +371,19 @@ def _recover_recording_deliveries():
     ).filter(
         Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now),
     )
-    with _recording_recovery_db(deadline):
-        stuck_ids = list(stuck_candidates.values_list('pk', flat=True))
-        oldest = stuck_candidates.order_by('recovery_started_at').values_list(
-            'recovery_started_at', flat=True).first()
-        stuck_count = RecordingDelivery.objects.filter(
-            pk__in=stuck_ids,
-            stuck_alerted_at__isnull=True,
-        ).update(stuck_alerted_at=now)
+    stuck_count, oldest = 0, None
+    try:
+        with _recording_recovery_db(deadline):
+            stuck_ids = list(stuck_candidates.values_list('pk', flat=True))
+            oldest = stuck_candidates.order_by('recovery_started_at').values_list(
+                'recovery_started_at', flat=True).first()
+            stuck_count = RecordingDelivery.objects.filter(
+                pk__in=stuck_ids,
+                stuck_alerted_at__isnull=True,
+            ).update(stuck_alerted_at=now)
+    except Exception as exc:
+        failure = exc
+        logger.exception('Could not report stuck recording recoveries')
     if stuck_count:
         from dj.apps.dyte.management.commands.dyte_download_upload import (
             RECORDING_INGESTION_STUCK_SIGNAL,
@@ -401,7 +408,6 @@ def _recover_recording_deliveries():
                 :settings.DYTE_RECORDING_RECOVERY_BATCH_SIZE]
         )
     queued = 0
-    failure = None
     for delivery in due:
         if time.monotonic() >= deadline:
             failure = failure or TimeoutError('recording recovery budget exhausted')
@@ -413,7 +419,7 @@ def _recover_recording_deliveries():
                 queued += int(enqueue_recording_recovery(
                     delivery.idempotency_key, delivery.next_retry_at))
         except Exception as exc:
-            if isinstance(exc,(DatabaseError,TimeoutError)):
+            if isinstance(exc,(DatabaseError,TimeoutError,ConnectorException)):
                 failure = failure or exc
             # The row remains due. Preserve progress for other recordings;
             # database/budget failures propagate after both recovery branches.

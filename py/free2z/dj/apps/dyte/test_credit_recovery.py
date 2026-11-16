@@ -1,5 +1,6 @@
 """Committed provider evidence survives financial refusal and has bounded recovery."""
 import io
+import hashlib
 import json
 import time
 import uuid
@@ -373,3 +374,124 @@ def test_operator_receipt_is_not_printed_before_commit_confirmation(refused_deli
     readback = io.StringIO()
     call_command('ppv_credit_recovery', key=observation.pk, stdout=readback)
     assert json.loads(readback.getvalue())['observations'][0]['completed_at']
+
+
+def test_locked_stuck_census_still_dispatches_healthy_recordings(refused_delivery, monkeypatch, settings):
+    from dj.apps.dyte import tasks
+    from dj.apps.dyte.models import RecordingDelivery
+    observation, host, viewer, _, _ = refused_delivery
+    ready(observation)
+    now = timezone.now()
+    stale = RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), creator=host,
+        recovery_started_at=now-timedelta(seconds=settings.DYTE_RECORDING_STUCK_AFTER_SECONDS+60))
+    healthy = RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), creator=host,
+        download_url='https://synthetic.invalid/recording',next_retry_at=now-timedelta(minutes=1))
+    monkeypatch.setattr(tasks,'RECORDING_RECOVERY_DB_TIMEOUT_MS',100)
+    acquired, release = ThreadEvent(), ThreadEvent()
+    def lock_stale():
+        with connection.Database.connect(**connection.get_connection_params()) as other:
+            other.execute('SELECT idempotency_key FROM dyte_recordingdelivery WHERE idempotency_key=%s FOR UPDATE',[stale.pk])
+            acquired.set()
+            release.wait(timeout=5)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        holder = pool.submit(lock_stale)
+        assert acquired.wait(timeout=2)
+        try:
+            with pytest.raises(DatabaseError,match='timeout'):
+                tasks.recover_recording_deliveries(0)
+            assert not holder.done()
+            healthy.refresh_from_db()
+            assert healthy.recovery_queued_at is not None
+            assert sql("SELECT count(*) FROM procrastinate_jobs WHERE task_name='dyte.retry_recording_delivery' AND args->>'delivery_id'=%s",[str(healthy.pk)])[0][0]==1
+            assert_once(observation,host,viewer)
+        finally:
+            release.set()
+        holder.result(timeout=2)
+
+
+def test_credit_selection_skips_more_than_one_batch_of_locked_rows(refused_delivery, monkeypatch):
+    from dj.apps.dyte import credit_recovery
+    observation, host, viewer, _, _ = refused_delivery
+    ready(observation)
+    older = timezone.now()-timedelta(days=1)
+    locked = []
+    for _ in range(credit_recovery.BATCH_SIZE+1):
+        key = hashlib.sha256(uuid.uuid4().bytes).hexdigest()
+        PpvCreditObservation.objects.create(provider_key=key, admission_id=observation.admission_id,
+            evidence=dict(observation.evidence,provider_event_id=str(uuid.uuid4()),peer_id=str(uuid.uuid4())),
+            next_retry_at=older)
+        locked.append(key)
+    real_database = credit_recovery.recovery_database
+    monkeypatch.setattr(credit_recovery,'RECOVERY_BUDGET_SECONDS',.4)
+    monkeypatch.setattr(credit_recovery,'recovery_database',lambda **kw: real_database(timeout_ms=50,**kw))
+    acquired, release = ThreadEvent(), ThreadEvent()
+    def hold_oldest():
+        with connection.Database.connect(**connection.get_connection_params()) as other:
+            other.execute('SELECT provider_key FROM dyte_ppvcreditobservation WHERE provider_key=ANY(%s) FOR UPDATE',[locked])
+            acquired.set()
+            release.wait(timeout=5)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        holder = pool.submit(hold_oldest)
+        assert acquired.wait(timeout=2)
+        try:
+            assert recover_credit_observations()==1
+            assert recover_credit_observations()==0
+            assert not holder.done()
+            assert_once(observation,host,viewer)
+            assert not PpvCreditObservation.objects.filter(pk__in=locked,attempts__gt=0).exists()
+        finally:
+            release.set()
+        holder.result(timeout=2)
+
+
+def test_recording_enqueue_uses_watched_transaction_under_worker_connector(refused_delivery, monkeypatch):
+    from procrastinate.contrib.django import app
+    from procrastinate.exceptions import ConnectorException
+    from dj.apps.dyte import tasks
+    from dj.apps.dyte.models import RecordingDelivery
+    from dj.apps.dyte.management.commands.dyte_download_upload import enqueue_recording_recovery
+    observation, host, _, _, _ = refused_delivery
+    receipt = RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), creator=host,
+        download_url='https://synthetic.invalid/recording',next_retry_at=timezone.now()-timedelta(minutes=1))
+    worker = app.connector.get_worker_connector()
+    independent_pool = worker.get_sync_connector()
+    independent_pool.open()
+    def visible():
+        return independent_pool.execute_query_one(
+            "SELECT count(*) AS n FROM procrastinate_jobs WHERE task_name='dyte.retry_recording_delivery' AND args->>'delivery_id'=%(key)s",
+            key=str(receipt.pk))['n']
+    try:
+        with app.replace_connector(worker):
+            with pytest.raises(RuntimeError,match='synthetic rollback'):
+                with transaction.atomic():
+                    assert enqueue_recording_recovery(receipt.pk,receipt.next_retry_at)
+                    assert visible()==0
+                    raise RuntimeError('synthetic rollback')
+            receipt.refresh_from_db()
+            assert receipt.recovery_queued_at is None and visible()==0
+            acquired, release = ThreadEvent(), ThreadEvent()
+            def hold_queue():
+                with connection.Database.connect(**connection.get_connection_params()) as other:
+                    other.execute('LOCK TABLE procrastinate_jobs IN SHARE MODE')
+                    acquired.set()
+                    release.wait(timeout=5)
+            monkeypatch.setattr(tasks,'RECORDING_RECOVERY_DB_TIMEOUT_MS',100)
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                holder = pool.submit(hold_queue)
+                assert acquired.wait(timeout=2)
+                try:
+                    with pytest.raises(ConnectorException):
+                        tasks.recover_recording_deliveries(0)
+                    assert not holder.done()
+                finally:
+                    release.set()
+                holder.result(timeout=2)
+            receipt.refresh_from_db()
+            assert receipt.recovery_queued_at is None and visible()==0
+            with transaction.atomic():
+                assert enqueue_recording_recovery(receipt.pk,receipt.next_retry_at)
+                assert visible()==0
+            receipt.refresh_from_db()
+            assert receipt.recovery_queued_at is not None and visible()==1
+    finally:
+        independent_pool.close()
