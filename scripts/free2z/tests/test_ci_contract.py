@@ -154,12 +154,29 @@ class CIContract(unittest.TestCase):
         step['continue-on-error'] = True
         with self.assertRaises(ValueError): self.check()
 
+    def test_translation_oracle_stays_required_and_unconditional(self):
+        def oracle(): return next(s for s in self.ci['jobs']['translation-oracle']['steps'] if 'check-translation-url-oracle.py' in s.get('run', ''))
+        self.ci['jobs']['gate']['needs'].remove('translation-oracle')
+        with self.assertRaises(ValueError): self.check()
+        self.setUp(); self.ci['jobs']['translation-oracle']['steps'].remove(oracle())
+        with self.assertRaises(ValueError): self.check()
+        for key, value in (('if', 'false'), ('continue-on-error', True)):
+            self.setUp(); oracle()[key] = value
+            with self.assertRaises(ValueError): self.check()
+        self.setUp(); self.ci['jobs']['translation-oracle']['if'] = "needs.changes.outputs.application == 'false'"
+        with self.assertRaises(ValueError): self.check()
+        self.setUp(); self.ci['jobs']['backend']['steps'].append(dict(oracle()))
+        with self.assertRaises(ValueError): self.check()
+        self.setUp(); steps = self.ci['jobs']['translation-oracle']['steps']
+        steps.remove(next(s for s in steps if s.get('run') == 'npm ci'))
+        with self.assertRaises(ValueError): self.check()
+
     def test_native_bridge_cannot_silently_skip(self):
         self.ci['jobs']['native-payment-bridge']['env'].pop('PAYMENTD_NATIVE_BRIDGE_TEST')
         with self.assertRaises(ValueError): self.check()
 
     def test_python_drift_fails_both_directions(self):
-        for job in ['backend','dependency-security']:
+        for job in ['backend','translation-oracle','dependency-security']:
             for mode in ['delete','bump']:
                 self.setUp();steps=self.ci['jobs'][job]['steps'];step=next(s for s in steps if s.get('uses','').startswith('actions/setup-python@'))
                 if mode=='delete':steps.remove(step)
