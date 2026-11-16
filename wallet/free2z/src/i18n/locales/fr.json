@@ -222,5 +222,7 @@
     "violence": "Violence",
     "spam": "Spam ou escroquerie",
     "other": "Autre"
-  }
+  },
+  "purchase.unavailable": "Les achats numériques ne sont pas disponibles dans cette application Android.",
+  "navigation.tuzisBalance": "Solde 2Z"
 }

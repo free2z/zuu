@@ -9,6 +9,8 @@
  * from importing another (#904, #906).
  */
 export const MESSAGE_KEYS = {
+  navTuzisBalance: "navigation.tuzisBalance",
+  purchaseUnavailable: "purchase.unavailable",
   appName: "app.name",
   appTagline: "app.tagline",
   articlesSearchAccessible: "articles.searchAccessible",

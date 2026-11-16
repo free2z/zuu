@@ -9,6 +9,12 @@ page disagrees, this one was checked against the console and the other is a bug.
 Re-derive it before relying on it, because a human can change the console at any
 time without touching the repository.
 
+**2026-11-12 source policy update:** Free2Z Android digital purchases are
+unavailable pending release-owner review; see [the current purchase inventory
+and release acceptance](ANDROID-PURCHASES.md). The console observations and
+rating answers below are historical, not proof of current availability or
+program eligibility. No rating or console declaration was changed for #1326.
+
 Account access and operator identities are recorded in the private operations
 handoff; this public record identifies apps and responsibilities only.
 

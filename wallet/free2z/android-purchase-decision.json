@@ -1,0 +1,8 @@
+{
+  "policyId": "android-digital-purchases-unavailable-pending-owner-review-v1",
+  "proposedDefault": "unavailable",
+  "releaseOwnerDecision": null,
+  "approvedIntegrationOrException": null,
+  "signedDeviceAcceptance": null,
+  "publicAndroidDistribution": "blocked"
+}

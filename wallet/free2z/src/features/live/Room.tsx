@@ -1,3 +1,5 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
+import { PurchaseUnavailable } from "@/components/common/PurchaseUnavailable";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
@@ -668,6 +670,8 @@ function JoinPanel({
       });
     }
   }
+
+  if (digitalPurchasesUnavailable() && (stream.kind === "ppv" || (stream.kind === "subscriber" && !membership))) return <PurchaseUnavailable />;
 
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">

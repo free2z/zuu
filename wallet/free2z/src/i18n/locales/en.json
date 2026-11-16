@@ -222,5 +222,7 @@
     "violence": "Violence",
     "spam": "Spam or scam",
     "other": "Other"
-  }
+  },
+  "purchase.unavailable": "Digital purchases are unavailable in this Android app.",
+  "navigation.tuzisBalance": "2Z balance"
 }

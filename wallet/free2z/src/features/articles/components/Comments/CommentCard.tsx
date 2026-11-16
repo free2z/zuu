@@ -1,3 +1,4 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
 import {
   BlockedContent,
   ModerationControls,
@@ -47,7 +48,7 @@ export function CommentCard({
   // Voting costs 1 2Z (POST /vote/). It requires an account AND a balance —
   // gate the rail so logged-out or broke users can't fire a request that
   // would just 401/402, and can't drive the optimistic balance negative.
-  const canVote = !!user && balance >= 1;
+  const canVote = !digitalPurchasesUnavailable() && !!user && balance >= 1;
 
   async function vote(dir: "up" | "down") {
     if (voting || voted === dir || !canVote) return;
@@ -96,7 +97,7 @@ export function CommentCard({
               className="h-7 w-7 min-tap"
               aria-label="Upvote comment"
               aria-pressed={voted === "up"}
-              disabled={voting || !canVote}
+              disabled={digitalPurchasesUnavailable() || voting || !canVote}
               title={voteHint}
               onClick={() => vote("up")}
             >
@@ -114,7 +115,7 @@ export function CommentCard({
               className="h-7 w-7 min-tap"
               aria-label="Downvote comment"
               aria-pressed={voted === "down"}
-              disabled={voting || !canVote}
+              disabled={digitalPurchasesUnavailable() || voting || !canVote}
               title={voteHint}
               onClick={() => vote("down")}
             >

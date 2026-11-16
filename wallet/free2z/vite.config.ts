@@ -40,6 +40,7 @@ export default defineConfig({
     },
   },
   define: {
+    "import.meta.env.TAURI_ENV_PLATFORM": JSON.stringify(process.env.TAURI_ENV_PLATFORM ?? ""),
     PACKAGE_VERSION: JSON.stringify("3.2.1"),
   },
   optimizeDeps: {

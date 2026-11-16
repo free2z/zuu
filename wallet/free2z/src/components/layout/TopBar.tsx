@@ -1,3 +1,4 @@
+import { digitalPurchasesUnavailable } from "@/lib/purchases/availability";
 import { BlockManagement } from "@/features/moderation/Moderation";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -85,7 +86,7 @@ export function TopBar() {
         <Link
           to="/fund"
           className="flex min-h-11 min-w-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/10 px-2.5 text-sm transition-colors hover:bg-primary/20 sm:gap-2 sm:px-3"
-          aria-label={t(MESSAGE_KEYS.navBuyTuzisBalance, {
+          aria-label={digitalPurchasesUnavailable() ? t(MESSAGE_KEYS.navTuzisBalance) : t(MESSAGE_KEYS.navBuyTuzisBalance, {
             balance: formatTuzis(tuzis),
           })}
         >
@@ -137,7 +138,7 @@ export function TopBar() {
               <UserCog /> {t(MESSAGE_KEYS.navEditProfile)}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/fund")}>
-              <Coins /> {t(MESSAGE_KEYS.navBuyTuzis)}
+              <Coins /> {t(digitalPurchasesUnavailable() ? MESSAGE_KEYS.navTuzisBalance : MESSAGE_KEYS.navBuyTuzis)}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => navigate("/kyc")}>
               <ShieldCheck /> {t(MESSAGE_KEYS.navRevenueShare)}
