@@ -225,6 +225,7 @@ def prepare_livestream_admission(*, host_id, viewer_id, meeting_id, price_per_mi
     from dj.apps.g12f.models import Creator
     from dj.apps.dyte.models import CreatorMeeting, PAY_PER_VIEW, LIFECYCLE_LIVE
     from dj.apps.dyte.host_seat import host_seat_is_fresh
+    from dj.apps.dyte.host_presence import host_is_present
     # Read the actual offer under locks before accepting a supplied price or
     # issuing a join token. A reusable room cannot redirect the admission to
     # a later host, provider session, or changed price.
@@ -239,6 +240,7 @@ def prepare_livestream_admission(*, host_id, viewer_id, meeting_id, price_per_mi
         meeting_id=meeting_id, creator_id=host_id, meeting_type=PAY_PER_VIEW,
         is_public=True, live_now=True, lifecycle_state=LIFECYCLE_LIVE).first()
     if (meeting is None or meeting.provider_session_id is None
+            or not host_is_present(meeting)
             or not host_seat_is_fresh(meeting, timezone.now())):
         raise money.EconomicRefusal('livestream_offer_unavailable')
     if meeting.price_per_minute != price:

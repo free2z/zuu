@@ -161,9 +161,11 @@ def test_migration_normalizes_only_blank_id_and_preserves_lifecycle_and_cleanup(
 
     try:
         MigrationExecutor(connection).migrate([NEW_SCHEMA])
+        new_apps = MigrationExecutor(connection).loader.project_state([NEW_SCHEMA]).apps
+        NewCreatorMeeting = new_apps.get_model('dyte', 'CreatorMeeting')
 
-        blank = CreatorMeeting.objects.get(pk=blank_pk)
-        real = CreatorMeeting.objects.get(pk=real_pk)
+        blank = NewCreatorMeeting.objects.get(pk=blank_pk)
+        real = NewCreatorMeeting.objects.get(pk=real_pk)
         cleanup = ProviderRoomCleanup.objects.get(pk=cleanup_id)
         assert blank.meeting_id is None
         # Prior readers' `if not cm.meeting_id` checks continue to recognize
@@ -189,8 +191,8 @@ def test_migration_normalizes_only_blank_id_and_preserves_lifecycle_and_cleanup(
         # Reverse must fail before it changes the nullable schema or data.
         with pytest.raises(IrreversibleError):
             MigrationExecutor(connection).migrate([OLD_SCHEMA])
-        assert CreatorMeeting.objects.get(pk=blank_pk).meeting_id is None
-        assert CreatorMeeting.objects.get(pk=real_pk).meeting_id == real_id
+        assert NewCreatorMeeting.objects.get(pk=blank_pk).meeting_id is None
+        assert NewCreatorMeeting.objects.get(pk=real_pk).meeting_id == real_id
     finally:
         MigrationExecutor(connection).migrate(
             MigrationLoader(connection).graph.leaf_nodes(),

@@ -606,6 +606,12 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
         "dj.apps.comments.views.CommentViewSet",
         "dj.apps.comments.views.ParentCommentListCreateAPIView",
         "dj.apps.comments.views.WrappedAPIView",
+        # Signed room observations commit and release the meeting lock before
+        # viewer settlement acquires actor locks. A failed settlement cannot
+        # roll back the observed session and reopen stale paid admission.
+        # Delivery receipts and settlement retain their own atomic blocks;
+        # dyte/test_webhook_session_observation.py proves commit and rollback.
+        "dj.apps.dyte.views.WrappedAPIView",
         # The page vote function opts out while it claims the idempotency key
         # before entering its own score/debit transaction.
         "dj.apps.g12f.views.zpage.WrappedAPIView",
@@ -715,7 +721,7 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
     assert ("dj.apps.ztripe.views.stripe_webhook",
             "api/stripe/webhook/") in opted_out
 
-    # These are the two route-level function opt-outs. Both must remain
+    # These are the route-level function opt-outs. Each must remain
     # visible even though their callbacks expose the same generic wrapper
     # class name within their respective modules.
     assert {
@@ -729,6 +735,10 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
         (
             "dj.apps.g12f.views.zpage.WrappedAPIView",
             "api/zpage/<str:free2zaddr>/vote/",
+        ),
+        (
+            "dj.apps.dyte.views.WrappedAPIView",
+            "api/dyte/webhook",
         ),
     }
 

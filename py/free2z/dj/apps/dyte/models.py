@@ -94,6 +94,26 @@ class CreatorMeeting(models.Model):
     provider_session_started_at = models.DateTimeField(
         null=True, blank=True, editable=False,
     )
+    # Authenticated provider presence for the current start/session. An HTTP
+    # heartbeat proves tab ownership, not that its SDK remains in the room.
+    # Retain a departed peer's join/leave timestamps so a delayed duplicate
+    # join cannot reopen paid admission. Nullable for old-pod INSERTs; absence
+    # of provider evidence never establishes paid-admission readiness.
+    host_peer_id = models.UUIDField(null=True, blank=True, editable=False)
+    host_joined_at = models.DateTimeField(null=True, blank=True, editable=False)
+    host_left_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Written only when a signed host start is adopted. A prior application
+    # can replace host_participant_id without knowing these presence fields;
+    # that mismatch invalidates the old proof, including delayed callbacks.
+    host_presence_participant_id = models.CharField(
+        max_length=128, null=True, blank=True, editable=False,
+    )
+    # Older callbacks can advance the room session without clearing presence.
+    # Bind the proof to the exact provider session it actually observed.
+    host_presence_session_id = models.UUIDField(null=True, blank=True, editable=False)
+    host_presence_session_started_at = models.DateTimeField(
+        null=True, blank=True, editable=False,
+    )
     # Private room creation is a lease: the provider room can be attached
     # before the HTTP response reaches the browser.  These fields let the
     # server distinguish an unadopted response-loss lease from a room that a
