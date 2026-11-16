@@ -233,6 +233,29 @@ class CreatorMeeting(models.Model):
         return self.secret
 
 
+class ProviderParticipantBinding(models.Model):
+    """Immutable attribution recorded before a public participant token leaves."""
+
+    app_id = models.UUIDField()
+    meeting_id = models.CharField(max_length=64)
+    participant_id = models.CharField(max_length=128)
+    creator = models.ForeignKey('g12f.Creator', on_delete=models.PROTECT, related_name='+')
+    actor = models.ForeignKey('g12f.Creator', on_delete=models.PROTECT, related_name='+', null=True)
+    role = models.CharField(max_length=6, choices=[('host', 'Host'), ('viewer', 'Viewer')])
+    custom_participant_id = models.CharField(max_length=255)
+    start_claim = models.UUIDField(null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['app_id', 'meeting_id', 'participant_id'], name='dyte_participant_binding_identity'),
+            models.CheckConstraint(condition=(
+                models.Q(role='host', actor=models.F('creator'), actor__isnull=False, start_claim__isnull=False)
+                | models.Q(role='viewer', start_claim__isnull=True)
+            ), name='dyte_participant_binding_role'),
+        ]
+
+
 class ProviderRoomCleanup(models.Model):
     """Durable cleanup or operator reconciliation for a provider room.
 

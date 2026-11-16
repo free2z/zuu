@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import Mock
 
 import pytest
@@ -26,12 +27,14 @@ def test_anonymous_viewer_can_join_a_live_broadcast(
         is_public=True,
         live_now=True,
     )
-    provider_response = Mock()
-    provider_response.json.return_value = {"data": {"token": "guest-token"}}
-    provider_response.text = "participant created"
+    def mint_guest(*args, **kwargs):
+        response = Mock()
+        response.json.return_value = {"data": {"token": "guest-token", "id": str(uuid.uuid4())}}
+        response.text = "participant created"
+        return response
     add_participant = mocker.patch(
         "dj.apps.dyte.views.DyteClient.add_participant",
-        return_value=provider_response,
+        side_effect=mint_guest,
     )
 
     response = api_client.post(
@@ -59,12 +62,14 @@ def test_guest_broadcast_join_has_a_tight_budget_isolated_from_polling(
         is_public=True,
         live_now=True,
     )
-    provider_response = Mock()
-    provider_response.json.return_value = {"data": {"token": "guest-token"}}
-    provider_response.text = "participant created"
+    def mint_guest(*args, **kwargs):
+        response = Mock()
+        response.json.return_value = {"data": {"token": "guest-token", "id": str(uuid.uuid4())}}
+        response.text = "participant created"
+        return response
     add_participant = mocker.patch(
         "dj.apps.dyte.views.DyteClient.add_participant",
-        return_value=provider_response,
+        side_effect=mint_guest,
     )
     mocker.patch(
         "dj.apps.dyte.views.DyteClient.get_participants_count",
@@ -187,7 +192,7 @@ def test_subscriber_admission_uses_resolved_creator_identity(
         star=owner, fan=fan, expires=timezone.now() + timedelta(days=expires_in),
     )
     provider_response = Mock(status_code=200)
-    provider_response.json.return_value = {'data': {'token': 'subscriber-token'}}
+    provider_response.json.return_value = {'data': {'token': 'subscriber-token', 'id': str(uuid.uuid4())}}
     add_participant = mocker.patch(
         'dj.apps.dyte.views.DyteClient.add_participant', return_value=provider_response,
     )

@@ -86,7 +86,7 @@ def provider(mocker):
     client.create_meeting.side_effect = lambda title: _FakeResponse(
         {'data': {'id': str(uuid.uuid4())}})
     client.add_participant.return_value = _FakeResponse(
-        {'data': {'token': 'auth-token'}})
+        {'data': {'token': 'auth-token', 'id': str(uuid.uuid4())}})
     mocker.patch('dj.apps.dyte.views.DyteClient', return_value=client)
     return client
 
@@ -440,9 +440,11 @@ def test_a_guest_leave_for_an_unknown_room_is_acknowledged_and_counted(
 
 
 def test_a_retry_of_an_applied_leave_after_rotation_is_not_counted(
-    api_client, keypair, caplog, broadcast,
+    api_client, keypair, caplog, broadcast, mocker,
 ):
     """Applied, response lost, room rotated, provider retries: not a loss."""
+    mocker.patch('dj.apps.dyte.participant_binding.DyteClient.get_session_participant',
+        return_value={'user_id': uuid.uuid4(), 'role': 'viewer', 'custom_participant_id': 'Guest 3'})
     private_key, _ = keypair
     caplog.set_level(logging.INFO, logger='dj.apps.dyte.views')
     room_a = broadcast.meeting_id

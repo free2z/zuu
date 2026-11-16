@@ -740,6 +740,13 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
             "dj.apps.dyte.views.WrappedAPIView",
             "api/dyte/webhook",
         ),
+        # The legacy callback's identity probe must avoid opening a DB
+        # transaction. Its POST owns claim + recording outbox atomically in
+        # _process_legacy_recording_event; signature reads occur outside it.
+        (
+            "dj.apps.dyte.views.WrappedAPIView",
+            "api/dyte/webhook-recording-status-update/",
+        ),
     }
 
     # The second mechanism. Same contract: growing this set is a decision, not
