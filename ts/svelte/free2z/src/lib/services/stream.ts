@@ -93,14 +93,6 @@ const STREAM_MESSAGES = {
     "dashboard.stream.hostProviderUnavailable",
     "The live-stream provider is unavailable right now. Please try again in a few minutes.",
   ),
-  hostCompensationOnboarding: defineMessage(
-    "dashboard.stream.compensationOnboarding",
-    "Before starting a paid stream, complete identity intake, contact support for verification, and accept the creator compensation agreement in Billing.",
-  ),
-  hostCompensationSchedule: defineMessage(
-    "dashboard.stream.compensationSchedule",
-    "Before starting a paid stream, review and accept the livestream compensation schedule in Billing.",
-  ),
   hostInvalidRequest: defineMessage(
     "dashboard.stream.hostInvalidRequest",
     "Check the stream settings and try again.",
@@ -123,9 +115,7 @@ export type HostStartFailureCode =
   | "eligibility_changed"
   | "invalid_request"
   | "host_retirement_temporarily_unavailable"
-  | "livestream_compensation_integration_unavailable"
-  | "compensation_onboarding_required"
-  | "compensation_schedule_acceptance_required"
+  | "livestream_credit_integration_unavailable"
   | "admission_unavailable"
   | "provider_unavailable"
   | "admission_rejected"
@@ -202,33 +192,10 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       error.status,
     );
   }
-  if (
-    type === "ppv" &&
-    code === "livestream_compensation_integration_unavailable"
-  ) {
+  if (type === "ppv" && code === "livestream_credit_integration_unavailable") {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostUnavailable,
-      "livestream_compensation_integration_unavailable",
-      error.status,
-    );
-  }
-  if (
-    type === "ppv" &&
-    (code === "compensation_onboarding_required" ||
-      code === "compensation_schedule_acceptance_required")
-  ) {
-    return new HostStreamStartError(
-      code === "compensation_onboarding_required"
-        ? STREAM_MESSAGES.hostCompensationOnboarding
-        : STREAM_MESSAGES.hostCompensationSchedule,
-      code,
-      error.status,
-    );
-  }
-  if (type === "ppv" && code === "compensation_schedule_unavailable") {
-    return new HostStreamStartError(
-      STREAM_MESSAGES.hostUnavailable,
-      "admission_unavailable",
+      "livestream_credit_integration_unavailable",
       error.status,
     );
   }
