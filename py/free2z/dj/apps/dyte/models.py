@@ -57,6 +57,22 @@ class PpvCreditAdmission(models.Model):
         ]
 
 
+class PpvCreditObservation(models.Model):
+    """Authenticated delivery evidence retained independently of credit issuance."""
+    provider_key = models.CharField(max_length=64, primary_key=True)
+    admission = models.ForeignKey(PpvCreditAdmission, models.PROTECT)
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(db_default=Now())
+    attempts = models.PositiveIntegerField(default=0)
+    next_retry_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True)
+    review_required_at = models.DateTimeField(null=True)
+    last_error = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        indexes = [models.Index(fields=['completed_at','next_retry_at'], name='dyte_credit_recovery_due')]
+
+
 class PpvCreditDelivery(models.Model):
     """Original collected credits and ledger references for one provider interval."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)

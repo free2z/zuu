@@ -52,7 +52,6 @@ def make_contract(creator):
     """Use the installed real PPV source/contract boundary, not nominal stubs."""
     from .test_integration import service_terms
     from dj.apps.dyte.models import CreatorMeeting,WebhookDelivery
-    from dj.apps.economy import products
     payee,agreement,schedule=service_terms(creator,'livestream_ppv')
     viewer=Creator.objects.create(username='delivery_'+uuid.uuid4().hex,tuzis=0)
     provider_session = uuid.uuid4()

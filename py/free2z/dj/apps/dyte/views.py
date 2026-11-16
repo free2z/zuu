@@ -801,6 +801,12 @@ def claim_webhook_delivery(
     transaction, alongside all billing effects.
     """
     payload_sha256 = hashlib.sha256(payload).hexdigest()
+    return claim_webhook_digest(provider_event_id=provider_event_id, event_type=event_type,
+        endpoint=endpoint, payload_sha256=payload_sha256, business_event_key=business_event_key)
+
+
+def claim_webhook_digest(*, provider_event_id, event_type, endpoint, payload_sha256, business_event_key):
+    """Internal claim for verified raw bytes or retained authenticated evidence."""
     try:
         with transaction.atomic():
             WebhookDelivery.objects.create(
@@ -1144,33 +1150,22 @@ def webhook(request: HttpRequest):
     return HttpResponse("OK")
 
 
-@transaction.atomic
 def _process_credit_ppv_event(*, event_data, admission, binding, provider_event_id, payload):
-    from .ppv_credits import settle_credit_delivery
+    from .credit_recovery import capture_observation, attempt_observation
     participant = event_data.participant
     key = normalized_event_key('participant-left', event_data.meeting.id, event_data.meeting.sessionId,
         participant.peerId, participant.customParticipantId, participant.joinedAt.isoformat(),
         participant.leftAt.isoformat())
-    pin_supported_policy()
-    if not claim_webhook_delivery(provider_event_id=provider_event_id, event_type=event_data.event,
-            endpoint='general', payload=payload, business_event_key=key):
-        return
-    delivery = settle_credit_delivery(admission_id=admission.pk, event_key=key, evidence={
+    observation = capture_observation(admission_id=admission.pk, event_key=key, evidence={
         'provider_event_id': str(provider_event_id), 'payload_sha256': hashlib.sha256(payload).hexdigest(),
         'meeting_id': str(event_data.meeting.id), 'provider_session_id': str(event_data.meeting.sessionId),
         'provider_session_started_at': event_data.meeting.startedAt.isoformat(),
         'binding_id': binding.pk, 'canonical_participant_id': str(binding.participant_id),
         'participant_id': participant.customParticipantId, 'peer_id': str(participant.peerId),
         'joined_at': participant.joinedAt.isoformat(), 'left_at': participant.leftAt.isoformat()})
-    # Keep ordinary credit activity and its committed balance notifications.
-    # The business-event claim, all ledger legs and these events commit once.
-    amount = Decimal(delivery.creator_collected_m2z) / 1000
-    Event.objects.create(type='PLATFORM_FEE', receiving_user_id=admission.viewer_id,
-        amount=Decimal(delivery.platform_collected_m2z) / 1000)
-    Event.objects.create(type='PAY_PER_VIEW_REVENUE', receiving_user_id=admission.host_id,
-        contributor_id=admission.viewer_id, payee_id=admission.host_id, amount=amount)
-    Event.objects.create(type='PAY_PER_VIEW_SPEND', receiving_user_id=admission.viewer_id,
-        contributor_id=admission.viewer_id, payee_id=admission.host_id, amount=amount)
+    # The non-atomic webhook commits authenticated evidence first. A failed
+    # financial attempt cannot erase the recovery item or mark a claim settled.
+    attempt_observation(observation.pk, raise_failure=True)
 
 
 @transaction.atomic

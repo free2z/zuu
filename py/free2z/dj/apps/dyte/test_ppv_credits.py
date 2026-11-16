@@ -26,7 +26,7 @@ from datetime import timedelta
 from decimal import Decimal
 from django.db import DatabaseError, transaction
 from django.utils import timezone
-from dj.apps.dyte.models import CreatorMeeting, PpvCreditAdmission, PpvCreditDelivery, WebhookDelivery
+from dj.apps.dyte.models import CreatorMeeting, PpvCreditAdmission, PpvCreditDelivery, PpvCreditObservation, WebhookDelivery
 from dj.apps.dyte.participant_binding import bind_participant
 from dj.apps.dyte.ppv_credits import prepare_credit_admission, settle_credit_delivery
 from dj.apps.dyte.test_ppv_host_lifecycle import go_live, viewer_join
@@ -93,6 +93,8 @@ def evidence_for(admission, binding, *, seconds=61, joined=None):
 
 def settle(admission, binding, **kwargs):
     key, evidence = evidence_for(admission, binding, **kwargs)
+    from dj.apps.dyte.credit_recovery import capture_observation
+    capture_observation(admission_id=admission.pk, event_key=key, evidence=evidence)
     return settle_credit_delivery(admission_id=admission.pk, event_key=key, evidence=evidence), evidence
 
 
@@ -276,6 +278,8 @@ def test_cash_and_credit_overlap_cannot_collect_in_either_arrival_order(creator_
     host, viewer, meeting, credit, binding = credit_fixture(creator_factory)
     cash = historical_cash(host,viewer,meeting)
     key, evidence = evidence_for(credit,binding,joined=cash.admitted_at)
+    from dj.apps.dyte.credit_recovery import capture_observation
+    capture_observation(admission_id=credit.pk,event_key=key,evidence=evidence)
     cash_key = uuid.uuid4().hex*2
     cash_event = WebhookDelivery.objects.create(provider_event_id=uuid.uuid4(), endpoint='general',
         event_type='meeting.participantLeft',business_event_key=cash_key,payload_sha256=cash_key)
@@ -333,6 +337,10 @@ def test_concurrent_deliveries_collect_overlap_once(creator_factory, request, se
     second_evidence.update(participant_id=('pc_' if second_kind=='credit' else 'ea_')+second.pk.hex,
         binding_id=second_binding.pk, canonical_participant_id=second_binding.participant_id)
     work = [(first,first_key,first_evidence,'credit'), (second,second_key,second_evidence,second_kind)]
+    from dj.apps.dyte.credit_recovery import capture_observation
+    for admission, event_key, proof, kind in work:
+        if kind == 'credit':
+            capture_observation(admission_id=admission.pk,event_key=event_key,evidence=proof)
     start = threading.Barrier(2)
     def collect(item):
         close_old_connections()
@@ -400,6 +408,7 @@ def test_signed_credit_failure_retains_retry_and_all_original_balances(
     assert not WebhookDelivery.objects.filter(pk=event_id).exists()
     assert not PpvCreditDelivery.objects.exists()
     assert Transfer.objects.count() == transfers_before and Event.objects.count() == events_before
+    assert PpvCreditObservation.objects.count() == (1 if failure == 'recipient_cap' else 0)
 
 
 def test_credit_receipt_writer_is_not_exposed_to_sdk_role(creator_factory):

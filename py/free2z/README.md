@@ -344,9 +344,26 @@ collects one platform credit per whole pair of those minutes first, then collect
 the displayed creator rate multiplied by those minutes and rounded up to whole
 credits. Collection is limited to spendable credits. The entire collected creator
 portion is credited to the original creator, with existing debt repaid first.
-All ledger legs, the immutable delivery receipt and credit activity events commit
-together. A recipient limit or database failure rolls back the delivery claim and
-all collection so the callback can retry. No cash payable is created.
+All ledger legs, the immutable delivery receipt, credit activity events and their
+notification outbox entries commit together. A recipient limit or database
+failure rolls back the delivery claim and all collection. An immutable
+`PpvCreditObservation`, committed after signature and canonical-identity
+verification but before settlement, retains the original delivery proof for
+recovery. It contains no bearer token or raw provider payload. No cash payable is
+created, and retained evidence does not reserve the viewer's credits.
+
+The existing five-minute `dyte.recover_recording_deliveries` task independently
+recovers recording work and at most 50 due credit observations. Credit retries
+use the captured evidence without provider calls, with exponential backoff up
+to six hours and at most twelve automatic attempts. Failed or exhausted work
+emits the structured `ppv_credit_recovery_required` alert; observations older
+than one hour also produce a stuck-work signal. Exhausted evidence is retained
+for review. The readonly admin and `ppv_credit_recovery` command expose pending
+state. `ppv_credit_recovery --key <observation-key>` previews one item; an
+authorized operator can retry that original evidence with `--execute --money
+--reason <review-reason>`. Execution records an `OperatorAction`, never replaces
+evidence or bypasses ledger caps, and may collect less if the viewer's spendable
+balance has changed.
 
 The receipt retains actual collected amounts and ledger references. Duplicate
 callbacks and overlapping intervals for the same provider session/viewer cannot
@@ -357,8 +374,12 @@ retain their separate contracts. A correction must identify the original receipt
 and ledger entries; a credit receipt is not a cash-purchase refund cursor.
 
 The `pc_` participant format requires callback reader protocol2 and migration
-`dyte.0021_ppv_credit_receipts`. Deployment must install and prove that reader on
-the canonical callback routes before API processes can mint these participants.
+`dyte.0021_ppv_credit_receipts`. Deployment must quiesce and prove the absence of
+old admission writers before applying this migration, which refuses new cash
+PPV admissions immediately. It must install and prove the compatible reader on
+the canonical callback routes before candidate API processes and recovery
+workers resume. Post-migration recovery must use the compatible candidate;
+restoring an old API image cannot restore its cash-admission writer.
 The schema cannot be reversed while economic policy1 is active or an admission
 exists. Release orchestration and deployed reader proof are maintained separately
 from these source-level checks.

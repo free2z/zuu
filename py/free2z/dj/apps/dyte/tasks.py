@@ -321,7 +321,26 @@ def retry_recording_delivery(delivery_id: str):
 @app.periodic(cron=settings.DYTE_RECORDING_RECOVERY_CRON)
 @app.task(name="dyte.recover_recording_deliveries", queue="default")
 def recover_recording_deliveries(timestamp: int):
-    """Re-enqueue missed recovery jobs and report incomplete receipts."""
+    """Recover recording work and authenticated credit evidence independently."""
+    from .credit_recovery import recover_credit_observations
+    failure = None
+    for name, recover in (('recording', _recover_recording_deliveries),
+            ('ppv_credit', recover_credit_observations)):
+        try:
+            recover()
+        except Exception as exc:
+            failure = failure or exc
+            logger.exception('dyte recovery branch failed: %s', name)
+            if name == 'ppv_credit':
+                from dj.apps.jobs.logs import emit_json_line
+                emit_json_line(logger, {'alert':'ppv_credit_recovery_required',
+                    'reason':'recovery_unavailable'}, 'ERROR', 'PPV credit recovery unavailable')
+    if failure is not None:
+        raise failure
+
+
+def _recover_recording_deliveries():
+    """Re-enqueue missed recording jobs and report incomplete receipts."""
     from dj.apps.dyte.management.commands.dyte_download_upload import (
         enqueue_recording_recovery,
     )

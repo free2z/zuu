@@ -5,6 +5,7 @@ import django.contrib.postgres.fields.ranges
 import django.db.models.deletion
 import django.db.models.expressions
 import django.db.models.functions.datetime
+import django.utils.timezone
 import uuid
 from django.conf import settings
 from django.db import migrations, models
@@ -70,6 +71,24 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name='ppvcreditdelivery',
             constraint=models.CheckConstraint(condition=models.Q(('creator_collected_m2z', django.db.models.expressions.CombinedExpression(models.F('creator_credited_m2z'), '+', models.F('creator_debt_repaid_m2z'))), ('creator_collected_m2z__gte', 0), ('creator_credited_m2z__gte', 0), ('creator_debt_repaid_m2z__gte', 0), ('platform_collected_m2z__gte', 0)), name='dyte_ppv_credit_conservation'),
+        ),
+        migrations.CreateModel(
+            name='PpvCreditObservation',
+            fields=[
+                ('provider_key', models.CharField(max_length=64, primary_key=True, serialize=False)),
+                ('evidence', models.JSONField()),
+                ('created_at', models.DateTimeField(db_default=django.db.models.functions.datetime.Now())),
+                ('attempts', models.PositiveIntegerField(default=0)),
+                ('next_retry_at', models.DateTimeField(default=django.utils.timezone.now)),
+                ('completed_at', models.DateTimeField(null=True)),
+                ('review_required_at', models.DateTimeField(null=True)),
+                ('last_error', models.CharField(blank=True, default='', max_length=64)),
+                ('admission', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to='dyte.ppvcreditadmission')),
+            ],
+        ),
+        migrations.AddIndex(
+            model_name='ppvcreditobservation',
+            index=models.Index(fields=['completed_at','next_retry_at'], name='dyte_credit_recovery_due'),
         ),
         migrations.RunSQL(SQL, REVERSE),
     ]

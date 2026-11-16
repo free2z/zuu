@@ -50,6 +50,46 @@ FOR EACH ROW EXECUTE FUNCTION economy.immutable_record();
 CREATE TRIGGER dyte_ppv_credit_delivery_immutable BEFORE UPDATE OR DELETE ON dyte_ppvcreditdelivery
 FOR EACH ROW EXECUTE FUNCTION economy.immutable_record();
 
+CREATE FUNCTION economy.guard_ppv_credit_observation() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public,pg_temp AS $$
+DECLARE a public.dyte_ppvcreditadmission; b public.dyte_providerparticipantbinding; e jsonb;
+BEGIN
+ IF TG_OP='DELETE' THEN RAISE EXCEPTION 'PPV credit observations are retained'; END IF;
+ IF TG_OP='UPDATE' THEN
+  IF (NEW.provider_key,NEW.admission_id,NEW.evidence,NEW.created_at)
+    IS DISTINCT FROM (OLD.provider_key,OLD.admission_id,OLD.evidence,OLD.created_at)
+   OR NEW.attempts<OLD.attempts OR (OLD.completed_at IS NOT NULL AND NEW IS DISTINCT FROM OLD) THEN
+   RAISE EXCEPTION 'PPV credit observation evidence is immutable'; END IF;
+  IF NEW.completed_at IS NOT NULL AND NOT EXISTS(SELECT 1 FROM public.dyte_ppvcreditdelivery
+    WHERE provider_key=NEW.provider_key AND admission_id=NEW.admission_id) THEN
+   RAISE EXCEPTION 'PPV credit observation completion lacks settlement'; END IF;
+  RETURN NEW;
+ END IF;
+ e:=NEW.evidence;
+ SELECT * INTO STRICT a FROM public.dyte_ppvcreditadmission WHERE id=NEW.admission_id;
+ SELECT * INTO b FROM public.dyte_providerparticipantbinding WHERE id=(e->>'binding_id')::bigint;
+ IF NEW.provider_key !~ '^[0-9a-f]{64}$' OR coalesce(e->>'payload_sha256','') !~ '^[0-9a-f]{64}$'
+  OR (e->>'provider_event_id')::uuid IS NULL OR (e->>'peer_id')::uuid IS NULL
+  OR b.id IS NULL OR b.app_id<>a.app_id OR b.meeting_id<>a.meeting_id
+  OR b.creator_id<>a.host_id OR b.actor_id IS DISTINCT FROM a.viewer_id OR b.role<>'viewer'
+  OR b.participant_id IS DISTINCT FROM e->>'canonical_participant_id'
+  OR b.custom_participant_id<>'pc_'||replace(a.id::text,'-','')
+  OR e->>'participant_id' IS DISTINCT FROM b.custom_participant_id
+  OR e->>'meeting_id' IS DISTINCT FROM a.meeting_id
+  OR e->>'provider_session_id' IS DISTINCT FROM a.provider_session_id::text
+  OR (e->>'provider_session_started_at')::timestamptz IS DISTINCT FROM a.provider_session_started_at
+  OR (e->>'joined_at')::timestamptz IS NULL OR (e->>'left_at')::timestamptz IS NULL
+  OR (e->>'joined_at')::timestamptz<a.admitted_at
+  OR (e->>'left_at')::timestamptz<=(e->>'joined_at')::timestamptz
+  OR (e->>'left_at')::timestamptz>statement_timestamp()
+  OR NEW.attempts<>0 OR NEW.completed_at IS NOT NULL OR NEW.review_required_at IS NOT NULL THEN
+  RAISE EXCEPTION 'PPV credit observation lacks original bound provider evidence'; END IF;
+ NEW.created_at:=statement_timestamp();
+ RETURN NEW;
+END $$;
+CREATE TRIGGER dyte_ppv_credit_observation_guard BEFORE INSERT OR UPDATE OR DELETE ON dyte_ppvcreditobservation
+FOR EACH ROW EXECUTE FUNCTION economy.guard_ppv_credit_observation();
+
 -- Both dispatchers already take this cohort lock before finance locks. The
 -- insert guard additionally covers direct inserts and either arrival order.
 -- Refusal rolls back the entire old or new settlement, including its claim.
@@ -96,6 +136,9 @@ BEGIN
   OR NOT EXISTS(SELECT 1 FROM public.dyte_webhookdelivery w
    WHERE w.provider_event_id::text=e->>'provider_event_id' AND w.business_event_key=NEW.provider_key
     AND w.event_type='meeting.participantLeft' AND w.payload_sha256=e->>'payload_sha256')
+  OR NOT EXISTS(SELECT 1 FROM public.dyte_ppvcreditobservation o WHERE o.provider_key=NEW.provider_key
+   AND o.admission_id=a.id AND o.evidence=e-'platform_transfer_id'-'collection_transfer_id'
+     -'credit_transfer_id'-'repay_transfer_id'-'duration_minutes'-'requested_creator_m2z')
   OR NEW.cohort<>a.provider_session_id::text||':'||a.viewer_id::text
   OR isempty(NEW.interval) OR lower_inf(NEW.interval) OR upper_inf(NEW.interval)
   OR NOT lower_inc(NEW.interval) OR upper_inc(NEW.interval)
@@ -188,7 +231,7 @@ BEGIN
  RETURN child;
 END $$;
 REVOKE ALL ON FUNCTION economy.refuse_new_cash_ppv(), economy.guard_ppv_credit_admission(),
- economy.guard_ppv_cross_delivery(), economy.guard_ppv_credit_delivery(),
+ economy.guard_ppv_cross_delivery(), economy.guard_ppv_credit_delivery(), economy.guard_ppv_credit_observation(),
  economy.settle_ppv_credit_delivery(uuid,text,jsonb) FROM PUBLIC;
 """
 
@@ -202,6 +245,7 @@ DO $$ BEGIN
  END IF;
 END $$;
 DROP TRIGGER dyte_ppv_credit_delivery_guard ON dyte_ppvcreditdelivery;
+DROP TRIGGER dyte_ppv_credit_observation_guard ON dyte_ppvcreditobservation;
 DROP TRIGGER dyte_ppv_cross_delivery ON dyte_ppvcreditdelivery;
 DROP TRIGGER economy_ppv_cross_delivery ON economy_servicedelivery;
 DROP TRIGGER dyte_ppv_credit_delivery_immutable ON dyte_ppvcreditdelivery;
@@ -209,5 +253,6 @@ DROP TRIGGER dyte_ppv_credit_admission_immutable ON dyte_ppvcreditadmission;
 DROP TRIGGER dyte_ppv_credit_admission_guard ON dyte_ppvcreditadmission;
 DROP TRIGGER economy_new_ppv_credit_only ON economy_serviceadmission;
 DROP FUNCTION economy.settle_ppv_credit_delivery(uuid,text,jsonb), economy.guard_ppv_credit_delivery(),
- economy.guard_ppv_cross_delivery(), economy.guard_ppv_credit_admission(), economy.refuse_new_cash_ppv();
+ economy.guard_ppv_cross_delivery(), economy.guard_ppv_credit_admission(), economy.refuse_new_cash_ppv(),
+ economy.guard_ppv_credit_observation();
 """

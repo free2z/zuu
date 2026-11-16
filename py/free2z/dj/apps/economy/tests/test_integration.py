@@ -48,7 +48,6 @@ def service_terms(creator, service):
 
 def ppv_fixture(creator_factory):
     from dj.apps.dyte.models import CreatorMeeting
-    from dj.apps.economy import products
     host=creator_factory(tuzis=0)
     viewer=creator_factory(tuzis=0)
     from dj.apps.ledger import api

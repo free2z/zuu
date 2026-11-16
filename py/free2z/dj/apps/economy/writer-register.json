@@ -85,6 +85,13 @@
       "disposition": "financial model identified; per-path review required"
     },
     {
+      "model": "dyte.PpvCreditObservation",
+      "table": "dyte_ppvcreditobservation",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
       "model": "dyte.ProviderParticipantBinding",
       "table": "dyte_providerparticipantbinding",
       "source": "py/free2z/dj/apps/dyte/models.py",
@@ -1195,31 +1202,31 @@
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1528,
+      "line": 1523,
       "call": "ledger.debit_up_to",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1572,
+      "line": 1567,
       "call": "ledger.lock_in_order",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1573,
+      "line": 1568,
       "call": "ledger.debit_up_to",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1583,
+      "line": 1578,
       "call": "ledger.debit_up_to",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1590,
+      "line": 1585,
       "call": "ledger.credit",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1720,8 +1727,8 @@
     "py/free2z/dj/apps/comments/management/commands/aiscore_comments.py": "8f798a223965b4841822bb239cb040e81c71dcad89c1cfdff072e4314966a902",
     "py/free2z/dj/apps/comments/models.py": "81a006d2e2f57d1e40e79a4a70b8793ecf6f0d36948bc2eb2d2cb3a0bd6ad140",
     "py/free2z/dj/apps/comments/views.py": "06477a05cfecc35dab620ea1a0dc73b3c7df10602ecfbe23dfcf748d459d359c",
-    "py/free2z/dj/apps/dyte/models.py": "002ccad6064541d9f7f10df601bf0e80d1a1e3ba6d36ea53f0ec62cb1c749fa1",
-    "py/free2z/dj/apps/dyte/views.py": "95cfc92a13e615fe2c37fd2ed6be8baa522ac71882f7192cd01841ed372c9784",
+    "py/free2z/dj/apps/dyte/models.py": "0902300952be3b551d53d793bc20a247addecf5857288cdff194e618a5d2fff5",
+    "py/free2z/dj/apps/dyte/views.py": "99a328c44804d650bc6d18b80521eb99a8f51c64e799bbd6bb7f1a801d6ddfe0",
     "py/free2z/dj/apps/e2ee/models.py": "87bd06bb8461ef9d283f96f6e05b4c67576d7d0e0318bcaf9a8a679fc9b9717d",
     "py/free2z/dj/apps/e2ee/views.py": "7533ddb3d6fa9ad0f96e2044d98b270ae80b9495fd45c953ab06d35011addf5c",
     "py/free2z/dj/apps/economy/models.py": "234673203a0ebcbea06c5d690ecaaee3c2ad64054fd1a097ec953e53012f9725",
