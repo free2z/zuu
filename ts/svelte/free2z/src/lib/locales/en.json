@@ -2305,6 +2305,8 @@
     }
   },
   "live": {
+    "streamTitle": "{name}'s stream",
+    "streamMetaTitle": "{name}'s stream - Free2Z",
     "backToProfile": "Back to Profile",
     "isLive": "{name} is live",
     "metaDescription": "Watch {name}'s live stream on Free2Z.",

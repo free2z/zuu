@@ -4,7 +4,8 @@ const OWNER = "livefixture";
 const OWNER_ID = 8811;
 const WATCH = `/${OWNER}/subscribers-only`;
 const VIEWER = {
-  id: 8106,
+  // Match the billing-fixture-session identity used by the real server loader.
+  id: 4301,
   username: "fixtureowner",
   full_name: "Viewer",
   tuzis: "100.000",
@@ -15,10 +16,17 @@ async function fixture(
   signedIn = true,
   member = false,
   holdAdmission = false,
+  offline = false,
 ) {
   let authenticated = signedIn;
   let subscribed = member;
   let actor = VIEWER;
+  let authStatus = 200;
+  let creatorStatus = 200;
+  let creatorId = OWNER_ID;
+  let membershipKnown = true;
+  let holdCreator = false;
+  let releaseCreator: (() => void) | undefined;
   const joins: unknown[] = [];
   const purchases: { body: unknown; key: string | undefined }[] = [];
   let resolvePurchase: (() => void) | undefined;
@@ -39,12 +47,16 @@ async function fixture(
     ]);
   await page.route("**/api/auth/user/", (route) =>
     route.fulfill({
-      status: authenticated ? 200 : 401,
+      status: authenticated ? authStatus : 401,
       json: authenticated
         ? {
             ...actor,
-            star_ids: subscribed ? [OWNER_ID] : [],
-            stars: subscribed ? [OWNER] : [],
+            ...(membershipKnown
+              ? {
+                  star_ids: subscribed ? [OWNER_ID] : [],
+                  stars: subscribed ? [OWNER] : [],
+                }
+              : {}),
           }
         : { detail: "Not authenticated" },
     }),
@@ -61,30 +73,41 @@ async function fixture(
     ]);
     await route.fulfill({ json: { key: "synthetic-session" } });
   });
-  await page.route(`**/api/creator/${OWNER}/`, (route) =>
-    route.fulfill({
-      json: {
-        id: OWNER_ID,
-        username: OWNER,
-        full_name: "Live Fixture Creator",
-        member_price: "25",
-        membership_benefits: [],
-        avatar_image: null,
-      },
-    }),
-  );
+  await page.route(`**/api/creator/${OWNER}/`, async (route) => {
+    if (holdCreator)
+      await new Promise<void>((resolve) => {
+        releaseCreator = resolve;
+      });
+    return route
+      .fulfill({
+        status: creatorStatus,
+        json: {
+          id: creatorId,
+          username: OWNER,
+          full_name: "Live Fixture Creator",
+          member_price: "25",
+          membership_benefits: [],
+          avatar_image: null,
+        },
+      })
+      .catch(() => {});
+  });
   await page.route(`**/api/dyte/${OWNER}/live-status`, (route) =>
     route.fulfill({
       json: {
-        is_live: true,
-        participant_count: 1,
-        streams: [{ type: "subscribers-only", participant_count: 1 }],
+        is_live: !offline,
+        participant_count: offline ? 0 : 1,
+        streams: offline
+          ? []
+          : [{ type: "subscribers-only", participant_count: 1 }],
       },
     }),
   );
   await page.route(`**/api/dyte/${OWNER}/subscribers-only`, async (route) => {
     joins.push(route.request().postDataJSON());
     if (holdAdmission) await admissionReady;
+    if (offline)
+      return route.fulfill({ status: 404, json: { detail: "Not found" } });
     return route.fulfill(
       subscribed
         ? { json: { auth_token: "synthetic-viewer-token" } }
@@ -124,6 +147,29 @@ async function fixture(
     joins,
     purchases,
     releaseAdmission,
+    failAuth: () => {
+      authStatus = 503;
+    },
+    failCreator: () => {
+      creatorStatus = 404;
+    },
+    replaceCreator: () => {
+      creatorId = OWNER_ID + 1;
+    },
+    unknownMembership: () => {
+      membershipKnown = false;
+    },
+    holdCreator: () => {
+      holdCreator = true;
+    },
+    creatorHeld: () => Boolean(releaseCreator),
+    releaseCreator: () => releaseCreator?.(),
+    resetActor: () => {
+      actor = VIEWER;
+    },
+    setActorUsername: (username: string) => {
+      actor = { ...actor, username };
+    },
     unconfirmed: () => {
       unconfirmedPurchase = true;
     },
@@ -193,6 +239,152 @@ async function openSubscription(page: Page) {
   await expect(confirm).toContainText("25");
   await expect(confirm).toBeInViewport();
   return confirm;
+}
+
+test("mobile offline subscriber entry offers one confirmed membership and stays honestly offline", async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(90_000);
+  const state = await fixture(page, false, false, false, true);
+  await page.goto(WATCH);
+  await expect(page).toHaveURL(`/login?next=${encodeURIComponent(WATCH)}`);
+  const login = page.getByRole("dialog");
+  await login.locator("#username").fill(VIEWER.username);
+  await login.locator("#password").fill("fixture-password");
+  await login.getByRole("button", { name: "Log in", exact: true }).click();
+  await expect(page).toHaveURL(WATCH);
+  await expect.poll(() => state.joins.length).toBe(1);
+  await installSyntheticSdk(page);
+  const subscribe = page.getByRole("button", {
+    name: `Subscribe to ${OWNER}`,
+    exact: true,
+  });
+  await expect(subscribe).toBeInViewport();
+  await expect(
+    page.getByText("This creator is not currently live.", { exact: true }),
+  ).toBeInViewport();
+  await expect(page.getByRole("heading", { name: /is live/i })).toHaveCount(0);
+  await expect(page).not.toHaveTitle(/is live/i);
+  await page.screenshot({
+    path: testInfo.outputPath("offline-subscription-offer.png"),
+  });
+  await (await openSubscription(page)).click();
+  await expect.poll(() => state.joins.length).toBe(2);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(subscribe).toHaveCount(0);
+  await expect(
+    page.getByText("This creator is not currently live.", { exact: true }),
+  ).toBeInViewport();
+  await expect(
+    page.getByRole("button", { name: "Try again", exact: true }),
+  ).toBeInViewport();
+  expect(state.purchases).toHaveLength(1);
+  expect(state.purchases[0].body).toEqual({
+    expected_price: "25",
+    creator_id: OWNER_ID,
+  });
+  expect(state.purchases[0].key).toBeTruthy();
+  expect(state.joins).toEqual([{ role: "viewer" }, { role: "viewer" }]);
+  expect(await page.evaluate(() => (window as any).subscriberSdk)).toEqual({
+    init: 0,
+    join: 0,
+    defaults: null,
+  });
+  await page.screenshot({ path: testInfo.outputPath("offline-member.png") });
+});
+
+test("an offline member sees the unavailable stream without another subscription offer", async ({
+  page,
+}) => {
+  const state = await fixture(page, true, true, false, true);
+  await page.goto(WATCH);
+  await expect(
+    page.getByText("This creator is not currently live.", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Try again", exact: true }),
+  ).toBeInViewport();
+  await expect(
+    page.getByRole("button", { name: `Subscribe to ${OWNER}`, exact: true }),
+  ).toHaveCount(0);
+  expect(state.purchases).toEqual([]);
+  expect(state.joins).toHaveLength(1);
+});
+
+test("offline creator verification cannot survive an account round trip", async ({
+  page,
+}) => {
+  const state = await fixture(page, true, false, true, true);
+  await page.goto(WATCH);
+  await expect.poll(() => state.joins.length).toBe(1);
+  state.holdCreator();
+  state.releaseAdmission();
+  await expect.poll(state.creatorHeld).toBe(true);
+  for (const change of [state.changeActor, state.resetActor]) {
+    change();
+    await page.evaluate(async () => {
+      const path = "/src/lib/stores/auth.ts";
+      await (
+        await import(path)
+      ).authStore.checkAuth({ force: true, fresh: true, silent: true });
+    });
+  }
+  state.releaseCreator();
+  await expect(
+    page.getByRole("button", { name: "Try again", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: `Subscribe to ${OWNER}`, exact: true }),
+  ).toHaveCount(0);
+  expect(state.purchases).toEqual([]);
+});
+
+test("a case-colliding username does not show another creator's management link", async ({
+  page,
+}) => {
+  const state = await fixture(page, true, false, false, true);
+  state.setActorUsername("LiVeFiXtUrE");
+  await page.goto(WATCH);
+  await expect(
+    page.getByText("This creator is not currently live.", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByTestId("owner-viewer-notice")).toHaveCount(0);
+  expect(state.purchases).toEqual([]);
+});
+
+for (const boundary of [
+  "auth-error",
+  "creator-error",
+  "creator-changed",
+  "membership-unknown",
+  "account-changed",
+] as const) {
+  test(`offline subscription prompt requires fresh matching identity: ${boundary}`, async ({
+    page,
+  }) => {
+    const state = await fixture(page, true, false, true, true);
+    await page.goto(WATCH);
+    await expect.poll(() => state.joins.length).toBe(1);
+    await installSyntheticSdk(page);
+    if (boundary === "auth-error") state.failAuth();
+    if (boundary === "creator-error") state.failCreator();
+    if (boundary === "creator-changed") state.replaceCreator();
+    if (boundary === "membership-unknown") state.unknownMembership();
+    if (boundary === "account-changed") state.changeActor();
+    state.releaseAdmission();
+    await expect(
+      page.getByRole("button", { name: "Try again", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: `Subscribe to ${OWNER}`, exact: true }),
+    ).toHaveCount(0);
+    expect(state.purchases).toEqual([]);
+    expect(await page.evaluate(() => (window as any).subscriberSdk)).toEqual({
+      init: 0,
+      join: 0,
+      defaults: null,
+    });
+  });
 }
 
 test("mobile login returns to the stream and one confirmed subscription joins automatically", async ({

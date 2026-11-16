@@ -2305,6 +2305,8 @@
     }
   },
   "live": {
+    "streamTitle": "Transmissão de {name}",
+    "streamMetaTitle": "Transmissão de {name} - Free2Z",
     "backToProfile": "Voltar ao perfil",
     "isLive": "{name} está ao vivo",
     "metaDescription": "Assista à transmissão ao vivo de {name} no Free2Z.",
