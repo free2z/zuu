@@ -65,6 +65,7 @@ from .models import (
     WebhookDelivery,
 )
 from .host_identity import host_participant_claim, host_participant_identity, is_host_participant
+from .host_presence import HOST_PRESENCE_FIELDS, PresenceUpdate, clear_host_presence, record_host_presence
 from .host_seat import HOST_SESSION_TTL, host_seat_is_fresh as _seat_is_fresh
 from .recording import redact_recording_url
 from .serializers import (
@@ -1178,20 +1179,70 @@ def _acknowledge_unresolved_meeting(
     return HttpResponse("OK")
 
 
+def _record_host_departure(cm, event_data):
+    """Close readiness for the current peer without entering viewer billing.
+
+    The caller holds the meeting row lock. The HTTP lease can remain fresh
+    while the SDK is absent; only a later provider join can clear this leave.
+    """
+    claim = host_participant_claim(event_data.participant.customParticipantId, cm.creator.public_id)
+    started_at = event_data.meeting.startedAt
+    joined_at = event_data.participant.joinedAt
+    if (claim != cm.start_id or cm.host_session_id is None
+            or not timezone.is_aware(started_at)
+            or joined_at is None or not timezone.is_aware(joined_at)
+            or joined_at < started_at):
+        return
+    if (cm.provider_session_started_at is not None
+            and (started_at < cm.provider_session_started_at
+                or (started_at == cm.provider_session_started_at
+                    and cm.provider_session_id != event_data.meeting.sessionId))):
+        return
+    newer_session = (cm.provider_session_id is None
+        or (cm.provider_session_started_at is not None
+            and started_at > cm.provider_session_started_at
+            and cm.provider_session_id != event_data.meeting.sessionId))
+    if newer_session:
+        clear_host_presence(cm)
+    if record_host_presence(cm, event_data.participant, departed=True) == PresenceUpdate.IGNORED:
+        return
+    cm.provider_session_id = event_data.meeting.sessionId
+    cm.provider_session_started_at = started_at
+    # An ended session remains terminal. A leave in a proved newer session may
+    # precede its started/joined callbacks and must retain its tombstone.
+    if newer_session or cm.lifecycle_state != LIFECYCLE_OFFLINE:
+        cm.lifecycle_state = LIFECYCLE_STARTING
+    cm.save(update_fields=['provider_session_id', 'provider_session_started_at',
+        'lifecycle_state', *HOST_PRESENCE_FIELDS])
+
+
 @transaction.atomic
 def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
     """Apply one validated delivery atomically with its unique claim."""
-    if event_data.event in ('meeting.started', 'meeting.ended', 'meeting.participantJoined'):
+    host_departure = (event_data.event == 'meeting.participantLeft'
+        and cm.meeting_type in (BROADCAST, PAY_PER_VIEW)
+        and is_host_participant(event_data.participant.customParticipantId, cm.creator.public_id))
+    if host_departure or event_data.event in ('meeting.started', 'meeting.ended', 'meeting.participantJoined'):
+        if not timezone.is_aware(event_data.meeting.startedAt):
+            return
         # The caller resolved this row before our transaction. Serialize both
-        # lifecycle events and compare against the current, locked session.
+        # lifecycle events and host departures against the current session.
+        # Viewer departures must not take this lock before their actor locks.
         cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
         if str(cm.meeting_id) != str(event_data.meeting.id):
             logger.info("ignoring lifecycle event for replaced meeting_id=%s", event_data.meeting.id)
             return
+        if (cm.provider_session_id == event_data.meeting.sessionId
+                and cm.provider_session_started_at is not None
+                and cm.provider_session_started_at != event_data.meeting.startedAt):
+            # One provider session has one start time. Only a distinct session
+            # with a later start may advance the session-generation fence.
+            return
     if event_data.event == 'meeting.participantLeft' and cm.meeting_type in (BROADCAST, PAY_PER_VIEW):
         version=pin_supported_policy()
         participant_identity = event_data.participant.customParticipantId
-        if is_host_participant(participant_identity, cm.creator.public_id):
+        if host_departure:
+            _record_host_departure(cm, event_data)
             return
         if (version == 1 and cm.meeting_type == PAY_PER_VIEW
                 and participant_identity == f'ph_{cm.creator.public_id.hex}'):
@@ -1260,6 +1311,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         cm.lifecycle_state = LIFECYCLE_STARTING if cm.host_session_id else LIFECYCLE_OFFLINE
         cm.provider_session_id = event_data.meeting.sessionId
         cm.provider_session_started_at = started_at
+        clear_host_presence(cm)
         cm.zero_probe_since = None
         # Stamp presence so the just-went-live room is inside the public
         # list's last_seen_at window and safe from the sweep's grace before
@@ -1272,6 +1324,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         cm.save(update_fields=[
             'live_now', 'lifecycle_state', 'last_seen_at', 'provider_session_id',
             'provider_session_started_at', 'zero_probe_since',
+            *HOST_PRESENCE_FIELDS,
         ])
 
     elif event_data.event == "meeting.ended":
@@ -1328,6 +1381,20 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
                     or (started_at == cm.provider_session_started_at
                         and cm.provider_session_id != event_data.meeting.sessionId))):
             return
+        if (event_data.participant.joinedAt is None
+                or not timezone.is_aware(event_data.participant.joinedAt)
+                or not timezone.is_aware(started_at)
+                or event_data.participant.joinedAt < started_at):
+            return
+        if newer_session or cm.provider_session_id is None:
+            clear_host_presence(cm)
+        presence = record_host_presence(cm, event_data.participant, departed=False)
+        if presence == PresenceUpdate.IGNORED:
+            return
+        if presence == PresenceUpdate.AMBIGUOUS:
+            cm.lifecycle_state = LIFECYCLE_STARTING
+            cm.save(update_fields=['lifecycle_state', *HOST_PRESENCE_FIELDS])
+            return
         cm.provider_session_id = event_data.meeting.sessionId
         cm.provider_session_started_at = started_at
         cm.lifecycle_state = LIFECYCLE_LIVE
@@ -1335,7 +1402,8 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         cm.last_seen_at = timezone.now()
         cm.zero_probe_since = None
         cm.save(update_fields=['provider_session_id', 'provider_session_started_at',
-            'lifecycle_state', 'live_now', 'last_seen_at', 'zero_probe_since'])
+            'lifecycle_state', 'live_now', 'last_seen_at', 'zero_probe_since',
+            *HOST_PRESENCE_FIELDS])
 
     elif event_data.event == "meeting.participantLeft":
         logger.info(
@@ -3080,12 +3148,14 @@ class DyteMeeting(APIView):
                     cm.host_start_claim = None
                     cm.host_start_claim_at = None
                     cm.start_id = start_claim
+                    clear_host_presence(cm)
                     cm.lifecycle_state = LIFECYCLE_STARTING
                     cm.live_now = True
                     cm.zero_probe_since = None
                     cm.last_seen_at = now
                     cm.save(update_fields=['price_per_minute', 'live_now', 'lifecycle_state', 'start_id', 'last_seen_at',
                         'zero_probe_since',
+                        *HOST_PRESENCE_FIELDS,
                         'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim', 'host_start_claim_at'])
                     _defer_host_evictions(cm)
 

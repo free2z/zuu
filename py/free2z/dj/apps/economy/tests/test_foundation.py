@@ -56,7 +56,8 @@ def make_contract(creator):
     viewer=Creator.objects.create(username='delivery_'+uuid.uuid4().hex,tuzis=0)
     meeting=CreatorMeeting.objects.create(creator=creator,meeting_id=str(uuid.uuid4()),meeting_type='ppv',
         is_public=True,live_now=True,lifecycle_state='live',provider_session_id=uuid.uuid4(),
-        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),price_per_minute='100.00')
+        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(),price_per_minute='100.00')
     admission=products.prepare_livestream_admission(host_id=creator.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='100.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)

@@ -260,7 +260,8 @@ def test_prepared_ppv_captures_real_original_offer_and_refuses_changed_price(cre
     host, viewer = creator_factory(tuzis=0), creator_factory(tuzis=0)
     meeting = CreatorMeeting.objects.create(creator=host, meeting_id='real-offer',
         meeting_type=PAY_PER_VIEW, live_now=True, lifecycle_state=LIFECYCLE_LIVE,
-        price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(), provider_session_id=uuid.uuid4())
+        price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(), provider_session_id=uuid.uuid4())
     # Only the not-yet-installed delivery ABI availability is simulated; the
     # host, offer, price and their locks are real PostgreSQL records.
     cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
@@ -299,6 +300,7 @@ def test_livestream_ppv_retry_after_ambiguous_provider_timeout_stays_unresolved(
         creator=host, meeting_id='ambiguous-ppv-retry', meeting_type=PAY_PER_VIEW,
         live_now=True, lifecycle_state=LIFECYCLE_LIVE,
         price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(),
         provider_session_id=uuid.uuid4(),
     )
     cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
@@ -357,6 +359,7 @@ def test_ppv_endpoint_does_not_repeat_provider_post_after_ambiguous_timeout(
         creator=host, meeting_id='ppv-endpoint-timeout', meeting_type=PAY_PER_VIEW,
         is_public=True, live_now=True, lifecycle_state=LIFECYCLE_LIVE,
         price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(),
         provider_session_id=uuid.uuid4(),
     )
     cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
@@ -407,6 +410,7 @@ def test_livestream_ppv_replay_rejects_changed_admission_identity(
         creator=host, meeting_id='ppv-replay-identity', meeting_type=PAY_PER_VIEW,
         live_now=True, lifecycle_state=LIFECYCLE_LIVE,
         price_per_minute=Decimal('1.23'), host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(),
         provider_session_id=uuid.uuid4(),
     )
     cursor = mocker.patch.object(products, 'connection').cursor.return_value.__enter__.return_value
