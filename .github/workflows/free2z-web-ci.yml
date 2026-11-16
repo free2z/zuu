@@ -484,7 +484,7 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run test:build-dependencies
       - name: Test classic rollback compatibility routes
-        run: npm test -- --watchAll=false --runTestsByPath src/components/AIzPageDialog.test.tsx src/components/LogoutButton.test.tsx src/classicRouteCompatibility.test.ts src/PageDetail.test.tsx src/RootSplitter.test.tsx src/CreatorDetail.test.tsx src/components/SubscribeToCreator.test.tsx src/components/MySubscriptionRow.test.tsx src/eventContentUrl.test.ts src/retiredMemoProtocols.test.ts src/AI2.test.tsx src/components/AITextarea.test.tsx
+        run: npm test -- --watchAll=false --runTestsByPath src/components/AIzPageDialog.test.tsx src/components/LogoutButton.test.tsx src/classicRouteCompatibility.test.ts src/PageDetail.test.tsx src/RootSplitter.test.tsx src/CreatorDetail.test.tsx src/components/SubscribeToCreator.test.tsx src/components/MySubscriptionRow.test.tsx src/eventContentUrl.test.ts src/retiredMemoProtocols.test.ts src/AI2.test.tsx src/components/AITextarea.test.tsx src/CreatorLive.host.test.tsx src/CreatorLive.actor.test.tsx
       - name: Build classic React app for Chromium tests
         run: NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" npm run build
         env:
