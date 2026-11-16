@@ -49,6 +49,8 @@ Object.defineProperty(globalThis, "crypto", {
   value: require("crypto").webcrypto,
 });
 const http = axios as jest.Mocked<typeof axios>;
+const mockFetch = jest.fn();
+const originalFetch = globalThis.fetch;
 function client() {
   const listeners = new Set<(event: { state: string }) => void>();
   const handoffs = new Set<(next: any) => void>();
@@ -68,7 +70,13 @@ function client() {
 }
 let meeting: ReturnType<typeof client>;
 const calls = (action: string) =>
-  http.post.mock.calls.filter(([, body]: any) => body?.action === action);
+  action === "release"
+    ? mockFetch.mock.calls.map(([url, options]) => [
+        url,
+        JSON.parse(options.body),
+        options,
+      ])
+    : http.post.mock.calls.filter(([, body]: any) => body?.action === action);
 const starts = () =>
   http.post.mock.calls.filter(([url]: any) => !url.endsWith("host-session"));
 async function flush(ms = 0) {
@@ -80,6 +88,8 @@ async function flush(ms = 0) {
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
+  mockFetch.mockResolvedValue({ ok: true });
+  globalThis.fetch = mockFetch;
   sessionStorage.clear();
   mockActor = { id: 41, username: "Alice", can_stream: true };
   mockParams = { id: "Alice", type: "ppv" };
@@ -100,6 +110,7 @@ beforeEach(() => {
 afterEach(async () => {
   cleanup();
   await flush();
+  globalThis.fetch = originalFetch;
   jest.useRealTimers();
 });
 
@@ -135,6 +146,7 @@ test("transient heartbeat failure retries, supersession stops and leaves the exa
   await flush();
   http.post.mockRejectedValueOnce(new Error("offline"));
   await flush(15_000);
+  http.post.mockRejectedValueOnce({ response: { status: 503 } });
   await flush(15_000);
   expect(calls("heartbeat")).toHaveLength(3);
   expect(calls("heartbeat")[0][2]).toEqual({ timeout: 10_000 });
@@ -163,6 +175,43 @@ test("StrictMode does not provision or release a second seat", async () => {
   await flush();
   expect(calls("release")).toHaveLength(1);
 });
+
+test.each([
+  [401, false],
+  [403, false],
+  [401, true],
+  [403, true],
+])(
+  "heartbeat denial %i ends the host (initialization pending: %s)",
+  async (status, pending) => {
+    let resolve!: (value: any) => void;
+    if (pending)
+      mockInit.mockImplementationOnce(
+        () =>
+          new Promise((done) => {
+            resolve = done;
+          })
+      );
+    render(<CreatorLive />);
+    await flush();
+    http.post.mockRejectedValueOnce({ response: { status } });
+    await flush(15_000);
+    if (pending) {
+      await act(async () => resolve(meeting));
+      await flush();
+    }
+    await flush(75_000);
+    expect(calls("heartbeat")).toHaveLength(2);
+    expect(calls("release")).toHaveLength(0);
+    expect(meeting.leave).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith("/profile");
+    expect(mockState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("Sign in again"),
+      })
+    );
+  }
+);
 
 test("cancelled provisioning releases its late response without initializing media", async () => {
   let resolve!: (data: any) => void;
@@ -334,6 +383,13 @@ test("page teardown releases the current seat without waiting for unmount", asyn
   await flush(75_000);
   expect(calls("release")).toHaveLength(1);
   expect(calls("heartbeat")).toHaveLength(1);
+  expect(calls("release")[0][2]).toEqual(
+    expect.objectContaining({
+      keepalive: true,
+      credentials: "same-origin",
+      method: "POST",
+    })
+  );
 });
 
 test.each(["left", "ended", "kicked", "failed"])(

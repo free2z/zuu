@@ -42,6 +42,8 @@ Object.defineProperty(globalThis, "crypto", {
   value: require("crypto").webcrypto,
 });
 const http = axios as jest.Mocked<typeof axios>;
+const mockFetch = jest.fn();
+const originalFetch = globalThis.fetch;
 const alice = {
   ...defaultCreator,
   id: 41,
@@ -65,7 +67,13 @@ class FakeWebSocket {
 }
 const originalWebSocket = globalThis.WebSocket;
 const calls = (action: string) =>
-  http.post.mock.calls.filter(([, body]: any) => body?.action === action);
+  action === "release"
+    ? mockFetch.mock.calls.map(([url, options]) => [
+        url,
+        JSON.parse(options.body),
+        options,
+      ])
+    : http.post.mock.calls.filter(([, body]: any) => body?.action === action);
 const starts = () =>
   http.post.mock.calls.filter(([, body]: any) => body?.role === "host");
 async function flush(ms = 0) {
@@ -87,6 +95,8 @@ function mount() {
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();
+  mockFetch.mockResolvedValue({ ok: true });
+  globalThis.fetch = mockFetch;
   sessionStorage.clear();
   currentProfile = alice;
   setGlobalState("creator", alice);
@@ -126,6 +136,7 @@ afterEach(async () => {
   await flush();
   queryClient.clear();
   globalThis.WebSocket = originalWebSocket;
+  globalThis.fetch = originalFetch;
   jest.useRealTimers();
 });
 

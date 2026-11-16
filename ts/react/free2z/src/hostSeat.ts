@@ -1,4 +1,5 @@
 import axios from "axios";
+import Cookies from "js-cookie";
 
 export type HostClient = {
   leave: () => Promise<unknown>;
@@ -48,7 +49,7 @@ export function createHostSeat({
   onReady: (client: HostClient) => void;
   onClosed: () => void;
   onError: (error: unknown) => void;
-  onLost: () => void;
+  onLost: (reason: "superseded" | "authentication") => void;
 }) {
   const session = crypto.randomUUID();
   const path = `/api/dyte/${encodeURIComponent(username)}/host-session`;
@@ -63,17 +64,24 @@ export function createHostSeat({
   const release = () => {
     // Cookie credentials belong to the current actor. Never send an old
     // actor's cleanup after the UI has observed an account transition.
-    if (isCurrent())
-      void axios
-        .post(
-          path,
-          {
-            host_session: session,
-            action: "release",
-          },
-          { timeout: 10_000 }
-        )
-        .catch(() => {});
+    if (!isCurrent()) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    // A normal close can be followed immediately by navigation, so every
+    // exact-seat release must survive document unload, not only pagehide.
+    void fetch(path, {
+      method: "POST",
+      credentials: "same-origin",
+      keepalive: true,
+      headers: {
+        "Content-Type": "application/json",
+        "X-CSRFToken": Cookies.get("csrftoken") || "",
+      },
+      body: JSON.stringify({ host_session: session, action: "release" }),
+      signal: controller.signal,
+    })
+      .catch(() => {})
+      .finally(() => clearTimeout(timeout));
   };
   const leave = (target = client) => {
     if (!target || (target === client && left)) return;
@@ -136,13 +144,15 @@ export function createHostSeat({
       );
     } catch (error: any) {
       const response = error?.response ?? error;
+      const authDenied = response?.status === 401 || response?.status === 403;
       if (
         !closed &&
-        response?.status === 409 &&
-        response?.data?.code === "host_session_superseded"
+        (authDenied ||
+          (response?.status === 409 &&
+            response?.data?.code === "host_session_superseded"))
       ) {
         close(false);
-        if (current()) onLost();
+        if (current()) onLost(authDenied ? "authentication" : "superseded");
       }
     } finally {
       pending = false;

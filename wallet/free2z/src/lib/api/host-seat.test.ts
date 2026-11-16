@@ -33,6 +33,7 @@ afterEach(() => {
 
 it("renews beyond the 60-second admission lease and retries a transient outage", async () => {
   post.mockRejectedValueOnce(new TypeError("offline"));
+  post.mockRejectedValueOnce(new ApiError(503, "temporarily unavailable"));
   const value = seat();
   const lost = vi.fn();
   const detach = retainHostSeat(value, lost);
@@ -48,6 +49,10 @@ it("renews beyond the 60-second admission lease and retries a transient outage",
     host_session: value.session,
     action: "release",
   });
+  expect(post.mock.lastCall?.[1]?.keepalive).toBe(true);
+  expect(
+    post.mock.calls.slice(0, 6).every(([, options]) => !options?.keepalive)
+  ).toBe(true);
   await vi.advanceTimersByTimeAsync(60_000);
   expect(post).toHaveBeenCalledTimes(7);
   expect(isCurrentHostSeat(value)).toBe(false);
@@ -189,9 +194,14 @@ it("a late start response from another token generation cannot install ownership
 
 it("bounds hung public provisioning and releases only its original seat and token", async () => {
   post.mockResolvedValueOnce({ id: 41, username: "Alice", tuzis: "100" });
-  post.mockImplementationOnce((_path, options) => new Promise((_, reject) => {
-    options!.signal!.addEventListener("abort", () => reject(new Error("provisioning timed out")));
-  }));
+  post.mockImplementationOnce(
+    (_path, options) =>
+      new Promise((_, reject) => {
+        options!.signal!.addEventListener("abort", () =>
+          reject(new Error("provisioning timed out"))
+        );
+      })
+  );
   const result = live.start("broadcast");
   const rejected = expect(result).rejects.toThrow("provisioning timed out");
   await vi.advanceTimersByTimeAsync(29_999);
@@ -202,18 +212,32 @@ it("bounds hung public provisioning and releases only its original seat and toke
   expect(start.signal!.aborted).toBe(true);
   expect(post.mock.calls[2]).toEqual([
     "/api/dyte/Alice/host-session",
-    expect.objectContaining({ authToken: "synthetic-A", body: {
-      host_session: (start.body as { host_session: string }).host_session,
-      action: "release",
-    } }),
+    expect.objectContaining({
+      authToken: "synthetic-A",
+      body: {
+        host_session: (start.body as { host_session: string }).host_session,
+        action: "release",
+      },
+    }),
   ]);
-  expect(isCurrentHostSeat({ username: "Alice", actorId: 41, session: (start.body as any).host_session })).toBe(false);
+  expect(
+    isCurrentHostSeat({
+      username: "Alice",
+      actorId: 41,
+      session: (start.body as any).host_session,
+    })
+  ).toBe(false);
 });
 
 it("bounds the fresh authentication read without releasing an unregistered seat", async () => {
-  post.mockImplementationOnce((_path, options) => new Promise((_, reject) => {
-    options!.signal!.addEventListener("abort", () => reject(new Error("authentication timed out")));
-  }));
+  post.mockImplementationOnce(
+    (_path, options) =>
+      new Promise((_, reject) => {
+        options!.signal!.addEventListener("abort", () =>
+          reject(new Error("authentication timed out"))
+        );
+      })
+  );
   const result = live.start("broadcast");
   const rejected = expect(result).rejects.toThrow("authentication timed out");
   await vi.advanceTimersByTimeAsync(30_000);

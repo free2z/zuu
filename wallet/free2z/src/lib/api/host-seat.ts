@@ -73,6 +73,7 @@ async function send(
       body: { host_session: entry.identity.session, action },
       authToken: entry.auth.token!,
       signal,
+      ...(action === "release" ? { keepalive: true } : {}),
     }
   );
 }
@@ -123,8 +124,11 @@ export function retainHostSeat(seat: HostSeat, onLost: () => void): () => void {
         if (
           !entry.closed &&
           error instanceof ApiError &&
-          error.status === 409 &&
-          (error.body as { code?: string })?.code === "host_session_superseded"
+          (error.status === 401 ||
+            error.status === 403 ||
+            (error.status === 409 &&
+              (error.body as { code?: string })?.code ===
+                "host_session_superseded"))
         )
           lose();
       } finally {

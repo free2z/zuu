@@ -281,12 +281,15 @@ export function Stage({
 
   useEffect(() => {
     if (!meeting) return;
+    const ownsMeeting = () => ownerRef.current?.client === meeting && ownsTicket();
 
     const onJoined = () => {
+      if (!ownsMeeting()) return;
       setFailure(null);
       setStatus("connected");
     };
     const onLeft = ({ state }: { state: string }) => {
+      if (!ownsMeeting()) return;
       if (state === "left" || state === "ended" || state === "kicked") {
         // The SDK already ran its own leave for these terminal states.
         releasedClients.add(meeting);
@@ -324,14 +327,18 @@ export function Stage({
     // to it, as the hook did; the departed client is not ours to leave again.
     const onMeetingChanged = (next: RealtimeKitClient) => {
       const owner = ownerRef.current;
-      if (!owner || owner.client !== meeting || !next) return;
+      if (!next) return;
+      if (!owner || !ownsMeeting()) {
+        if (ownerRef.current?.client !== next) releaseClient(next);
+        return;
+      }
       owner.client = next;
       // Unmount first so <RtkMeeting> remounts against the new client. The
       // timer is not cleared by this effect's cleanup (setMeeting(null) runs
       // it); the owner check is what discards a handoff after unmount/retry.
       setMeeting(null);
       setTimeout(() => {
-        if (ownerRef.current === owner && owner.client === next) setMeeting(next);
+        if (ownerRef.current === owner && owner.client === next && ownsTicket()) setMeeting(next);
       }, 100);
     };
     const onPageHide = () => releaseClient(meeting);

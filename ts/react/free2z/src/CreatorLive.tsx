@@ -179,9 +179,12 @@ export default function CreatorLive() {
                 : "Could not start stream. Please try again.";
               setSnackbarState({ message, severity: "error", duration: null, open: true });
             },
-            onLost: () => {
+            onLost: (reason) => {
               setLoading(false);
-              setSnackbarState({ message: "Your broadcast moved to another tab or device.", severity: "warning", duration: null, open: true });
+              const message = reason === "authentication"
+                ? "Your sign-in session ended. Sign in again to restart your broadcast."
+                : "Your broadcast moved to another tab or device.";
+              setSnackbarState({ message, severity: "warning", duration: null, open: true });
               navigate("/profile");
             },
           }),
