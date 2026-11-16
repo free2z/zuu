@@ -315,6 +315,45 @@ def test_subscription_transfer_at_the_boundary_blocks(
 
 
 @pytest.mark.django_db(transaction=True)
+def test_subscription_transfer_to_another_creator_does_not_block(
+        creator_factory, tmp_path, monkeypatch):
+    from dj.apps.tuzis import ledger
+
+    monkeypatch.setenv('MEMBERSHIP_RECOVERY_APPLY', '1')
+    fan, star = _pair(creator_factory)
+    other = creator_factory(tuzis=Decimal('1000'), member_price=Decimal('10'))
+    sub = _membership(fan, star)
+    ledger.transfer(fan, other, Decimal('1'), action='subscription')
+    path = _file(tmp_path, [sub])
+
+    receipt = _invoke(path)
+
+    assert receipt['can_apply'] is True
+    assert receipt['rows'][0]['conflicts'] == []
+    receipt = _apply(path)
+    assert receipt['applied'] is True
+    assert sub.zero_charge_continuations.count() == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_subscription_transfer_to_this_creator_before_the_boundary_does_not_block(
+        creator_factory, tmp_path, monkeypatch):
+    from dj.apps.tuzis import ledger
+
+    monkeypatch.setenv('MEMBERSHIP_RECOVERY_APPLY', '1')
+    fan, star = _pair(creator_factory)
+    ledger.transfer(fan, star, Decimal('1'), action='subscription')
+    paid_at = Transfer.objects.order_by('-pk').values_list('created_at', flat=True)[0]
+    sub = _membership(fan, star, expires=paid_at + timedelta(milliseconds=1))
+    path = _file(tmp_path, [sub])
+
+    receipt = _invoke(path)
+
+    assert receipt['can_apply'] is True
+    assert receipt['rows'][0]['conflicts'] == []
+
+
+@pytest.mark.django_db(transaction=True)
 def test_apply_without_the_env_var_or_matching_id_writes_nothing(
         creator_factory, tmp_path, monkeypatch):
     fan, star = _pair(creator_factory)
