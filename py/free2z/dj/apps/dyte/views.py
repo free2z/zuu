@@ -65,6 +65,7 @@ from .models import (
     WebhookDelivery,
 )
 from .host_identity import host_participant_claim, host_participant_identity, is_host_participant
+from .host_seat import HOST_SESSION_TTL, host_seat_is_fresh as _seat_is_fresh
 from .recording import redact_recording_url
 from .serializers import (
     HOST_ROLE,
@@ -1872,10 +1873,6 @@ def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting
 # ---------------------------------------------------------------------------
 
 HOST_SESSION_HEARTBEAT_SECONDS = 15
-# Four missed heartbeats. A broadcasting tab holds a live WebRTC connection,
-# which exempts it from Chrome's intensive background-timer throttling, but a
-# network blip or a slow mobile radio should not hand the seat to nobody.
-HOST_SESSION_TTL = timezone.timedelta(seconds=60)
 # create + add participant, including the one 404 recovery path, is bounded by
 # four provider calls. Honor configured connect/read timeouts plus a margin;
 # the five-minute floor also prevents rapid reuse on the defaults.
@@ -2050,15 +2047,6 @@ def _held_host_seat(creator):
         CreatorMeeting.objects
         .filter(creator=creator, host_session_id__isnull=False)
         .first()
-    )
-
-
-def _seat_is_fresh(cm, now) -> bool:
-    return bool(
-        cm is not None
-        and cm.host_session_id is not None
-        and cm.host_session_seen_at is not None
-        and now - cm.host_session_seen_at < HOST_SESSION_TTL
     )
 
 

@@ -217,3 +217,20 @@ def test_reconnected_host_join_before_started_activates_new_session(api_client, 
     assert cm.lifecycle_state == LIFECYCLE_LIVE
     assert str(cm.provider_session_id) == reconnected['sessionId']
     assert viewer_join(api_client, viewer, host).status_code == 200
+
+
+@pytest.mark.parametrize('missing_heartbeat', [True, False])
+def test_paid_admission_requires_fresh_host_lease(api_client, actors, provider, keypair, missing_heartbeat):
+    host, viewer = actors
+    supplier_contract(host)
+    cm, _, _, session = go_live(api_client, host, provider, keypair)
+    cm.host_session_seen_at = None if missing_heartbeat else timezone.now() - timedelta(seconds=61)
+    cm.save(update_fields=['host_session_seen_at'])
+    response = viewer_join(api_client, viewer, host)
+    assert response.status_code == 409 and response.data['code'] == 'livestream_offer_unavailable'
+    assert provider.add_participant.call_count == 1
+    assert not ServiceAdmission.objects.exists()
+    # Renewing the same held lease permits admission without fabricating a new
+    # provider session; a different tab cannot renew this seat.
+    assert _seat(api_client, host, session, 'heartbeat').status_code == 200
+    assert viewer_join(api_client, viewer, host).status_code == 200
