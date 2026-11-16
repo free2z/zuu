@@ -687,9 +687,9 @@ django-redis==7.0.0 \
     --hash=sha256:4b23aa6e0cd0937bb1242e9a463809e6004de3ca2150f34e986306bb6220d688 \
     --hash=sha256:e48491c862f4350b0747ceb1016700686fb93c4f4e0fb9c490fe6c6658ffd933
     # via -r main.in
-django-rest-knox==5.1.0 \
-    --hash=sha256:78307dce32858679fe96afb06c4ab2d4fe0ed085c7a739a7ccc03a14dea2b37b \
-    --hash=sha256:7dad21e91091db07796ea96f559fd2e1f67b8d42748d4e140d2fa7a0319538e7
+django-rest-knox==5.1.1 \
+    --hash=sha256:4a61218ef771c1573edf5c1c308a3c6acc438a6be2e86e225620b74b18fc38b4 \
+    --hash=sha256:b303d1a7c898d535cb2d2f153ca80b6d71e493d5fa2d8f09aa17f9b86c66641b
     # via -r main.in
 django-sendgrid-v5==1.3.1 \
     --hash=sha256:29c308b8fe92fcae31aa4cae6a04efcd1e62613226e90d199d950fadd44c4189 \
