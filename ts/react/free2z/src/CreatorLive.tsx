@@ -53,7 +53,7 @@ export default function CreatorLive() {
   const [loading, setLoading] = useGlobalState("loading");
   const [loginModal, setLoginModal] = useGlobalState("loginModal");
   const [authStatus, _a] = useGlobalState("authStatus");
-  const [authEpoch] = useGlobalState("authEpoch");
+  const [hostAuthEpoch] = useGlobalState("hostAuthEpoch");
   const navigate = useTransitionNavigate();
   const [meeting, initMeeting] = useRealtimeKitClient();
   const [hostMeeting, setHostMeeting] = useState<{ client: RealtimeKitClient; actor: object; run: object; intent: object }>();
@@ -149,12 +149,12 @@ export default function CreatorLive() {
     if (is_owner && !paidViewer && type && type !== "private") {
       const actor = viewerRef.current;
       const intent = intentRef.current;
-      if (hostIntent.current?.intent === intent && hostIntent.current.epoch !== authEpoch) {
+      if (hostIntent.current?.intent === intent && hostIntent.current.epoch !== hostAuthEpoch) {
         hostRun.current?.run.close();
         setLoading(false);
         return;
       }
-      hostIntent.current = { intent, epoch: authEpoch };
+      hostIntent.current = { intent, epoch: hostAuthEpoch };
       const key = `${actor.generation}:${actor.id}:${star.id}:${owner}:${type}`;
       if (hostRun.current?.key !== key || hostRun.current.run.closed) {
         hostRun.current?.run.close();
@@ -163,7 +163,7 @@ export default function CreatorLive() {
           key,
           run: createHostSeat({
             username: star.username, actorId: actor.id, type, price: String(ppvPrice),
-            isCurrent: () => viewerRef.current === actor && getGlobalState("authEpoch") === authEpoch,
+            isCurrent: () => viewerRef.current === actor && getGlobalState("hostAuthEpoch") === hostAuthEpoch,
             isIntentCurrent: () => intentRef.current === intent,
             initialize: (authToken) => RealtimeKitClient.init({ authToken, defaults: { audio: true, video: true } }),
             onReady: (client) => {
@@ -408,7 +408,7 @@ export default function CreatorLive() {
       unregisterRoomJoined?.();
       unregisterRoomJoined = undefined;
     };
-  }, [creator.id, creator.username, authEpoch, showPay, star.id, star.username, starOwner, owner, type]);
+  }, [creator.id, creator.username, hostAuthEpoch, showPay, star.id, star.username, starOwner, owner, type]);
 
   // console.log(owner)
   if (!star) {

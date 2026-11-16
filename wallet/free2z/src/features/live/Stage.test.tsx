@@ -232,6 +232,26 @@ describe("RealtimeKit stage retry lifecycle", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it("keeps a superseded host ended when pending initialization later rejects", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket();
+    let reject!: (error: Error) => void;
+    controls.initMeeting.mockImplementationOnce(() => new Promise((_done, fail) => { reject = fail; }));
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(409, "taken", { code: "host_session_superseded" }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(container.textContent).toContain("ended");
+    await act(async () => reject(new Error("network disconnected")));
+    await flush();
+    expect(container.textContent).toContain("ended");
+    expect(container.textContent).not.toContain("Reconnect");
+    expect(isCurrentHostSeat(ticket.hostSeat!)).toBe(false);
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(controls.initMeeting).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   it("leaving the host route stops renewal and retires a late initialized client", async () => {
     vi.useFakeTimers();
     const ticket = leasedTicket(); const client = fakeClient();

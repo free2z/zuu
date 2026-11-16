@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery } from "react-query";
 import axios from "axios";
-import { retireAuthSession, useGlobalState } from "./global";
+import { getGlobalState, retireAuthSession, useGlobalState } from "./global";
 import { retireResolvedSubscribeIdempotencyKeys } from "../subscribeIdempotency";
 
 function fetchUserData() {
@@ -17,9 +17,16 @@ export default function GlobalCreator() {
   const { data, error } = useQuery("creatorData", fetchUserData, {
     // no retry so we get the error on the first try
     retry: 0,
-    // An authoritative identity refresh can represent a new cookie
-    // session even if it resolves to the same account id.
-    onSuccess: retireAuthSession,
+    // Refresh private caches on every authoritative response. Host ownership
+    // survives ordinary balance/profile updates; changed identities are fenced
+    // synchronously, before the effect below adopts their data.
+    onSuccess: (data) => {
+      const current = getGlobalState("creator");
+      retireAuthSession({
+        hostIdentityChanged:
+          data.id !== current.id || data.username !== current.username,
+      });
+    },
   });
 
   useEffect(() => {

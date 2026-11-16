@@ -263,7 +263,7 @@ export function Stage({
         setMeeting(initialized);
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (cancelled || !ownsTicket()) return;
         const classified = classifyLiveFailure(err, "sdk-init");
         // Never log the raw SDK error: provider errors can echo credentials or
         // private endpoints. The allowlisted boundary/category is sufficient.

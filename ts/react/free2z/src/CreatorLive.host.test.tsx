@@ -36,13 +36,13 @@ jest.mock("./state/global", () => ({
       ? mockActor
       : key === "authStatus"
       ? true
-      : key === "authEpoch"
+      : key === "hostAuthEpoch"
       ? mockEpoch
       : false,
     mockState,
   ],
   getGlobalState: (key: string) =>
-    key === "authEpoch" ? mockEpoch : undefined,
+    key === "hostAuthEpoch" ? mockEpoch : undefined,
 }));
 Object.defineProperty(globalThis, "crypto", {
   configurable: true,
