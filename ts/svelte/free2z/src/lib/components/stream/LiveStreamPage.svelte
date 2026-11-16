@@ -28,13 +28,12 @@
   // The creator on their own public page watches as a viewer; this
   // only decides whether to say so and point at the dashboard.
   $: isOwner =
-    Boolean(currentUser?.username) &&
-    currentUser?.username?.toLowerCase() === username?.toLowerCase();
+    Boolean(currentUser?.id && creator?.id) && currentUser?.id === creator?.id;
 
   $: displayName = creator?.full_name || username;
 
   // SEO
-  $: title = $t("live.metaTitle", "{name} is Live! - Free2Z", {
+  $: title = $t("live.streamMetaTitle", "{name}'s stream - Free2Z", {
     name: displayName,
   });
   $: description = compactText(
@@ -96,9 +95,8 @@
         {$t("live.backToProfile", "Back to Profile")}
       </Button>
       <div class="flex items-center gap-2">
-        <div class="h-2 w-2 animate-pulse rounded-full bg-red-500"></div>
         <h1 class="text-lg font-bold text-white">
-          {$t("live.isLive", "{name} is live", { name: displayName })}
+          {$t("live.streamTitle", "{name}'s stream", { name: displayName })}
         </h1>
       </div>
     </div>
@@ -155,6 +153,7 @@
           {username}
           streamType={type}
           expectedActorId={data.viewerActorId}
+          expectedCreatorId={creator?.id}
         />
       {/key}
     {/if}
