@@ -23,6 +23,7 @@ async function fixture(
   const purchases: { body: unknown; key: string | undefined }[] = [];
   let resolvePurchase: (() => void) | undefined;
   let holdPurchase = false;
+  let unconfirmedPurchase = false;
   let releaseAdmission!: () => void;
   const admissionReady = new Promise<void>((resolve) => {
     releaseAdmission = resolve;
@@ -108,6 +109,11 @@ async function fixture(
         await new Promise<void>((resolve) => {
           resolvePurchase = resolve;
         });
+      if (unconfirmedPurchase)
+        return route.fulfill({
+          status: 409,
+          json: { code: "request_in_progress" },
+        });
       subscribed = true;
       await route
         .fulfill({ json: { success: true, replayed: false } })
@@ -118,6 +124,12 @@ async function fixture(
     joins,
     purchases,
     releaseAdmission,
+    unconfirmed: () => {
+      unconfirmedPurchase = true;
+    },
+    setMembership: (active: boolean) => {
+      subscribed = active;
+    },
     hold: () => {
       holdPurchase = true;
     },
@@ -236,6 +248,84 @@ test("an existing member joins without a subscription request", async ({
   expect(state.joins).toEqual([{ role: "viewer" }]);
   expect(state.purchases).toEqual([]);
 });
+
+for (const outcome of [
+  "active",
+  "expired",
+  "pending",
+  "account-changed",
+] as const) {
+  test(`subscription recovery continues only for current active membership: ${outcome}`, async ({
+    page,
+  }) => {
+    const state = await fixture(page);
+    state.unconfirmed();
+    let releaseRecovery!: () => void;
+    const recoveryReady = new Promise<void>((resolve) => {
+      releaseRecovery = resolve;
+    });
+    const recoveries: unknown[] = [];
+    await page.route(
+      `**/api/tuzis/subscribe-recovery/${OWNER_ID}`,
+      async (route) => {
+        recoveries.push(route.request().postDataJSON());
+        if (outcome === "account-changed") await recoveryReady;
+        state.setMembership(
+          outcome === "active" || outcome === "account-changed",
+        );
+        await route.fulfill({
+          json: { status: outcome === "pending" ? "unchanged" : "resolved" },
+        });
+      },
+    );
+    await page.goto(WATCH);
+    await expect.poll(() => state.joins.length).toBe(1);
+    await installSyntheticSdk(page);
+    await (await openSubscription(page)).click();
+    const recoveryButton = page.getByRole("button", {
+      name: "Resolve previous attempt",
+    });
+    await recoveryButton.click();
+    await expect.poll(() => recoveries.length).toBe(1);
+    expect(recoveries[0]).toEqual({
+      key: state.purchases[0].key,
+      username: OWNER,
+      expected_price: "25",
+    });
+    if (outcome === "account-changed") {
+      state.changeActor();
+      await page.evaluate(async () => {
+        const path = "/src/lib/stores/auth.ts";
+        await (
+          await import(path)
+        ).authStore.checkAuth({ force: true, fresh: true, silent: true });
+      });
+      releaseRecovery();
+      await expect(recoveryButton).toBeEnabled();
+    } else if (outcome === "active") {
+      await expect.poll(() => state.joins.length).toBe(2);
+      await expect
+        .poll(() => page.evaluate(() => (window as any).subscriberSdk.join))
+        .toBe(1);
+      await expect(page.getByRole("dialog")).toHaveCount(0);
+    } else if (outcome === "expired") {
+      await expect(
+        page.getByRole("dialog").getByRole("button", { name: /Subscribe for/ }),
+      ).toBeEnabled();
+    } else {
+      await expect(page.getByTestId("payment-outcome-error")).toContainText(
+        "previous attempt is still pending",
+      );
+    }
+    if (outcome !== "active") {
+      expect(state.joins).toHaveLength(1);
+      expect(
+        await page.evaluate(() => (window as any).subscriberSdk.join),
+      ).toBe(0);
+    }
+    expect(state.purchases).toHaveLength(1);
+  });
+}
 
 test("navigation started during initial load tolerates an unset source URL", async ({
   page,
