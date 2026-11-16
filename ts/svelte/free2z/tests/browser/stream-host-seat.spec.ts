@@ -402,14 +402,14 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
 }) => {
   const OWNER = "livefixture";
   // Sign the browser in as the stream's own creator: a real session for the
-  // cookie, with the username swapped to the page's creator.
+  // cookie, with the identity set to the page's creator.
   await authenticate(page, "profile-fixture-session");
   await page.route("**/api/auth/user/", async (route) => {
     const response = await route.fetch();
     const user = await response.json();
     await route.fulfill({
       response,
-      body: JSON.stringify({ ...user, username: OWNER }),
+      body: JSON.stringify({ ...user, id: 8811, username: OWNER }),
     });
   });
   const joins: Record<string, unknown>[] = [];
