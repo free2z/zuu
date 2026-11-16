@@ -56,7 +56,7 @@ def ppv_fixture(creator_factory):
     service_terms(host,'livestream_ppv')
     meeting=CreatorMeeting.objects.create(creator=host,meeting_id=str(uuid.uuid4()),meeting_type='ppv',
         is_public=True,live_now=True,lifecycle_state='live',provider_session_id=uuid.uuid4(),
-        host_session_id=uuid.uuid4(),price_per_minute='10.00')
+        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),price_per_minute='10.00')
     admission=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='10.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)

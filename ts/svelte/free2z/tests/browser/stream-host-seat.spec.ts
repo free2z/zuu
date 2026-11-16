@@ -439,7 +439,10 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
 test("public recovery observes disconnected state without an error and connected cancels stale retry", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
+  // Hold application timers before navigation: slow hydration must not let
+  // the first retry fire before the test observes and cancels it.
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
   const owner = "recoveryfixture";
   let joins = 0;
   await page.route(`**/api/dyte/${owner}/broadcast`, (route) => {
@@ -459,7 +462,10 @@ test("public recovery observes disconnected state without an error and connected
       await page.waitForTimeout(1_000);
     }
   }
-  await expect.poll(() => joins).toBe(1);
+  await expect(
+    page.getByText("Retry attempt 1", { exact: true }),
+  ).toBeVisible();
+  expect(joins).toBe(1);
 
   const store = async (status: "connected" | "disconnected") =>
     page.evaluate(
@@ -471,11 +477,74 @@ test("public recovery observes disconnected state without an error and connected
       { next: status, loader: LIVE_STREAM_STORE_LOADER },
     );
 
+  // Browser timers are paused, but a fired callback can still be awaiting
+  // CSRF or the network hop. Observe absence over real test-runner time.
+  const expectJoinCountHeld = async (expected: number, message: string) => {
+    const deadline = Date.now() + 500;
+    do {
+      expect(joins, message).toBe(expected);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } while (Date.now() < deadline);
+    expect(joins, message).toBe(expected);
+  };
+
   await store("connected");
-  await page.waitForTimeout(2_000);
-  expect(joins).toBe(1);
+  await expect(page.getByText("Retry attempt 1", { exact: true })).toHaveCount(
+    0,
+  );
+  // The scheduled retry has a maximum 1.25 s delay. A connection must cancel it.
+  await page.clock.runFor(2_000);
+  await expectJoinCountHeld(
+    1,
+    "connected state must cancel the scheduled join",
+  );
 
   await store("disconnected");
-  await page.waitForTimeout(22_000);
+  await expect(
+    page.getByRole("status").getByText("Reconnecting to the stream..."),
+  ).toBeVisible();
+  // A disconnect with no error waits the full 20 s grace, then retries once.
+  await page.clock.runFor(19_999);
+  await expectJoinCountHeld(
+    1,
+    "disconnected state must honor the grace period",
+  );
+  await page.clock.runFor(1_300);
   await expect.poll(() => joins).toBe(2);
 });
+
+for (const code of [
+  "compensation_onboarding_required",
+  "compensation_schedule_acceptance_required",
+]) {
+  test(`PPV setup refusal ${code} offers the creator an actionable path`, async ({
+    page,
+  }) => {
+    await authenticate(page);
+    await seatStatus(page, { active: false });
+    const starts = await captureStarts(page, "ppv", {
+      status: 409,
+      body: { code, error: "Internal supplier details must not be displayed" },
+    });
+    await openDashboard(page);
+    await page.locator('label[for="stream-audience-ppv"]').click();
+    await page.getByTestId("stream-start").click();
+    await expect.poll(() => starts.length).toBe(1);
+    await expect(
+      page.getByRole("main").getByText(/Before starting a paid stream,/),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Identity intake", exact: true }),
+    ).toHaveAttribute("href", "/kyc");
+    await expect(
+      page.getByRole("link", {
+        name: "Review compensation in Billing",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", `/${USER}/dashboard/billing`);
+    await expect(
+      page.getByText("Internal supplier details must not be displayed"),
+    ).toHaveCount(0);
+    await expect(page.locator("rtk-meeting")).toHaveCount(0);
+  });
+}
