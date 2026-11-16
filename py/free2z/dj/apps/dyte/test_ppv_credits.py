@@ -394,9 +394,9 @@ def test_existing_payee_receives_credit_share_not_new_cash_obligation(
 
 @pytest.mark.parametrize('actor_role', ['host','viewer'])
 def test_account_deletion_retains_original_credit_receipts_and_revokes_access(creator_factory, actor_role):
-    from dj.apps.g12f.account_deletion import delete_account
+    from dj.apps.g12f.account_deletion import DeletionBlocked, delete_account
     from knox.models import AuthToken
-    host, viewer, _, admission, binding = credit_fixture(creator_factory)
+    host, viewer, meeting, admission, binding = credit_fixture(creator_factory)
     delivery, _ = settle(admission,binding)
     actor = host if actor_role=='host' else viewer
     actor.refresh_from_db()
@@ -404,6 +404,10 @@ def test_account_deletion_retains_original_credit_receipts_and_revokes_access(cr
     original_admission = PpvCreditAdmission.objects.values().get(pk=admission.pk)
     original_delivery = PpvCreditDelivery.objects.values().get(pk=delivery.pk)
     balance = actor.tuzis
+    if actor_role == 'host':
+        with pytest.raises(DeletionBlocked, match='^earnings_owed$'):
+            delete_account(actor,confirm_username=actor.username,auth_epoch=actor.kt_account_epoch)
+        CreatorMeeting.objects.filter(pk=meeting.pk).update(live_now=False, lifecycle_state='offline')
     delete_account(actor,confirm_username=actor.username,auth_epoch=actor.kt_account_epoch)
     actor.refresh_from_db()
     assert not actor.is_active and actor.deleted_at is not None
