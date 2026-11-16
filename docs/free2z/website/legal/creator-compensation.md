@@ -8,9 +8,9 @@ This page is a plain-language summary. **Read the full creator agreement and ser
 
 ## What the company pays for
 
-2Z Inc. supplies qualifying platform services to customers. A participating creator supplies the licensed livestream performance or application contribution described in the relevant service terms. The company owes compensation in USD for qualifying delivery under those accepted terms.
+2Z Inc. supplies qualifying platform services to customers. A participating creator supplies the licensed application contribution described in the relevant service terms. The company owes compensation in USD for qualifying delivery under those accepted terms.
 
-Paid livestream PPV and approved SDK contributions are the covered activities. Credits shared as support, subscriptions, and memberships provide platform use and access; they do not earn USD compensation.
+Approved SDK contributions qualify for new USD compensation. Pay-per-view, credit gifts, subscriptions, and memberships share 2Z platform credits for use and access; receiving those credits does not require payout verification or a compensation agreement. Recorded obligations, including historical PPV earnings, remain governed by their accepted terms.
 
 ## What you agree to do
 
