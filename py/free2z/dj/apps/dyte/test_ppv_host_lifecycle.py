@@ -7,8 +7,10 @@ import pytest
 from django.utils import timezone
 
 from dj.apps.dyte.models import CreatorMeeting, LIFECYCLE_LIVE, LIFECYCLE_OFFLINE, LIFECYCLE_STARTING
-from dj.apps.dyte.test_host_seat import _seat, _start, provider
-from dj.apps.dyte.test_webhook_idempotency import _meeting, _post, keypair, webhook_boundaries
+from dj.apps.dyte.test_host_seat import _seat, _start, provider as provider
+from dj.apps.dyte.test_webhook_idempotency import (
+    _meeting, _post, keypair as keypair, webhook_boundaries as webhook_boundaries,
+)
 from dj.apps.economy.models import CreatorPayable, PayableJournal, ServiceAdmission
 from dj.apps.economy.tests.test_foundation import activate_for_test
 from dj.apps.economy.tests.test_products import publish, supplier_contract
@@ -82,7 +84,7 @@ def test_host_webhook_viewer_admission_uses_actual_lifecycle(api_client, actors,
     assert _seat(api_client, host, session, 'release').status_code == 200
     cm.refresh_from_db()
     assert cm.host_session_id is None and cm.lifecycle_state == LIFECYCLE_OFFLINE
-    assert viewer_join(api_client, viewer, host).status_code != 200
+    assert viewer_join(api_client, viewer, host).status_code == 409
 
 
 def test_missing_supplier_setup_refused_before_host_token(api_client, actors, provider):
@@ -197,7 +199,7 @@ def test_late_host_join_cannot_revive_ended_session(api_client, actors, provider
     assert joined(api_client, keypair, meeting, host_identity).status_code == 200
     cm.refresh_from_db()
     assert cm.lifecycle_state == LIFECYCLE_OFFLINE and not cm.live_now
-    assert viewer_join(api_client, viewer, host).status_code != 200
+    assert viewer_join(api_client, viewer, host).status_code == 404
 
 
 def test_reconnected_host_join_before_started_activates_new_session(api_client, actors, provider, keypair):
