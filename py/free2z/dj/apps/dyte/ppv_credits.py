@@ -7,6 +7,7 @@ from django.db import connection, transaction
 from django.utils import timezone
 
 from dj.apps.economy.epoch import pin_supported_policy
+from dj.apps.economy.models import ServiceAdmission
 from dj.apps.economy.services import EconomicRefusal
 from dj.apps.g12f.models import Creator
 from .host_presence import host_is_present
@@ -55,6 +56,20 @@ def prepare_credit_admission(*, host_id, viewer_id, meeting_id, price_per_minute
         creator_meeting_id=meeting.pk, provider_session_id=meeting.provider_session_id,
         provider_session_started_at=meeting.provider_session_started_at,
         host_session_id=meeting.host_session_id, price_per_minute=price, pricing_version=1)
+    historical = ServiceAdmission.objects.filter(service='livestream_ppv',
+        event_id=f'ppv-viewer:{viewer_id}:join:{key}').first()
+    if historical is not None:
+        original = historical.source
+        expected = dict(meeting_id=str(meeting_id), creator_meeting_id=meeting.pk,
+            provider_session_id=str(meeting.provider_session_id),
+            host_session_id=str(meeting.host_session_id), subject_creator_id=viewer_id,
+            price_per_minute_2z=str(price))
+        if historical.creator_id != host_id or any(
+                original.get(name) != value for name, value in expected.items()):
+            raise EconomicRefusal('livestream_admission_identity_conflict')
+        # The same key retains its original possibly minted participant across
+        # the receipt-format transition; it cannot authorize another POST.
+        raise EconomicRefusal('livestream_provider_outcome_unknown')
     existing = PpvCreditAdmission.objects.filter(viewer_id=viewer_id, idempotency_key=key).first()
     if existing is not None:
         if any(getattr(existing, name) != value for name, value in captured.items()):

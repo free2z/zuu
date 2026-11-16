@@ -18,6 +18,10 @@ BEGIN
  PERFORM economy.policy();
  FOR who IN SELECT id FROM public.g12f_creator WHERE id IN (NEW.host_id,NEW.viewer_id) ORDER BY id LOOP
   PERFORM ledger.lock_creator(who); END LOOP;
+ IF EXISTS(SELECT 1 FROM public.economy_serviceadmission WHERE service='livestream_ppv'
+  AND event_id='ppv-viewer:'||NEW.viewer_id::text||':join:'||NEW.idempotency_key::text) THEN
+  RAISE EXCEPTION 'PPV admission key already belongs to historical cash service' USING ERRCODE='23514';
+ END IF;
  SELECT * INTO m FROM public.dyte_creatormeeting WHERE id=NEW.creator_meeting_id FOR UPDATE;
  IF NOT EXISTS(SELECT 1 FROM public.g12f_creator WHERE id=NEW.host_id AND is_active)
   OR NOT EXISTS(SELECT 1 FROM public.g12f_creator WHERE id=NEW.viewer_id AND is_active AND kt_account_epoch=NEW.viewer_account_epoch)

@@ -170,6 +170,46 @@ def test_retry_never_mints_second_credit_admission(creator_factory):
     assert PpvCreditAdmission.objects.count() == 1
 
 
+@pytest.mark.parametrize('changed_offer', [False, True])
+def test_historical_cash_join_key_cannot_mint_credit_participant(
+        api_client, creator_factory, provider, keypair, settings, changed_offer):
+    from dj.apps.economy.tests.historical_ppv import prepare_historical_ppv_admission
+    from dj.apps.economy.tests.test_integration import service_terms
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
+    host, viewer = creator_factory(tuzis=1000), creator_factory(tuzis=1000)
+    activate_for_test()
+    cm, _, _, _ = go_live(api_client, host, provider, keypair)
+    service_terms(host, 'livestream_ppv')
+    key = uuid.uuid4()
+    cash = prepare_historical_ppv_admission(host_id=host.pk, viewer_id=viewer.pk,
+        meeting_id=cm.meeting_id, price_per_minute=cm.price_per_minute,
+        idempotency_key=str(key), viewer_account_epoch=viewer.kt_account_epoch)
+    original_cash = ServiceAdmission.objects.values().get(pk=cash.pk)
+    if changed_offer:
+        CreatorMeeting.objects.filter(pk=cm.pk).update(price_per_minute='4.00')
+    provider.add_participant.reset_mock()
+    api_client.force_authenticate(user=viewer)
+    response = api_client.post(f'/api/dyte/{host.username}/ppv', {
+        'role':'viewer', 'expected_actor_id':viewer.pk,
+        'admission_idempotency_key':str(key)}, format='json')
+    assert response.status_code == 409
+    assert response.data['code'] == ('livestream_admission_identity_conflict'
+        if changed_offer else 'livestream_provider_outcome_unknown')
+    provider.add_participant.assert_not_called()
+    assert not PpvCreditAdmission.objects.exists()
+    assert ServiceAdmission.objects.values().get(pk=cash.pk) == original_cash
+
+
+def test_direct_credit_admission_cannot_reuse_historical_cash_key(creator_factory):
+    host, viewer, meeting, credit, _ = credit_fixture(creator_factory)
+    cash = historical_cash(host, viewer, meeting)
+    fields = PpvCreditAdmission.objects.values().get(pk=credit.pk)
+    fields.update(id=uuid.uuid4(), idempotency_key=uuid.UUID(cash.event_id.rsplit(':',1)[-1]))
+    with pytest.raises(DatabaseError, match='key already belongs to historical cash'), transaction.atomic():
+        PpvCreditAdmission.objects.create(**fields)
+    assert PpvCreditAdmission.objects.count() == 1
+
+
 def test_signed_delivery_uses_original_bound_credit_actor_after_room_replacement(
         api_client, creator_factory, provider, keypair, settings):
     settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
