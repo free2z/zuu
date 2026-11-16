@@ -563,8 +563,17 @@ def test_signed_http_ppv_original_admission_and_replay(creator_factory,api_clien
     assert PayableJournal.objects.filter(admission=admission).count()==1
 
 
+def bind_provider_fixture(settings, meeting, actor, *, role='viewer', canonical=None, custom_id=None):
+    """Represent the immutable attribution created by the token-issuance route."""
+    from dj.apps.dyte.participant_binding import bind_participant
+    settings.RTK_APP_ID = '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'
+    return bind_participant(meeting_id=meeting.meeting_id, participant_id=canonical or uuid.uuid4(),
+        creator_id=meeting.creator_id, actor_id=actor.pk, role=role,
+        custom_id=custom_id or actor.username, start_claim=uuid.uuid4() if role == 'host' else None)
+
+
 @pytest.mark.parametrize('username',['ea_alice','ea_'+uuid.uuid4().hex])
-def test_signed_http_policy0_username_prefix_keeps_utility_billing(creator_factory,api_client,mocker,username):
+def test_signed_http_policy0_username_prefix_keeps_utility_billing(creator_factory,api_client,mocker,username,settings):
     from cryptography.hazmat.primitives.asymmetric import rsa
     from dj.apps.dyte.test_webhook_idempotency import _post,_participant_left_payload,_ppv_meeting
     private=rsa.generate_private_key(public_exponent=65537,key_size=2048)
@@ -572,6 +581,7 @@ def test_signed_http_policy0_username_prefix_keeps_utility_billing(creator_facto
     mocker.patch('dj.apps.jobs.outbox.PubSubClient')
     meeting,host,viewer=_ppv_meeting(creator_factory)
     viewer.username=username;viewer.save(update_fields=['username'])
+    bind_provider_fixture(settings,meeting,viewer)
     body=_participant_left_payload(meeting,viewer)
     event_id=uuid.uuid4()
     assert _post(api_client,private,body,event_id).status_code==200
@@ -818,7 +828,7 @@ def test_concurrent_confirmation_and_expiry_preserve_original_funding(creator_fa
 
 
 @pytest.mark.parametrize('role',['host','viewer'])
-def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(creator_factory,api_client,mocker,role):
+def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(creator_factory,api_client,mocker,role,settings):
     import json
     from cryptography.hazmat.primitives.asymmetric import rsa
     from dj.apps.dyte.client import DyteClient
@@ -835,6 +845,8 @@ def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(cre
         custom_participant_id=f'ph_{host.public_id.hex}')
     token=post.call_args.kwargs['json']['custom_participant_id']
     assert token==f'ph_{host.public_id.hex}'
+    bind_provider_fixture(settings,meeting,host,role=role,custom_id=token,
+        canonical=post.return_value.json.return_value['data']['id'])
     room=_meeting(meeting.meeting_id);room['sessionId']=str(meeting.provider_session_id)
     payload=json.dumps({'event':'meeting.participantLeft','meeting':room,'participant':{
         'peerId':str(uuid.uuid4()),'userDisplayName':host.username,'customParticipantId':token,
@@ -858,7 +870,7 @@ def test_escaped_purchase_action_remains_an_actual_resolution(memo):
     assert note.dispositions.filter(kind='pending_resolution').exists()
 
 
-def test_policy1_broadcast_viewer_hostlike_username_still_charges_platform(creator_factory,api_client,mocker):
+def test_policy1_broadcast_viewer_hostlike_username_still_charges_platform(creator_factory,api_client,mocker,settings):
     from cryptography.hazmat.primitives.asymmetric import rsa
     from dj.apps.dyte.test_webhook_idempotency import _post,_participant_left_payload,_ppv_meeting
     private=rsa.generate_private_key(public_exponent=65537,key_size=2048)
@@ -866,6 +878,7 @@ def test_policy1_broadcast_viewer_hostlike_username_still_charges_platform(creat
     mocker.patch('dj.apps.jobs.outbox.PubSubClient')
     meeting,host,viewer=_ppv_meeting(creator_factory)
     viewer.username=f'ph_{host.public_id.hex}';viewer.save(update_fields=['username'])
+    bind_provider_fixture(settings,meeting,viewer)
     meeting.meeting_type='broadcast';meeting.save(update_fields=['meeting_type'])
     with transaction.atomic():activate_for_test()
     body=_participant_left_payload(meeting,viewer)

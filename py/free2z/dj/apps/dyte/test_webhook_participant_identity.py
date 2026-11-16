@@ -265,3 +265,39 @@ def test_token_is_not_returned_when_immutable_identity_cannot_be_saved(
         assert cm.host_session_id is None
         assert len(cm.host_evictions) == 1
         assert cm.host_evictions[0]['participant_id']
+
+
+@pytest.mark.parametrize('legacy_binding', ['current', 'retired', 'unknown'])
+def test_legacy_provider_host_requires_retained_canonical_evidence_and_cannot_open_presence(
+    api_client, creator_factory, keypair, legacy_binding,
+):
+    from dj.apps.dyte.test_webhook_idempotency import _meeting
+    host = creator_factory(tuzis=1000)
+    other = creator_factory(username='legacy-host-name', tuzis=1000)
+    canonical = uuid.uuid4()
+    cm = CreatorMeeting.objects.create(creator=host, meeting_type='broadcast',
+        meeting_id=str(uuid.uuid4()), live_now=True,
+        host_participant_id=str(canonical) if legacy_binding == 'current' else str(uuid.uuid4()),
+        host_evictions=[{'meeting_id': 'unused', 'participant_id': str(canonical)}]
+            if legacy_binding == 'retired' else [])
+    if legacy_binding == 'retired':
+        cm.host_evictions[0]['meeting_id'] = cm.meeting_id
+        cm.save(update_fields=['host_evictions'])
+    room = _meeting(cm.meeting_id)
+    now = timezone.now()
+    body = json.dumps({'event': 'meeting.participantLeft', 'meeting': room, 'participant': {
+        'peerId': str(uuid.uuid4()), 'userDisplayName': other.username,
+        'customParticipantId': other.username, 'joinedAt': now.isoformat(),
+        'leftAt': (now + timedelta(seconds=61)).isoformat(),
+    }}).encode()
+    response = _post(api_client, keypair[0], body, uuid.uuid4(), drain=False,
+        participant_evidence={'user_id': canonical, 'role': 'host', 'custom_participant_id': other.username})
+    assert response.status_code == (503 if legacy_binding == 'unknown' else 200)
+    assert not WebhookDelivery.objects.exists()
+    assert not Event.objects.filter(type='PLATFORM_FEE').exists()
+    assert not ProviderParticipantBinding.objects.exists()
+    cm.refresh_from_db()
+    assert cm.host_peer_id is None
+    host.refresh_from_db()
+    other.refresh_from_db()
+    assert host.tuzis == other.tuzis == Decimal('1000')
