@@ -331,3 +331,45 @@ def test_stuck_recording_alert_precedes_exhausted_enqueue_budget(refused_deliver
     stuck.refresh_from_db()
     assert stuck.stuck_alerted_at is not None
     assert_once(observation, host, viewer)
+
+
+@pytest.mark.parametrize('after_commit', [False, True])
+def test_operator_receipt_is_not_printed_before_commit_confirmation(refused_delivery, monkeypatch, after_commit):
+    from django.db import connections
+    from dj.apps.dyte import recovery_db
+    from dj.apps.dyte.test_recovery_db import terminate_test_backend
+    observation, host, viewer, _, _ = refused_delivery
+    ready(observation)
+    wrapper = connections['default']
+    raw = wrapper.connection
+    pid, params = raw.info.backend_pid, wrapper.get_connection_params()
+    original_commit = wrapper._commit
+    def lose_audit_commit():
+        audit = raw.execute("SELECT EXISTS(SELECT 1 FROM jobs_operator_action WHERE verb='ppv_credit_retry')").fetchone()[0]
+        if not audit:
+            return original_commit()
+        if after_commit:
+            original_commit()
+        raw.execute("SET statement_timeout='0'")
+        raw.execute('SELECT pg_sleep(2)')
+        if not after_commit:
+            original_commit()
+    output = io.StringIO()
+    monkeypatch.setattr(wrapper, '_commit', lose_audit_commit)
+    monkeypatch.setattr(recovery_db, 'CLIENT_TIMEOUT_SECONDS', .25)
+    try:
+        with pytest.raises((DatabaseError, TimeoutError)):
+            call_command('ppv_credit_recovery', key=observation.pk, execute=True, money=True,
+                reason='isolated commit-response fixture', stdout=output)
+        assert output.getvalue() == ''
+    finally:
+        monkeypatch.undo()
+        terminate_test_backend(pid, params)
+    observation.refresh_from_db()
+    assert (observation.completed_at is not None) is after_commit
+    assert OperatorAction.objects.filter(verb='ppv_credit_retry').count() == int(after_commit)
+    assert attempt_observation(observation.pk) is True
+    assert_once(observation, host, viewer)
+    readback = io.StringIO()
+    call_command('ppv_credit_recovery', key=observation.pk, stdout=readback)
+    assert json.loads(readback.getvalue())['observations'][0]['completed_at']

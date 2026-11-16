@@ -20,7 +20,6 @@ class Command(BaseCommand):
         parser.add_argument('--money', action='store_true')
         parser.add_argument('--reason')
 
-    @recovery_database()
     def handle(self, *args, **options):
         key = options['key']
         if key is not None and not re.fullmatch('[0-9a-f]{64}', key):
@@ -28,8 +27,9 @@ class Command(BaseCommand):
         rows = PpvCreditObservation.objects.all()
         if key is not None:
             rows = rows.filter(pk=key)
-            if not rows.exists():
-                raise CommandError('observation not found')
+            with recovery_database():
+                if not rows.exists():
+                    raise CommandError('observation not found')
         else:
             rows = rows.filter(completed_at__isnull=True)
         if options['execute']:
@@ -39,6 +39,9 @@ class Command(BaseCommand):
                 OperatorAction.objects.create(actor=actor_name(), verb='ppv_credit_retry',
                     job_ids=[], reason=f'observation={key}; {options["reason"].strip()}', dry_run=False)
                 attempt_observation(key, force=True)
+        with recovery_database():
+            observations = list(rows.order_by('created_at','provider_key').values(
+                'provider_key','attempts','next_retry_at','completed_at','review_required_at','last_error')[:50])
+        # Emit only after the audited attempt and readback have committed.
         self.stdout.write(json.dumps({'executed':options['execute'], 'limit':50,
-            'observations':list(rows.order_by('created_at','provider_key').values(
-                'provider_key','attempts','next_retry_at','completed_at','review_required_at','last_error')[:50])}, default=str))
+            'observations':observations}, default=str))
