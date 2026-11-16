@@ -10,7 +10,12 @@ const VIEWER = {
   tuzis: "100.000",
 };
 
-async function fixture(page: Page, signedIn = true, member = false) {
+async function fixture(
+  page: Page,
+  signedIn = true,
+  member = false,
+  holdAdmission = false,
+) {
   let authenticated = signedIn;
   let subscribed = member;
   let actor = VIEWER;
@@ -18,6 +23,10 @@ async function fixture(page: Page, signedIn = true, member = false) {
   const purchases: { body: unknown; key: string | undefined }[] = [];
   let resolvePurchase: (() => void) | undefined;
   let holdPurchase = false;
+  let releaseAdmission!: () => void;
+  const admissionReady = new Promise<void>((resolve) => {
+    releaseAdmission = resolve;
+  });
   if (signedIn)
     await page.context().addCookies([
       {
@@ -72,8 +81,9 @@ async function fixture(page: Page, signedIn = true, member = false) {
       },
     }),
   );
-  await page.route(`**/api/dyte/${OWNER}/subscribers-only`, (route) => {
+  await page.route(`**/api/dyte/${OWNER}/subscribers-only`, async (route) => {
     joins.push(route.request().postDataJSON());
+    if (holdAdmission) await admissionReady;
     return route.fulfill(
       subscribed
         ? { json: { auth_token: "synthetic-viewer-token" } }
@@ -107,6 +117,7 @@ async function fixture(page: Page, signedIn = true, member = false) {
   return {
     joins,
     purchases,
+    releaseAdmission,
     hold: () => {
       holdPurchase = true;
     },
@@ -212,15 +223,67 @@ test("mobile login returns to the stream and one confirmed subscription joins au
 test("an existing member joins without a subscription request", async ({
   page,
 }) => {
-  const state = await fixture(page, true, true);
-  await page.goto("/");
+  const state = await fixture(page, true, true, true);
+  // Direct entry lets SvelteKit finish its initial load. Hold only the
+  // admission response so the SDK fixture is installed before the token arrives.
+  await page.goto(WATCH);
+  await expect.poll(() => state.joins.length).toBe(1);
   await installSyntheticSdk(page);
-  await navigate(page, WATCH);
+  state.releaseAdmission();
   await expect
     .poll(() => page.evaluate(() => (window as any).subscriberSdk.join))
     .toBe(1);
   expect(state.joins).toEqual([{ role: "viewer" }]);
   expect(state.purchases).toEqual([]);
+});
+
+test("navigation started during initial load tolerates an unset source URL", async ({
+  page,
+}) => {
+  await fixture(page);
+  let releaseInitial!: () => void;
+  let initialRequested!: () => void;
+  const initialReady = new Promise<void>((resolve) => {
+    releaseInitial = resolve;
+  });
+  const initialRequest = new Promise<void>((resolve) => {
+    initialRequested = resolve;
+  });
+  await page.route("**/src/routes/+page.svelte*", async (route) => {
+    initialRequested();
+    await initialReady;
+    await route.continue();
+  });
+  let releaseDestination!: () => void;
+  let destinationRequested!: () => void;
+  const destinationReady = new Promise<void>((resolve) => {
+    releaseDestination = resolve;
+  });
+  const destinationRequest = new Promise<void>((resolve) => {
+    destinationRequested = resolve;
+  });
+  await page.route(`**${WATCH}/__data.json*`, async (route) => {
+    destinationRequested();
+    await destinationReady;
+    await route.continue();
+  });
+  const hydratedAuth = page.waitForResponse("**/api/auth/user/");
+  await page.goto("/", { waitUntil: "commit" });
+  await initialRequest;
+  // Capture the source while SvelteKit has no initialized page. Finish
+  // hydration before the destination loads, so the real layout callback runs
+  // with that captured null URL instead of starting a second application root.
+  const navigation = navigate(page, WATCH);
+  await destinationRequest;
+  releaseInitial();
+  await hydratedAuth;
+  releaseDestination();
+  await navigation;
+  await expect(page).toHaveURL(WATCH);
+  await expect(page.getByRole("main")).toHaveCount(1);
+  await expect(
+    page.getByRole("heading", { name: "Subscribers-only stream" }),
+  ).toBeVisible();
 });
 
 for (const boundary of ["account", "route"] as const) {
