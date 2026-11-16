@@ -4051,6 +4051,45 @@
         }
       }
     },
+    "/api/dyte/{username}/broadcast-usage": {
+      "get": {
+        "operationId": "dyte_broadcast_usage_retrieve",
+        "description": "Settled hosting fees for the caller's active broadcast session only.",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "username",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "tags": [
+          "dyte"
+        ],
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "knoxApiToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HostUsage"
+                }
+              }
+            },
+            "description": ""
+          }
+        }
+      }
+    },
     "/api/dyte/{username}/host-session": {
       "get": {
         "operationId": "dyte_host_session_retrieve",
@@ -19812,6 +19851,40 @@
           "meeting_type",
           "ttl_seconds"
         ]
+      },
+      "HostUsage": {
+        "type": "object",
+        "description": "Usage settled for the current provider session; never historical.",
+        "properties": {
+          "amount_2z": {
+            "type": "integer",
+            "nullable": true
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/HostUsageStatusEnum"
+          }
+        },
+        "required": [
+          "amount_2z",
+          "as_of",
+          "complete",
+          "status"
+        ]
+      },
+      "HostUsageStatusEnum": {
+        "enum": [
+          "available",
+          "unavailable"
+        ],
+        "type": "string",
+        "description": "* `available` - available\n* `unavailable` - unavailable"
       },
       "IdempotentDonationRequest": {
         "type": "object",

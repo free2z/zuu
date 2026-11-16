@@ -164,6 +164,14 @@
       "refreshingTicket": "Obteniendo un acceso nuevo…",
       "tryAgain": "Intentarlo de nuevo",
       "waitingForConnection": "Esperando conexión"
+    },
+    "usage": {
+      "title": "Cargos de alojamiento registrados · esta transmisión",
+      "unavailable": "Uso no disponible",
+      "partial": "Cargos de alojamiento registrados hasta ahora. La liquidación puede tardar; este no es el total final.",
+      "updated": "Actualizado {time}",
+      "refreshFailed": "No se pudo actualizar el uso.",
+      "loading": "Cargando uso registrado…"
     }
   },
   "navigation": {

@@ -28,6 +28,7 @@ import type {
   HostSeatConflict,
   HostSessionAction,
   HostSessionStatus,
+  HostUsage,
   MeetingJoinRequestSchema,
   MeetingJoinResponse,
   PaginatedCreatorMeetingList,
@@ -182,6 +183,73 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return createMutation(getDyteCreateMutationOptions(options));
     }
     /**
+ * Settled hosting fees for the caller's active broadcast session only.
+ */
+export const dyteBroadcastUsageRetrieve = (
+    username: string,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<HostUsage>(
+      {url: `/api/dyte/${username}/broadcast-usage`, method: 'GET', signal
+    },
+      options);
+    }
+
+
+
+
+export const getDyteBroadcastUsageRetrieveQueryKey = (username: string,) => {
+    return [
+    `/api/dyte/${username}/broadcast-usage`
+    ] as const;
+    }
+
+
+export const getDyteBroadcastUsageRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof dyteBroadcastUsageRetrieve>>, TError = unknown>(username: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dyteBroadcastUsageRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getDyteBroadcastUsageRetrieveQueryKey(username);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof dyteBroadcastUsageRetrieve>>> = ({ signal }) => dyteBroadcastUsageRetrieve(username, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: username !== null && username !== undefined, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof dyteBroadcastUsageRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type DyteBroadcastUsageRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof dyteBroadcastUsageRetrieve>>>
+export type DyteBroadcastUsageRetrieveQueryError = unknown
+
+
+
+export function createDyteBroadcastUsageRetrieve<TData = Awaited<ReturnType<typeof dyteBroadcastUsageRetrieve>>, TError = unknown>(
+ username: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dyteBroadcastUsageRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getDyteBroadcastUsageRetrieveQueryOptions(username,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
  * Who holds the caller's broadcaster seat. Owner only. A dashboard tab reads this on load so a second tab or device shows "already live elsewhere" before anyone presses Go live.
  */
 export const dyteHostSessionRetrieve = (

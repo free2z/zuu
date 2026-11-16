@@ -164,6 +164,14 @@
       "refreshingTicket": "Obtention d'un nouvel accès…",
       "tryAgain": "Réessayer",
       "waitingForConnection": "En attente de connexion"
+    },
+    "usage": {
+      "title": "Frais d’hébergement enregistrés · cette diffusion",
+      "unavailable": "Utilisation indisponible",
+      "partial": "Frais d’hébergement enregistrés jusqu’ici. Le règlement peut être différé ; ce total n’est pas définitif.",
+      "updated": "Mis à jour à {time}",
+      "refreshFailed": "Impossible d’actualiser l’utilisation.",
+      "loading": "Chargement de l’utilisation enregistrée…"
     }
   },
   "navigation": {

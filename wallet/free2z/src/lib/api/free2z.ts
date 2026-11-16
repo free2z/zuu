@@ -1809,6 +1809,35 @@ let listingCache: { at: number; data: Livestream[] } | null = null;
 let listingInFlight: Promise<Livestream[]> | null = null;
 
 export const live = {
+  async broadcastUsage(username: string): Promise<{
+    amount2z: number | null;
+    complete: false;
+    asOf: string;
+    status: "available" | "unavailable";
+  }> {
+    const value = await request<Record<string, unknown>>(
+      `/api/dyte/${encodeURIComponent(username)}/broadcast-usage`,
+      { cache: "no-store" },
+    );
+    if (
+      value.complete !== false ||
+      typeof value.as_of !== "string" ||
+      !["available", "unavailable"].includes(String(value.status)) ||
+      !(
+        value.amount_2z === null ||
+        (Number.isSafeInteger(value.amount_2z) &&
+          (value.amount_2z as number) >= 0)
+      )
+    ) {
+      throw new Error("Malformed broadcast usage response.");
+    }
+    return {
+      amount2z: value.amount_2z as number | null,
+      complete: false,
+      asOf: value.as_of,
+      status: value.status as "available" | "unavailable",
+    };
+  },
   /**
    * Public livestream listing. Served from a short-lived client cache (TTL) so
    * navigating to/around Livestreams doesn't re-hammer the backend.

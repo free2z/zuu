@@ -164,6 +164,14 @@
       "refreshingTicket": "Getting a fresh ticket…",
       "tryAgain": "Try again",
       "waitingForConnection": "Waiting for connection"
+    },
+    "usage": {
+      "title": "Recorded hosting fees · this broadcast",
+      "unavailable": "Usage unavailable",
+      "partial": "Recorded hosting fees so far. Settlements may be delayed; this is not a final total.",
+      "updated": "Updated {time}",
+      "refreshFailed": "Usage could not be refreshed.",
+      "loading": "Loading recorded usage…"
     }
   },
   "navigation": {

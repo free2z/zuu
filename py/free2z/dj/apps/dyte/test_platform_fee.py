@@ -29,6 +29,7 @@ from dj.apps.dyte.views import (
     PPV_JOIN_RESERVE_MINUTES,
     calculate_platform_fee,
 )
+from django.contrib.contenttypes.models import ContentType
 from dj.apps.events.models import Event
 
 WEBHOOK_URL = '/api/dyte/webhook'
@@ -95,13 +96,13 @@ def _left_after(cm, participant_id, seconds):
     }).encode()
 
 
-def _post(client, private_key, body):
+def _post(client, private_key, body, delivery_id=None):
     return client.post(
         WEBHOOK_URL,
         data=body,
         content_type='application/json',
         HTTP_DYTE_SIGNATURE=_sign(private_key, body),
-        HTTP_DYTE_UUID=str(uuid.uuid4()),
+        HTTP_DYTE_UUID=str(delivery_id or uuid.uuid4()),
     )
 
 
@@ -221,6 +222,79 @@ def test_zero_cost_session_is_still_recorded(
         type='PLATFORM_FEE', receiving_user=creator)
     assert fee_events.count() == 1
     assert fee_events.get().amount == Decimal('0')
+
+
+@pytest.mark.django_db
+def test_broadcast_fee_attribution_is_session_scoped_and_replay_safe(
+    api_client, creator_factory, keypair,
+):
+    private_key, _ = keypair
+    cm, creator = _broadcast(creator_factory)
+    session_a, session_b = uuid.uuid4(), uuid.uuid4()
+    event_a = json.loads(_left_after(cm, 'guest-a', 121))
+    event_b = json.loads(_left_after(cm, 'guest-b', 181))
+    event_a['meeting']['sessionId'] = str(session_a)
+    event_b['meeting']['sessionId'] = str(session_b)
+    delivery_a, delivery_b = uuid.uuid4(), uuid.uuid4()
+    body_a, body_b = json.dumps(event_a).encode(), json.dumps(event_b).encode()
+
+    assert _post(api_client, private_key, body_a, delivery_a).status_code == 200
+    assert _post(api_client, private_key, body_a, delivery_a).status_code == 200
+    assert _post(api_client, private_key, body_b, delivery_b).status_code == 200
+
+    fees = Event.objects.filter(type='PLATFORM_FEE', receiving_user=creator)
+    assert fees.count() == 2
+    assert set(fees.values_list('provider_session_id', flat=True)) == {
+        session_a, session_b,
+    }
+    assert all(event.content_object == cm for event in fees)
+
+
+@pytest.mark.django_db
+def test_host_usage_is_owner_only_current_session_and_marks_partial(
+    api_client, creator_factory,
+):
+    from rest_framework.test import APIClient
+
+    owner = creator_factory()
+    stranger = creator_factory()
+    session = uuid.uuid4()
+    cm = CreatorMeeting.objects.create(
+        creator=owner, meeting_id=str(uuid.uuid4()), meeting_type=BROADCAST,
+        live_now=True, host_session_id=uuid.uuid4(), provider_session_id=session,
+    )
+    other = CreatorMeeting.objects.create(
+        creator=owner, meeting_id=str(uuid.uuid4()), meeting_type=PAY_PER_VIEW,
+        provider_session_id=uuid.uuid4(),
+    )
+    ct = ContentType.objects.get_for_model(CreatorMeeting)
+    Event.objects.create(
+        type='PLATFORM_FEE', receiving_user=owner, amount=3,
+        content_type=ct, object_id=str(cm.pk), provider_session_id=session,
+    )
+    Event.objects.create(
+        type='PLATFORM_FEE', receiving_user=owner, amount=9,
+        content_type=ct, object_id=str(other.pk),
+        provider_session_id=other.provider_session_id,
+    )
+
+    client = APIClient()
+    client.force_authenticate(owner)
+    response = client.get(f'/api/dyte/{owner.username}/broadcast-usage')
+    assert response.status_code == 200
+    assert response.data['amount_2z'] == 3
+    assert response.data['complete'] is False
+    assert response.data['status'] == 'available'
+    assert response.data['as_of'] is not None
+
+    client.force_authenticate(stranger)
+    assert client.get(
+        f'/api/dyte/{owner.username}/broadcast-usage',
+    ).status_code == 403
+
+    client.force_authenticate(owner)
+    response = client.get(f'/api/dyte/{stranger.username}/broadcast-usage')
+    assert response.status_code == 403
 
 
 @pytest.mark.django_db

@@ -46,6 +46,11 @@ urlpatterns = [
         views.HostSession.as_view(),
         name='host_session'
     ),
+    path(
+        '<str:username>/broadcast-usage',
+        views.HostBroadcastUsage.as_view(),
+        name='host_broadcast_usage',
+    ),
     path('<str:username>/private',
         views.PrivateMeetingManage.as_view(),
         name='private_meeting'),
