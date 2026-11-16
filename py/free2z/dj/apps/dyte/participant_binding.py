@@ -80,7 +80,7 @@ def resolve_participant(event_data, cm):
             raise ParticipantIdentityUnproven('legacy_host_binding_unavailable')
         return ParticipantIdentity(canonical, 'host', cm.creator_id)
     identity = participant.customParticipantId
-    if identity.startswith(('host_', 'ea_', 'ph_')):
+    if identity.startswith(('host_', 'ea_', 'pc_', 'ph_')):
         raise ParticipantIdentityUnproven('legacy_participant_identity_ambiguous')
     # The compatibility path keeps the existing ordinary username semantics.
     # New mints always carry the durable actor binding above, including guests.

@@ -6,7 +6,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
-from dj.apps.dyte.models import CreatorMeeting, LIFECYCLE_LIVE, LIFECYCLE_OFFLINE, LIFECYCLE_STARTING
+from dj.apps.dyte.models import PpvCreditAdmission, CreatorMeeting, LIFECYCLE_LIVE, LIFECYCLE_OFFLINE, LIFECYCLE_STARTING
 from dj.apps.dyte.test_host_seat import _seat, _start, provider as provider
 from dj.apps.dyte.test_webhook_idempotency import (
     _meeting, _post, keypair as keypair, webhook_boundaries as webhook_boundaries,
@@ -77,9 +77,9 @@ def test_host_webhook_viewer_admission_uses_actual_lifecycle(api_client, actors,
     assert cm.lifecycle_state == LIFECYCLE_LIVE
     response = viewer_join(api_client, viewer, host)
     assert response.status_code == 200, response.data
-    admission = ServiceAdmission.objects.get()
-    assert admission.source['provider_session_id'] == meeting['sessionId']
-    assert provider.add_participant.call_args.kwargs['custom_participant_id'] == f'ea_{admission.pk.hex}'
+    admission = PpvCreditAdmission.objects.get()
+    assert str(admission.provider_session_id) == meeting['sessionId']
+    assert provider.add_participant.call_args.kwargs['custom_participant_id'] == f'pc_{admission.pk.hex}'
     assert not PayableJournal.objects.exists()
     assert _seat(api_client, host, session, 'release').status_code == 200
     cm.refresh_from_db()
@@ -87,14 +87,11 @@ def test_host_webhook_viewer_admission_uses_actual_lifecycle(api_client, actors,
     assert viewer_join(api_client, viewer, host).status_code == 409
 
 
-def test_missing_supplier_setup_refused_before_host_token(api_client, actors, provider):
+def test_credit_host_start_needs_no_supplier_setup(api_client, actors, provider):
     host, _ = actors
     response = _start(api_client, host, meeting_type='ppv', price_per_minute='3.00')
-    assert response.status_code == 409
-    assert response.data['code'] == 'compensation_onboarding_required'
-    assert '/kyc' in response.data['error']
-    provider.create_meeting.assert_not_called()
-    provider.add_participant.assert_not_called()
+    assert response.status_code == 200, response.data
+    provider.add_participant.assert_called_once()
     assert not CreatorPayable.objects.exists()
     assert not ServiceAdmission.objects.exists()
 
@@ -145,14 +142,13 @@ def test_host_identity_survives_configured_key_rotation(settings):
     assert not is_host_participant(identity, owner)
 
 
-def test_schedule_consent_required_before_host_token(api_client, actors, provider):
+def test_credit_host_start_does_not_depend_on_cash_schedule_consent(api_client, actors, provider):
     host, _ = actors
     supplier_contract(host, schedules=[])
     response = _start(api_client, host, meeting_type='ppv', price_per_minute='3.00')
-    assert response.status_code == 409
-    assert response.data['code'] == 'compensation_schedule_acceptance_required'
-    provider.create_meeting.assert_not_called()
-    provider.add_participant.assert_not_called()
+    assert response.status_code == 200, response.data
+    provider.add_participant.assert_called_once()
+    assert not ServiceAdmission.objects.exists()
 
 
 def test_same_provider_session_resume_requires_current_host_join(api_client, actors, provider, keypair):

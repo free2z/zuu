@@ -1,3 +1,4 @@
+from .historical_ppv import prepare_historical_ppv_admission
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -62,7 +63,7 @@ def make_contract(creator):
         host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(),
         host_participant_id='synthetic-current-host', host_presence_participant_id='synthetic-current-host',
         host_presence_session_id=provider_session, host_presence_session_started_at=provider_started_at,price_per_minute='100.00')
-    admission=products.prepare_livestream_admission(host_id=creator.pk,viewer_id=viewer.pk,
+    admission=prepare_historical_ppv_admission(host_id=creator.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='100.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     key=uuid.uuid4().hex*2

@@ -3,7 +3,7 @@ from functools import wraps
 from importlib.util import find_spec
 import os
 
-READER_PROTOCOL = 1
+READER_PROTOCOL = 2
 READER_ROLE = 'rtk-webhook-reader'
 READER_URLCONF = 'dj.apps.dyte.webhook_urls'
 READER_SETTINGS = 'dj.apps.dyte.webhook_settings'
@@ -11,7 +11,8 @@ READER_SETTINGS = 'dj.apps.dyte.webhook_settings'
 
 def validate_reader_contract():
     """Selected-image preflight; imports no application models or services."""
-    for module in (READER_URLCONF, READER_SETTINGS, 'dj.apps.dyte.webhook_wsgi'):
+    for module in (READER_URLCONF, READER_SETTINGS, 'dj.apps.dyte.webhook_wsgi',
+            'dj.apps.dyte.ppv_credits', 'dj.apps.dyte.migrations.0021_ppv_credit_receipts'):
         if find_spec(module) is None:
             raise RuntimeError('RealtimeKit reader capability is incomplete')
     return {'reader_protocol': READER_PROTOCOL, 'role': READER_ROLE,

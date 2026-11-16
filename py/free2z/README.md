@@ -327,3 +327,38 @@ Native WebView CSP changes are derived from the installed Core 2.x bundle (re-ch
 Review follow-up: the pooled HTTP session preserves the CI-selected public CA path (`REQUESTS_CA_BUNDLE`, then `CURL_CA_BUNDLE`, otherwise Requests' normal verified default) while disabling ambient netrc and proxy credentials. This matches the pinned `scripts/ci-trust-bootstrap.mjs` helper's certificate-path contract; it never disables certificate verification. CA selection occurs when a worker thread first creates its session, after CI/bootstrap or deployment environment configuration.
 
 Classic React now owns browser-navigation and unmount cleanup in `DyteLeave`, with a per-meeting effect guard so repeated pagehide/popstate/unmount notifications call `leave()` once. `RtkMeeting.leaveOnUnmount` is explicitly false to avoid a second independent teardown owner. The browser harness exercises these application handlers and cleanup; its mocked UI does not establish provider media teardown or SFU behavior.
+
+
+### PPV platform-credit sharing
+
+Policy1 PPV admission captures an immutable `dyte.PpvCreditAdmission` before
+issuing a viewer token. The receipt binds the original creator, viewer account
+epoch, provider app, room/session, host seat and displayed rate. Admission
+requires a live provider-confirmed host with a fresh seat lease; it does not
+require a legal payee or cash-compensation agreement. The minimum viewer balance
+is an eligibility check, not a credit hold.
+
+An authenticated participant departure resolves its canonical provider identity
+outside financial transactions. Settlement rounds duration up to whole minutes,
+collects one platform credit per whole pair of those minutes first, then collects
+the displayed creator rate multiplied by those minutes and rounded up to whole
+credits. Collection is limited to spendable credits. The entire collected creator
+portion is credited to the original creator, with existing debt repaid first.
+All ledger legs, the immutable delivery receipt and credit activity events commit
+together. A recipient limit or database failure rolls back the delivery claim and
+all collection so the callback can retry. No cash payable is created.
+
+The receipt retains actual collected amounts and ledger references. Duplicate
+callbacks and overlapping intervals for the same provider session/viewer cannot
+collect twice, including overlap with historical cash delivery receipts. Existing
+`ea_` admissions retain their original cash settlement and recorded terms; new
+cash PPV admissions are refused. SDK compensation and purchase/refund receipts
+retain their separate contracts. A correction must identify the original receipt
+and ledger entries; a credit receipt is not a cash-purchase refund cursor.
+
+The `pc_` participant format requires callback reader protocol2 and migration
+`dyte.0021_ppv_credit_receipts`. Deployment must install and prove that reader on
+the canonical callback routes before API processes can mint these participants.
+The schema cannot be reversed while economic policy1 is active or an admission
+exists. Release orchestration and deployed reader proof are maintained separately
+from these source-level checks.
