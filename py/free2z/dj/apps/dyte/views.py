@@ -12,7 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.http import HttpResponse, HttpRequest
+from django.http import Http404, HttpResponse, HttpRequest
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Exists, F, Max, Prefetch, Q, Subquery
 
@@ -2534,9 +2534,18 @@ class DyteMeeting(APIView):
         # are still active, before constructing a provider client or touching
         # a meeting row; an in-flight request must not start/join a room after
         # the creator has been deactivated.
-        stream_creator = get_object_or_404(
-            Creator, username__iexact=stream_owner, is_active=True
-        )
+        # Legacy case-colliding usernames retain distinct identities. Resolve
+        # exact names before aliases, including inactive accounts: filtering
+        # those out first could silently redirect their path to another owner.
+        try:
+            stream_creator = Creator.objects.get(username=stream_owner)
+        except Creator.DoesNotExist:
+            try:
+                stream_creator = get_object_or_404(Creator, username__iexact=stream_owner)
+            except Creator.MultipleObjectsReturned:
+                raise Http404 from None
+        if not stream_creator.is_active:
+            raise Http404
         dc: DyteClient = DyteClient()
 
         body = MeetingJoinRequestSerializer(data=request.data)
