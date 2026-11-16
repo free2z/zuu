@@ -52,6 +52,9 @@ from dj.apps.uploads.models import ImageVariant
 
 from .models import (
     BROADCAST,
+    LIFECYCLE_LIVE,
+    LIFECYCLE_OFFLINE,
+    LIFECYCLE_STARTING,
     PAY_PER_VIEW,
     PRIVATE,
     PUBLIC_MEETING_TYPES,
@@ -61,6 +64,7 @@ from .models import (
     RecordingDeliveryTarget,
     WebhookDelivery,
 )
+from .host_identity import host_participant_claim, host_participant_identity, is_host_participant
 from .recording import redact_recording_url
 from .serializers import (
     HOST_ROLE,
@@ -1176,7 +1180,7 @@ def _acknowledge_unresolved_meeting(
 @transaction.atomic
 def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
     """Apply one validated delivery atomically with its unique claim."""
-    if event_data.event in ('meeting.started', 'meeting.ended'):
+    if event_data.event in ('meeting.started', 'meeting.ended', 'meeting.participantJoined'):
         # The caller resolved this row before our transaction. Serialize both
         # lifecycle events and compare against the current, locked session.
         cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
@@ -1185,7 +1189,11 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             return
     if event_data.event == 'meeting.participantLeft' and cm.meeting_type in (BROADCAST, PAY_PER_VIEW):
         version=pin_supported_policy()
-        if version==1 and cm.meeting_type==PAY_PER_VIEW and event_data.participant.customParticipantId==f'ph_{cm.creator.public_id.hex}':
+        participant_identity = event_data.participant.customParticipantId
+        if is_host_participant(participant_identity, cm.creator.public_id):
+            return
+        if (version == 1 and cm.meeting_type == PAY_PER_VIEW
+                and participant_identity == f'ph_{cm.creator.public_id.hex}'):
             return
     is_uploaded_recording = (
         event_data.event == 'recording.statusUpdate'
@@ -1246,6 +1254,9 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             )
             return
         cm.live_now = True
+        # Room presence can come from a viewer. Only the current signed host
+        # join confirms a paid offer is ready for admission.
+        cm.lifecycle_state = LIFECYCLE_STARTING if cm.host_session_id else LIFECYCLE_OFFLINE
         cm.provider_session_id = event_data.meeting.sessionId
         cm.provider_session_started_at = started_at
         cm.zero_probe_since = None
@@ -1258,7 +1269,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
         # (host_session_id) over a start or take-over that committed in
         # between.
         cm.save(update_fields=[
-            'live_now', 'last_seen_at', 'provider_session_id',
+            'live_now', 'lifecycle_state', 'last_seen_at', 'provider_session_id',
             'provider_session_started_at', 'zero_probe_since',
         ])
 
@@ -1287,8 +1298,9 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             )
             return
         cm.live_now = False
+        cm.lifecycle_state = LIFECYCLE_OFFLINE
         cm.zero_probe_since = None
-        cm.save(update_fields=['live_now', 'zero_probe_since'])
+        cm.save(update_fields=['live_now', 'lifecycle_state', 'zero_probe_since'])
 
     elif event_data.event == "meeting.participantJoined":
         logger.info(
@@ -1296,8 +1308,33 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             event_data.event,
             event_data.meeting.id,
         )
-        # we get started/ended when the user leaves so
-        # we don't need to record anything here?
+        if event_data.participant is None:
+            return
+        claim = host_participant_claim(event_data.participant.customParticipantId, cm.creator.public_id)
+        started_at = event_data.meeting.startedAt
+        # An SDK reconnect can join a new provider session before its started
+        # callback. A departed session's delayed join must stay offline.
+        newer_session = (cm.provider_session_started_at is not None
+            and started_at > cm.provider_session_started_at
+            and cm.provider_session_id != event_data.meeting.sessionId)
+        joinable = (cm.lifecycle_state in (LIFECYCLE_STARTING, LIFECYCLE_LIVE)
+            or (cm.lifecycle_state == LIFECYCLE_OFFLINE and newer_session))
+        if (claim is None or claim != cm.start_id or cm.host_start_claim is not None
+                or not joinable or not _seat_is_fresh(cm, timezone.now())):
+            return
+        if (cm.provider_session_started_at is not None
+                and (started_at < cm.provider_session_started_at
+                    or (started_at == cm.provider_session_started_at
+                        and cm.provider_session_id != event_data.meeting.sessionId))):
+            return
+        cm.provider_session_id = event_data.meeting.sessionId
+        cm.provider_session_started_at = started_at
+        cm.lifecycle_state = LIFECYCLE_LIVE
+        cm.live_now = True
+        cm.last_seen_at = timezone.now()
+        cm.zero_probe_since = None
+        cm.save(update_fields=['provider_session_id', 'provider_session_started_at',
+            'lifecycle_state', 'live_now', 'last_seen_at', 'zero_probe_since'])
 
     elif event_data.event == "meeting.participantLeft":
         logger.info(
@@ -2670,7 +2707,7 @@ class DyteMeeting(APIView):
         if host_session is None:
             host_session = uuid.uuid4()
         start_claim = uuid.uuid4()
-        participant_id = f'host_{start_claim.hex}'
+        participant_id = host_participant_identity(creator.public_id, start_claim)
 
         # Decide under the seat lock, then release it before provider I/O.
         with transaction.atomic():
@@ -2681,6 +2718,17 @@ class DyteMeeting(APIView):
                     if cursor.fetchone()[0] is None:
                         return Response({'code': 'livestream_compensation_integration_unavailable',
                             'error': 'Paid livestream compensation is unavailable.'}, status=409)
+                from dj.apps.economy.products import compensation_terms
+                try:
+                    compensation_terms(creator_id=creator.pk, service='livestream_ppv')
+                except EconomicRefusal as exc:
+                    messages = {
+                        'compensation_onboarding_required': 'Before starting a paid stream, complete identity intake at /kyc, contact support for verification, and accept the creator compensation agreement in Billing.',
+                        'compensation_schedule_acceptance_required': 'Before starting a paid stream, review and accept the livestream compensation schedule in Billing.',
+                        'compensation_schedule_unavailable': 'Paid livestream pricing is temporarily unavailable. Please contact support.',
+                    }
+                    return Response({'code': str(exc), 'error': messages.get(str(exc),
+                        'Paid livestream compensation is unavailable.')}, status=409)
             _lock_host_seat(creator)
             if (not settings.DYTE_HOST_EVICTION_JOBS_ENABLED
                     and CreatorMeeting.objects.filter(creator=creator).filter(
@@ -2720,8 +2768,10 @@ class DyteMeeting(APIView):
                 held.host_start_claim = None
                 held.host_start_claim_at = None
                 held.host_evictions = []
+                held.lifecycle_state = LIFECYCLE_OFFLINE
                 held.save(update_fields=['host_session_id', 'host_session_seen_at',
-                    'host_participant_id', 'host_start_claim', 'host_start_claim_at', 'host_evictions'])
+                    'host_participant_id', 'host_start_claim', 'host_start_claim_at', 'host_evictions',
+                    'lifecycle_state'])
             resumed = held_fresh and held.pk == cm.pk
             if not resumed and (created or not cm.live_now):
                 cm.price_per_minute = request.data.get('price_per_minute', cm.price_per_minute)
@@ -3020,7 +3070,8 @@ class DyteMeeting(APIView):
                     CreatorMeeting.objects.filter(creator=creator).exclude(pk=cm.pk).exclude(
                         host_session_id__isnull=True, host_evictions=[],
                     ).update(host_session_id=None, host_session_seen_at=None,
-                        host_participant_id='', host_evictions=[])
+                        host_participant_id='', host_evictions=[],
+                        lifecycle_state=LIFECYCLE_OFFLINE)
                     if (current_held is not None and current_held.host_session_id != host_session
                             and current_held.host_participant_id and current_held.meeting_id):
                         pending.append({'meeting_id': current_held.meeting_id,
@@ -3040,10 +3091,12 @@ class DyteMeeting(APIView):
                     cm.host_participant_id = provider_participant_id
                     cm.host_start_claim = None
                     cm.host_start_claim_at = None
+                    cm.start_id = start_claim
+                    cm.lifecycle_state = LIFECYCLE_STARTING
                     cm.live_now = True
                     cm.zero_probe_since = None
                     cm.last_seen_at = now
-                    cm.save(update_fields=['price_per_minute', 'live_now', 'last_seen_at',
+                    cm.save(update_fields=['price_per_minute', 'live_now', 'lifecycle_state', 'start_id', 'last_seen_at',
                         'zero_probe_since',
                         'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim', 'host_start_claim_at'])
                     _defer_host_evictions(cm)
@@ -3172,11 +3225,12 @@ class HostSession(APIView):
                     released.host_participant_id = ''
                     released.host_start_claim = None
                     released.host_start_claim_at = None
+                    released.lifecycle_state = LIFECYCLE_OFFLINE
                     released.save(update_fields=[
                         'host_evictions', 'host_session_id',
                         'host_session_seen_at', 'host_participant_id',
                         'host_start_claim',
-                        'host_start_claim_at',
+                        'host_start_claim_at', 'lifecycle_state',
                     ])
                     _defer_host_evictions(released)
                 return Response(_host_seat_status(creator, now))

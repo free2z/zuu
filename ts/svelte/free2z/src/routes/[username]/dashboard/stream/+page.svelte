@@ -210,6 +210,7 @@
   let meetingEl: HTMLElement;
   let hostMeetingError = false;
   let hostReconnectFailed = false;
+  let compensationSetupRequired = false;
   let reconnecting = false;
   let hostReconnectRunning = false;
   // Wait for the web component's initial preset setup before attaching the
@@ -746,6 +747,7 @@
     loading = true;
     error = null;
     hostReconnectFailed = false;
+    compensationSetupRequired = false;
     privateResumeAvailable = false;
 
     // A take-over continues the broadcast that is already live, so it is
@@ -968,6 +970,10 @@
       } else {
         logHostStartFailure(err, hostStartStage);
       }
+      compensationSetupRequired =
+        err instanceof HostStreamStartError &&
+        (err.failureCode === "compensation_onboarding_required" ||
+          err.failureCode === "compensation_schedule_acceptance_required");
       // The seat may have been taken before the room join failed; this tab is
       // not broadcasting, so give it back rather than lock out a retry.
       endSeat();
@@ -1665,6 +1671,22 @@
                   <span>⚠️</span>
                   {error}
                 </div>
+                {#if compensationSetupRequired}
+                  <div class="flex flex-wrap justify-center gap-3">
+                    <Button variant="secondary" href="/kyc">
+                      {$t("dashboard.stream.identityIntake", "Identity intake")}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      href={`/${username}/dashboard/billing`}
+                    >
+                      {$t(
+                        "dashboard.stream.compensationBilling",
+                        "Review compensation in Billing",
+                      )}
+                    </Button>
+                  </div>
+                {/if}
                 {#if privateResumeAvailable}
                   <Button
                     variant="secondary"

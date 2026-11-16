@@ -33,7 +33,7 @@ from django.utils import timezone
 
 from procrastinate.contrib.django import app
 
-from .models import RecordingDelivery
+from .models import LIFECYCLE_OFFLINE, RecordingDelivery
 
 logger = logging.getLogger(__name__)
 
@@ -690,7 +690,7 @@ def sweep_live_meetings(timestamp: int):
             # even without a confirmed zero.
             if _is_stale(cm):
                 stale_cleared += observed.update(
-                    live_now=False, zero_probe_since=None)
+                    live_now=False, lifecycle_state=LIFECYCLE_OFFLINE, zero_probe_since=None)
             else:
                 observed.update(zero_probe_since=None)
             continue
@@ -719,7 +719,7 @@ def sweep_live_meetings(timestamp: int):
             pk=cm.pk, live_now=True, zero_probe_since=cm.zero_probe_since,
             last_seen_at=cm.last_seen_at,
         ).update(
-            live_now=False, zero_probe_since=None)
+            live_now=False, lifecycle_state=LIFECYCLE_OFFLINE, zero_probe_since=None)
 
     # Advance the round robin. Written even when the sweep reached every
     # room, so the next tick starts after the last one it touched.

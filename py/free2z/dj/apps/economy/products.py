@@ -45,18 +45,34 @@ def get_effective_compensation_schedule(service, at=None):
     raise money.EconomicRefusal('compensation_schedule_unavailable')
 
 
+def compensation_terms(*, creator_id, service, at=None):
+    """Read supplier readiness without creating a payable or accepting terms."""
+    from .contracts import CREATOR_CONTRACT_DIGEST, CREATOR_CONTRACT_VERSION
+    at = at or money._db_now()
+    account = CreatorPayable.objects.select_related('legal_payee').filter(creator_id=creator_id).first()
+    if account is None or account.legal_payee_id is None:
+        raise money.EconomicRefusal('compensation_onboarding_required')
+    agreement = CompensationAgreement.objects.filter(creator_id=creator_id, legal_payee_id=account.legal_payee_id,
+        contract_version=CREATOR_CONTRACT_VERSION, contract_digest=CREATOR_CONTRACT_DIGEST,
+        revoked_at__isnull=True, effective_at__lte=at).order_by('-effective_at', '-pk').first()
+    if agreement is None:
+        raise money.EconomicRefusal('compensation_onboarding_required')
+    schedule = get_effective_compensation_schedule(service, at=at)
+    accepted_schedules = agreement.acceptance_evidence.get('schedules', [])
+    if {'service': schedule.service, 'version': schedule.version, 'digest': schedule.published_digest} not in accepted_schedules:
+        raise money.EconomicRefusal('compensation_schedule_acceptance_required')
+    return account, agreement, schedule
+
+
 @transaction.atomic
 def admit_product_service(*, creator_id, subject_creator_id, service, event_id, source):
     """Capture actual offered contribution and preapproved supplier identity."""
-    from .contracts import CREATOR_CONTRACT_DIGEST, CREATOR_CONTRACT_VERSION
     money.pin_policy()
     eligibility_at = money._db_now()
     money._evidence(source, 'source_kind', 'source_id', 'authorization_reference', 'delivery_scope_reference')
     if creator_id == subject_creator_id:
         raise money.EconomicRefusal('compensated_self_service_unsupported')
-    account = CreatorPayable.objects.filter(creator_id=creator_id).first()
-    if account is None or account.legal_payee_id is None:
-        raise money.EconomicRefusal('compensation_onboarding_required')
+    account, agreement, schedule = compensation_terms(creator_id=creator_id, service=service, at=eligibility_at)
     supplier = account.legal_payee
     buyer = CreatorPayable.objects.select_related('legal_payee').filter(creator_id=subject_creator_id).first()
     supplier_person = supplier.verification.get('legal_person_reference')
@@ -64,15 +80,6 @@ def admit_product_service(*, creator_id, subject_creator_id, service, event_id, 
     if buyer and (buyer.legal_payee_id == account.legal_payee_id or
         (supplier_person and buyer_person and supplier_person == buyer_person)):
         raise money.EconomicRefusal('compensated_self_service_unsupported')
-    agreement = CompensationAgreement.objects.filter(creator_id=creator_id, legal_payee_id=account.legal_payee_id,
-        contract_version=CREATOR_CONTRACT_VERSION, contract_digest=CREATOR_CONTRACT_DIGEST,
-        revoked_at__isnull=True, effective_at__lte=eligibility_at).order_by('-effective_at', '-pk').first()
-    if agreement is None:
-        raise money.EconomicRefusal('compensation_onboarding_required')
-    schedule = get_effective_compensation_schedule(service, at=eligibility_at)
-    accepted_schedules = agreement.acceptance_evidence.get('schedules', [])
-    if {'service': schedule.service, 'version': schedule.version, 'digest': schedule.published_digest} not in accepted_schedules:
-        raise money.EconomicRefusal('compensation_schedule_acceptance_required')
     return money.admit_service(creator_id=creator_id, service=service, event_id=event_id,
         agreement_id=agreement.pk, schedule_id=schedule.pk,
         source=dict(source, subject_creator_id=subject_creator_id))

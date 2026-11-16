@@ -479,3 +479,39 @@ test("public recovery observes disconnected state without an error and connected
   await page.waitForTimeout(22_000);
   await expect.poll(() => joins).toBe(2);
 });
+
+for (const code of [
+  "compensation_onboarding_required",
+  "compensation_schedule_acceptance_required",
+]) {
+  test(`PPV setup refusal ${code} offers the creator an actionable path`, async ({
+    page,
+  }) => {
+    await authenticate(page);
+    await seatStatus(page, { active: false });
+    const starts = await captureStarts(page, "ppv", {
+      status: 409,
+      body: { code, error: "Internal supplier details must not be displayed" },
+    });
+    await openDashboard(page);
+    await page.locator('label[for="stream-audience-ppv"]').click();
+    await page.getByTestId("stream-start").click();
+    await expect.poll(() => starts.length).toBe(1);
+    await expect(
+      page.getByRole("main").getByText(/Before starting a paid stream,/),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Identity intake", exact: true }),
+    ).toHaveAttribute("href", "/kyc");
+    await expect(
+      page.getByRole("link", {
+        name: "Review compensation in Billing",
+        exact: true,
+      }),
+    ).toHaveAttribute("href", `/${USER}/dashboard/billing`);
+    await expect(
+      page.getByText("Internal supplier details must not be displayed"),
+    ).toHaveCount(0);
+    await expect(page.locator("rtk-meeting")).toHaveCount(0);
+  });
+}
