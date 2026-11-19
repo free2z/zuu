@@ -1,3 +1,4 @@
+from .historical_ppv import prepare_historical_ppv_admission
 """Installed PostgreSQL invariants for the additive integration boundary."""
 import uuid
 import json
@@ -47,17 +48,21 @@ def service_terms(creator, service):
 
 def ppv_fixture(creator_factory):
     from dj.apps.dyte.models import CreatorMeeting
-    from dj.apps.economy import products
     host=creator_factory(tuzis=0)
     viewer=creator_factory(tuzis=0)
     from dj.apps.ledger import api
     api.credit_user(viewer.pk,100000,'sys:promo','grant','fixture',str(viewer.pk),f'fixture:{viewer.pk}')
     with transaction.atomic(): activate_for_test()
     service_terms(host,'livestream_ppv')
+    provider_session = uuid.uuid4()
+    provider_started_at = timezone.now()
     meeting=CreatorMeeting.objects.create(creator=host,meeting_id=str(uuid.uuid4()),meeting_type='ppv',
-        is_public=True,live_now=True,lifecycle_state='live',provider_session_id=uuid.uuid4(),
-        host_session_id=uuid.uuid4(),price_per_minute='10.00')
-    admission=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
+        is_public=True,live_now=True,lifecycle_state='live',provider_session_id=provider_session, provider_session_started_at=provider_started_at,
+        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(),
+        host_participant_id='synthetic-current-host', host_presence_participant_id='synthetic-current-host',
+        host_presence_session_id=provider_session, host_presence_session_started_at=provider_started_at,price_per_minute='10.00')
+    admission=prepare_historical_ppv_admission(host_id=host.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='10.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     return host,viewer,meeting,admission
@@ -82,7 +87,7 @@ def restore_economy_migrations():
     from django.db.migrations.loader import MigrationLoader
 
     loader=MigrationLoader(connection)
-    targets=[node for node in loader.graph.leaf_nodes() if node[0]=='economy']
+    targets=[node for node in loader.graph.leaf_nodes() if node[0] in {'economy', 'dyte'}]
     assert targets, 'economy migration graph has no leaf'
     MigrationExecutor(connection).migrate(targets)
 
@@ -106,7 +111,7 @@ def test_ppv_second_admission_cannot_overlap_same_provider_viewer(creator_factor
     from dj.apps.economy import products
     from dj.apps.dyte.models import WebhookDelivery
     host,viewer,meeting,first=ppv_fixture(creator_factory)
-    second=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
+    second=prepare_historical_ppv_admission(host_id=host.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='10.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     entry,evidence=ppv_delivery(first)
@@ -558,8 +563,18 @@ def test_signed_http_ppv_original_admission_and_replay(creator_factory,api_clien
     assert PayableJournal.objects.filter(admission=admission).count()==1
 
 
+def bind_provider_fixture(settings, meeting, actor, *, role='viewer', canonical=None, custom_id=None):
+    """Represent the immutable attribution created by the token-issuance route."""
+    from dj.apps.dyte.participant_binding import bind_participant
+    settings.RTK_APP_ID = '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'
+    settings.RTK_API_MODE = 'v4'
+    return bind_participant(meeting_id=meeting.meeting_id, participant_id=canonical or uuid.uuid4(),
+        creator_id=meeting.creator_id, actor_id=actor.pk, role=role,
+        custom_id=custom_id or actor.username, start_claim=uuid.uuid4() if role == 'host' else None)
+
+
 @pytest.mark.parametrize('username',['ea_alice','ea_'+uuid.uuid4().hex])
-def test_signed_http_policy0_username_prefix_keeps_utility_billing(creator_factory,api_client,mocker,username):
+def test_signed_http_policy0_username_prefix_keeps_utility_billing(creator_factory,api_client,mocker,username,settings):
     from cryptography.hazmat.primitives.asymmetric import rsa
     from dj.apps.dyte.test_webhook_idempotency import _post,_participant_left_payload,_ppv_meeting
     private=rsa.generate_private_key(public_exponent=65537,key_size=2048)
@@ -567,6 +582,7 @@ def test_signed_http_policy0_username_prefix_keeps_utility_billing(creator_facto
     mocker.patch('dj.apps.jobs.outbox.PubSubClient')
     meeting,host,viewer=_ppv_meeting(creator_factory)
     viewer.username=username;viewer.save(update_fields=['username'])
+    bind_provider_fixture(settings,meeting,viewer)
     body=_participant_left_payload(meeting,viewer)
     event_id=uuid.uuid4()
     assert _post(api_client,private,body,event_id).status_code==200
@@ -586,7 +602,7 @@ def test_schedule_publication_dry_run_idempotence_and_conflict():
     original=list(CompensationSchedule.objects.values())
     call_command('publish_compensation_schedules',apply=True)
     assert list(CompensationSchedule.objects.values())==original
-    assert {row['service'] for row in original}=={'livestream_ppv','sdk_application'}
+    assert {row['service'] for row in original}=={'sdk_application'}
     assert not CompensationAgreement.objects.exists() and not LegalPayee.objects.exists()
     # A historical wrong publication must refuse rather than overwrite it.
     sql('ALTER TABLE economy_compensationschedule DISABLE TRIGGER economy_schedule_immutable')
@@ -754,7 +770,7 @@ def test_concurrent_original_ppv_admissions_cannot_both_collect_overlap(creator_
     from dj.apps.dyte.models import WebhookDelivery
     from dj.apps.economy import products
     host,viewer,meeting,first=ppv_fixture(creator_factory)
-    second=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
+    second=prepare_historical_ppv_admission(host_id=host.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='10.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     joined=second.admitted_at.isoformat();left=money._db_now().isoformat()
@@ -813,7 +829,7 @@ def test_concurrent_confirmation_and_expiry_preserve_original_funding(creator_fa
 
 
 @pytest.mark.parametrize('role',['host','viewer'])
-def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(creator_factory,api_client,mocker,role):
+def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(creator_factory,api_client,mocker,role,settings):
     import json
     from cryptography.hazmat.primitives.asymmetric import rsa
     from dj.apps.dyte.client import DyteClient
@@ -830,6 +846,8 @@ def test_policy1_owner_provider_identity_cannot_impersonate_viewer_admission(cre
         custom_participant_id=f'ph_{host.public_id.hex}')
     token=post.call_args.kwargs['json']['custom_participant_id']
     assert token==f'ph_{host.public_id.hex}'
+    bind_provider_fixture(settings,meeting,host,role=role,custom_id=token,
+        canonical=post.return_value.json.return_value['data']['id'])
     room=_meeting(meeting.meeting_id);room['sessionId']=str(meeting.provider_session_id)
     payload=json.dumps({'event':'meeting.participantLeft','meeting':room,'participant':{
         'peerId':str(uuid.uuid4()),'userDisplayName':host.username,'customParticipantId':token,
@@ -853,7 +871,7 @@ def test_escaped_purchase_action_remains_an_actual_resolution(memo):
     assert note.dispositions.filter(kind='pending_resolution').exists()
 
 
-def test_policy1_broadcast_viewer_hostlike_username_still_charges_platform(creator_factory,api_client,mocker):
+def test_policy1_broadcast_viewer_hostlike_username_still_charges_platform(creator_factory,api_client,mocker,settings):
     from cryptography.hazmat.primitives.asymmetric import rsa
     from dj.apps.dyte.test_webhook_idempotency import _post,_participant_left_payload,_ppv_meeting
     private=rsa.generate_private_key(public_exponent=65537,key_size=2048)
@@ -861,6 +879,7 @@ def test_policy1_broadcast_viewer_hostlike_username_still_charges_platform(creat
     mocker.patch('dj.apps.jobs.outbox.PubSubClient')
     meeting,host,viewer=_ppv_meeting(creator_factory)
     viewer.username=f'ph_{host.public_id.hex}';viewer.save(update_fields=['username'])
+    bind_provider_fixture(settings,meeting,viewer)
     meeting.meeting_type='broadcast';meeting.save(update_fields=['meeting_type'])
     with transaction.atomic():activate_for_test()
     body=_participant_left_payload(meeting,viewer)
@@ -903,15 +922,17 @@ def test_paid_admission_and_eligibility_use_original_database_clock(creator_fact
     application_clock=SimpleNamespace(now=lambda:behind)
     monkeypatch.setattr(products,'timezone',application_clock)
     monkeypatch.setattr(views,'timezone',application_clock)
-    assert products.get_effective_compensation_schedule('livestream_ppv').version==contracts.SERVICE_SCHEDULES['livestream_ppv']['version']
-    admitted=products.prepare_livestream_admission(host_id=host.pk,viewer_id=viewer.pk,
+    with pytest.raises(money.EconomicRefusal, match='compensation_schedule_unavailable'):
+        products.get_effective_compensation_schedule('livestream_ppv')
+    admitted=prepare_historical_ppv_admission(host_id=host.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='10.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     assert admitted.agreement_id==original.agreement_id and admitted.admitted_at>=original.admitted_at
     api_client.force_authenticate(user=host)
     response=api_client.get('/api/economy/earnings/')
     assert response.status_code==200 and response.data['agreement_accepted'] is True
-    assert response.data['compensation_eligible'] is True
+    # This host accepted only the historical PPV schedule, not the SDK offer.
+    assert response.data['compensation_eligible'] is False
 
 
 def historical_note_observation(*, creator_id, txid, pool, output_index, amount_zec, memo_plain):

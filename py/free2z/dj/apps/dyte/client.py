@@ -921,3 +921,25 @@ class DyteClient(object):
                 or not isinstance(data.get('token'), str) or not data['token'].strip()):
             raise self._invalid(response, 'add_participant')
         return response
+
+    def get_session_participant(self, session_id, peer_id):
+        """Resolve one connection to its provider-issued participant and preset."""
+        session_id, peer_id = str(session_id), str(peer_id)
+        if not _uuid(session_id) or not _uuid(peer_id):
+            raise ProviderInvalidResponse(request_sent=False)
+        response = self.request('GET', f'sessions/peer-report/{peer_id}',
+            params={'include_peer_events': 'true', 'filters': 'events'})
+        data = response.json().get('data')
+        participant = data.get('participant') if isinstance(data, dict) else None
+        if not isinstance(participant, dict):
+            raise self._invalid(response, 'session_participant')
+        role = {'webinar1': 'host', 'webinar-participant': 'viewer'}.get(participant.get('role'))
+        # The peer-report path identifies the peer. Its response id is a
+        # distinct session-participant row; deployed responses may omit the
+        # optional peer_events field even when explicitly requested.
+        if (participant.get('session_id') != session_id or not _uuid(participant.get('id'))
+                or not _uuid(participant.get('user_id'))
+                or role is None or not isinstance(participant.get('custom_participant_id'), str)):
+            raise self._invalid(response, 'session_participant')
+        return {'user_id': uuid.UUID(participant['user_id']), 'role': role,
+            'custom_participant_id': participant['custom_participant_id']}
