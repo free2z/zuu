@@ -28,14 +28,18 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import DatabaseError
 from django.db.models import F, Q
 from django.utils import timezone
 
 from procrastinate.contrib.django import app
+from procrastinate.exceptions import ConnectorException
 
 from .models import LIFECYCLE_OFFLINE, RecordingDelivery
 
 logger = logging.getLogger(__name__)
+RECORDING_RECOVERY_DB_TIMEOUT_MS = 5000
+RECORDING_RECOVERY_BUDGET_SECONDS = 30
 
 
 @app.task(name="dyte.retire_host_evictions", queue="default")
@@ -321,40 +325,39 @@ def retry_recording_delivery(delivery_id: str):
 @app.periodic(cron=settings.DYTE_RECORDING_RECOVERY_CRON)
 @app.task(name="dyte.recover_recording_deliveries", queue="default")
 def recover_recording_deliveries(timestamp: int):
-    """Re-enqueue missed recovery jobs and report incomplete receipts."""
+    """Recover recording work and authenticated credit evidence independently."""
+    from .credit_recovery import recover_credit_observations
+    failure = None
+    for name, recover in (('recording', _recover_recording_deliveries),
+            ('ppv_credit', recover_credit_observations)):
+        try:
+            recover()
+        except Exception as exc:
+            failure = failure or exc
+            logger.exception('dyte recovery branch failed: %s', name)
+            if name == 'ppv_credit':
+                from dj.apps.jobs.logs import emit_json_line
+                emit_json_line(logger, {'alert':'ppv_credit_recovery_required',
+                    'reason':'recovery_unavailable'}, 'ERROR', 'PPV credit recovery unavailable')
+    if failure is not None:
+        raise failure
+
+
+def _recording_recovery_db(deadline):
+    from .recovery_db import recovery_database
+    return recovery_database(deadline=deadline, timeout_ms=RECORDING_RECOVERY_DB_TIMEOUT_MS)
+
+
+def _recover_recording_deliveries():
+    """Re-enqueue missed recording jobs and report incomplete receipts."""
     from dj.apps.dyte.management.commands.dyte_download_upload import (
         enqueue_recording_recovery,
     )
 
+    deadline = time.monotonic()+RECORDING_RECOVERY_BUDGET_SECONDS
     now = timezone.now()
-    due = list(
-        RecordingDelivery.objects.filter(
-            completed_at__isnull=True,
-            retry_exhausted_at__isnull=True,
-            download_url__gt='',
-            next_retry_at__lte=now,
-            recovery_queued_at__isnull=True,
-        ).filter(
-            Q(lease_token__isnull=True) | Q(lease_expires_at__lte=now),
-        ).order_by('next_retry_at')[
-            :settings.DYTE_RECORDING_RECOVERY_BATCH_SIZE]
-    )
-    queued = 0
-    for delivery in due:
-        try:
-            queued += int(
-                enqueue_recording_recovery(
-                    delivery.idempotency_key, delivery.next_retry_at)
-            )
-        except Exception:
-            # The row remains due, so the next sweep can enqueue it. Do not
-            # turn one queue outage into a failed periodic task that obscures
-            # the actual recording receipt needing recovery.
-            logger.exception(
-                "Could not enqueue recording recovery for %s",
-                delivery.idempotency_key,
-            )
-
+    failure = None
+    # Alert before queue work can consume this sweep's finite budget.
     stale_cutoff = now - timedelta(
         seconds=settings.DYTE_RECORDING_STUCK_AFTER_SECONDS)
     # `RECORDING DOWNLOAD RETRY EXHAUSTED` is the immediate terminal-failure
@@ -368,13 +371,19 @@ def recover_recording_deliveries(timestamp: int):
     ).filter(
         Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now),
     )
-    stuck_ids = list(stuck_candidates.values_list('pk', flat=True))
-    oldest = stuck_candidates.order_by('recovery_started_at').values_list(
-        'recovery_started_at', flat=True).first()
-    stuck_count = RecordingDelivery.objects.filter(
-        pk__in=stuck_ids,
-        stuck_alerted_at__isnull=True,
-    ).update(stuck_alerted_at=now)
+    stuck_count, oldest = 0, None
+    try:
+        with _recording_recovery_db(deadline):
+            stuck_ids = list(stuck_candidates.values_list('pk', flat=True))
+            oldest = stuck_candidates.order_by('recovery_started_at').values_list(
+                'recovery_started_at', flat=True).first()
+            stuck_count = RecordingDelivery.objects.filter(
+                pk__in=stuck_ids,
+                stuck_alerted_at__isnull=True,
+            ).update(stuck_alerted_at=now)
+    except Exception as exc:
+        failure = exc
+        logger.exception('Could not report stuck recording recoveries')
     if stuck_count:
         from dj.apps.dyte.management.commands.dyte_download_upload import (
             RECORDING_INGESTION_STUCK_SIGNAL,
@@ -385,10 +394,46 @@ def recover_recording_deliveries(timestamp: int):
             stuck_count,
             max(0, round((now - oldest).total_seconds())) if oldest else 0,
         )
+    with _recording_recovery_db(deadline):
+        due = list(
+            RecordingDelivery.objects.filter(
+                completed_at__isnull=True,
+                retry_exhausted_at__isnull=True,
+                download_url__gt='',
+                next_retry_at__lte=now,
+                recovery_queued_at__isnull=True,
+            ).filter(
+                Q(lease_token__isnull=True) | Q(lease_expires_at__lte=now),
+            ).order_by('next_retry_at')[
+                :settings.DYTE_RECORDING_RECOVERY_BATCH_SIZE]
+        )
+    queued = 0
+    for delivery in due:
+        if time.monotonic() >= deadline:
+            failure = failure or TimeoutError('recording recovery budget exhausted')
+            break
+        try:
+            # Keep each marker+defer commit independent. A later blocked row
+            # cannot undo a recovery job already handed to the queue.
+            with _recording_recovery_db(deadline):
+                queued += int(enqueue_recording_recovery(
+                    delivery.idempotency_key, delivery.next_retry_at))
+        except Exception as exc:
+            if isinstance(exc,(DatabaseError,TimeoutError,ConnectorException)):
+                failure = failure or exc
+            # The row remains due. Preserve progress for other recordings;
+            # database/budget failures propagate after both recovery branches.
+            logger.exception(
+                "Could not enqueue recording recovery for %s",
+                delivery.idempotency_key,
+            )
+
     logger.info(
         "dyte recording recovery sweep: due=%d queued=%d stuck=%d",
         len(due), queued, stuck_count,
     )
+    if failure is not None:
+        raise failure
 
 
 #Where the last budgeted sweep stopped, as a CreatorMeeting pk. A

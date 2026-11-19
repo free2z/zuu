@@ -4,7 +4,7 @@
     "python": "3.12",
     "django": "5.2.18",
     "dependency_lock": "py/free2z/requirements/main.txt",
-    "dependency_lock_sha256": "4206d8de6578ea71290937b01fe2f931b01e01654c36ad95375db3b04f699fb0"
+    "dependency_lock_sha256": "c17452d0fde90ab6f6a60f5712aa88eedf5139b7b3cdc263525a83d760840a2e"
   },
   "models": [
     {
@@ -66,6 +66,34 @@
     {
       "model": "dyte.CreatorMeeting",
       "table": "dyte_creatormeeting",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.PpvCreditAdmission",
+      "table": "dyte_ppvcreditadmission",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.PpvCreditDelivery",
+      "table": "dyte_ppvcreditdelivery",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.PpvCreditObservation",
+      "table": "dyte_ppvcreditobservation",
+      "source": "py/free2z/dj/apps/dyte/models.py",
+      "review_scope": "financial writer inventory",
+      "disposition": "financial model identified; per-path review required"
+    },
+    {
+      "model": "dyte.ProviderParticipantBinding",
+      "table": "dyte_providerparticipantbinding",
       "source": "py/free2z/dj/apps/dyte/models.py",
       "review_scope": "financial writer inventory",
       "disposition": "financial model identified; per-path review required"
@@ -1174,31 +1202,31 @@
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1139,
+      "line": 1523,
       "call": "ledger.debit_up_to",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1182,
+      "line": 1567,
       "call": "ledger.lock_in_order",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1183,
+      "line": 1568,
       "call": "ledger.debit_up_to",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1193,
+      "line": 1578,
       "call": "ledger.debit_up_to",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/dyte/views.py",
-      "line": 1200,
+      "line": 1585,
       "call": "ledger.credit",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1216,13 +1244,13 @@
     },
     {
       "source": "py/free2z/dj/apps/economy/products.py",
-      "line": 151,
+      "line": 158,
       "call": "usage.lock_creator",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
     {
       "source": "py/free2z/dj/apps/economy/products.py",
-      "line": 158,
+      "line": 165,
       "call": "usage.lock_account",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1270,7 +1298,7 @@
     },
     {
       "source": "py/free2z/dj/apps/g12f/management/commands/restore_refused_memberships.py",
-      "line": 271,
+      "line": 279,
       "call": "ledger.lock_in_order",
       "disposition": "source writer identified; outer transaction order requires per-path review"
     },
@@ -1699,18 +1727,18 @@
     "py/free2z/dj/apps/comments/management/commands/aiscore_comments.py": "8f798a223965b4841822bb239cb040e81c71dcad89c1cfdff072e4314966a902",
     "py/free2z/dj/apps/comments/models.py": "81a006d2e2f57d1e40e79a4a70b8793ecf6f0d36948bc2eb2d2cb3a0bd6ad140",
     "py/free2z/dj/apps/comments/views.py": "06477a05cfecc35dab620ea1a0dc73b3c7df10602ecfbe23dfcf748d459d359c",
-    "py/free2z/dj/apps/dyte/models.py": "f7f1789e92b6b8a4204c3eae8de11cd2cc8c1156515a3998e5134c5473d33663",
-    "py/free2z/dj/apps/dyte/views.py": "0d8e62a16b859d0ec8cb5d44c4bb44de36265692837aaa9dc9e8b39c11bfb357",
+    "py/free2z/dj/apps/dyte/models.py": "0902300952be3b551d53d793bc20a247addecf5857288cdff194e618a5d2fff5",
+    "py/free2z/dj/apps/dyte/views.py": "99a328c44804d650bc6d18b80521eb99a8f51c64e799bbd6bb7f1a801d6ddfe0",
     "py/free2z/dj/apps/e2ee/models.py": "87bd06bb8461ef9d283f96f6e05b4c67576d7d0e0318bcaf9a8a679fc9b9717d",
     "py/free2z/dj/apps/e2ee/views.py": "7533ddb3d6fa9ad0f96e2044d98b270ae80b9495fd45c953ab06d35011addf5c",
     "py/free2z/dj/apps/economy/models.py": "234673203a0ebcbea06c5d690ecaaee3c2ad64054fd1a097ec953e53012f9725",
-    "py/free2z/dj/apps/economy/products.py": "3552fc2d37365214944b363ba15f0b2485e9488328f058578d6543c6649f10d4",
+    "py/free2z/dj/apps/economy/products.py": "59afc0428714f36f13bf4826c6dd713d84460cb9c6876978d5455b35888e64b6",
     "py/free2z/dj/apps/economy/services.py": "31edcca04691a45f8f38b71a4019b71f7b5ab63d8c385c80b2987a89db5a823e",
     "py/free2z/dj/apps/efm/models.py": "97b42f27e99097079d8b063e7cff8f9f7dd64db942922488878bbb2c408b16b4",
     "py/free2z/dj/apps/emails/models.py": "d16b123c3d2593d59785cea563be6f816aa3995641b7ef63b2c6536e3b53125d",
     "py/free2z/dj/apps/events/models.py": "7a6b0a09066c24280e4e4235f663cdf98c6273c862cbe6781e928d257ba3e5b6",
     "py/free2z/dj/apps/exports/models.py": "61161ff8dbf0a6aeea60121fbebf8da609a5b6eb2a334c53508dd08e690b9327",
-    "py/free2z/dj/apps/g12f/management/commands/restore_refused_memberships.py": "26c26a2df9ed3c4d09a2538b068cd4010b8b7c514d99fdd7c24a6d28be47fbf5",
+    "py/free2z/dj/apps/g12f/management/commands/restore_refused_memberships.py": "40d494dcc00ea91694b92b2827aa4e54da5767971c20ea499b80f2caf63f482c",
     "py/free2z/dj/apps/g12f/models/account_deletion.py": "8e7d03912f3eebc33f132bc9c927f817edca3a3d8413bee8e299ae6eae489e89",
     "py/free2z/dj/apps/g12f/models/address.py": "135f3ed8f2292e5ab13c49628a962d5d54a36a1edc455ec9381bc19a0ace146b",
     "py/free2z/dj/apps/g12f/models/comment.py": "50c250f23b3a3536db0f38d103744ca5d2b1e991cc133ecaba6b6f73c756977c",

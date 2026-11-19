@@ -120,6 +120,14 @@ def validate(ci, release, dockerfile, ruff):
     registration_command = registration[0]['run']
     if '--base "$BASE_SHA" --head HEAD' not in registration_command or 'github.event.merge_group.base_sha' not in registration[0].get('env', {}).get('BASE_SHA', ''):
         raise ValueError('periodic registration must compare the selected PR or merge-group base')
+    oracle_command = 'check-translation-url-oracle.py'
+    oracle_runs = [(name, s) for name, job in jobs.items() for s in job.get('steps', []) if oracle_command in s.get('run', '')]
+    if [name for name, _ in oracle_runs] != ['translation-oracle'] or any(key in oracle_runs[0][1] for key in ('if', 'continue-on-error')):
+        raise ValueError('rendered Markdown payment oracle must run unconditionally in its own required job')
+    oracle_steps = jobs['translation-oracle']['steps']
+    renderer_installs = [s for s in oracle_steps if s.get('run') == 'npm ci' and s.get('working-directory') == 'ts/svelte/free2z']
+    if len(renderer_installs) != 1 or oracle_steps.index(renderer_installs[0]) > oracle_steps.index(oracle_runs[0][1]) or any(key in renderer_installs[0] for key in ('if', 'continue-on-error')):
+        raise ValueError('oracle must render with the locked SvelteKit renderer installed')
     native = jobs['native-payment-bridge']
     if native['env'].get('PAYMENTD_NATIVE_BRIDGE_TEST') != '1':
         raise ValueError('native financial bridge tests must execute rather than skip')
@@ -127,7 +135,7 @@ def validate(ci, release, dockerfile, ruff):
     if 'cargo test --locked --test financial_delivery --test production_handoff_fixture --no-run' not in native_commands or 'python -m pytest dj/apps/g12f/test_paymentd_native_credit.py -q' not in native_commands:
         raise ValueError('native bridge must compile both fixtures and execute SQL integration tests')
     version=re.search(r'^FROM python:([0-9]+\.[0-9]+)',dockerfile,re.M)[1]
-    for name in ('backend','dependency-security','native-payment-bridge','changes','lint-python'):
+    for name in ('backend','translation-oracle','dependency-security','native-payment-bridge','changes','lint-python'):
         pins=[str(s.get('with',{}).get('python-version','')) for s in jobs[name]['steps'] if s.get('uses','').startswith('actions/setup-python@')]
         if pins!=[version]:raise ValueError('CI Python must equal the application runtime')
     target=re.search(r'^target-version = "py([0-9]+)"',ruff,re.M)[1]

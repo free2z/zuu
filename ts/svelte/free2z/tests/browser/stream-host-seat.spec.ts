@@ -402,14 +402,14 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
 }) => {
   const OWNER = "livefixture";
   // Sign the browser in as the stream's own creator: a real session for the
-  // cookie, with the username swapped to the page's creator.
+  // cookie, with the identity set to the page's creator.
   await authenticate(page, "profile-fixture-session");
   await page.route("**/api/auth/user/", async (route) => {
     const response = await route.fetch();
     const user = await response.json();
     await route.fulfill({
       response,
-      body: JSON.stringify({ ...user, username: OWNER }),
+      body: JSON.stringify({ ...user, id: 8811, username: OWNER }),
     });
   });
   const joins: Record<string, unknown>[] = [];
@@ -514,10 +514,11 @@ test("public recovery observes disconnected state without an error and connected
 });
 
 for (const code of [
+  "livestream_credit_integration_unavailable",
   "compensation_onboarding_required",
   "compensation_schedule_acceptance_required",
 ]) {
-  test(`PPV setup refusal ${code} offers the creator an actionable path`, async ({
+  test(`PPV startup refusal ${code} does not send credit recipients to payout setup`, async ({
     page,
   }) => {
     await authenticate(page);
@@ -530,18 +531,26 @@ for (const code of [
     await page.locator('label[for="stream-audience-ppv"]').click();
     await page.getByTestId("stream-start").click();
     await expect.poll(() => starts.length).toBe(1);
+    await expect(page.getByTestId("stream-start")).toBeEnabled();
     await expect(
-      page.getByRole("main").getByText(/Before starting a paid stream,/),
+      page
+        .getByRole("main")
+        .getByText(
+          code === "livestream_credit_integration_unavailable"
+            ? "⚠️ Stream startup is temporarily unavailable. Please try again shortly."
+            : "⚠️ Failed to join stream.",
+          { exact: true },
+        ),
     ).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Identity intake", exact: true }),
-    ).toHaveAttribute("href", "/kyc");
+    ).toHaveCount(0);
     await expect(
       page.getByRole("link", {
         name: "Review compensation in Billing",
         exact: true,
       }),
-    ).toHaveAttribute("href", `/${USER}/dashboard/billing`);
+    ).toHaveCount(0);
     await expect(
       page.getByText("Internal supplier details must not be displayed"),
     ).toHaveCount(0);

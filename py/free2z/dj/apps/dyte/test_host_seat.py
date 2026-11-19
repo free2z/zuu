@@ -57,8 +57,15 @@ def provider(mocker):
     client = mocker.MagicMock()
     client.create_meeting.side_effect = lambda title: _FakeResponse(
         {'data': {'id': str(uuid.uuid4())}})
-    client.add_participant.return_value = _FakeResponse(
-        {'data': {'token': 'auth-token'}})
+    default_participant_response = _FakeResponse(
+        {'data': {'token': 'auth-token', 'id': str(uuid.uuid4())}})
+    client.add_participant.return_value = default_participant_response
+    def mint(creator, meeting_id, **kwargs):
+        response = client.add_participant.return_value
+        if response is default_participant_response:
+            return _FakeResponse({'data': {'token': 'auth-token', 'id': str(uuid.uuid4())}})
+        return response
+    client.add_participant.side_effect = mint
     mocker.patch('dj.apps.dyte.views.DyteClient', return_value=client)
     mocker.patch('dj.apps.dyte.client.DyteClient', return_value=client)
     return client
@@ -487,7 +494,7 @@ def test_two_tabs_racing_get_exactly_one_seat_and_a_clean_409(
 
     def slow_add(*args, **kwargs):
         threading.Event().wait(0.5)
-        return _FakeResponse({'data': {'token': 'auth-token'}})
+        return _FakeResponse({'data': {'token': 'auth-token', 'id': str(uuid.uuid4())}})
 
     client.add_participant.side_effect = slow_add
     mocker.patch('dj.apps.dyte.views.DyteClient', return_value=client)
@@ -590,18 +597,23 @@ def test_a_takeover_kicks_the_previous_host_at_the_provider(
         {'data': {'token': 'auth-token', 'id': 'participant-a'}})
     tab_a = uuid.uuid4()
     room = _start(api_client, host, session=tab_a).data['meeting_id']
-    # A retry from the same tab is not a handoff: nobody is kicked.
-    _start(api_client, host, session=tab_a)
+    # Each mint has a distinct canonical participant, including same-tab retries.
+    provider.add_participant.return_value = _FakeResponse(
+        {'data': {'token': 'auth-token', 'id': 'participant-a-retry'}})
+    assert _start(api_client, host, session=tab_a).status_code == 200
     provider.retire_participant.assert_not_called()
 
     provider.add_participant.return_value = _FakeResponse(
         {'data': {'token': 'auth-token', 'id': 'participant-b'}})
     _start(api_client, host, session=uuid.uuid4(), takeover=True)
     pending = CreatorMeeting.objects.get(creator=host).host_evictions
-    assert [entry['participant_id'] for entry in pending] == ['participant-a']
+    assert [entry['participant_id'] for entry in pending] == ['participant-a', 'participant-a-retry']
+    _run_evictions(host)
     _run_evictions(host)
 
-    provider.retire_participant.assert_called_once_with(room, 'participant-a')
+    assert [call.args for call in provider.retire_participant.call_args_list] == [
+        (room, 'participant-a'), (room, 'participant-a-retry'),
+    ]
     cm = CreatorMeeting.objects.get(creator=host)
     assert cm.host_participant_id == 'participant-b'
 
@@ -612,6 +624,8 @@ def test_a_failed_kick_never_blocks_the_takeover(api_client, provider, host, moc
     _start(api_client, host, session=uuid.uuid4())
     provider.retire_participant.return_value = False
     tab_b = uuid.uuid4()
+    provider.add_participant.return_value = _FakeResponse(
+        {'data': {'token': 'auth-token', 'id': 'participant-b'}})
 
     taken = _start(api_client, host, session=tab_b, takeover=True)
 
