@@ -687,9 +687,9 @@ django-redis==7.0.0 \
     --hash=sha256:4b23aa6e0cd0937bb1242e9a463809e6004de3ca2150f34e986306bb6220d688 \
     --hash=sha256:e48491c862f4350b0747ceb1016700686fb93c4f4e0fb9c490fe6c6658ffd933
     # via -r main.in
-django-rest-knox==5.1.0 \
-    --hash=sha256:78307dce32858679fe96afb06c4ab2d4fe0ed085c7a739a7ccc03a14dea2b37b \
-    --hash=sha256:7dad21e91091db07796ea96f559fd2e1f67b8d42748d4e140d2fa7a0319538e7
+django-rest-knox==5.1.1 \
+    --hash=sha256:4a61218ef771c1573edf5c1c308a3c6acc438a6be2e86e225620b74b18fc38b4 \
+    --hash=sha256:b303d1a7c898d535cb2d2f153ca80b6d71e493d5fa2d8f09aa17f9b86c66641b
     # via -r main.in
 django-sendgrid-v5==1.3.1 \
     --hash=sha256:29c308b8fe92fcae31aa4cae6a04efcd1e62613226e90d199d950fadd44c4189 \
@@ -918,9 +918,9 @@ inflection==0.5.1 \
     --hash=sha256:1a29730d366e996aaacffb2f1f1cb9593dc38e2ddd30c91250c6dde09ea9b417 \
     --hash=sha256:f38b2b640938a4f35ade69ac3d053042959b62a0f1076a5bbaa1b9526605a8a2
     # via drf-spectacular
-ipython==9.17.1 \
-    --hash=sha256:6d1645743cfd1a07eb695d85aa2b5fa66721f8cbae9431d4049f7084bbf06509 \
-    --hash=sha256:8919be8c27f20a6f4423145028063f6637b42a03ce57665bb12015ee1f073529
+ipython==9.18.1 \
+    --hash=sha256:6319c0f5372c196397899479e6db1783dd7937abae06815d1317e8d5d51aaaaf \
+    --hash=sha256:997ce9140d374531a61069c70c0f9ef299d6dd3559ea0f94b8af589726e3c1d5
     # via -r main.in
 ipython-pygments-lexers==1.1.1 \
     --hash=sha256:09c0138009e56b6854f9535736f4171d855c8c08a563a0dcd8022f78355c7e81 \

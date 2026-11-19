@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestI18nProvider } from "@/i18n/test-provider";
 import es from "@/i18n/locales/es.json";
 import type { DyteJoinTicket } from "@/lib/api/types";
+import { ApiError, getTokenSnapshot, request, setToken } from "@/lib/api/http";
+import { registerHostSeat, releaseHostSeat, isCurrentHostSeat } from "@/lib/api/host-seat";
+
+vi.mock("@/lib/api/http", async (original) => ({ ...await original<typeof import("@/lib/api/http")>(), request: vi.fn() }));
 
 const controls = vi.hoisted(() => ({
   initMeeting: vi.fn(),
@@ -159,6 +163,7 @@ async function flush() {
 }
 
 beforeEach(async () => {
+  vi.mocked(request).mockReset().mockResolvedValue({});
   controls.initMeeting.mockReset();
   controls.rendered.length = 0;
   await installDom(true);
@@ -167,10 +172,158 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   if (root) await act(async () => root.unmount());
+  setToken(null);
+  vi.useRealTimers();
   restoreGlobals?.();
 });
 
 describe("RealtimeKit stage retry lifecycle", () => {
+  function leasedTicket(): DyteJoinTicket {
+    setToken("synthetic-host-owner");
+    return { ...hostTicket, hostSeat: registerHostSeat("Alice", 41, getTokenSnapshot()) };
+  }
+
+  it("keeps the public host lease through failed-media cleanup and local retry beyond sixty seconds", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket();
+    const first = fakeClient(); const second = fakeClient();
+    first.leave.mockImplementation(async () => { first.emit("roomLeft", { state: "left" }); });
+    controls.initMeeting.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => first.emit("roomLeft", { state: "failed" }));
+    await flush();
+    expect(isCurrentHostSeat(ticket.hostSeat!)).toBe(true);
+    await act(async () => container.querySelector("button")?.dispatchEvent(new window.Event("click", { bubbles: true })));
+    await flush();
+    expect(controls.initMeeting.mock.calls.map(([options]) => options.authToken)).toEqual([ticket.authToken, ticket.authToken]);
+    await act(async () => vi.advanceTimersByTimeAsync(75_000));
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "heartbeat")).toHaveLength(6);
+    expect(lastRendered()).toBe(second);
+    await act(async () => root.unmount());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "release")).toHaveLength(1);
+    expect(second.leave).toHaveBeenCalledOnce();
+  });
+
+  it("evicts the exact native host after supersession and disposes a late SDK init", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient();
+    let resolve!: (value: ReturnType<typeof fakeClient>) => void;
+    controls.initMeeting.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(409, "taken", { code: "host_session_superseded" }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    await act(async () => resolve(client)); await flush();
+    expect(client.leave).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("ended");
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["history", "actor"])("refuses a %s-mismatched host ticket before media initialization", async (reason) => {
+    const ticket = leasedTicket();
+    if (reason === "history") releaseHostSeat(ticket.hostSeat!, false);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={reason === "actor" ? 42 : 41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    expect(controls.initMeeting).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("ended");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([[401, false], [403, false], [401, true], [403, true]])("ends denied native host credentials %i (initialization pending: %s)", async (status, pending) => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient();
+    let resolve!: (value: ReturnType<typeof fakeClient>) => void;
+    if (pending) controls.initMeeting.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    else controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(Number(status), "credentials refused"));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    if (pending) { await act(async () => resolve(client)); await flush(); }
+    expect(container.textContent).toContain("ended");
+    expect(isCurrentHostSeat(ticket.hostSeat!)).toBe(false);
+    expect(client.leave).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(request).mock.calls.filter(([, options]) => (options?.body as any)?.action === "release")).toHaveLength(0);
+  });
+
+  it("keeps a superseded host ended when pending initialization later rejects", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket();
+    let reject!: (error: Error) => void;
+    controls.initMeeting.mockImplementationOnce(() => new Promise((_done, fail) => { reject = fail; }));
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(409, "taken", { code: "host_session_superseded" }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(container.textContent).toContain("ended");
+    await act(async () => reject(new Error("network disconnected")));
+    await flush();
+    expect(container.textContent).toContain("ended");
+    expect(container.textContent).not.toContain("Reconnect");
+    expect(isCurrentHostSeat(ticket.hostSeat!)).toBe(false);
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(controls.initMeeting).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["failed", "joined", "handoff"])("ignores old SDK %s callbacks after synchronous ownership loss", async (event) => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient(); const next = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => {
+      setToken("synthetic-new-owner");
+      if (event === "failed") client.emit("roomLeft", { state: "failed" });
+      else if (event === "joined") client.emit("roomJoined");
+      else client.connectedMeetings.emit("meetingChanged", next);
+    });
+    expect(container.textContent).toContain("ended");
+    expect(container.textContent).not.toContain("Reconnect");
+    expect(client.leave).toHaveBeenCalledOnce();
+    if (event === "handoff") expect(next.leave).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["unmount", "authentication"])("disposes a pending handoff after %s and passive cleanup", async (reason) => {
+    const ticket = leasedTicket(); const client = fakeClient(); const next = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => {
+      client.connectedMeetings.emit("changingMeeting", "synthetic-room");
+      client.emit("roomLeft", { state: "connected-meeting" });
+    });
+    if (reason === "unmount") await act(async () => root.unmount());
+    else await act(async () => setToken("synthetic-new-owner"));
+    await flush();
+    expect(client.leave).toHaveBeenCalledOnce();
+    await act(async () => client.connectedMeetings.emit("meetingChanged", next));
+    await flush();
+    expect(next.leave).toHaveBeenCalledOnce();
+  });
+
+  it("leaving the host route stops renewal and retires a late initialized client", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient();
+    let resolve!: (value: ReturnType<typeof fakeClient>) => void;
+    controls.initMeeting.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Bob" /></TestI18nProvider>));
+    await act(async () => resolve(client)); await flush();
+    expect(client.leave).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "heartbeat")).toHaveLength(1);
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "release")).toHaveLength(1);
+    expect(container.textContent).toContain("ended");
+  });
   it("discards raw provider errors and retries only with a fresh authoritative ticket", async () => {
     const rawSecret = "eyJ.private-identity.signature";
     controls.initMeeting

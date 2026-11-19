@@ -111,13 +111,15 @@ def test_a_failed_go_live_retry_keeps_the_fresh_meeting_id(
     assert any(entry['meeting_id'] == 'fresh-meeting' for entry in stored.host_evictions)
 
 
-def test_a_successful_go_live_is_unchanged(creator_factory, mocker):
+def test_a_successful_go_live_is_unchanged(creator_factory, mocker, settings):
+    settings.RTK_API_MODE = 'v4'
+    settings.RTK_APP_ID = str(uuid.uuid4())
     streamer = creator_factory(tuzis=Decimal("1000"))
     client_stub = mocker.MagicMock()
     client_stub.create_meeting.return_value = _FakeResponse(
         {"data": {"id": "fresh-meeting"}})
     client_stub.add_participant.return_value = _FakeResponse(
-        {"data": {"token": "auth-token"}})
+        {"data": {"token": "auth-token", "id": str(uuid.uuid4())}})
     mocker.patch("dj.apps.dyte.views.DyteClient", return_value=client_stub)
 
     api = APIClient()
