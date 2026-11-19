@@ -12,7 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from django.http import HttpResponse, HttpRequest
+from django.http import Http404, HttpResponse, HttpRequest
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Exists, F, Max, Prefetch, Q, Subquery
 
@@ -52,6 +52,9 @@ from dj.apps.uploads.models import ImageVariant
 
 from .models import (
     BROADCAST,
+    LIFECYCLE_LIVE,
+    LIFECYCLE_OFFLINE,
+    LIFECYCLE_STARTING,
     PAY_PER_VIEW,
     PRIVATE,
     PUBLIC_MEETING_TYPES,
@@ -61,6 +64,13 @@ from .models import (
     RecordingDeliveryTarget,
     WebhookDelivery,
 )
+from .host_identity import host_participant_identity
+from .participant_binding import (
+    ParticipantIdentity, ParticipantIdentityUnproven, bind_participant, current_provider_app_id, resolve_participant,
+)
+from .webhook_reader import reader_probe
+from .host_presence import HOST_PRESENCE_FIELDS, PresenceUpdate, clear_host_presence, record_host_presence
+from .host_seat import HOST_SESSION_TTL, host_seat_is_fresh as _seat_is_fresh
 from .recording import redact_recording_url
 from .serializers import (
     HOST_ROLE,
@@ -291,13 +301,12 @@ def _host_participant_response(response, stage, custom_participant_id):
         and 200 <= status_code < 300
         and isinstance(data, dict)
         and isinstance(token, str) and bool(token)
-        and (participant_id is None or (
-            isinstance(participant_id, str) and bool(participant_id)
-            and len(participant_id) <= 128))
+        and isinstance(participant_id, str) and bool(participant_id)
+        and len(participant_id) <= 128
     )
     if not valid:
         return None, canonical_id, _host_provider_diagnostic(response, stage, 'invalid_response')
-    return token, canonical_id or custom_participant_id, None
+    return token, canonical_id, None
 
 
 def _viewer_token(response):
@@ -792,6 +801,12 @@ def claim_webhook_delivery(
     transaction, alongside all billing effects.
     """
     payload_sha256 = hashlib.sha256(payload).hexdigest()
+    return claim_webhook_digest(provider_event_id=provider_event_id, event_type=event_type,
+        endpoint=endpoint, payload_sha256=payload_sha256, business_event_key=business_event_key)
+
+
+def claim_webhook_digest(*, provider_event_id, event_type, endpoint, payload_sha256, business_event_key):
+    """Internal claim for verified raw bytes or retained authenticated evidence."""
     try:
         with transaction.atomic():
             WebhookDelivery.objects.create(
@@ -975,6 +990,8 @@ def publish_recording_ready(
 # amplification this would otherwise mitigate is handled at its source instead:
 # get_or_load_dyte_public_key caps outbound fetches at one per
 # DYTE_KEY_FETCH_RETRY_SECONDS no matter how many requests arrive.
+@reader_probe
+@transaction.non_atomic_requests
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook(request: HttpRequest):
@@ -1041,6 +1058,47 @@ def webhook(request: HttpRequest):
         cm = _historical_private_recording_meeting(
             event_data.meeting.id, getattr(event_data.meeting, 'sessionId', None),
         )
+    if cm is not None:
+        # Commit the room observation and release its lock before either
+        # financial dispatcher acquires actor locks. A refused settlement must
+        # not restore an old session's paid-admission readiness.
+        _observe_provider_session(event_data=event_data, cm=cm)
+        if event_data.event in ('meeting.started', 'meeting.ended'):
+            return HttpResponse('OK')
+        if event_data.event == 'meeting.participantLeft':
+            _observe_bound_host_departure(cm, event_data)
+    if event_data.event == 'meeting.participantLeft':
+        token = event_data.participant.customParticipantId
+        if isinstance(token, str) and token.startswith('pc_'):
+            from .models import PpvCreditAdmission, ProviderParticipantBinding
+            from .participant_binding import current_provider_app_id
+            from types import SimpleNamespace
+            try:
+                candidate = uuid.UUID(hex=token[3:])
+            except ValueError:
+                candidate = None
+            credit = PpvCreditAdmission.objects.filter(pk=candidate,
+                meeting_id=str(event_data.meeting.id),
+                provider_session_id=event_data.meeting.sessionId,
+                provider_session_started_at=event_data.meeting.startedAt).first() if candidate else None
+            if credit is not None:
+                # Delayed delivery follows the original host even if the
+                # reusable room or its owner's profile has changed.
+                try:
+                    if credit.app_id != current_provider_app_id():
+                        raise ParticipantIdentityUnproven('provider_app_changed')
+                    original = SimpleNamespace(creator_id=credit.host_id,
+                        host_participant_id='', host_evictions=[], meeting_type=PAY_PER_VIEW)
+                    identity = resolve_participant(event_data, original)
+                    if not identity.bound or identity.role != VIEWER_ROLE or identity.actor_id != credit.viewer_id:
+                        raise ParticipantIdentityUnproven('credit_viewer_binding_mismatch')
+                    binding = ProviderParticipantBinding.objects.get(app_id=credit.app_id,
+                        meeting_id=credit.meeting_id, participant_id=str(identity.participant_id))
+                except (requests.RequestException, ParticipantIdentityUnproven):
+                    return _provider_retry_response()
+                _process_credit_ppv_event(event_data=event_data, admission=credit, binding=binding,
+                    provider_event_id=provider_event_id, payload=request.body)
+                return HttpResponse('OK')
     admission_token = None
     if event_data.event=='meeting.participantLeft':
         token=event_data.participant.customParticipantId
@@ -1068,13 +1126,46 @@ def webhook(request: HttpRequest):
             provider_event_id=provider_event_id,
         )
 
+    if (event_data.event == 'meeting.participantJoined' and event_data.participant is not None
+            and (event_data.participant.joinedAt is None
+                or not timezone.is_aware(event_data.participant.joinedAt))):
+        return HttpResponse('OK')
+    identity = None
+    if (cm.is_public and cm.meeting_type in PUBLIC_MEETING_TYPES
+            and event_data.participant is not None
+            and (event_data.event == 'meeting.participantLeft'
+                or (event_data.event == 'meeting.participantJoined'
+                    and (event_data.participant.customParticipantId or '').startswith('host_')))):
+        try:
+            identity = resolve_participant(event_data, cm)
+        except (requests.RequestException, ParticipantIdentityUnproven):
+            return _provider_retry_response()
     _process_webhook_event(
         event_data=event_data,
         cm=cm,
         provider_event_id=provider_event_id,
         payload=request.body,
+        identity=identity,
     )
     return HttpResponse("OK")
+
+
+def _process_credit_ppv_event(*, event_data, admission, binding, provider_event_id, payload):
+    from .credit_recovery import capture_observation, attempt_observation
+    participant = event_data.participant
+    key = normalized_event_key('participant-left', event_data.meeting.id, event_data.meeting.sessionId,
+        participant.peerId, participant.customParticipantId, participant.joinedAt.isoformat(),
+        participant.leftAt.isoformat())
+    observation = capture_observation(admission_id=admission.pk, event_key=key, evidence={
+        'provider_event_id': str(provider_event_id), 'payload_sha256': hashlib.sha256(payload).hexdigest(),
+        'meeting_id': str(event_data.meeting.id), 'provider_session_id': str(event_data.meeting.sessionId),
+        'provider_session_started_at': event_data.meeting.startedAt.isoformat(),
+        'binding_id': binding.pk, 'canonical_participant_id': str(binding.participant_id),
+        'participant_id': participant.customParticipantId, 'peer_id': str(participant.peerId),
+        'joined_at': participant.joinedAt.isoformat(), 'left_at': participant.leftAt.isoformat()})
+    # The non-atomic webhook commits authenticated evidence first. A failed
+    # financial attempt cannot erase the recovery item or mark a claim settled.
+    attempt_observation(observation.pk, raise_failure=True)
 
 
 @transaction.atomic
@@ -1174,18 +1265,151 @@ def _acknowledge_unresolved_meeting(
 
 
 @transaction.atomic
-def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
+def _observe_provider_session(*, event_data, cm):
+    """Order signed room observations independently of participant billing.
+
+    A viewer can reveal a new provider session before the host or room-start
+    callbacks. No host proof from the previous session may survive that fact.
+    This transaction must finish before any financial transaction starts.
+    """
+    if event_data.event not in ('meeting.started', 'meeting.ended',
+            'meeting.participantJoined', 'meeting.participantLeft'):
+        return
+    incoming = event_data.meeting
+    logger.info('provider session observation event=%s meeting_id=%s',
+        event_data.event, incoming.id)
+    if not timezone.is_aware(incoming.startedAt):
+        return
+    cm = CreatorMeeting.objects.select_for_update().filter(pk=cm.pk).first()
+    if cm is None or str(cm.meeting_id) != str(incoming.id):
+        return
+    current_id, current_at = cm.provider_session_id, cm.provider_session_started_at
+    if current_id == incoming.sessionId:
+        if current_at != incoming.startedAt:
+            return
+        if event_data.event != 'meeting.ended':
+            # Duplicate starts and participant observations cannot reopen an
+            # ended session or erase a host's departure tombstone.
+            return
+    elif current_at is not None:
+        if incoming.startedAt < current_at:
+            return
+        if incoming.startedAt == current_at:
+            # Two session IDs at one start time have no provable order. Keep
+            # that time as a high-water mark with explicitly unknown identity;
+            # neither session's duplicate callbacks can reopen admission.
+            cm.provider_session_id = None
+            cm.live_now = False
+            cm.lifecycle_state = LIFECYCLE_OFFLINE
+            clear_host_presence(cm)
+            cm.save(update_fields=['provider_session_id', 'live_now',
+                'lifecycle_state', *HOST_PRESENCE_FIELDS])
+            return
+    elif current_id is not None:
+        # A legacy UUID without its start time cannot order a different one.
+        return
+    cm.provider_session_id = incoming.sessionId
+    cm.provider_session_started_at = incoming.startedAt
+    clear_host_presence(cm)
+    ended = event_data.event == 'meeting.ended'
+    cm.live_now = not ended
+    cm.lifecycle_state = (LIFECYCLE_STARTING
+        if not ended and cm.host_session_id is not None else LIFECYCLE_OFFLINE)
+    cm.zero_probe_since = None
+    if not ended:
+        cm.last_seen_at = timezone.now()
+    cm.save(update_fields=['provider_session_id', 'provider_session_started_at',
+        'live_now', 'lifecycle_state', 'zero_probe_since', 'last_seen_at',
+        *HOST_PRESENCE_FIELDS])
+
+
+def _record_host_departure(cm, event_data, identity):
+    """Close readiness for the current peer without entering viewer billing.
+
+    The caller holds the meeting row lock. The HTTP lease can remain fresh
+    while the SDK is absent; only a later provider join can clear this leave.
+    """
+    claim = identity.start_claim
+    joined_at = event_data.participant.joinedAt
+    if (not identity.bound or identity.role != HOST_ROLE
+            or str(identity.participant_id) != cm.host_participant_id
+            or claim != cm.start_id or cm.host_session_id is None
+            or joined_at is None or not timezone.is_aware(joined_at)):
+        return
+    if record_host_presence(cm, event_data.participant, departed=True,
+            session_id=event_data.meeting.sessionId,
+            session_started_at=event_data.meeting.startedAt) == PresenceUpdate.IGNORED:
+        return
+    if not cm.live_now:
+        cm.lifecycle_state = LIFECYCLE_OFFLINE
+    elif cm.lifecycle_state != LIFECYCLE_OFFLINE:
+        cm.lifecycle_state = LIFECYCLE_STARTING
+    cm.save(update_fields=['lifecycle_state', *HOST_PRESENCE_FIELDS])
+
+
+@transaction.atomic
+def _observe_bound_host_departure(cm, event_data):
+    """Commit a known peer's signed negative evidence before any provider read."""
+    from .models import ProviderParticipantBinding
+    cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
+    participant = event_data.participant
+    if (participant is None or str(cm.meeting_id) != str(event_data.meeting.id)
+            or cm.provider_session_id != event_data.meeting.sessionId
+            or cm.provider_session_started_at != event_data.meeting.startedAt
+            or cm.host_peer_id != participant.peerId or cm.host_joined_at != participant.joinedAt):
+        return
+    try:
+        canonical = uuid.UUID(cm.host_participant_id)
+    except (ValueError, TypeError):
+        return
+    try:
+        app_id = current_provider_app_id()
+    except ParticipantIdentityUnproven:
+        return
+    binding = ProviderParticipantBinding.objects.filter(
+        app_id=app_id, meeting_id=event_data.meeting.id,
+        participant_id=canonical, creator_id=cm.creator_id, actor_id=cm.creator_id,
+        role=HOST_ROLE, custom_participant_id=participant.customParticipantId,
+        start_claim=cm.start_id).first()
+    if binding is not None:
+        _record_host_departure(cm, event_data,
+            ParticipantIdentity(canonical, HOST_ROLE, cm.creator_id, binding.start_claim, True))
+
+
+@transaction.atomic
+def _process_webhook_event(*, event_data, cm, provider_event_id, payload, identity=None):
     """Apply one validated delivery atomically with its unique claim."""
     if event_data.event in ('meeting.started', 'meeting.ended'):
+        # The HTTP dispatcher already observed this event. Keep direct callers
+        # subject to the same monotonic room-session transition as well.
+        _observe_provider_session(event_data=event_data, cm=cm)
+        return
+    host_departure = (event_data.event == 'meeting.participantLeft'
+        and cm.meeting_type in (BROADCAST, PAY_PER_VIEW)
+        and identity is not None and identity.role == HOST_ROLE)
+    if host_departure or event_data.event == 'meeting.participantJoined':
+        if not timezone.is_aware(event_data.meeting.startedAt):
+            return
         # The caller resolved this row before our transaction. Serialize both
-        # lifecycle events and compare against the current, locked session.
+        # lifecycle events and host departures against the current session.
+        # Viewer departures must not take this lock before their actor locks.
         cm = CreatorMeeting.objects.select_for_update().get(pk=cm.pk)
         if str(cm.meeting_id) != str(event_data.meeting.id):
             logger.info("ignoring lifecycle event for replaced meeting_id=%s", event_data.meeting.id)
             return
+        if (cm.provider_session_id != event_data.meeting.sessionId
+                or cm.provider_session_started_at != event_data.meeting.startedAt):
+            # Another observation may have advanced or closed this room after
+            # the dispatcher's short transaction released its lock.
+            return
     if event_data.event == 'meeting.participantLeft' and cm.meeting_type in (BROADCAST, PAY_PER_VIEW):
         version=pin_supported_policy()
-        if version==1 and cm.meeting_type==PAY_PER_VIEW and event_data.participant.customParticipantId==f'ph_{cm.creator.public_id.hex}':
+        if host_departure:
+            _record_host_departure(cm, event_data, identity)
+            return
+        if (version == 1 and cm.meeting_type == PAY_PER_VIEW
+                and identity is not None and identity.bound
+                and identity.actor_id == cm.creator_id):
             return
     is_uploaded_recording = (
         event_data.event == 'recording.statusUpdate'
@@ -1219,85 +1443,47 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
     ):
         return
 
-    # You now have a validated 'event_data' object of type 'WebhookEvent'
-    # Perform actions based on 'event' type
-    if event_data.event == "meeting.started":
-        logger.info(
-            "meeting started event=%s meeting_id=%s",
-            event_data.event,
-            event_data.meeting.id,
-        )
-        started_at = event_data.meeting.startedAt
-        # Provider retries and concurrent deliveries can arrive out of order.
-        # A session may only replace the current one when its provider start
-        # time is strictly later; ties are ambiguous, so preserve current state.
-        if (
-            cm.provider_session_started_at is not None
-            and started_at <= cm.provider_session_started_at
-        ):
-            logger.info(
-                "ignoring stale meeting started meeting_id=%s session_id=%s "
-                "started_at=%s current_session_id=%s current_started_at=%s",
-                event_data.meeting.id,
-                event_data.meeting.sessionId,
-                started_at,
-                cm.provider_session_id,
-                cm.provider_session_started_at,
-            )
-            return
-        cm.live_now = True
-        cm.provider_session_id = event_data.meeting.sessionId
-        cm.provider_session_started_at = started_at
-        cm.zero_probe_since = None
-        # Stamp presence so the just-went-live room is inside the public
-        # list's last_seen_at window and safe from the sweep's grace before
-        # the first dyte.sweep_live_meetings probe runs.
-        cm.last_seen_at = timezone.now()
-        # update_fields: a full save() from this instance, loaded before the
-        # event was processed, would write back a stale broadcaster seat
-        # (host_session_id) over a start or take-over that committed in
-        # between.
-        cm.save(update_fields=[
-            'live_now', 'last_seen_at', 'provider_session_id',
-            'provider_session_started_at', 'zero_probe_since',
-        ])
-
-    elif event_data.event == "meeting.ended":
-        logger.info(
-            "meeting ended event=%s meeting_id=%s",
-            event_data.event,
-            event_data.meeting.id,
-        )
-        # Dyte can deliver the previous session's end after a host has
-        # restarted in the same room. Only the end for the session currently
-        # recorded by meeting.started may take that room offline.
-        if (
-            (cm.provider_session_started_at is not None
-             and event_data.meeting.startedAt < cm.provider_session_started_at)
-            or (cm.provider_session_id is not None
-                and cm.provider_session_id != event_data.meeting.sessionId)
-            or (cm.provider_session_id is None
-                and _seat_is_fresh(cm, timezone.now()))
-        ):
-            logger.info(
-                "ignoring stale meeting ended meeting_id=%s session_id=%s current_session_id=%s",
-                event_data.meeting.id,
-                event_data.meeting.sessionId,
-                cm.provider_session_id,
-            )
-            return
-        cm.live_now = False
-        cm.zero_probe_since = None
-        cm.save(update_fields=['live_now', 'zero_probe_since'])
-
-    elif event_data.event == "meeting.participantJoined":
+    if event_data.event == "meeting.participantJoined":
         logger.info(
             "participant joined event=%s meeting_id=%s",
             event_data.event,
             event_data.meeting.id,
         )
-        # we get started/ended when the user leaves so
-        # we don't need to record anything here?
+        if event_data.participant is None:
+            return
+        if (identity is None or not identity.bound or identity.role != HOST_ROLE
+                or identity.actor_id != cm.creator_id
+                or str(identity.participant_id) != cm.host_participant_id):
+            return
+        claim = identity.start_claim
+        started_at = event_data.meeting.startedAt
+        # Keep ordered provider presence while the owner's HTTP heartbeat is
+        # stale. Paid admission separately requires a fresh seat lease.
+        if (claim is None or claim != cm.start_id or cm.host_start_claim is not None
+                or not cm.live_now or cm.lifecycle_state not in (LIFECYCLE_STARTING, LIFECYCLE_LIVE)
+                or cm.host_session_id is None):
+            return
+        if (event_data.participant.joinedAt is None
+                or not timezone.is_aware(event_data.participant.joinedAt)
+                or not timezone.is_aware(started_at)):
+            return
+        presence = record_host_presence(cm, event_data.participant, departed=False,
+            session_id=event_data.meeting.sessionId, session_started_at=started_at)
+        if presence == PresenceUpdate.IGNORED:
+            return
+        if presence == PresenceUpdate.AMBIGUOUS:
+            cm.lifecycle_state = LIFECYCLE_STARTING
+            cm.save(update_fields=['lifecycle_state', *HOST_PRESENCE_FIELDS])
+            return
+        cm.provider_session_id = event_data.meeting.sessionId
+        cm.provider_session_started_at = started_at
+        cm.lifecycle_state = LIFECYCLE_LIVE
+        cm.live_now = True
+        cm.last_seen_at = timezone.now()
+        cm.zero_probe_since = None
+        cm.save(update_fields=['provider_session_id', 'provider_session_started_at',
+            'lifecycle_state', 'live_now', 'last_seen_at', 'zero_probe_since',
+            *HOST_PRESENCE_FIELDS])
 
     elif event_data.event == "meeting.participantLeft":
         logger.info(
@@ -1319,7 +1505,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
             logger.info("broadcast")
             # Only charge the creator if the participant is not the creator
             # so people can play around a bit for free
-            if (not cm.creator.username == event_data.participant.customParticipantId):
+            if identity is None or identity.actor_id != cm.creator_id:
                 # Calculate the platform fee and update the creator's tuzis
                 platform_fee = calculate_platform_fee(duration_minutes)
                 logger.info(f"broadcast {platform_fee} from {cm.creator.username}")
@@ -1348,10 +1534,11 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
                 # delivery adapter will consume captured ea_<admission> IDs.
                 raise EconomicRefusal('livestream_delivery_integration_unavailable')
             # Only charge if it's not the creator
-            participant_id = event_data.participant.customParticipantId
-            if participant_id != cm.creator.username:
+            if identity is None:
+                raise EconomicRefusal('livestream_participant_identity_unproven')
+            if identity.actor_id != cm.creator_id:
                 logger.info("ppv")
-                participant = Creator.objects.get(username=event_data.participant.customParticipantId)
+                participant = Creator.objects.get(pk=identity.actor_id)
                 price_per_minute = cm.price_per_minute
                 platform_fee = calculate_platform_fee(duration_minutes)
                 creator_fee = math.ceil(price_per_minute * duration_minutes)
@@ -1385,7 +1572,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
                         receiving_user=participant,
                         amount=charged_fee,
                     )
-                    logger.info(f"Platform fee of {charged_fee} tuzis deducted from {participant_id}")
+                    logger.info("Platform fee of %s tuzis collected for participant departure", charged_fee)
                     # Give whatever is available to the creator, up to the
                     # total price.
                     total_creator_fee = ledger.debit_up_to(
@@ -1416,7 +1603,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
                         amount=total_creator_fee,
                         payee=cm.creator,
                     )
-                logger.info(f"{total_creator_fee} tuzis transferred to {cm.creator.username} from {participant_id}")
+                logger.info("%s tuzis transferred for participant departure", total_creator_fee)
 
     elif event_data.event == "recording.statusUpdate":
         recording = event_data.recording
@@ -1497,6 +1684,7 @@ def _process_webhook_event(*, event_data, cm, provider_event_id, payload):
 # AllowAny + unthrottled for the same reason as `webhook`: its auth is the
 # signature, and a 429 is a 4xx the provider will not retry. Detection of a
 # silent ingestion stop is tracked in.
+@reader_probe
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def webhook_recording_status_update(request: HttpRequest):
@@ -1835,10 +2023,6 @@ def _create_meeting(cm: CreatorMeeting, dc: DyteClient = None) -> CreatorMeeting
 # ---------------------------------------------------------------------------
 
 HOST_SESSION_HEARTBEAT_SECONDS = 15
-# Four missed heartbeats. A broadcasting tab holds a live WebRTC connection,
-# which exempts it from Chrome's intensive background-timer throttling, but a
-# network blip or a slow mobile radio should not hand the seat to nobody.
-HOST_SESSION_TTL = timezone.timedelta(seconds=60)
 # create + add participant, including the one 404 recovery path, is bounded by
 # four provider calls. Honor configured connect/read timeouts plus a margin;
 # the five-minute floor also prevents rapid reuse on the defaults.
@@ -2016,15 +2200,6 @@ def _held_host_seat(creator):
     )
 
 
-def _seat_is_fresh(cm, now) -> bool:
-    return bool(
-        cm is not None
-        and cm.host_session_id is not None
-        and cm.host_session_seen_at is not None
-        and now - cm.host_session_seen_at < HOST_SESSION_TTL
-    )
-
-
 def _seat_conflict_response(cm, *, code, status_code=status.HTTP_409_CONFLICT):
     messages = {
         'already_live_elsewhere': (
@@ -2166,11 +2341,13 @@ class PrivateMeetingManage(APIView):
                 is_public=False,
             )
             if cm.meeting_id and not cm.e2ee:
-                from .recording_control import ACTIVE, ProviderUnavailable, recording_status
+                from .recording_control import (
+                    ACTIVE, ProviderUnavailable, private_rotation_recording_status,
+                )
                 from .models import RecordingDelivery
 
                 try:
-                    current = recording_status(cm)
+                    current = private_rotation_recording_status(cm)
                 except (ProviderUnavailable, requests.RequestException, ValueError, TypeError, KeyError):
                     return Response(
                         {"code": "recording_status_unknown", "error": "Recording status could not be confirmed. Retry before creating another private link."},
@@ -2473,9 +2650,18 @@ class DyteMeeting(APIView):
         # are still active, before constructing a provider client or touching
         # a meeting row; an in-flight request must not start/join a room after
         # the creator has been deactivated.
-        get_object_or_404(
-            Creator, username=stream_owner, is_active=True
-        )
+        # Legacy case-colliding usernames retain distinct identities. Resolve
+        # exact names before aliases, including inactive accounts: filtering
+        # those out first could silently redirect their path to another owner.
+        try:
+            stream_creator = Creator.objects.get(username=stream_owner)
+        except Creator.DoesNotExist:
+            try:
+                stream_creator = get_object_or_404(Creator, username__iexact=stream_owner)
+            except Creator.MultipleObjectsReturned:
+                raise Http404 from None
+        if not stream_creator.is_active:
+            raise Http404
         dc: DyteClient = DyteClient()
 
         body = MeetingJoinRequestSerializer(data=request.data)
@@ -2494,7 +2680,7 @@ class DyteMeeting(APIView):
         # (an old bundle) keeps the legacy inference, but even then a host
         # start cannot take a seat another tab holds.
         is_host_start = (
-            request.user.username == stream_owner and role != VIEWER_ROLE
+            request.user.pk == stream_creator.pk and role != VIEWER_ROLE
         )
 
         if is_host_start and not request.user.can_stream:
@@ -2519,7 +2705,7 @@ class DyteMeeting(APIView):
         # Meeting must exist and be live
         cm = get_object_or_404(
             CreatorMeeting,
-            creator__username=stream_owner,
+            creator_id=stream_creator.pk,
             creator__is_active=True,
             meeting_type=meeting_type,
             is_public=True,
@@ -2555,7 +2741,7 @@ class DyteMeeting(APIView):
         # User must be subscribed for subscribers-only
         if meeting_type == SUBSCRIBERS_ONLY and not is_own_stream:
             subs = Subscription.objects.filter(
-                star__username=stream_owner,
+                star_id=cm.creator_id,
                 fan=request.user,
                 expires__gt=timezone.now(),
             )
@@ -2569,8 +2755,9 @@ class DyteMeeting(APIView):
                     },
                 )
 
-        compensation_admission = None
-        participant_custom_id = None
+        credit_admission = None
+        participant_custom_id = (request.user.username if request.user.is_authenticated
+            else f'Guest {uuid.uuid4()}')
         if meeting_type == PAY_PER_VIEW and is_own_stream:
             from dj.apps.economy.models import EconomicPolicy
             if EconomicPolicy.objects.filter(pk=True, version=1).exists():
@@ -2578,8 +2765,8 @@ class DyteMeeting(APIView):
         if meeting_type == PAY_PER_VIEW and not is_own_stream:
             # User must have enough tuzis
             price_per_minute = cm.price_per_minute
-            # A viewer must reserve 30 minutes of creator fees plus the
-            # 15 2Z platform reserve before they are admitted.
+            # Minimum required balance: 30 minutes at the creator rate plus
+            # 15 2Z for platform fees. This eligibility check creates no hold.
             total_price = ppv_join_threshold(price_per_minute)
             if total_price is None:
                 return Response(
@@ -2619,22 +2806,24 @@ class DyteMeeting(APIView):
                     viewer = actors.get(request.user.pk)
                     if viewer is None or not viewer.is_active or viewer.kt_account_epoch != request.user.kt_account_epoch:
                         return Response({'code': 'actor_authentication_changed', 'error': 'Viewer authorization changed. Authenticate again.'}, status=409)
-                    from dj.apps.economy.products import prepare_livestream_admission
+                    from .ppv_credits import prepare_credit_admission
                     try:
-                        compensation_admission = prepare_livestream_admission(host_id=cm.creator_id,
+                        credit_admission = prepare_credit_admission(host_id=cm.creator_id,
                             viewer_id=request.user.pk, meeting_id=cm.meeting_id,
                             price_per_minute=cm.price_per_minute,
                             idempotency_key=str(admission_key),
                             viewer_account_epoch=request.user.kt_account_epoch)
                     except EconomicRefusal as exc:
-                        return Response({'code': str(exc), 'error': 'Paid livestream compensation is unavailable.'}, status=409)
+                        return Response({'code': str(exc), 'error': 'Paid livestream access is temporarily unavailable.'}, status=409)
+                    except ParticipantIdentityUnproven:
+                        return _provider_retry_response()
         logger.info(f"Adding Participant! {request.user.username}")
         # role=viewer, always: this branch must never hand out the host
         # preset, whoever the caller is.
         try:
-            if compensation_admission is not None:
+            if credit_admission is not None:
                 resp = dc.add_participant(request.user, cm.meeting_id, role=VIEWER_ROLE,
-                    custom_participant_id=f'ea_{compensation_admission.pk.hex}', cm=cm)
+                    custom_participant_id=f'pc_{credit_admission.pk.hex}', cm=cm)
             else:
                 resp = dc.add_participant(
                     request.user, cm.meeting_id, role=VIEWER_ROLE,
@@ -2645,6 +2834,14 @@ class DyteMeeting(APIView):
             logger.warning("public viewer join provider request failed (%s)", type(exc).__name__)
             return _provider_retry_response()
         if auth_token is None:
+            return _provider_retry_response()
+        try:
+            bind_participant(meeting_id=cm.meeting_id,
+                participant_id=resp.json()['data'].get('id'), creator_id=cm.creator_id,
+                actor_id=request.user.pk if request.user.is_authenticated else None,
+                role=VIEWER_ROLE, custom_id=(f'pc_{credit_admission.pk.hex}'
+                    if credit_admission is not None else participant_custom_id))
+        except (requests.RequestException, ParticipantIdentityUnproven):
             return _provider_retry_response()
         # Neither resp.text nor resp.json() may be logged: the success
         # body carries data.token, a bearer credential for joining this
@@ -2668,17 +2865,18 @@ class DyteMeeting(APIView):
         if host_session is None:
             host_session = uuid.uuid4()
         start_claim = uuid.uuid4()
-        participant_id = f'host_{start_claim.hex}'
+        participant_id = host_participant_identity(creator.public_id, start_claim)
 
         # Decide under the seat lock, then release it before provider I/O.
         with transaction.atomic():
             policy_version = pin_supported_policy()
             if meeting_type == PAY_PER_VIEW and policy_version == 1:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT to_regprocedure('economy.settle_service_delivery(uuid,text,bigint,jsonb)')")
-                    if cursor.fetchone()[0] is None:
-                        return Response({'code': 'livestream_compensation_integration_unavailable',
-                            'error': 'Paid livestream compensation is unavailable.'}, status=409)
+                from .ppv_credits import require_credit_integration
+                try:
+                    require_credit_integration()
+                except EconomicRefusal as exc:
+                    return Response({'code': str(exc),
+                        'error': 'Paid livestream access is temporarily unavailable.'}, status=409)
             _lock_host_seat(creator)
             if (not settings.DYTE_HOST_EVICTION_JOBS_ENABLED
                     and CreatorMeeting.objects.filter(creator=creator).filter(
@@ -2718,8 +2916,10 @@ class DyteMeeting(APIView):
                 held.host_start_claim = None
                 held.host_start_claim_at = None
                 held.host_evictions = []
+                held.lifecycle_state = LIFECYCLE_OFFLINE
                 held.save(update_fields=['host_session_id', 'host_session_seen_at',
-                    'host_participant_id', 'host_start_claim', 'host_start_claim_at', 'host_evictions'])
+                    'host_participant_id', 'host_start_claim', 'host_start_claim_at', 'host_evictions',
+                    'lifecycle_state'])
             resumed = held_fresh and held.pk == cm.pk
             if not resumed and (created or not cm.live_now):
                 cm.price_per_minute = request.data.get('price_per_minute', cm.price_per_minute)
@@ -2992,6 +3192,13 @@ class DyteMeeting(APIView):
         _remember_host_participant_id(
             creator, row_id, start_claim, meeting_id, provider_participant_id,
         )
+        try:
+            bind_participant(meeting_id=meeting_id, participant_id=provider_participant_id,
+                creator_id=creator.pk, actor_id=creator.pk, role=HOST_ROLE,
+                custom_id=participant_id, start_claim=start_claim)
+        except (requests.RequestException, ParticipantIdentityUnproven):
+            _abandon_host_start(creator, row_id, host_session, start_claim, keep_cleanup=True)
+            return _host_provider_retry_response(None, 'add_participant', 'identity_unproven')
         lost_race = False
         with transaction.atomic():
             _lock_host_seat(creator)
@@ -3018,7 +3225,8 @@ class DyteMeeting(APIView):
                     CreatorMeeting.objects.filter(creator=creator).exclude(pk=cm.pk).exclude(
                         host_session_id__isnull=True, host_evictions=[],
                     ).update(host_session_id=None, host_session_seen_at=None,
-                        host_participant_id='', host_evictions=[])
+                        host_participant_id='', host_evictions=[],
+                        lifecycle_state=LIFECYCLE_OFFLINE)
                     if (current_held is not None and current_held.host_session_id != host_session
                             and current_held.host_participant_id and current_held.meeting_id):
                         pending.append({'meeting_id': current_held.meeting_id,
@@ -3036,13 +3244,19 @@ class DyteMeeting(APIView):
                     cm.host_session_id = host_session
                     cm.host_session_seen_at = now
                     cm.host_participant_id = provider_participant_id
+                    cm.host_presence_participant_id = provider_participant_id
                     cm.host_start_claim = None
                     cm.host_start_claim_at = None
+                    cm.start_id = start_claim
+                    clear_host_presence(cm)
+                    cm.lifecycle_state = LIFECYCLE_STARTING
                     cm.live_now = True
                     cm.zero_probe_since = None
                     cm.last_seen_at = now
-                    cm.save(update_fields=['price_per_minute', 'live_now', 'last_seen_at',
+                    cm.save(update_fields=['price_per_minute', 'live_now', 'lifecycle_state', 'start_id', 'last_seen_at',
                         'zero_probe_since',
+                        *HOST_PRESENCE_FIELDS,
+                        'host_presence_participant_id',
                         'host_session_id', 'host_session_seen_at', 'host_participant_id', 'host_evictions', 'host_start_claim', 'host_start_claim_at'])
                     _defer_host_evictions(cm)
 
@@ -3170,11 +3384,12 @@ class HostSession(APIView):
                     released.host_participant_id = ''
                     released.host_start_claim = None
                     released.host_start_claim_at = None
+                    released.lifecycle_state = LIFECYCLE_OFFLINE
                     released.save(update_fields=[
                         'host_evictions', 'host_session_id',
                         'host_session_seen_at', 'host_participant_id',
                         'host_start_claim',
-                        'host_start_claim_at',
+                        'host_start_claim_at', 'lifecycle_state',
                     ])
                     _defer_host_evictions(released)
                 return Response(_host_seat_status(creator, now))
