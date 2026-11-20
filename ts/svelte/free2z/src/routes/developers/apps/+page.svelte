@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { authStore } from "$lib/stores/auth";
+  import AppTransfers from "$lib/components/developer/AppTransfers.svelte";
   import EconomyPolicyNote from "$lib/components/EconomyPolicyNote.svelte";
   /**
    * The developer console (; zuu docs/free2z/sdk/spec/oidc.md §2, §3).
@@ -111,12 +113,24 @@
     return out;
   }
 
+  let mounted = false;
+  let viewGeneration = 0;
+  function captureView() {
+    const generation = viewGeneration;
+    const own = authStore.captureRequestOwnership();
+    return () => mounted && generation === viewGeneration && own();
+  }
+
   async function load() {
+    const own = captureView();
     status = "loading";
     try {
-      apps = await oidcDeveloperAppsList();
+      const result = await oidcDeveloperAppsList();
+      if (!own()) return;
+      apps = result;
       status = "ready";
     } catch (error) {
+      if (!own()) return;
       if (isAuthFailure(error)) {
         signInAgain();
         return;
@@ -126,6 +140,7 @@
   }
 
   async function openCreate() {
+    const own = captureView();
     editing = null;
     form = emptyForm();
     formProblems = [];
@@ -133,10 +148,11 @@
     saveError = "";
     formOpen = true;
     await tick();
-    document.getElementById("dev-app-name")?.focus();
+    if (own()) document.getElementById("dev-app-name")?.focus();
   }
 
   async function openEdit(app: DeveloperApp) {
+    const own = captureView();
     editing = app;
     form = formFromApp(app as never);
     formProblems = [];
@@ -144,7 +160,7 @@
     saveError = "";
     formOpen = true;
     await tick();
-    document.getElementById("dev-app-name")?.focus();
+    if (own()) document.getElementById("dev-app-name")?.focus();
   }
 
   function closeForm() {
@@ -160,6 +176,7 @@
   }
 
   async function save() {
+    const own = captureView();
     saveError = "";
     serverErrors = {};
     const result = payloadFromForm(form, editing === null, editing as never);
@@ -178,6 +195,7 @@
           editing.id,
           result.payload as PatchedDeveloperApp,
         );
+        if (!own()) return;
         apps = apps.map((a) => (a.id === updated.id ? updated : a));
         notice = $t("oauth.developerApps.saved", "{app} was saved.", {
           app: updated.name,
@@ -186,6 +204,7 @@
         const created = await oidcDeveloperAppsCreate(
           result.payload as unknown as DeveloperApp,
         );
+        if (!own()) return;
         const { client_secret: createdSecret, ...app } = created;
         apps = [app as DeveloperApp, ...apps];
         notice = $t("oauth.developerApps.registered", "{app} was registered.", {
@@ -199,6 +218,7 @@
       }
       closeForm();
     } catch (error) {
+      if (!own()) return;
       if (isAuthFailure(error)) {
         signInAgain();
         return;
@@ -216,7 +236,7 @@
         "The app could not be saved. Please try again.",
       );
     } finally {
-      saving = false;
+      if (own()) saving = false;
     }
   }
 
@@ -228,11 +248,13 @@
 
   async function confirmDelete() {
     if (!deleteTarget) return;
+    const own = captureView();
     const target = deleteTarget;
     deleting = true;
     deleteError = "";
     try {
       await oidcDeveloperAppDestroy(target.id);
+      if (!own()) return;
       apps = apps.filter((a) => a.id !== target.id);
       notice = $t("oauth.developerApps.deleted", "{app} was deleted.", {
         app: target.name,
@@ -241,6 +263,7 @@
       deleteTarget = null;
       if (editing?.id === target.id) closeForm();
     } catch (error) {
+      if (!own()) return;
       if (isAuthFailure(error)) {
         signInAgain();
         return;
@@ -257,7 +280,7 @@
         "The app could not be deleted. Please try again.",
       );
     } finally {
-      deleting = false;
+      if (own()) deleting = false;
     }
   }
 
@@ -269,17 +292,20 @@
 
   async function confirmRotate() {
     if (!rotateTarget) return;
+    const own = captureView();
     const target = rotateTarget;
     rotating = true;
     rotateError = "";
     try {
       const rotated = await oidcDeveloperAppRotateSecret(target.id);
+      if (!own()) return;
       rotateOpen = false;
       rotateTarget = null;
       secret = { appName: target.name, value: rotated.client_secret };
       copied = false;
       secretOpen = true;
     } catch (error) {
+      if (!own()) return;
       if (isAuthFailure(error)) {
         signInAgain();
         return;
@@ -299,13 +325,16 @@
             "Free2Z did not answer, so a new secret may have been issued and your current one may no longer work. Issue a new secret again and install the one it shows.",
           );
     } finally {
-      rotating = false;
+      if (own()) rotating = false;
     }
   }
 
   async function copySecret() {
     if (!secret) return;
-    copied = await copyToClipboard(secret.value);
+    const own = captureView();
+    const target = secret;
+    const result = await copyToClipboard(target.value);
+    if (own() && secret === target) copied = result;
   }
 
   function closeSecret() {
@@ -343,7 +372,45 @@
   $: fieldError = (key: string): string => (serverErrors[key] ?? []).join(" ");
 
   onMount(() => {
-    void load();
+    mounted = true;
+    let accountId: number | null | undefined;
+    let previousOwner: (() => boolean) | undefined;
+    const unsubscribe = authStore.subscribe((state) => {
+      const next =
+        state.status === "authenticated" ? (state.creator?.id ?? null) : null;
+      if (next !== accountId || (previousOwner && !previousOwner())) {
+        accountId = next;
+        previousOwner = authStore.captureRequestOwnership();
+        viewGeneration++;
+        apps = [];
+        editing = null;
+        form = emptyForm();
+        formProblems = [];
+        serverErrors = {};
+        saveError = "";
+        saving = false;
+        notice = "";
+        formOpen = false;
+        secret = null;
+        secretOpen = false;
+        copied = false;
+        deleteTarget = null;
+        deleteError = "";
+        deleting = false;
+        deleteOpen = false;
+        rotateTarget = null;
+        rotateError = "";
+        rotating = false;
+        rotateOpen = false;
+        if (next !== null) void load();
+        else status = "loading";
+      }
+    });
+    return () => {
+      mounted = false;
+      viewGeneration++;
+      unsubscribe();
+    };
   });
 </script>
 
@@ -837,6 +904,11 @@
       </div>
     </form>
   {/if}
+
+  {#if status === "ready"}<AppTransfers
+      {apps}
+      onChanged={() => void load()}
+    />{/if}
 
   {#if status === "loading"}
     <p class="text-muted-foreground" role="status">

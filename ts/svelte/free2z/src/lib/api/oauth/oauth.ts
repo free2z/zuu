@@ -41,11 +41,16 @@ import type {
   MCPLinkResult,
   MCPRegistrationResult,
   OAuthError,
+  OidcAppTransfersListParams,
   OidcAuthorizeEvaluateParams,
   PatchedDeveloperApp,
   RevokeRequest,
   TokenRequest,
   TokenResponse,
+  TransferOffer,
+  TransferOfferInput,
+  TransferPage,
+  TransferResolveInput,
   UserInfo
 } from '../f2z.schemas.ts';
 
@@ -155,6 +160,146 @@ export function createOidcDiscovery<TData = Awaited<ReturnType<typeof oidcDiscov
 
 
 /**
+ * @summary List app ownership offers
+ */
+export const oidcAppTransfersList = (
+    params?: OidcAppTransfersListParams,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<TransferPage>(
+      {url: `/api/oauth/app-transfers/`, method: 'GET',
+        params, signal
+    },
+      options);
+    }
+
+
+
+
+export const getOidcAppTransfersListQueryKey = (params?: OidcAppTransfersListParams,) => {
+    return [
+    `/api/oauth/app-transfers/`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getOidcAppTransfersListQueryOptions = <TData = Awaited<ReturnType<typeof oidcAppTransfersList>>, TError = void>(params?: OidcAppTransfersListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcAppTransfersList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getOidcAppTransfersListQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof oidcAppTransfersList>>> = ({ signal }) => oidcAppTransfersList(params, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof oidcAppTransfersList>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type OidcAppTransfersListQueryResult = NonNullable<Awaited<ReturnType<typeof oidcAppTransfersList>>>
+export type OidcAppTransfersListQueryError = void
+
+
+/**
+ * @summary List app ownership offers
+ */
+
+export function createOidcAppTransfersList<TData = Awaited<ReturnType<typeof oidcAppTransfersList>>, TError = void>(
+ params?: OidcAppTransfersListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcAppTransfersList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getOidcAppTransfersListQueryOptions(params,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
+/**
+ * @summary Accept or cancel an app offer
+ */
+export const oidcAppTransferResolve = (
+    transferId: string,
+    action: string,
+    transferResolveInput: TransferResolveInput,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<TransferOffer>(
+      {url: `/api/oauth/app-transfers/${transferId}/${action}/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: transferResolveInput, signal
+    },
+      options);
+    }
+
+
+
+
+export const getOidcAppTransferResolveMutationKey = () => ['oidcAppTransferResolve'] as const;
+
+export const getOidcAppTransferResolveMutationOptions = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof oidcAppTransferResolve>>, TError,OidcAppTransferResolveMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof oidcAppTransferResolve>>, TError,OidcAppTransferResolveMutationVariables, TContext> => {
+
+const mutationKey = getOidcAppTransferResolveMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof oidcAppTransferResolve>>, OidcAppTransferResolveMutationVariables> = (props) => {
+          const {transferId,action,data} = props ?? {};
+
+          return  oidcAppTransferResolve(transferId,action,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OidcAppTransferResolveMutationResult = NonNullable<Awaited<ReturnType<typeof oidcAppTransferResolve>>>
+    export type OidcAppTransferResolveMutationBody = TransferResolveInput
+    export type OidcAppTransferResolveMutationError = void
+    export type OidcAppTransferResolveMutationVariables = {transferId: string;action: string;data: TransferResolveInput}
+
+    /**
+ * @summary Accept or cancel an app offer
+ */
+export const createOidcAppTransferResolve = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof oidcAppTransferResolve>>, TError,OidcAppTransferResolveMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof oidcAppTransferResolve>>,
+        TError,
+        OidcAppTransferResolveMutationVariables,
+        TContext
+      > => {
+      return createMutation(getOidcAppTransferResolveMutationOptions(options));
+    }
+    /**
  * The signed-in developer's registrations, and registering a new one.
  * @summary Apps the signed-in developer registered
  */
@@ -639,6 +784,74 @@ export const createOidcDeveloperAppRotateSecret = <TError = void,
         TContext
       > => {
       return createMutation(getOidcDeveloperAppRotateSecretMutationOptions(options));
+    }
+    /**
+ * @summary Offer an app to a recipient
+ */
+export const oidcAppTransferCreate = (
+    appId: string,
+    transferOfferInput: TransferOfferInput,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<TransferOffer>(
+      {url: `/api/oauth/apps/${appId}/transfer/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: transferOfferInput, signal
+    },
+      options);
+    }
+
+
+
+
+export const getOidcAppTransferCreateMutationKey = () => ['oidcAppTransferCreate'] as const;
+
+export const getOidcAppTransferCreateMutationOptions = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof oidcAppTransferCreate>>, TError,OidcAppTransferCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof oidcAppTransferCreate>>, TError,OidcAppTransferCreateMutationVariables, TContext> => {
+
+const mutationKey = getOidcAppTransferCreateMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof oidcAppTransferCreate>>, OidcAppTransferCreateMutationVariables> = (props) => {
+          const {appId,data} = props ?? {};
+
+          return  oidcAppTransferCreate(appId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type OidcAppTransferCreateMutationResult = NonNullable<Awaited<ReturnType<typeof oidcAppTransferCreate>>>
+    export type OidcAppTransferCreateMutationBody = TransferOfferInput
+    export type OidcAppTransferCreateMutationError = void
+    export type OidcAppTransferCreateMutationVariables = {appId: string;data: TransferOfferInput}
+
+    /**
+ * @summary Offer an app to a recipient
+ */
+export const createOidcAppTransferCreate = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof oidcAppTransferCreate>>, TError,OidcAppTransferCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof oidcAppTransferCreate>>,
+        TError,
+        OidcAppTransferCreateMutationVariables,
+        TContext
+      > => {
+      return createMutation(getOidcAppTransferCreateMutationOptions(options));
     }
     /**
  * Answer what the consent page must do for this request.

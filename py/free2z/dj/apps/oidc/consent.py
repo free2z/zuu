@@ -352,10 +352,20 @@ def record_consent(
         # grant FKs are deferred, and taking the app first would let consent
         # hold it while waiting for Creator at COMMIT, opposite to account
         # deletion's Creator FOR UPDATE -> app FOR UPDATE order.
-        if not _lock_user_for_consent(user):
-            raise ConsentError(
-                "account_unavailable", "this account is no longer available",
-            )
+        # A missing ledger projection may be inserted during consent and its
+        # developer FK then locks the app owner. Lock both accounts in the same
+        # deterministic order as transfer before taking the application lock.
+        # If ownership changes while we wait, reject and let the user retry
+        # against the new registration instead of taking an out-of-order lock.
+        from django.contrib.auth import get_user_model
+        from .models import F2ZApplication
+        owner_id = F2ZApplication.objects.filter(pk=application.pk).values_list("user_id", flat=True).first()
+        for account_id in sorted({user.pk, *([owner_id] if owner_id is not None else [])}):
+            account = get_user_model()._base_manager.filter(pk=account_id).first()
+            if account is None or not _lock_user_for_consent(account):
+                raise ConsentError(
+                    "account_unavailable", "this account is no longer available",
+                )
 
         # Take the same KEY SHARE lock the deferred app FK would take at
         # COMMIT. A deletion that wins this lock observes no new grant; when
@@ -364,6 +374,13 @@ def record_consent(
             raise ConsentError(
                 "application_unavailable", "this app is no longer available",
             )
+
+        # A deletion schedule or transfer may have won the app lock. Read the
+        # current owner and registration after waiting, not the stale instance.
+        application = F2ZApplication.objects.select_related("user").filter(pk=application.pk).first()
+        if (application is None or application.user_id != owner_id
+                or (application.user_id is not None and not application.user.is_active)):
+            raise ConsentError("application_unavailable", "this app is no longer available")
 
         existing = (
             AppAuthorization.objects.select_for_update()

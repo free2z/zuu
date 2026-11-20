@@ -122,6 +122,9 @@ export function summary(op: Operation) {
     tags: op.spec.tags ?? [],
     description: (op.spec.summary ?? op.spec.description ?? "").split("\n")[0],
     session_only: op.sessionOnly ?? false,
+    ...(op.id.startsWith("oidc_app_transfer")
+      ? { supported: false, reason: "Use the browser ownership transfer flow." }
+      : {}),
   };
 }
 export function describe(op: Operation) {

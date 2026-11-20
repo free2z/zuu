@@ -142,7 +142,7 @@ def gap(operation):
             "Add a separately reviewed delegated-finance policy and strong account authentication proof; use the account browser flow meanwhile.",
         )
     if operation.startswith(
-        ("otp_", "emails_", "account_deletion", "auth_", "oauth_", "identity_")
+        ("otp_", "emails_", "account_deletion", "auth_", "oauth_", "identity_", "oidc_app_transfer")
     ):
         return (
             "Identity, credential or account security operation requires its native authentication context.",

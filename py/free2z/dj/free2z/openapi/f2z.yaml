@@ -1161,7 +1161,8 @@ paths:
                 $ref: '#/components/schemas/AccountDeletionError'
           description: '`earnings_owed`, `app_has_users` or `staff_account` (see the
             preview''s `blockers`), or `inactive` (the account is already deleted
-            or deactivated). Nothing was changed.'
+            or deactivated), or `app_busy` (an app is changing; retry). Nothing was
+            changed.'
   /api/auth/login/:
     post:
       operationId: auth_login_create
@@ -5148,6 +5149,74 @@ paths:
       responses:
         '200':
           description: OpenID Provider Metadata
+  /api/oauth/app-transfers/:
+    get:
+      operationId: oidc_app_transfers_list
+      summary: List app ownership offers
+      parameters:
+      - in: query
+        name: cursor
+        schema:
+          type: string
+        description: Opaque continuation from the previous page.
+      tags:
+      - oauth
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferPage'
+          description: ''
+        '400':
+          description: Invalid cursor.
+  /api/oauth/app-transfers/{transfer_id}/{action}/:
+    post:
+      operationId: oidc_app_transfer_resolve
+      summary: Accept or cancel an app offer
+      parameters:
+      - in: path
+        name: action
+        schema:
+          type: string
+        required: true
+      - in: path
+        name: transfer_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - oauth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferResolveInput'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TransferResolveInput'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TransferResolveInput'
+        required: true
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferOffer'
+          description: ''
+        '404':
+          description: Offer not found.
+        '409':
+          description: Offer is no longer valid or work is in flight.
   /api/oauth/apps/:
     get:
       operationId: oidc_developer_apps_list
@@ -5339,6 +5408,47 @@ paths:
           description: A public client has no secret.
         '404':
           description: No such app.
+  /api/oauth/apps/{app_id}/transfer/:
+    post:
+      operationId: oidc_app_transfer_create
+      summary: Offer an app to a recipient
+      parameters:
+      - in: path
+        name: app_id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - oauth
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferOfferInput'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TransferOfferInput'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TransferOfferInput'
+        required: true
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferOffer'
+          description: ''
+        '400':
+          description: Invalid recipient.
+        '404':
+          description: App or recipient not found.
+        '409':
+          description: Offer cannot be made.
   /api/oauth/authorize:
     get:
       operationId: oidc_authorize_evaluate
@@ -18118,6 +18228,83 @@ components:
       - usage_credited_m2z
       - usage_debt_repaid_m2z
       - user
+    TransferOffer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        application_id:
+          type: string
+          format: uuid
+        application_name:
+          type: string
+          maxLength: 255
+        sender:
+          type: string
+          readOnly: true
+        recipient:
+          type: string
+          readOnly: true
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+        state:
+          type: string
+          readOnly: true
+        role:
+          type: string
+          readOnly: true
+      required:
+      - application_id
+      - application_name
+      - expires_at
+      - id
+      - recipient
+      - role
+      - sender
+      - state
+    TransferOfferInput:
+      type: object
+      properties:
+        recipient:
+          type: string
+          maxLength: 150
+        expected_actor_id:
+          type: integer
+          minimum: 1
+      required:
+      - expected_actor_id
+      - recipient
+    TransferPage:
+      type: object
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransferOffer'
+        next_cursor:
+          type: string
+          nullable: true
+      required:
+      - next_cursor
+      - results
+    TransferResolveInput:
+      type: object
+      properties:
+        expected_actor_id:
+          type: integer
+          minimum: 1
+      required:
+      - expected_actor_id
     TranslationBatchError:
       type: object
       description: Every non-2xx answer of the bulk purchase except 402.

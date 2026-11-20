@@ -4,6 +4,7 @@ nginx exact location forwards to Django in production."""
 from django.urls import path
 
 from .ai_reports import DeveloperAppReportsView
+from .transfers import TransferCreateView, TransferListView, TransferResolveView
 from .developer import (
     DeveloperAppDetailView,
     DeveloperAppListView,
@@ -49,6 +50,9 @@ urlpatterns = [
     path("grants/<uuid:application_id>/cap/", GrantCapView.as_view(),
          name="oidc-grant-cap"),
     # The developer console (spec §2): the requester's own apps only.
+    path("app-transfers/", TransferListView.as_view(), name="oidc-app-transfers"),
+    path("app-transfers/<uuid:transfer_id>/<str:action>/", TransferResolveView.as_view(), name="oidc-app-transfer-resolve"),
+    path("apps/<uuid:app_id>/transfer/", TransferCreateView.as_view(), name="oidc-app-transfer-create"),
     path("apps/", DeveloperAppListView.as_view(), name="oidc-developer-apps"),
     path("apps/<uuid:app_id>/", DeveloperAppDetailView.as_view(),
          name="oidc-developer-app"),

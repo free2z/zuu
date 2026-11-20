@@ -21,6 +21,12 @@ ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / 'py/free2z/dj/apps/economy/writer-register.json'
 FINANCIAL_APPS = {'economy', 'ledger', 'tuzis', 'ztripe', 'purchases', 'pricing', 'dyte', 'kyc'}
 FINANCIAL_G12F = {'creator', 'subscription', 'transaction', 'zpage', 'pagecomment'}
+# These are source inventory notes, not a financial review or activation gate.
+OWNERSHIP_TRANSFER_SOURCES = (
+    'py/free2z/dj/apps/oidc/transfers.py',
+    'py/free2z/dj/apps/oidc/ledger_projection.py',
+    'py/free2z/dj/apps/oidc/migrations/0007_app_ownership_transfer.py',
+)
 MUTATORS = {'debit', 'debit_up_to', 'credit', 'transfer', 'reserve', 'settle_reservation', 'release_reservation',
     'spend', 'spend_up_to', 'credit_purchase', 'credit_user', 'credit_with_repay', 'post_transfer',
     'transfer_users', 'refund_purchase', 'restore_purchase', 'clawback', 'lock_creator', 'lock_account', 'lock_in_order'}
@@ -48,9 +54,22 @@ def snapshot():
         metadata = model._meta
         source = relative(inspect.getfile(model))
         financial = metadata.app_label in FINANCIAL_APPS or (metadata.app_label == 'g12f' and metadata.model_name in FINANCIAL_G12F)
-        models.append({'model': metadata.label, 'table': metadata.db_table, 'source': source,
+        row = {'model': metadata.label, 'table': metadata.db_table, 'source': source,
             'review_scope': 'financial writer inventory' if financial else 'bounded source triage only',
-            'disposition': 'financial model identified; per-path review required' if financial else 'no economic mutation established by model enumeration'})
+            'disposition': 'financial model identified; per-path review required' if financial else 'no economic mutation established by model enumeration'}
+        if metadata.label == 'oidc.AppOwnershipTransfer':
+            row['disposition'] = 'offer and audit state recorded; ownership and ledger projection effects require per-path review'
+            row['source_writers_and_boundaries'] = [
+                {'source': OWNERSHIP_TRANSFER_SOURCES[0], 'writer': 'TransferCreateView.post',
+                 'effect': 'marks expired pending offers expired and creates a pending offer'},
+                {'source': OWNERSHIP_TRANSFER_SOURCES[0], 'writer': 'TransferResolveView.post',
+                 'effect': 'expires or cancels an offer; recipient acceptance records the outcome and changes F2ZApplication.user in the same transaction'},
+                {'source': OWNERSHIP_TRANSFER_SOURCES[1], 'writer': 'sync_application',
+                 'effect': 'acceptance projects the new developer into ledger_app.developer_creator_id in the same transaction'},
+                {'source': OWNERSHIP_TRANSFER_SOURCES[2], 'writer': 'oidc_transfer_hold_admission trigger',
+                 'effect': 'coordinates new ledger_hold admissions with transfer acceptance; acceptance refuses while a hold remains'},
+            ]
+        models.append(row)
     calls = []
     for path in sorted((ROOT / 'py/free2z/dj/apps').rglob('*.py')):
         if any(part in {'migrations', 'tests', '__pycache__'} for part in path.parts) or path.name.startswith('test_'):
@@ -68,6 +87,7 @@ def snapshot():
                     calls.append({'source': relative(path), 'line': node.lineno, 'call': node.func.value.id + '.' + node.func.attr,
                         'disposition': 'source writer identified; outer transaction order requires per-path review'})
     source_paths = {item['source'] for item in models + calls if not item['source'].startswith('installed:')}
+    source_paths.update(writer['source'] for item in models for writer in item.get('source_writers_and_boundaries', []))
     return {'kind': 'application source inventory; not deployed-state or production attestation',
         'inputs': {'python': f'{sys.version_info.major}.{sys.version_info.minor}',
                    'django': django.get_version(),
