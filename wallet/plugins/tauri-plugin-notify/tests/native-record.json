@@ -1,0 +1,112 @@
+[
+  {
+    "name": "atomic-stop",
+    "operation": "stop",
+    "before": {
+      "enabled": "1",
+      "revision": "1",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":false,\"consent\":\"1\",\"registered\":false}",
+      "token": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "pending": "untrusted"
+    },
+    "after": {
+      "enabled": "0",
+      "revision": "2",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":true,\"consent\":\"1\",\"registered\":false}"
+    }
+  },
+  {
+    "name": "stale-save-cannot-resurrect",
+    "operation": "save",
+    "before": {
+      "enabled": "0",
+      "revision": "2",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":true,\"consent\":\"1\",\"registered\":false}"
+    },
+    "revision": "1",
+    "lease": "{\"queue\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\", \"manage\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\", \"send\": \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\", \"token\": \"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\", \"generation\": 1, \"sent\": 0, \"received\": 0, \"expires\": 4000000000, \"disabled\": false, \"consent\": \"1\", \"registered\": false}",
+    "reject": true,
+    "after": {
+      "enabled": "0",
+      "revision": "2",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":true,\"consent\":\"1\",\"registered\":false}"
+    }
+  },
+  {
+    "name": "callback-after-stop",
+    "operation": "token",
+    "before": {
+      "enabled": "0",
+      "revision": "2",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":true,\"consent\":\"1\",\"registered\":false}"
+    },
+    "revision": "1",
+    "token": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "after": {
+      "enabled": "0",
+      "revision": "2",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":true,\"consent\":\"1\",\"registered\":false}"
+    }
+  },
+  {
+    "name": "clear-preserves-cancellation",
+    "operation": "clear",
+    "before": {
+      "enabled": "0",
+      "revision": "2",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":true,\"consent\":\"1\",\"registered\":false}"
+    },
+    "revision": "2",
+    "after": {
+      "enabled": "0",
+      "revision": "2"
+    }
+  },
+  {
+    "name": "stale-clear",
+    "operation": "clear",
+    "before": {
+      "enabled": "1",
+      "revision": "3",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":false,\"consent\":\"3\",\"registered\":false}"
+    },
+    "revision": "2",
+    "reject": true,
+    "after": {
+      "enabled": "1",
+      "revision": "3",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":false,\"consent\":\"3\",\"registered\":false}"
+    }
+  },
+  {
+    "name": "explicit-new-consent",
+    "operation": "begin",
+    "before": {
+      "enabled": "0",
+      "revision": "2"
+    },
+    "revision": "2",
+    "lease": "{\"queue\": \"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\", \"manage\": \"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\", \"send\": \"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\", \"token\": \"\", \"generation\": 1, \"sent\": 0, \"received\": 0, \"expires\": 4000000000, \"disabled\": false, \"consent\": \"3\", \"registered\": false}",
+    "after": {
+      "enabled": "1",
+      "revision": "3",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":false,\"consent\":\"3\",\"registered\":false}"
+    }
+  },
+  {
+    "name": "old-callback-after-new-consent",
+    "operation": "token",
+    "before": {
+      "enabled": "1",
+      "revision": "3",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":false,\"consent\":\"3\",\"registered\":false}"
+    },
+    "revision": "1",
+    "token": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "after": {
+      "enabled": "1",
+      "revision": "3",
+      "lease": "{\"queue\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"manage\":\"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"send\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"token\":\"\",\"generation\":1,\"sent\":0,\"received\":0,\"expires\":4000000000,\"disabled\":false,\"consent\":\"3\",\"registered\":false}"
+    }
+  }
+]

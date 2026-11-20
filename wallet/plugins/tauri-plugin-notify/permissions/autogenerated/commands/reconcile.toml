@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reconcile"
+description = "Enables the reconcile command without any pre-configured scope."
+commands.allow = ["reconcile"]
+
+[[permission]]
+identifier = "deny-reconcile"
+description = "Denies the reconcile command without any pre-configured scope."
+commands.deny = ["reconcile"]

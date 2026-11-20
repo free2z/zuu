@@ -28,7 +28,7 @@ const cacheKey = `zuuli-plugin-android-armv7-ndk${ndk}-api29`;
 // changed. This digest remains the exact selector tripwire; changing it alone
 // cannot bypass the independent executable selector and required-job controls.
 const changeDetectorDigest =
-  "426c1966a4b7378315b6d364dd9f8f438c977a85d3500d9c2de2f9b799c9b4f3";
+  "e6c0460d775e9e18cde58a40811ea7c14a278f3c76b0cd0c0a8dbde4490ff0a5";
 const toolchainEnvDigest =
   "403f59c58bca0a37b98a3bb0ea0ae7f1c289b3531d6e1eec8496643866ee2013";
 const requiredMessagingSelector = "wallet/zuuli/*";
@@ -250,6 +250,7 @@ function check(
     "          set -euo pipefail",
     "          source wallet/zuuli/scripts/android-toolchain-env.sh",
     `          cargo check --locked --target ${target} --manifest-path wallet/plugins/tauri-plugin-zcash/Cargo.toml`,
+    `          cargo check --locked --target ${target} --manifest-path wallet/plugins/tauri-plugin-notify/Cargo.toml`,
   ].join("\n");
   const typecheckStep = namedStep(android, "Type-check the shared plugin on 32-bit Android");
   if (typecheckStep !== expectedTypecheckStep) {

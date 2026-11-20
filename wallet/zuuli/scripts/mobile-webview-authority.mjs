@@ -104,6 +104,12 @@ export const REVIEWED_MOBILE_F2ZMSG_PERMISSIONS = [
 ];
 
 const REVIEWED_NON_WALLET_PERMISSIONS = [
+  "notify:allow-status",
+  "notify:allow-enable",
+  "notify:allow-disable",
+  "notify:allow-reconcile",
+  "notify:allow-test-wake",
+
   "core:default",
   "deep-link:default",
   "opener:default",

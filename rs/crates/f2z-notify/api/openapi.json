@@ -1,0 +1,839 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ZUULI anonymous wake service",
+    "version": "1.0.0",
+    "description": "Independent of the Free2Z account API. No Authorization/Cookie headers, queries, arbitrary payloads or account relations. Anonymous one-use invitations and separate 256-bit capabilities. Private acceptance only."
+  },
+  "paths": {
+    "/notify/v1/register": {
+      "post": {
+        "operationId": "notifyRegister",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Register"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted; empty response. Not a delivery receipt."
+          },
+          "400": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/v1/rotate": {
+      "post": {
+        "operationId": "notifyRotate",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Rotate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted; empty response. Not a delivery receipt."
+          },
+          "400": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/v1/revoke": {
+      "post": {
+        "operationId": "notifyRevoke",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Revoke"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted; empty response. Not a delivery receipt."
+          },
+          "400": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notify/v1/wake": {
+      "post": {
+        "operationId": "notifyWake",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Wake"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Accepted; empty response. Not a delivery receipt."
+          },
+          "400": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Fixed bounded category; input and provider errors are never echoed.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "invalid",
+                    "denied",
+                    "busy",
+                    "unconfigured"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Register": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invitation",
+          "queue",
+          "manage",
+          "send",
+          "provider",
+          "token",
+          "expires"
+        ],
+        "properties": {
+          "invitation": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "queue": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "manage": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "send": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "apns",
+              "fcm"
+            ]
+          },
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 4096
+          },
+          "expires": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "provider": {
+                  "const": "apns"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "token": {
+                  "pattern": "^(?:[0-9a-f]{2}){16,100}$"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "token": {
+                  "pattern": "^[A-Za-z0-9_:.-]{20,4096}$"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "Rotate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queue",
+          "manage",
+          "generation",
+          "token"
+        ],
+        "properties": {
+          "queue": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "manage": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "generation": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          },
+          "token": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 4096
+          }
+        }
+      },
+      "Revoke": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queue",
+          "manage"
+        ],
+        "properties": {
+          "queue": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "manage": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          }
+        }
+      },
+      "Wake": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "queue",
+          "send",
+          "sequence"
+        ],
+        "properties": {
+          "queue": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "send": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "minLength": 64,
+            "maxLength": 64
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 18446744073709551615
+          }
+        }
+      }
+    }
+  }
+}

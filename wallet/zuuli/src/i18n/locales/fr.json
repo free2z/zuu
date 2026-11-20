@@ -44,5 +44,24 @@
       "label": "Ancien portefeuille conservé",
       "title": "Ancien portefeuille conservé"
     }
+  },
+  "notifications": {
+    "title": "Notifications de réveil privées",
+    "privacy": "Désactivées par défaut. Leur activation partage un jeton stable de l’appareil, votre adresse IP et les horaires de notification avec l’opérateur et Apple (iOS) ou Google (Android). Des files distinctes n’empêchent pas la corrélation. Aucun compte, adresse de portefeuille, montant, mémo ou expéditeur n’est envoyé.",
+    "limit": "Les activations silencieuses ne prouvent pas un paiement. La livraison et l’exécution en arrière-plan ne sont pas garanties. Ouvrez ZUULI pour que la synchronisation autorisée vérifie les paiements. L’inscription expire sous 24 heures ; une désactivation hors ligne laisse l’expiration serveur en attente.",
+    "unsupported": "Les notifications distantes sont indisponibles dans ce navigateur ou cette version de bureau. Les notifications locales de bureau sont distinctes.",
+    "unconfigured": "La validation privée sur appareil n’est pas configurée. Le déploiement public reste désactivé.",
+    "off": "Les notifications sont désactivées.",
+    "denied": "L’autorisation est refusée ou révoquée. Vérifiez les réglages du système avant de réessayer.",
+    "waiting": "En attente du jeton système. L’inscription se terminera automatiquement, sans nouvelle confirmation.",
+    "enabled": "L’inscription privée aux réveils est active. Elle ne détecte pas les paiements.",
+    "queued": "Un réveil de test a été mis en file pour cet appareil. Sa livraison n’est pas confirmée.",
+    "expired": "L’inscription a expiré. Désactivez-la et obtenez une nouvelle configuration de validation privée.",
+    "revoking": "Désactivées localement. Révocation serveur en attente ; rouvrez l’application en ligne ou attendez au plus 24 heures.",
+    "unavailable": "Le service est indisponible. Aucune livraison n’est confirmée.",
+    "verified": "Un réveil signé a été vérifié. L’état des paiements dépend toujours de la synchronisation.",
+    "enable": "Activer avec ce coût pour la confidentialité",
+    "disable": "Désactiver et révoquer",
+    "test": "Tester cet appareil uniquement"
   }
 }

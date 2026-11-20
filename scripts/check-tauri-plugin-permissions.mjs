@@ -89,6 +89,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 /// the two can differ and the identifier is the load-bearing one.
 const PLUGINS = [
   {
+    directory: "wallet/plugins/tauri-plugin-notify",
+    namespace: "notify",
+    macro: "with_notify_commands",
+    defaultPolicy: "none",
+    defaultReason: "Notification hosts explicitly grant consent and lifecycle commands; enabling the plugin default grants no token, send, or wallet authority.",
+    capabilities: [
+      { file: "wallet/zuuli/src-tauri/capabilities/default.json", grant: "named" },
+      { file: "wallet/zuuli/src-tauri/capabilities/mobile.json", grant: "named" },
+    ],
+    trackedSchemas: null,
+  },
+  {
     directory: "wallet/plugins/tauri-plugin-f2z",
     namespace: "f2z",
     macro: "with_commands",
