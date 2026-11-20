@@ -249,8 +249,36 @@ test("free follow keeps a 44px target and preserves its sign-in return", async (
         return raw ? JSON.parse(raw) : null;
       }),
     )
-    .toMatchObject({
-      returnTo: "/creator/f2z",
-      intent: { kind: "creator-subscription", subject: "f2z" },
-    });
+    .toBeNull();
+});
+
+test("free follow reconciles from its separate relationship after reload", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("zuuli.knox.token", "mock-knox-token");
+    if (!sessionStorage.getItem("free2z.follow-e2e-seeded")) {
+      localStorage.removeItem("free2z.mock.creator-follows");
+      sessionStorage.setItem("free2z.follow-e2e-seeded", "1");
+    }
+  });
+  await openCreator(page, "f2z");
+
+  await page.getByRole("button", { name: "Follow Free2Z" }).click();
+  await expect(page.getByRole("button", { name: "Unfollow Free2Z" })).toHaveText(
+    "Following",
+  );
+  await expect(
+    page.getByText(
+      "You're following Free2Z. This free follow does not start a paid membership or renewal.",
+    ),
+  ).toBeVisible();
+
+  await page.reload();
+  await page.locator("[data-creator-profile]").waitFor();
+  await expect(page.getByRole("button", { name: "Unfollow Free2Z" })).toHaveText(
+    "Following",
+  );
+  await page.getByRole("button", { name: "Unfollow Free2Z" }).click();
+  await expect(page.getByRole("button", { name: "Follow Free2Z" })).toBeVisible();
 });

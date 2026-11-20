@@ -763,6 +763,75 @@ export const mockSubscriptions: Subscription[] = [
   },
 ];
 
+/** Mock CreatorFollow rows are scoped to the signed-in viewer and persist across reloads. */
+let mockCreatorFollows: Map<string, Set<string>> | null = null;
+
+function creatorFollowsByViewer(): Map<string, Set<string>> {
+  if (mockCreatorFollows) return mockCreatorFollows;
+  let stored: unknown;
+  try {
+    stored =
+      typeof window === "undefined"
+        ? null
+        : JSON.parse(
+            window.localStorage.getItem("free2z.mock.creator-follows") ??
+              "null",
+          );
+  } catch {
+    stored = null;
+  }
+  mockCreatorFollows = new Map();
+  if (typeof stored === "object" && stored !== null && !Array.isArray(stored)) {
+    for (const [viewer, targets] of Object.entries(stored)) {
+      if (Array.isArray(targets)) {
+        mockCreatorFollows.set(
+          viewer.toLowerCase(),
+          new Set(
+            targets
+              .filter((value): value is string => typeof value === "string")
+              .map((value) => value.toLowerCase()),
+          ),
+        );
+      }
+    }
+  }
+  return mockCreatorFollows;
+}
+
+export function mockCreatorFollow(
+  viewerUsername: string,
+  username: string,
+  action: "state" | "follow" | "unfollow",
+): boolean {
+  const viewer = viewerUsername.toLowerCase();
+  const target = username.toLowerCase();
+  const followsByViewer = creatorFollowsByViewer();
+  const follows = followsByViewer.get(viewer) ?? new Set<string>();
+  if (action === "follow") follows.add(target);
+  if (action === "unfollow") follows.delete(target);
+  if (action !== "state") followsByViewer.set(viewer, follows);
+  if (action !== "state") {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          "free2z.mock.creator-follows",
+          JSON.stringify(
+            Object.fromEntries(
+              [...followsByViewer].map(([owner, targets]) => [
+                owner,
+                [...targets],
+              ]),
+            ),
+          ),
+        );
+      }
+    } catch {
+      /* The real backend remains authoritative outside mock mode. */
+    }
+  }
+  return follows.has(target);
+}
+
 /**
  * Mock `tuzi.subscribe(username)`. Mirrors `CreatorSubscribeView.post`:
  * get-or-create a `Subscription` for (star, fan) and extend it 30 days from

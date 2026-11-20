@@ -19,6 +19,19 @@
     "tryAgain": "Inténtalo de nuevo."
   },
   "creator": {
+    "follow": {
+      "action": "Seguir",
+      "actionAccessible": "Seguir a {name}",
+      "following": "Siguiendo",
+      "unfollow": "Dejar de seguir a {name}",
+      "retry": "Reintentar estado de seguimiento",
+      "unavailable": "Precio de membresía no disponible",
+      "readError": "No se pudo consultar el seguimiento. Vuelve a intentarlo.",
+      "mutationError": "No se pudo actualizar el seguimiento gratuito. Comprueba tu conexión e inténtalo de nuevo.",
+      "unknown": "No pudimos confirmar si se aplicó el cambio de seguimiento gratuito. Consulta el estado antes de volver a intentarlo.",
+      "success": "Ahora sigues a {name}. Este seguimiento gratuito no inicia una membresía ni renovación de pago.",
+      "unfollowSuccess": "Dejaste de seguir a {name}. Este seguimiento gratuito no cambia ninguna membresía ni renovación de pago."
+    },
     "chat": {
       "trigger": "Iniciar chat cifrado",
       "triggerAccessible": "Iniciar chat cifrado con @{username}",
