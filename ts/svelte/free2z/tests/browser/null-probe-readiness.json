@@ -1,0 +1,15 @@
+[
+  {
+    "trigger": "[data-testid=navbar-mobile-menu]",
+    "selector": "[data-testid=mobile-menu-scroll]"
+  },
+  {
+    "trigger": "[data-testid=navbar-mobile-menu]",
+    "selector": "[data-testid=mobile-menu-scroll]"
+  },
+  { "selector": ".markdown-content h2 > a.heading-anchor" },
+  {
+    "trigger": "[data-testid=navbar-mobile-menu]",
+    "selector": "[data-testid=mobile-menu-scroll]"
+  }
+]

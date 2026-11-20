@@ -1,0 +1,352 @@
+{
+  "issue": 1324,
+  "evidenceKind": "synthetic local fixtures; not production traffic",
+  "sourceBase": "b4e3d79334b6ee56f0796776db6251e821d5dd4a",
+  "implementationFilesSha256": {
+    "ts/svelte/free2z/scripts/probe-null-urls.mjs": "be05237ec64b8791677ca86dff8b15abced97bca1beea5986be84112ed5add96",
+    "ts/svelte/free2z/tests/browser/mock-api.mjs": "5aba4f84f66ea1d1997f13b4ece910b97cbe8fb0ce177aef559c2c9440925551",
+    "ts/svelte/free2z/tests/browser/crawler-null-urls.spec.ts": "c1cdc0818e7a5f9c6175888ebd000a40c60605361938d375a1de3176d3ee3827",
+    "ts/svelte/free2z/tests/browser/null-url-audit.ts": "749b1d8fad88e7125f5ac220f03d7bbb76a52f0aadfcd1576dd3a5e390724170",
+    "ts/svelte/free2z/tests/browser/null-url-fixture.mjs": "c139dcf288b8b3f49921ad4233800d7642e4156aa6a8bd4ec3cbbf696986fa9e",
+    "ts/svelte/free2z/tests/browser/null-probe-policy.ts": "3a237ae3f3968a11197ca739cf88d8d78bc9bdedda6ebaf5afb646264b2a9f54",
+    "ts/svelte/free2z/tests/browser/null-probe-readiness.json": "5bed4c0c46620147574b22beb3916049381c026cc127b0c17e8945d0db212827",
+    "ts/svelte/free2z/tests/browser/null-url-probe.spec.ts": "a325270e82245d3ea20edd48f0fb22c93e9610c76d1047c1833c36ad00ca1def"
+  },
+  "operatorWindow": "unavailable; attribution remains open",
+  "applicationWindowUtc": {
+    "start": "2026-11-13T13:55:03.589Z",
+    "end": "2026-11-13T13:57:53.282Z"
+  },
+  "versions": {
+    "node": "24.18.1",
+    "npm": "11.16.0",
+    "playwright": "1.64.0",
+    "chromium": "156.0.8078.4"
+  },
+  "configuration": {
+    "ua": "controlled Googlebot Smartphone template; fixed Chrome version; see report",
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "reducedMotion": "reduce",
+    "optionalStates": [
+      "missing",
+      "empty",
+      "nullable",
+      "present"
+    ],
+    "postInteractionObservationMs": 1000
+  },
+  "applicationComparisons": 16,
+  "applicationRenders": 32,
+  "results": [
+    {
+      "view": "homepage",
+      "phase": "ssr-no-js",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "image": 1
+      },
+      "urlChecksBySource": {
+        "a:href": 248,
+        "css:rule": 480,
+        "img:src": 22,
+        "jsonld:@id": 48,
+        "jsonld:image": 8,
+        "jsonld:target": 8,
+        "jsonld:url": 32,
+        "link:href": 42,
+        "meta:content": 32
+      },
+      "mutationRecords": 0,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    },
+    {
+      "view": "homepage",
+      "phase": "hydrated-interacted",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "fetch": 12,
+        "image": 1,
+        "other": 18,
+        "script": 1612
+      },
+      "urlChecksBySource": {
+        "a:href": 25294,
+        "css:rule": 480,
+        "img:src": 2647,
+        "jsonld:@id": 2682,
+        "jsonld:image": 447,
+        "jsonld:target": 447,
+        "jsonld:url": 1788,
+        "link:href": 2818,
+        "meta:content": 1772,
+        "style:sheet": 7320
+      },
+      "mutationRecords": 5601,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    },
+    {
+      "view": "profile",
+      "phase": "ssr-no-js",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "image": 1
+      },
+      "urlChecksBySource": {
+        "a:href": 160,
+        "css:rule": 480,
+        "img:src": 12,
+        "jsonld:@id": 32,
+        "jsonld:image": 10,
+        "jsonld:url": 24,
+        "link:href": 32,
+        "meta:content": 32
+      },
+      "mutationRecords": 0,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    },
+    {
+      "view": "profile",
+      "phase": "hydrated-interacted",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "fetch": 13,
+        "image": 1,
+        "other": 17,
+        "script": 1829
+      },
+      "urlChecksBySource": {
+        "a:href": 20059,
+        "css:rule": 480,
+        "img:src": 1711,
+        "jsonld:@id": 1736,
+        "jsonld:image": 544,
+        "jsonld:url": 1302,
+        "link:href": 2216,
+        "meta:content": 1720,
+        "style:sheet": 8160
+      },
+      "mutationRecords": 6460,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    },
+    {
+      "view": "article",
+      "phase": "ssr-no-js",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "image": 1
+      },
+      "urlChecksBySource": {
+        "a:href": 144,
+        "css:rule": 480,
+        "img:src": 6,
+        "jsonld:@id": 24,
+        "jsonld:image": 8,
+        "jsonld:url": 16,
+        "link:href": 48,
+        "meta:content": 32
+      },
+      "mutationRecords": 0,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    },
+    {
+      "view": "article",
+      "phase": "hydrated-interacted",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "fetch": 8,
+        "image": 1,
+        "other": 10,
+        "script": 1548
+      },
+      "urlChecksBySource": {
+        "a:href": 10278,
+        "css:rule": 480,
+        "img:src": 520,
+        "jsonld:@id": 1656,
+        "jsonld:image": 552,
+        "jsonld:url": 1104,
+        "link:href": 3784,
+        "meta:content": 2192,
+        "style:sheet": 7440
+      },
+      "mutationRecords": 5261,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    },
+    {
+      "view": "conversation",
+      "phase": "ssr-no-js",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "image": 1
+      },
+      "urlChecksBySource": {
+        "a:href": 162,
+        "css:rule": 480,
+        "img:src": 2,
+        "jsonld:@id": 24,
+        "jsonld:image": 8,
+        "jsonld:url": 16,
+        "link:href": 32,
+        "meta:content": 32
+      },
+      "mutationRecords": 0,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    },
+    {
+      "view": "conversation",
+      "phase": "hydrated-interacted",
+      "renders": 4,
+      "findings": 0,
+      "badRequests": 0,
+      "requestsByType": {
+        "document": 4,
+        "fetch": 13,
+        "image": 1,
+        "other": 13,
+        "script": 1668
+      },
+      "urlChecksBySource": {
+        "a:href": 17053,
+        "css:rule": 480,
+        "img:src": 285,
+        "jsonld:@id": 1314,
+        "jsonld:image": 438,
+        "jsonld:url": 876,
+        "link:href": 2232,
+        "meta:content": 1736,
+        "style:sheet": 8400
+      },
+      "mutationRecords": 4814,
+      "workers": {
+        "dedicated": 0,
+        "service": 0
+      }
+    }
+  ],
+  "newTests": {
+    "passed": 22,
+    "failed": 0
+  },
+  "probeControls": [
+    {
+      "control": "ready-and-null",
+      "readyRenders": 4,
+      "goodExit": 0,
+      "nullExit": 1
+    },
+    {
+      "control": "inert",
+      "exit": 1,
+      "independentSsrRenders": 4,
+      "incompleteClientRenders": 4
+    },
+    {
+      "control": "stalled",
+      "exit": 1,
+      "independentSsrRenders": 4,
+      "incompleteClientRenders": 4
+    },
+    {
+      "control": "static",
+      "exit": 1,
+      "independentSsrRenders": 4,
+      "incompleteClientRenders": 4
+    },
+    {
+      "control": "transports",
+      "positiveWebSocketMessages": 1,
+      "guardedCounts": {
+        "http": 17,
+        "posts": 0,
+        "upgrades": 0,
+        "messages": 0,
+        "workerScripts": 0,
+        "events": 0
+      },
+      "exit": [
+        1,
+        1
+      ],
+      "deniedKinds": [
+        "EventSource",
+        "RTCPeerConnection",
+        "SharedWorker",
+        "WebSocket",
+        "WebTransport",
+        "Worker",
+        "sendBeacon",
+        "serviceWorker"
+      ]
+    }
+  ],
+  "historicalCombinedBrowserRun": {
+    "passed": 49,
+    "failed": 2,
+    "failedTests": [
+      "/begin and /begin/alt permanently move to the sign-up modal",
+      "the hydrated preview never boots the viewer"
+    ]
+  },
+  "historicalIsolatedExistingRun": {
+    "newCrawlerSpecsSelected": false,
+    "newMockFixtureEnabled": false,
+    "passed": 0,
+    "failed": 2,
+    "sameFiveSecondAssertions": true,
+    "additionalRunnerErrorSummary": true,
+    "pristineBaseComparison": false
+  },
+  "probeConfiguration": {
+    "ua": "controlled Googlebot/2.1 public token; not the operator UA",
+    "readinessTimeoutMs": 300,
+    "postReadyObservationMs": 3000,
+    "ssrIndependent": true,
+    "workerAndRealtimeAttempts": "denied; attempted use makes the render incomplete and nonzero"
+  },
+  "implementationCommit": "34950dc3b301211811d8d8a88f7e48b04758b29d"
+}
