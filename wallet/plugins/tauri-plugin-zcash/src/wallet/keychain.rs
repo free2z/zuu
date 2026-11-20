@@ -844,12 +844,12 @@ mod legacy_file {
 
     #[cfg(test)]
     pub fn write_fixture(data_dir: &Path, wallet_id: &str, phrase: &str) {
-        use rand::RngCore;
+        use rand::Rng;
 
         let dir = seeds_dir(data_dir);
         fs::create_dir_all(&dir).unwrap();
         let mut key = [0; 32];
-        rand::rngs::OsRng.fill_bytes(&mut key);
+        crate::wallet::os_rng().fill_bytes(&mut key);
         let cipher = ChaCha20Poly1305::new(Key::from_slice(&key));
         let ciphertext = cipher
             .encrypt(
