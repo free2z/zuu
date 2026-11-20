@@ -58,12 +58,15 @@ export function useZcashLogin(
   const setUser = useSession((s) => s.setUser);
 
   return useZcashChallengeFlow({
-    verify: (signed) =>
+    usernameChoice: true,
+    verify: (signed, desiredUsername) =>
       auth.zcashLogin({
         address: signed.address,
         challenge: signed.challenge,
         signature: signed.signature,
         pubkey: signed.pubkey,
+        choose_username: true,
+        desired_username: desiredUsername,
       }),
     verifyErrorMessage:
       "free2z couldn't verify your Zcash signature. Please try again.",

@@ -5,6 +5,18 @@
  * hard failure in every locale.
  */
 export const MESSAGE_KEYS = {
+  usernameSessionChanged: "username.sessionChanged",
+  usernameTitle: "username.title",
+  usernameDescription: "username.description",
+  usernameLabel: "username.label",
+  usernameRules: "username.rules",
+  usernameChecking: "username.checking",
+  usernameAvailable: "username.available",
+  usernameTaken: "username.taken",
+  usernameInvalid: "username.invalid",
+  usernameUnavailable: "username.unavailable",
+  usernameContinue: "username.continue",
+  usernameSkip: "username.skip",
   commonLoading: "common.loading",
   commonPending: "common.pending",
   commonRetry: "common.retry",

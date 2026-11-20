@@ -91,3 +91,26 @@ FORBIDDEN_USERNAMES = [
 def is_forbidden_username(value: str) -> bool:
     """Return whether ``value`` belongs to a route-owned namespace."""
     return value.lower() in FORBIDDEN_USERNAMES
+
+
+def username_status(value):
+    """Apply the Creator field's NFKC normalization and registration policy."""
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    from django.db.models import Q, Value
+    from django.db.models.functions import Lower
+    from dj.apps.g12f.models import Creator
+
+    if not isinstance(value, str) or len(value) > 150:
+        return None, "invalid"
+    username = Creator.normalize_username(value.strip())
+    try:
+        Creator._meta.get_field("username").clean(username, None)
+    except DjangoValidationError:
+        return username, "invalid"
+    if Creator.objects.alias(_username_lower=Lower("username")).filter(
+        Q(username__iexact=username) | Q(_username_lower=Lower(Value(username)))
+    ).exists():
+        return username, "taken"
+    if is_forbidden_username(username):
+        return username, "invalid"
+    return username, "available"

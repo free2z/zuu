@@ -5626,6 +5626,26 @@ export interface UserProfileSignature {
 }
 
 /**
+ * * `available` - available
+ * * `taken` - taken
+ * * `invalid` - invalid
+ */
+export type UsernameAvailabilityResponseStatusEnum = typeof UsernameAvailabilityResponseStatusEnum[keyof typeof UsernameAvailabilityResponseStatusEnum];
+
+
+export const UsernameAvailabilityResponseStatusEnum = {
+  available: 'available',
+  taken: 'taken',
+  invalid: 'invalid',
+} as const;
+
+export interface UsernameAvailabilityResponse {
+  /** @nullable */
+  username: string | null;
+  status: UsernameAvailabilityResponseStatusEnum;
+}
+
+/**
  * * `idempotency_mismatch` - idempotency_mismatch
  * * `idempotency_page_gone` - idempotency_page_gone
  */
@@ -5780,6 +5800,25 @@ export interface ZcashChallengeResponse {
   challenge: string;
 }
 
+/**
+ * * `username_required` - username_required
+ * * `username_taken` - username_taken
+ * * `username_invalid` - username_invalid
+ */
+export type ZcashConflictCodeEnum = typeof ZcashConflictCodeEnum[keyof typeof ZcashConflictCodeEnum];
+
+
+export const ZcashConflictCodeEnum = {
+  username_required: 'username_required',
+  username_taken: 'username_taken',
+  username_invalid: 'username_invalid',
+} as const;
+
+export interface ZcashConflict {
+  detail?: string;
+  code?: ZcashConflictCodeEnum;
+}
+
 export interface ZcashLoginRequest {
   /**
      * @minLength 35
@@ -5792,6 +5831,13 @@ export interface ZcashLoginRequest {
   signature: string;
   /** @maxLength 130 */
   pubkey?: string;
+  /** Request a choice after proving a new identity. The proof is consumed on a choice or refusal; obtain a fresh challenge for each retry. */
+  choose_username?: boolean;
+  /**
+     * Optional create-only username; empty selects a generated name. Existing identities retain their username.
+     * @maxLength 150
+     */
+  desired_username?: string;
   /**
      * Current authenticator code for an existing Creator; required for association flows too; not required for new accounts.
      * @maxLength 10
@@ -6162,6 +6208,10 @@ export type AuthSocialMobileCallbackRetrieveParams = {
 code?: string;
 error?: string;
 state: string;
+};
+
+export type AuthZcashUsernameAvailableRetrieveParams = {
+username: string;
 };
 
 export type CommentsListParams = {

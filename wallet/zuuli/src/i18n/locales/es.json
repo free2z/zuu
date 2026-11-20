@@ -44,5 +44,19 @@
       "label": "Billetera anterior conservada",
       "title": "Billetera anterior conservada"
     }
+  },
+  "username": {
+    "title": "Elige tu nombre de usuario",
+    "description": "Será tu nombre público y el enlace de tu perfil.",
+    "label": "Nombre de usuario",
+    "rules": "Se permiten letras, números y @ . + - _. No se distingue entre mayúsculas y minúsculas.",
+    "checking": "Comprobando…",
+    "available": "Disponible",
+    "taken": "Ese nombre de usuario ya está ocupado.",
+    "invalid": "Ese nombre de usuario no es válido o está reservado.",
+    "unavailable": "No se pudo comprobar la disponibilidad. Inténtalo de nuevo.",
+    "continue": "Continuar con este nombre",
+    "skip": "Usar un nombre generado",
+    "sessionChanged": "La sesión cambió. Empieza de nuevo."
   }
 }

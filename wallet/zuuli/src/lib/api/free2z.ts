@@ -1,3 +1,4 @@
+import { parseUsernameAvailability } from "./username-availability";
 // The free2z API surface ZUULI uses, mapping the REAL production endpoints
 // (tuzi/f2z.yaml / free2z.cash) into stable internal types the features
 // depend on. Field names here match production; the returned objects match
@@ -300,9 +301,14 @@ export const auth = {
     challenge: string;
     signature: string;
     pubkey?: string;
+    choose_username?: boolean;
+    desired_username?: string;
   }): Promise<AuthenticatedSession> {
     if (useMock()) {
-      await delay(400);
+      await delay(localStorage.getItem("zuuli.mock.slow-zcash-login") === "1" ? 2500 : 400);
+      if (params.choose_username && params.desired_username === undefined && localStorage.getItem("zuuli.mock.username-new") === "1") {
+        throw new ApiError(409, "Username required", { code: "username_required" });
+      }
       return {
         token: "mock-knox-token-zcash",
         user: { ...mockUser, zcashLinked: true },
@@ -315,6 +321,17 @@ export const auth = {
     });
     const me = await auth.me(tok.token);
     return { token: tok.token, user: { ...me, zcashLinked: true } };
+  },
+
+  async usernameAvailability(username: string): Promise<{ username: string | null; status: "available" | "taken" | "invalid" }> {
+    if (useMock()) {
+      await delay(150);
+      return { username: username.trim().normalize("NFKC"), status: username === "taken" ? "taken" : /^[\p{L}\p{N}@.+_-]{1,150}$/u.test(username) ? "available" : "invalid" };
+    }
+    const response = await request<unknown>("/api/auth/zcash/username-available/", {
+      query: { username }, anonymous: true, cache: "no-store",
+    });
+    return parseUsernameAvailability(username, response);
   },
 
   /** Ask the backend for a login challenge to sign. */

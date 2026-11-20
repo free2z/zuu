@@ -13,7 +13,11 @@ import {
   Sparkles,
   ShieldAlert,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { auth } from "@/lib/api/free2z";
+import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Callout } from "@/components/ui/callout";
 import { Button } from "@/components/ui/button";
@@ -58,6 +62,37 @@ function StepIcon({ status }: { status: StepStatus }) {
   );
 }
 
+function UsernameChoice({ error, onSubmit }: { error: string | null; onSubmit: (value: string) => void }) {
+  const { t } = useTranslation();
+  const [value, setValue] = useState("");
+  const [result, setResult] = useState<{ input: string; username: string | null; status: string } | null>(null);
+  useEffect(() => {
+    let current = true;
+    setResult(null);
+    if (!value.trim()) return () => { current = false; };
+    const timer = window.setTimeout(() => {
+      void auth.usernameAvailability(value).then((response) => {
+        if (current) setResult({ input: value, ...response });
+      }).catch(() => {
+        if (current) setResult({ input: value, username: value, status: "unavailable" });
+      });
+    }, 300);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [value]);
+  const status = result?.input === value ? result.status : value.trim() ? "checking" : error === "username_taken" ? "taken" : error === "username_invalid" ? "invalid" : null;
+  const message = status === "checking" ? MESSAGE_KEYS.usernameChecking : status === "available" ? MESSAGE_KEYS.usernameAvailable : status === "taken" ? MESSAGE_KEYS.usernameTaken : status === "invalid" ? MESSAGE_KEYS.usernameInvalid : MESSAGE_KEYS.usernameUnavailable;
+  return <div className="space-y-4">
+    <h2 className="text-lg font-semibold">{t(MESSAGE_KEYS.usernameTitle)}</h2>
+    <p>{t(MESSAGE_KEYS.usernameDescription)}</p>
+    <label htmlFor="zcash-username">{t(MESSAGE_KEYS.usernameLabel)}</label>
+    <Input id="zcash-username" value={value} maxLength={150} onChange={(event) => setValue(event.target.value)} autoComplete="username" />
+    <p className="text-sm text-muted-foreground">{t(MESSAGE_KEYS.usernameRules)}</p>
+    {status && <p role="status">{t(message)}</p>}
+    <Button className="w-full" disabled={status !== "available"} onClick={() => { if (result && result.input === value && result.status === "available" && result.username !== null) onSubmit(result.username); }}>{t(MESSAGE_KEYS.usernameContinue)}</Button>
+    <Button variant="outline" className="w-full" onClick={() => onSubmit("")}>{t(MESSAGE_KEYS.usernameSkip)}</Button>
+  </div>;
+}
+
 export function ZcashLoginFlow({
   loginDestination = "/",
   onBusyChange,
@@ -79,6 +114,7 @@ export function ZcashLoginFlow({
     createIdentity,
     revealSeedBackup,
     confirmSeedSaved,
+    submitUsername,
     hideSeedBackup,
     retry,
   } = flow;
@@ -240,6 +276,10 @@ export function ZcashLoginFlow({
         }}
       />
     );
+  }
+
+  if (phase === "usernameChoice") {
+    return <UsernameChoice error={error} onSubmit={submitUsername} />;
   }
 
   // ── Success terminal ──────────────────────────────────────────────────────

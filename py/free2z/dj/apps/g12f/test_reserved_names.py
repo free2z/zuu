@@ -267,3 +267,14 @@ def test_unreserved_vanity_is_now_accepted(creator_factory, vanity):
 
     assert serializer.is_valid(), serializer.errors
     assert serializer.validated_data["vanity"] == vanity
+
+
+@pytest.mark.django_db
+def test_registration_normalizes_before_reserved_and_collision_checks(creator_factory):
+    creator_factory(username="Alice")
+    for username in ("Ａｌｉｃｅ", "ＡＰＩ"):
+        serializer = RegistrationSerializer(
+            data={"username": username, "password": "Str0ng-Passw0rd!23"}
+        )
+        assert not serializer.is_valid()
+        assert "username" in serializer.errors

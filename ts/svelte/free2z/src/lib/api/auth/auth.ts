@@ -30,6 +30,7 @@ import type {
   AccountDeletionScheduled,
   AuthSocialMobileCallbackRetrieveParams,
   AuthSocialStartRetrieveParams,
+  AuthZcashUsernameAvailableRetrieveParams,
   CreatorLogin,
   CreatorPasswordChange,
   CreatorProfileDetail,
@@ -51,9 +52,11 @@ import type {
   SocialUnlinkLastSignInMethod,
   SocialUnlinkNotFound,
   SocialUnlinkRetry,
+  UsernameAvailabilityResponse,
   ZcashAuthError,
   ZcashChallengeRequest,
   ZcashChallengeResponse,
+  ZcashConflict,
   ZcashLoginRequest,
   ZcashLoginResponse
 } from '../f2z.schemas.ts';
@@ -1322,12 +1325,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       return createMutation(getAuthZcashChallengeCreateMutationOptions(options));
     }
     /**
- * POST {address, challenge, signature, pubkey?, otp_token?} -> knox token.
- *
- * If the request carries a valid knox token (authenticated Creator),
- * the verified address is linked to THAT account (associate flow)
- * instead of creating a new one. An existing Creator's active TOTP is
- * required for both login and association before a token is minted.
+ * A verified address logs in or creates an account, or links to the authenticated account. Existing accounts require their active TOTP. A username choice or refusal consumes the signed challenge; obtain and sign a fresh challenge before retrying. Returning identities keep their username.
  */
 export const authZcashLoginCreate = (
     zcashLoginRequest: ZcashLoginRequest,
@@ -1348,7 +1346,7 @@ export const authZcashLoginCreate = (
 
 export const getAuthZcashLoginCreateMutationKey = () => ['authZcashLoginCreate'] as const;
 
-export const getAuthZcashLoginCreateMutationOptions = <TError = ZcashAuthError,
+export const getAuthZcashLoginCreateMutationOptions = <TError = ZcashAuthError | ZcashConflict,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authZcashLoginCreate>>, TError,AuthZcashLoginCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
 ): CreateMutationOptions<Awaited<ReturnType<typeof authZcashLoginCreate>>, TError,AuthZcashLoginCreateMutationVariables, TContext> => {
 
@@ -1377,10 +1375,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type AuthZcashLoginCreateMutationResult = NonNullable<Awaited<ReturnType<typeof authZcashLoginCreate>>>
     export type AuthZcashLoginCreateMutationBody = ZcashLoginRequest
-    export type AuthZcashLoginCreateMutationError = ZcashAuthError
+    export type AuthZcashLoginCreateMutationError = ZcashAuthError | ZcashConflict
     export type AuthZcashLoginCreateMutationVariables = {data: ZcashLoginRequest}
 
-    export const createAuthZcashLoginCreate = <TError = ZcashAuthError,
+    export const createAuthZcashLoginCreate = <TError = ZcashAuthError | ZcashConflict,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authZcashLoginCreate>>, TError,AuthZcashLoginCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authZcashLoginCreate>>,
@@ -1390,3 +1388,71 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       > => {
       return createMutation(getAuthZcashLoginCreateMutationOptions(options));
     }
+    /**
+ * Anonymous, throttled, no-store advisory check. Availability is not a reservation; creation validates again.
+ */
+export const authZcashUsernameAvailableRetrieve = (
+    params: AuthZcashUsernameAvailableRetrieveParams,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<UsernameAvailabilityResponse>(
+      {url: `/api/auth/zcash/username-available/`, method: 'GET',
+        params, signal
+    },
+      options);
+    }
+
+
+
+
+export const getAuthZcashUsernameAvailableRetrieveQueryKey = (params?: AuthZcashUsernameAvailableRetrieveParams,) => {
+    return [
+    `/api/auth/zcash/username-available/`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getAuthZcashUsernameAvailableRetrieveQueryOptions = <TData = Awaited<ReturnType<typeof authZcashUsernameAvailableRetrieve>>, TError = ZcashAuthError>(params: AuthZcashUsernameAvailableRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authZcashUsernameAvailableRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getAuthZcashUsernameAvailableRetrieveQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof authZcashUsernameAvailableRetrieve>>> = ({ signal }) => authZcashUsernameAvailableRetrieve(params, requestOptions, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as CreateQueryOptions<Awaited<ReturnType<typeof authZcashUsernameAvailableRetrieve>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type AuthZcashUsernameAvailableRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof authZcashUsernameAvailableRetrieve>>>
+export type AuthZcashUsernameAvailableRetrieveQueryError = ZcashAuthError
+
+
+
+export function createAuthZcashUsernameAvailableRetrieve<TData = Awaited<ReturnType<typeof authZcashUsernameAvailableRetrieve>>, TError = ZcashAuthError>(
+ params: AuthZcashUsernameAvailableRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authZcashUsernameAvailableRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient
+ ): CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getAuthZcashUsernameAvailableRetrieveQueryOptions(params,options)
+
+  const query = createQuery(queryOptions, queryClient) as CreateQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey;
+
+  return query;
+}
+
+
+
+
+
+
