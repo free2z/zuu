@@ -1,6 +1,7 @@
 /**
  * Every in-app destination this surface can reach must be a route this surface
- * actually mounts.
+ * actually mounts. Native anchors may also reach configured, existing HTML
+ * build entries through full-document navigation.
  *
  * This exists because the content extraction is a *copy* out of ZUULI, and
  * ZUULI's route table is not this one. The first version of this guard caught
@@ -29,12 +30,22 @@
  */
 import { describe, expect, it } from "vitest";
 import { APP_ROUTES } from "./routes";
+import { htmlBuildInputs } from "../../html-build-inputs";
 import { safeLoginDestination } from "./auth/login-destination";
 
 const productionSources = import.meta.glob(
   ["../**/*.ts", "../**/*.tsx", "!../**/*.test.ts", "!../**/*.test.tsx"],
   { eager: true, import: "default", query: "?raw" },
 ) as Record<string, string>;
+
+// This set comes from real files, not a filename allowlist. A separate Node
+// contract loads Vite's actual config in both modes and verifies that it uses
+// these inputs, including the default-off evaluation exclusion.
+const htmlSources = import.meta.glob("../../*.html", {
+  eager: true, import: "default", query: "?raw",
+}) as Record<string, string>;
+const htmlFiles = new Set(Object.keys(htmlSources).map((file) => file.slice("../../".length)));
+const configuredDocuments = new Set(Object.values(htmlBuildInputs(true)));
 
 /**
  * Comments describe routes that deliberately are not ours — `routes.ts` names
@@ -84,7 +95,7 @@ function isMountedRoute(path: string): boolean {
 /**
  * The ways a string reaches the router:
  *   `to="/x"`, `to={"/x"}`, `` to={`/x`} ``   — Link, NavLink, Navigate
- *   `href="/x"`                               — plain anchors
+ *   `href="/x"`                               — anchors (document or SPA)
  *   `navigate("/x")`                          — imperative
  *   `to: "/x"`                                — the NAVIGATION table
  *   `currentPath: "/x"`                       — what the backend returns to
@@ -112,8 +123,29 @@ const entries = Object.entries(productionSources).map(
   ([file, source]) => [file, stripComments(source)] as const,
 );
 
+function destinations(source: string) {
+  return [...stripComments(source).matchAll(ROUTER_TARGET)].map((match) => ({
+    path: match[1],
+    // Only native <a href> leaves the SPA. A Link/to or navigate() targeting
+    // the same HTML filename is still a router mistake and must fail.
+    documentNavigation: /^href\s*=/.test(match[0]) &&
+      /<a\b[^>]*$/.test(stripComments(source).slice(0, match.index)),
+  }));
+}
+
+function isReachableDestination(
+  target: ReturnType<typeof destinations>[number],
+  inputs = configuredDocuments,
+  files = htmlFiles,
+): boolean {
+  if (isMountedRoute(target.path)) return true;
+  if (!target.documentNavigation) return false;
+  const file = target.path.split(/[?#]/u)[0].slice(1);
+  return file.endsWith(".html") && inputs.has(file) && files.has(file);
+}
+
 const routerTargets = entries.flatMap(([file, source]) =>
-  [...source.matchAll(ROUTER_TARGET)].map((m) => ({ file, path: m[1] })),
+  destinations(source).map((target) => ({ file, ...target })),
 );
 
 describe("in-app link destinations", () => {
@@ -156,12 +188,34 @@ describe("in-app link destinations", () => {
     );
   });
 
-  it("only sends the router to routes this surface mounts", () => {
-    const unmounted = routerTargets.filter(({ path }) => !isMountedRoute(path));
+  it("only uses mounted SPA routes or native links to configured HTML entries", () => {
+    const unmounted = routerTargets.filter((target) => !isReachableDestination(target));
     expect(
       unmounted.map(({ file, path }) => `${file}: ${path}`),
-      "these render NotFound on this surface; ZUULI's route table is not this one",
+      "destinations must be mounted SPA routes or native links to existing configured HTML inputs",
     ).toEqual([]);
+  });
+
+  it("accepts a native document link only when its actual HTML input and file exist", () => {
+    const [target] = destinations('<a href="/local-draft.html">Evaluate</a>');
+    expect(isMountedRoute(target.path)).toBe(false);
+    expect(isReachableDestination(target)).toBe(true);
+    expect(isReachableDestination(target, new Set(["index.html"]))).toBe(false);
+    expect(isReachableDestination(target, configuredDocuments, new Set(["index.html"]))).toBe(false);
+  });
+
+  it.each([
+    '<a href="/missing.html">Missing</a>',
+    '<a href="/wrong/local-draft.html">Wrong path</a>',
+    '<Link to="/local-draft.html">SPA misuse</Link>',
+    'navigate("/local-draft.html")',
+    '{ to: "/local-draft.html" }',
+    '{ currentPath: "/local-draft.html" }',
+    '<Link href="/local-draft.html">Non-native href</Link>',
+  ])("rejects missing/wrong document entries and SPA misuse: %s", (source) => {
+    const targets = destinations(source);
+    expect(targets).toHaveLength(1);
+    expect(isReachableDestination(targets[0])).toBe(false);
   });
 
   it("never lands a completed sign-in outside the router", () => {

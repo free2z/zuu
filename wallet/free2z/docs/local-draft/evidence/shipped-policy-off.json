@@ -1,0 +1,31 @@
+{
+  "policy": "Actual shipped JSON; no route fixtures",
+  "status": "Local mode disabled remotely App-owned model cache removed. HTTP caches and browser/OS copies cannot be guaranteed erased.",
+  "workers": 0,
+  "requests": [
+    {
+      "url": "http://127.0.0.1:1445/local-draft.html",
+      "method": "GET"
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/localDraft-D9HccuXf.js",
+      "method": "GET"
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-CNDQMJ6R.js",
+      "method": "GET"
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-BfJJ1_5b.css",
+      "method": "GET"
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/ibm-plex-sans-latin-wght-normal-IvpUvPa2.woff2",
+      "method": "GET"
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET"
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+Production types
+
+> free2z@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.build.json
+
+
+
+Test types
+
+> free2z@0.1.0 typecheck:tests
+> tsc --noEmit
+
+
+
+Focused unit tests
+
+ RUN  v5.1.0 <checkout>/wallet/free2z
+
+
+ Test Files  2 passed (2)
+      Tests  12 passed (12)
+   Start at  11:46:11
+   Duration  1.06s (environment 54%, tests 26%, transform 15%, import 4%, worker 1%)
+
+    Isolate  2 workers spawned · ~370ms startup each (spawn + environment, per file)
+             at least ~370ms faster with isolate: false — reuses workers across files instead of one per file
+
+
+
+Focused browser regressions
+
+> free2z@0.1.0 test:e2e
+> playwright test local-draft.pw.ts ai-context-switch.pw.ts ai-paid-intent.pw.ts --workers=1
+
+[WebServer]
+[WebServer] > free2z@0.1.0 dev
+[WebServer] > vite --host 127.0.0.1 --port 1435
+[WebServer]
+[WebServer] (node:2379288) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] 11:46:13 AM [vite] (client) Re-optimizing dependencies because vite config has changed
+[WebServer]
+[WebServer]   VITE v6.4.5  ready in 296 ms
+[WebServer]
+[WebServer]   ➜  Local:   http://127.0.0.1:1435/
+
+Running 16 tests using 1 worker
+
+(node:2379331) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   1 tests/ai-context-switch.pw.ts:29:1 › model and personality switches start honest, separate chat threads (15.5s)
+  ✓   2 tests/ai-context-switch.pw.ts:83:1 › an empty chat switches immediately without a destructive confirmation (3.2s)
+  ✓   3 tests/ai-context-switch.pw.ts:94:1 › an in-flight personality save cannot close into a mismatched chat (5.8s)
+  ✓   4 tests/ai-paid-intent.pw.ts:71:1 › AI preserves its draft while authenticating before the paid conversation APIs (2.5s)
+  ✓   5 tests/ai-paid-intent.pw.ts:92:1 › abandoning login destroys the guest's private AI draft (2.9s)
+  ✓   6 tests/ai-paid-intent.pw.ts:108:1 › reloading login destroys the guest's private AI draft (3.6s)
+  ✓   7 tests/ai-paid-intent.pw.ts:122:1 › browser Back cannot restore a private AI draft while signed out (2.3s)
+  ✓   8 tests/local-draft.pw.ts:29:1 › opt-in, prompt isolation, poor-quality fallback requires navigation and a second Send gesture (3.4s)
+  ✓   9 tests/local-draft.pw.ts:56:1 › remote deny/malformed/unavailable fails closed before starting worker (471ms)
+  ✓  10 tests/local-draft.pw.ts:64:1 › offline action revokes loaded runtime without server fallback (649ms)
+  ✓  11 tests/local-draft.pw.ts:77:1 › cancel terminates stalled download and removes partial cache, including late replies (556ms)
+  ✓  12 tests/local-draft.pw.ts:97:1 › browser worker failure has an accessible explicit fallback; no automatic provider (466ms)
+  ✓  13 tests/local-draft.pw.ts:105:1 › real browser capability failure never downloads or invokes server (511ms)
+  ✓  14 tests/local-draft.pw.ts:116:1 › a remote kill stops an active generation on resume; late completion cannot re-enable it (665ms)
+  ✓  15 tests/local-draft.pw.ts:128:1 › another tab cannot take cache ownership or erase a live cache (1.1s)
+  ✓  16 tests/local-draft.pw.ts:146:1 › narrow viewport and keyboard controls remain accessible (viewport emulation only) (547ms)
+
+  16 passed (47.3s)
+
+
+Full project boundary
+Wallet project boundaries verified across 5 discovered projects, 535 source files, 2413 parsed module references, 5 production shared-package consumers, 5 single-implementation intent-bridge guards, and 3 constrained production Vite builds.
+
+
+Capability/CSP/permission/namespace/copy checks
+✔ the committed packaged CSP matches the reviewed directive contract (1.774818ms)
+✔ every reviewed directive carries a written justification (0.450875ms)
+✔ an unreviewed directive fails rather than passing unnoticed (0.680848ms)
+✔ a repeated directive fails instead of silently taking one of them (0.252831ms)
+✔ every retired source is rejected wherever it reappears (2.659636ms)
+✔ no vault chrome source renders a remote image (1.335327ms)
+✔ the frontend never names a retired network origin (23.35643ms)
+✔ the shipped tree satisfies the reviewed surface contract (56.653887ms)
+✔ the content surface rejects any wallet or messaging grant (80.835994ms)
+✔ a scoped-object grant cannot smuggle a forbidden namespace past the check (15.679868ms)
+✔ an unreviewed plugin namespace fails rather than passing unjudged (18.000319ms)
+✔ the messaging surface rejects wallet grants and the blanket messaging grant (17.260124ms)
+✔ the messaging surface rejects a command outside the reviewed allowlist (5.93679ms)
+✔ a capability file that grants nothing messaging is caught for the messaging surface (4.083551ms)
+✔ linking a privileged plugin fails even with clean capability files (15.121991ms)
+✔ unlinking the messaging plugin fails the messaging surface (4.177036ms)
+✔ the messaging surface must keep frame-src 'none' (3.698445ms)
+✔ a renamed application identifier fails (10.283581ms)
+✔ an empty capability population is a blindness failure, not a pass (6.560396ms)
+✔ an unscoped http:default still fails on the content surface (9.545711ms)
+✔ a scoped http grant with an empty allow list fails (9.458847ms)
+✔ a wildcard or non-https http scope entry fails (96.833578ms)
+✔ an http scope entry the app's own connect-src does not admit fails (14.184701ms)
+✔ reviewing http for the content surface did not review it for the messaging one (6.541933ms)
+✔ a @tauri-apps/plugin-* dependency with no crate behind it fails (10.881193ms)
+✔ a linked plugin that is never initialized fails (12.197571ms)
+✔ invoking a command the binary does not register fails (17.815805ms)
+✔ invoking a plugin command whose crate is absent fails (28.557713ms)
+✔ a command name that IS registered passes, so the rule is not blanket (6.750132ms)
+✔ the content surface must not even import the invoke function (24.461416ms)
+✔ an invoke_handler on the content surface fails (26.535974ms)
+✔ a URI in another app's scheme fails (87.993573ms)
+✔ this app's own scheme on an unregistered route fails (14.2663ms)
+✔ removing a deep-link route breaks the constant that names it (20.317549ms)
+✔ an empty production source population is a blindness failure, not a pass (24.357081ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1073.352839
+Rust/WASM source, build, Vite, browser, generated-output, and CI boundaries agree.
+Tauri plugin permission parity negative controls passed.
+Tauri plugin permission generation matches.
+  f2z: 23 commands, 46 permission identifiers, 0 capability grants, 0 tracked target schemas
+  zcash: 39 commands, 78 permission identifiers, 3 capability grants, 3 tracked target schemas
+  f2zmsg: 43 commands, 86 permission identifiers, 2 capability grants, 0 tracked target schemas
+Namespace self-test passed: 21 retired locations, independent owners/SDKs, unregistered scope, overlap, resurrection and invalid registry.
+Project namespace ownership passed for 5588 tracked paths.
+
+> free2z@0.1.0 test:ui-copy
+> node --test scripts/ui-copy-truncation.node-test.mjs
+
+✔ no source file ships a CSS ellipsis clip (36.731006ms)
+✔ every line-clamp is annotated as user-authored content (26.334787ms)
+✔ product chrome contains no Search implementation explainer (24.608151ms)
+✔ the source audit recognizes the reported phrase and close rewrites (0.340103ms)
+ℹ tests 4
+ℹ suites 0
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 209.20735
+
+Final default production build (evaluation HTML/license absent)
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 27.43s
+
+Final opt-in evaluation production build
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 30.42s
+
+Actual shipped-policy-off smoke: PASS; zero workers, zero artifact/provider requests.
+Emitted/installed WebLLM license SHA-256 (both): 87935f332472db09253871326ef23d5d6a45f4fd2e6c96772f72052866dfab0d

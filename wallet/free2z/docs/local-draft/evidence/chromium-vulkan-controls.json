@@ -1,0 +1,646 @@
+{
+  "date": "2026-11-13T11:45:18.151Z",
+  "browser": "151.0.7922.34",
+  "softwareAdapterFlags": true,
+  "physicalGPU": "NOT ESTABLISHED",
+  "runs": [],
+  "requests": [
+    {
+      "url": "http://127.0.0.1:1445/local-draft.html",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/localDraft-DKmpoKBx.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-CNDQMJ6R.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-BfJJ1_5b.css",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/ibm-plex-sans-latin-wght-normal-IvpUvPa2.woff2",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/inference.worker-BDctcaff.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/mlc-chat-config.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/api/resolve-cache/models/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/mlc-chat-config.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/params_shard_0.bin",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://us.aws.cdn.hf.co/xet-bridge-us/672850a36c2c5bca2610899b/b16aee82c5d835d090c54e09dec257bb6b112ec13c5f49feee32cd85e04b443c",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/params_shard_1.bin",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://us.aws.cdn.hf.co/xet-bridge-us/672850a36c2c5bca2610899b/041cecb68c454c0c3855acff1a9483f389f08b958cd5a574bd4e0a89a5cc3528",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/params_shard_2.bin",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://us.aws.cdn.hf.co/xet-bridge-us/672850a36c2c5bca2610899b/387a2a53a8c2979691afa1a270cfc9fd3494ba61bc8006924bbb971803bcbc87",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/params_shard_3.bin",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://us.aws.cdn.hf.co/xet-bridge-us/672850a36c2c5bca2610899b/cc035d4479e7eaf1487fef78ce6acdf05a170aaa393b9cf0053299d76590d1cd",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/params_shard_4.bin",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://us.aws.cdn.hf.co/xet-bridge-us/672850a36c2c5bca2610899b/1d79284acf997853070bbb3e1a969c740c4b0caa23f610c9734a261b6eaf3240",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/params_shard_5.bin",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://us.aws.cdn.hf.co/xet-bridge-us/672850a36c2c5bca2610899b/11e9b056e9d02a13b844cdaff77007fa2faed77cf9dfcbe4727cc214ce53086a",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/params_shard_6.bin",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://us.aws.cdn.hf.co/xet-bridge-us/672850a36c2c5bca2610899b/da2a5b54637bf4b7f8112f39675bd6fc848b161ee7bacd2c76b29c9f3f287fb3",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/tensor-cache.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/api/resolve-cache/models/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/tensor-cache.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/tokenizer.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/api/resolve-cache/models/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/tokenizer.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/146ed9cd4b4062e967b017fd2291f7106b50599f/web-llm-models/v0_2_87/base/SmolLM2-360M-Instruct-q4f32_1_cs1k-webgpu.wasm",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-BSsNifqg.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/inference.worker-BDctcaff.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-BSsNifqg.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/inference.worker-BDctcaff.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/local-draft-policy.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://huggingface.co/mlc-ai/SmolLM2-360M-Instruct-q4f32_1-MLC/resolve/1e6b2ca3684e2bc8a6d39eb36e8d6cd51eb12bda/mlc-chat-config.json",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/ai",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/main-ZwTWedCP.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-CNDQMJ6R.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-BfJJ1_5b.css",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/en-CJlTuTOl.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/index-Dyf3BAPi.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/badge-Bql4JMfL.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/skeleton-BOd9tG-T.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/textarea-CM7zrTzi.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/Markdown-C2owyGo0.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/RemoteMedia-BEsiKEG7.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/usePaidIntent-L0bxZQAY.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/Markdown-BY-C1-kZ.css",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/zap-C_pCEs9I.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/switch-Bwcu7UVn.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/users-D8l43qDk.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/trash-2-s08TJDso.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/triangle-alert-CrIFiMnd.js",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "http://127.0.0.1:1445/assets/ibm-plex-sans-latin-wght-normal-IvpUvPa2.woff2",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://free2z.cash/api/ai/models/",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "url": "https://free2z.cash/api/ai/personalities/",
+      "method": "GET",
+      "body": null
+    }
+  ],
+  "memory": [
+    {
+      "label": "page before probe",
+      "summedProcessRssKiB": 398780,
+      "limitation": "Linux snapshots, shared pages double-counted; not a peak or GPU allocation measure"
+    },
+    {
+      "label": "after cold load",
+      "summedProcessRssKiB": 1101044,
+      "limitation": "Linux snapshots, shared pages double-counted; not a peak or GPU allocation measure"
+    },
+    {
+      "label": "after warm load",
+      "summedProcessRssKiB": 1074424,
+      "limitation": "Linux snapshots, shared pages double-counted; not a peak or GPU allocation measure"
+    }
+  ],
+  "statuses": [
+    {
+      "at": 1794570318557,
+      "text": "Downloading 1/11"
+    },
+    {
+      "at": 1794570318717,
+      "text": "Downloading 2/11"
+    },
+    {
+      "at": 1794570319347,
+      "text": "Downloading 3/11"
+    },
+    {
+      "at": 1794570319818,
+      "text": "Downloading 4/11"
+    },
+    {
+      "at": 1794570320294,
+      "text": "Downloading 5/11"
+    },
+    {
+      "at": 1794570320777,
+      "text": "Downloading 6/11"
+    },
+    {
+      "at": 1794570321253,
+      "text": "Downloading 7/11"
+    },
+    {
+      "at": 1794570321739,
+      "text": "Downloading 8/11"
+    },
+    {
+      "at": 1794570321934,
+      "text": "Downloading 9/11"
+    },
+    {
+      "at": 1794570322055,
+      "text": "Downloading 10/11"
+    },
+    {
+      "at": 1794570322226,
+      "text": "Downloading 11/11"
+    },
+    {
+      "at": 1794570323389,
+      "text": "Loading runtime 0%"
+    },
+    {
+      "at": 1794570323716,
+      "text": "Loading runtime 16%"
+    },
+    {
+      "at": 1794570324009,
+      "text": "Loading runtime 33%"
+    },
+    {
+      "at": 1794570324309,
+      "text": "Loading runtime 49%"
+    },
+    {
+      "at": 1794570324615,
+      "text": "Loading runtime 65%"
+    },
+    {
+      "at": 1794570324906,
+      "text": "Loading runtime 82%"
+    },
+    {
+      "at": 1794570325197,
+      "text": "Loading runtime 98%"
+    },
+    {
+      "at": 1794570325236,
+      "text": "Loading runtime 100%"
+    },
+    {
+      "at": 1794570325424,
+      "text": "Ready. Prompts stay in this worker; no server fallback is automatic."
+    },
+    {
+      "at": 1794570325488,
+      "text": "Stopped. No server request was made. Verified cache may be retained until you remove it or the browser evicts it."
+    },
+    {
+      "at": 1794570325553,
+      "text": "google / WebGPU adapter. Device creation succeeded; generation still needs evaluation."
+    },
+    {
+      "at": 1794570325605,
+      "text": "Verifying cache 1/11"
+    },
+    {
+      "at": 1794570325606,
+      "text": "Verifying cache 2/11"
+    },
+    {
+      "at": 1794570325707,
+      "text": "Verifying cache 3/11"
+    },
+    {
+      "at": 1794570325806,
+      "text": "Verifying cache 4/11"
+    },
+    {
+      "at": 1794570325903,
+      "text": "Verifying cache 5/11"
+    },
+    {
+      "at": 1794570326002,
+      "text": "Verifying cache 6/11"
+    },
+    {
+      "at": 1794570326099,
+      "text": "Verifying cache 7/11"
+    },
+    {
+      "at": 1794570326194,
+      "text": "Verifying cache 8/11"
+    },
+    {
+      "at": 1794570326211,
+      "text": "Verifying cache 9/11"
+    },
+    {
+      "at": 1794570326214,
+      "text": "Verifying cache 10/11"
+    },
+    {
+      "at": 1794570326223,
+      "text": "Verifying cache 11/11"
+    },
+    {
+      "at": 1794570326945,
+      "text": "Loading runtime 0%"
+    },
+    {
+      "at": 1794570327268,
+      "text": "Loading runtime 16%"
+    },
+    {
+      "at": 1794570327563,
+      "text": "Loading runtime 33%"
+    },
+    {
+      "at": 1794570327872,
+      "text": "Loading runtime 49%"
+    },
+    {
+      "at": 1794570328186,
+      "text": "Loading runtime 65%"
+    },
+    {
+      "at": 1794570328478,
+      "text": "Loading runtime 82%"
+    },
+    {
+      "at": 1794570328773,
+      "text": "Loading runtime 98%"
+    },
+    {
+      "at": 1794570328813,
+      "text": "Loading runtime 100%"
+    },
+    {
+      "at": 1794570328990,
+      "text": "Ready. Prompts stay in this worker; no server fallback is automatic."
+    },
+    {
+      "at": 1794570329073,
+      "text": "Model cache lost. Choose download again or server completion. App-owned model cache removed. HTTP caches and browser/OS copies cannot be guaranteed erased."
+    },
+    {
+      "at": 1794570329220,
+      "text": "google / WebGPU adapter. Device creation succeeded; generation still needs evaluation."
+    },
+    {
+      "at": 1794570329274,
+      "text": "Downloading 1/11"
+    },
+    {
+      "at": 1794570329316,
+      "text": "Stopped. No server request was made. App-owned model cache removed. HTTP caches and browser/OS copies cannot be guaranteed erased."
+    }
+  ],
+  "errors": [],
+  "capability": "google / WebGPU adapter. Device creation succeeded; generation still needs evaluation.",
+  "coldStatus": "Ready. Prompts stay in this worker; no server fallback is automatic.",
+  "coldTiming": "Load: 6872 ms; first token: NOT RUN ms; finished: NOT RUN ms. Timings include runtime work, not proof of a physical GPU. Memory, heat and battery require separate measurement.",
+  "storage": {
+    "quota": 2359912031,
+    "usage": 212428383,
+    "usageDetails": {
+      "caches": 212428383
+    }
+  },
+  "warmStatus": "Ready. Prompts stay in this worker; no server fallback is automatic.",
+  "warmTiming": "Load: 3390 ms; first token: NOT RUN ms; finished: NOT RUN ms. Timings include runtime work, not proof of a physical GPU. Memory, heat and battery require separate measurement.",
+  "cacheLoss": "Model cache lost. Choose download again or server completion. App-owned model cache removed. HTTP caches and browser/OS copies cannot be guaranteed erased.",
+  "downloadCancellation": {
+    "wallMs": 143,
+    "status": "Stopped. No server request was made. App-owned model cache removed. HTTP caches and browser/OS copies cannot be guaranteed erased.",
+    "cacheRemains": false,
+    "workersRemaining": 0
+  },
+  "outcome": "Real cache loss and public-download cancellation executed; no generation claim",
+  "fallback": {
+    "url": "http://127.0.0.1:1445/ai",
+    "prompt": "",
+    "requests": [
+      {
+        "url": "http://127.0.0.1:1445/ai",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/main-ZwTWedCP.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/index-CNDQMJ6R.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/index-BfJJ1_5b.css",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/en-CJlTuTOl.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/index-Dyf3BAPi.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/badge-Bql4JMfL.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/skeleton-BOd9tG-T.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/textarea-CM7zrTzi.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/Markdown-C2owyGo0.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/RemoteMedia-BEsiKEG7.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/usePaidIntent-L0bxZQAY.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/Markdown-BY-C1-kZ.css",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/zap-C_pCEs9I.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/switch-Bwcu7UVn.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/users-D8l43qDk.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/trash-2-s08TJDso.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/triangle-alert-CrIFiMnd.js",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "http://127.0.0.1:1445/assets/ibm-plex-sans-latin-wght-normal-IvpUvPa2.woff2",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "https://free2z.cash/api/ai/models/",
+        "method": "GET",
+        "body": null
+      },
+      {
+        "url": "https://free2z.cash/api/ai/personalities/",
+        "method": "GET",
+        "body": null
+      }
+    ]
+  },
+  "heat": "NOT MEASURABLE on VM",
+  "battery": "NOT MEASURABLE on VM"
+}
