@@ -1,3 +1,4 @@
+import { diagnostics } from "@/lib/diagnostics";
 import { lazy, Suspense, useEffect, useRef } from "react";
 import {
   createBrowserRouter,
@@ -176,6 +177,11 @@ function MobileCheckoutRecovery() {
 }
 
 function AppRoutes() {
+  const location = useLocation();
+  useEffect(() => {
+    diagnostics.breadcrumb("navigation", "route-enter");
+    return () => diagnostics.breadcrumb("navigation", "route-leave");
+  }, [location.pathname]);
   return (
     <>
       <MobileOAuthRecovery />

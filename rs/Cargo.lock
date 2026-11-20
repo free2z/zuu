@@ -1059,6 +1059,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-diagnostics"
+version = "0.1.0"
+
+[[package]]
 name = "f2z-intent"
 version = "0.1.0"
 dependencies = [

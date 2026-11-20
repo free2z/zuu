@@ -1426,6 +1426,7 @@ checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 name = "e2e2z"
 version = "0.1.0"
 dependencies = [
+ "f2z-diagnostics",
  "serde",
  "serde_json",
  "tauri",
@@ -1674,6 +1675,10 @@ dependencies = [
  "blake2",
  "tls_codec",
 ]
+
+[[package]]
+name = "f2z-diagnostics"
+version = "0.1.0"
 
 [[package]]
 name = "f2z-kt-client"

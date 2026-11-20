@@ -1046,6 +1046,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "f2z-diagnostics"
+version = "0.1.0"
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1139,6 +1143,7 @@ dependencies = [
 name = "free2z"
 version = "0.1.0"
 dependencies = [
+ "f2z-diagnostics",
  "serde",
  "serde_json",
  "tauri",

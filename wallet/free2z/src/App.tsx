@@ -8,6 +8,7 @@ import {
   RouterProvider,
   Routes,
   Route,
+  useLocation,
   useNavigate,
 } from "react-router-dom";
 import { toast } from "sonner";
@@ -37,6 +38,7 @@ import AuthFeature from "@/features/auth";
 // The login screen (AuthFeature), the AppShell layout, and the router stay
 // eager so /login renders instantly inside the same viewport-bound chrome as
 // every other route.
+const DiagnosticsFeature = lazy(() => import("@/features/diagnostics"));
 const ArticlesFeature = lazy(() => import("@/features/articles"));
 const CreatorFeature = lazy(() => import("@/features/creator"));
 const FundFeature = lazy(() => import("@/features/fund"));
@@ -103,6 +105,11 @@ function MobileOAuthRecovery() {
 }
 
 function AppRoutes() {
+  const location = useLocation();
+  useEffect(() => {
+    diagnostics.breadcrumb("navigation", "route-enter");
+    return () => diagnostics.breadcrumb("navigation", "route-leave");
+  }, [location.pathname]);
   return (
     <>
       <MobileOAuthRecovery />
@@ -110,6 +117,7 @@ function AppRoutes() {
         {/* Every route lives inside the viewport-bound shell. A single Suspense boundary
             per route keeps the AppShell mounted while the lazy chunk loads. */}
         <Route element={<AppShell />}>
+          <Route path={APP_ROUTES.diagnostics} element={<Suspense fallback={<RouteFallback />}><DiagnosticsFeature /></Suspense>} />
           <Route path={APP_ROUTES.login} element={<AuthFeature />} />
           {/* Articles is this surface's front door; ZUULI's Discover home is
               not one of the five content features being extracted. */}

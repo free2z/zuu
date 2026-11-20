@@ -1,3 +1,4 @@
+import { diagnostics } from "../../lib/diagnostics";
 // "Enroll with ZUULI" (#1022, workstream 5).
 //
 // This app never holds the wallet seed, so it cannot sign for a handle itself.
@@ -267,8 +268,10 @@ export function Enrollment({ onEnrolled }: EnrollmentProps) {
       deadline: startedAt + REQUEST_LIFETIME_MS,
     });
     try {
+      diagnostics.breadcrumb("enrollment", "enrollment-started");
       const status = await enrollment.enroll(candidate);
       if (!status.enrolled) {
+        diagnostics.breadcrumb("enrollment", "enrollment-refused");
         setPhase({
           kind: "failed",
           handle: candidate,
@@ -282,6 +285,7 @@ export function Enrollment({ onEnrolled }: EnrollmentProps) {
       setPhase({ kind: "idle" });
       await onEnrolled(status);
     } catch (cause) {
+      diagnostics.breadcrumb("enrollment", "enrollment-refused");
       setPhase({
         kind: "failed",
         handle: candidate,
