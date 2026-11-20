@@ -75,6 +75,7 @@ from .native_return import (
     make_bridge_token,
     make_processing_status_token,
     make_status_token,
+    make_checkout_status_token,
     native_return_stripe_deadline,
     read_app_claim,
     read_bridge_token,
@@ -380,6 +381,54 @@ def _expire_invalid_checkout_session(checkout_session):
         ))
 
 
+def _checkout_url_matches_session(checkout_session):
+    value = _stripe_value(checkout_session, 'url')
+    if not isinstance(value, str):
+        return False
+    try:
+        return urlsplit(value).path == f"/c/pay/{_stripe_value(checkout_session, 'id')}"
+    except ValueError:
+        return False
+
+
+def _replay_checkout_record(request, record):
+    from dj.apps.tuzis.models import fingerprint
+    serializer = CheckoutSessionRequestSerializer(data=request.data)
+    if (_mapping_body(request).get('expected_actor_id') != request.user.pk
+        or not serializer.is_valid()
+        or fingerprint(serializer.validated_data) != record.request_hash):
+        return _checkout_error(409, 'checkout_state_conflict', 'Retain the original purchase terms and retry identity.')
+    if record.response_status is None:
+        return _checkout_error(409, 'checkout_original_instruction_unresolved',
+            'The original checkout is unresolved. Retain this instruction and contact support.')
+    body = record.response_body
+    if record.response_status == 200:
+        quote = body.get('quote', {})
+        public_id = quote.get('checkout_intent_id')
+        intent = CheckoutIntent.objects.filter(public_id=public_id, user=request.user).first()
+        try:
+            identity = configured_stripe_identity()
+        except StripeIdentityConfigurationError:
+            identity = None
+        if (intent is None or identity is None
+            or intent.stripe_account_id != identity.account_id
+            or intent.stripe_mode != identity.mode
+            or intent.stripe_livemode is not identity.livemode
+            or body.get('id') != intent.stripe_checkout_session_id
+            or quote != {'checkout_intent_id': str(intent.public_id), 'tuzis': intent.tuzis,
+                'amount_cents': intent.amount_cents, 'currency': intent.currency,
+                'pricing_version': intent.pricing_version}):
+            return _checkout_error(409, 'checkout_state_conflict',
+                'The original purchase terms or provider identity changed. Contact support before another purchase.')
+        if read_status_token(body.get('status_token'), request.user.pk) is None:
+            # Renew correlation only, never the original quote expiry or
+            # provider instruction. Delayed receipts remain checkable.
+            body = dict(body, status_token=make_checkout_status_token(request.user.pk, public_id))
+    response = JsonResponse(body, status=record.response_status)
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
 @extend_schema(
     request=CheckoutSessionRequestSerializer,
     responses={
@@ -391,6 +440,9 @@ def _expire_invalid_checkout_session(checkout_session):
         503: CheckoutSessionErrorSerializer,
     },
     parameters=[
+        OpenApiParameter(name='Idempotency-Key', type=str,
+            location=OpenApiParameter.HEADER, required=False,
+            description='Optional legacy-compatible native retry identity: 16-128 ASCII letters, digits, underscores or hyphens. Requires expected_actor_id. Retained permanently per account: same terms replay the original response, changed terms or an unresolved worker return 409. No stale takeover. Returns expires_at and a user-bound status_token; review the exact quote before opening the URL. Never replace an unresolved instruction.'),
         OpenApiParameter(
             name=DESIGNED_FALLBACK_HEADER,
             type=str,
@@ -414,6 +466,14 @@ def _expire_invalid_checkout_session(checkout_session):
 @permission_classes([IsAuthenticated])
 @throttle_classes([StripeCheckoutUserRateThrottle])
 def create_checkout_session(request):
+    from dj.apps.tuzis.models import IdempotencyKey
+    # Replays do no provider work and preserve the original mode/terms even
+    # if the rollout gate changes after a response is lost.
+    key = request.headers.get('Idempotency-Key')
+    if isinstance(key, str) and re.fullmatch(r'[A-Za-z0-9_-]{16,128}', key):
+        previous = IdempotencyKey.objects.filter(scope='stripe-checkout', user=request.user, key=key).first()
+        if previous is not None:
+            return _replay_checkout_record(request, previous)
     # Fail closed BEFORE anything is created. An empty host policy means
     # STRIPE_CHECKOUT_ALLOWED_HOSTS was set to something malformed (see
     # dj.free2z.settings._parse_stripe_checkout_allowed_hosts), so every URL
@@ -502,6 +562,45 @@ def create_checkout_session(request):
     ):
         return _checkout_error(409, 'actor_changed', 'The authenticated account changed. Review this purchase again.')
 
+    # Optional for legacy callers. New native clients retain this identity
+    # before the first request, including across a lost response or restart.
+    from dj.apps.tuzis import models as idem
+    key = request.headers.get('Idempotency-Key')
+    claim = None
+    if key is not None:
+        if _mapping_body(request).get('expected_actor_id') != request.user.pk:
+            return _checkout_error(409, 'actor_changed', 'Review this purchase for the current account.')
+        if not re.fullmatch(r'[A-Za-z0-9_-]{16,128}', key):
+            return _checkout_error(400, 'invalid_request', 'Invalid checkout retry identity.')
+        try:
+            claim = idem.claim('stripe-checkout', request.user, key,
+                request_hash=idem.fingerprint(request_serializer.validated_data),
+                allow_stale_takeover=False)
+        except idem.IdempotencyConflict:
+            return _checkout_error(409, 'checkout_state_conflict', 'Retain the original purchase terms and retry identity.')
+        except idem.DuplicateRequest as duplicate:
+            return _replay_checkout_record(request, duplicate.record)
+    # Never release/take over an ambiguous provider call. An interrupted worker
+    # leaves a permanent fence; it cannot turn a retry into a second Session.
+    response = _create_quoted_checkout(request, quantity, return_mode,
+        domain_url, success_path, cancel_path, success_state, claim=claim)
+    if claim is not None:
+        bound = type(claim).objects.get(pk=claim.pk)
+        if bound.response_body is None:
+            # A completed preflight refusal created no instruction and did no
+            # provider write. The same retained client key may retry it later.
+            idem.release(claim)
+        else:
+            claim.finish(response.status_code, json.loads(response.content))
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
+def _create_quoted_checkout(request, quantity, return_mode, domain_url,
+        success_path, cancel_path, success_state, *, claim=None):
+    strict = claim is not None
+    from dj.apps.economy.models import EconomicPolicy
+
     # 2Z are priced at $0.01 each; card adds max($0.50, 10% of base).
     # Formula lives in dj.apps.pricing.constants so it stays consistent with
     # the live ZEC pricing.
@@ -553,6 +652,12 @@ def create_checkout_session(request):
                 stripe_mode=identity.mode,
                 stripe_livemode=identity.livemode,
             )
+            if claim is not None:
+                # Persist correlation in the same transaction as the intent,
+                # before any external write. A dead worker retains both the
+                # original retry fence and the exact instruction for review.
+                type(claim).objects.filter(pk=claim.pk, owner=claim.owner).update(
+                    response_body={'checkout_intent_id': str(intent.public_id)})
             if policy_version == 1:
                 reserve_funding(recipient_id=request.user.pk, purchaser_id=request.user.pk,
                     amount_m2z=quote.tuzis * 1000, sale_nusd=quote.amount_cents * 10_000_000,
@@ -588,6 +693,8 @@ def create_checkout_session(request):
     )
     if policy_version == 1:
         create_kwargs['payment_intent_data']['capture_method'] = 'manual'
+    if strict:
+        create_kwargs['expires_at'] = int(time.time()) + _NATIVE_CHECKOUT_SESSION_MAX_AGE_SECONDS
     if return_mode == 'zuuli_mobile':
         create_kwargs['origin_context'] = 'mobile_app'
         # Stripe permits 30 minutes through 24 hours. Expiring the Session at
@@ -655,6 +762,26 @@ def create_checkout_session(request):
             'Stripe returned an invalid checkout session.',
         )
 
+    response_metadata = _stripe_value(checkout_session, 'metadata')
+    if isinstance(response_metadata, stripe.StripeObject):
+        response_metadata = response_metadata.to_dict()
+    if strict and (
+        _stripe_value(checkout_session, 'amount_total') != quote.amount_cents
+        or type(_stripe_value(checkout_session, 'amount_total')) is not int
+        or _stripe_value(checkout_session, 'currency') != quote.currency
+        or _stripe_value(checkout_session, 'client_reference_id') != str(request.user.pk)
+        or response_metadata != create_kwargs['metadata']
+        or _stripe_value(checkout_session, 'status') != 'open'
+        or _stripe_value(checkout_session, 'payment_status') != 'unpaid'
+        or _stripe_value(checkout_session, 'expires_at') != create_kwargs['expires_at']
+        or not _checkout_url_matches_session(checkout_session)
+    ):
+        _expire_invalid_checkout_session(checkout_session)
+        intent.state = CheckoutIntent.State.PROVIDER_FAILED
+        intent.save(update_fields=['state', 'updated_at'])
+        _log_checkout_event(logging.ERROR, 'stripe_checkout_session_terms_invalid')
+        return _checkout_error(502, 'stripe_invalid_session', 'Stripe returned unexpected purchase terms.')
+
     payload = {
         'id': getattr(checkout_session, 'id', None),
         'url': getattr(checkout_session, 'url', None),
@@ -666,6 +793,9 @@ def create_checkout_session(request):
             'pricing_version': quote.pricing_version,
         },
     }
+    if strict:
+        payload.update(expires_at=create_kwargs['expires_at'],
+            status_token=make_checkout_status_token(request.user.pk, str(intent.public_id)))
     response_serializer = CheckoutSessionResponseSerializer(data=payload)
     if not response_serializer.is_valid():
         _expire_invalid_checkout_session(checkout_session)
@@ -1141,6 +1271,11 @@ def native_checkout_status(request):
     if payload is None:
         return JsonResponse({'detail': 'Checkout status token is invalid or expired.'}, status=410)
     payment_intent = payload.get('payment_intent')
+    if payload.get('v') == 3:
+        intent = CheckoutIntent.objects.filter(public_id=payload['checkout_intent_id'], user=request.user).first()
+        payment_intent = intent.stripe_payment_intent_id if intent else None
+        if not payment_intent:
+            return JsonResponse({'status': 'processing'})
     if payload.get('v') == 2:
         try:
             payment_intent = read_status_resolution(
@@ -1158,7 +1293,13 @@ def native_checkout_status(request):
         user=request.user,
         stripe_charge_id=payment_intent,
     ).first()
-    if credited is None:
+    if payload.get('v') == 3 and credited is not None and (
+        intent.state != CheckoutIntent.State.FULFILLED
+        or credited.amount != intent.amount_cents
+        or credited.tuzis_credited != intent.tuzis
+    ):
+        return JsonResponse({'status': 'processing'})
+    if credited is None or TransactionSerializer().issuance(credited)['status'] != 'credited':
         # The browser return never fulfills money. Only the verified webhook
         # creates this row and credits the ledger, so this remains processing.
         return JsonResponse({'status': 'processing'})

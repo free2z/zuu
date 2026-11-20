@@ -10803,6 +10803,16 @@
     "/api/stripe/create-checkout-session/": {
       "post": {
         "operationId": "stripe_create_checkout_session_create",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Optional legacy-compatible native retry identity: 16-128 ASCII letters, digits, underscores or hyphens. Requires expected_actor_id. Retained permanently per account: same terms replay the original response, changed terms or an unresolved worker return 409. No stale takeover. Returns expires_at and a user-bound status_token; review the exact quote before opening the URL. Never replace an unresolved instruction."
+          }
+        ],
         "tags": [
           "stripe"
         ],
@@ -16812,6 +16822,14 @@
           },
           "quote": {
             "$ref": "#/components/schemas/CheckoutQuote"
+          },
+          "expires_at": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status_token": {
+            "type": "string",
+            "maxLength": 1024
           }
         },
         "required": [

@@ -1275,6 +1275,10 @@ export interface CheckoutSessionResponse {
   /** @maxLength 2048 */
   url: string;
   quote: CheckoutQuote;
+  /** @minimum 1 */
+  expires_at?: number;
+  /** @maxLength 1024 */
+  status_token?: string;
 }
 
 export interface ClientSecret {

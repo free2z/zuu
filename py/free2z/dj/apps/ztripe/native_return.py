@@ -653,6 +653,18 @@ def make_processing_status_token(user_id: int, session_digest: str) -> str:
     )
 
 
+def make_checkout_status_token(user_id: int, checkout_intent_id: str) -> str:
+    """Correlation for a server-owned checkout, including web returns.
+
+    This token grants no financial authority. The authenticated status view
+    requires matching durable intent, transaction and original ledger issuance.
+    """
+    return signing.dumps(
+        {"v": 3, "uid": user_id, "checkout_intent_id": checkout_intent_id},
+        salt=_STATUS_SALT, compress=False,
+    )
+
+
 def read_status_token(token: str, user_id: int) -> dict | None:
     if not isinstance(token, str) or len(token) > 1024:
         return None
@@ -676,6 +688,15 @@ def read_status_token(token: str, user_id: int) -> dict | None:
             isinstance(payload.get("session_digest"), str)
             and _SESSION_DIGEST_RE.fullmatch(payload["session_digest"])
         ):
+            return None
+    elif payload.get("v") == 3:
+        import uuid
+        if set(payload) != {"v", "uid", "checkout_intent_id"}:
+            return None
+        try:
+            if str(uuid.UUID(payload["checkout_intent_id"])) != payload["checkout_intent_id"]:
+                return None
+        except (ValueError, TypeError, AttributeError):
             return None
     else:
         return None
