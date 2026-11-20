@@ -918,7 +918,13 @@ X-F2Z-RateLimit-Reset: 1790000302
 (a fifth simultaneous stream). Both are retryable after `Retry-After`. A
 request refused here created no call and no hold.
 
-## 9. What is deliberately not here
+## 9. Compatibility encodings
+
+The OpenAI Chat Completions encoding uses this same admission, hold, provider,
+and settlement path. Its field matrix and response grammar are specified in
+[the AI API design](../ai-api-design.md#31-layer-a--drop-in-compatibility-encodings).
+
+## 10. What is deliberately not here
 
 - **Provider passthrough** (`/v1/native/…`): later, allowlisted, and priced
   only for what the catalogue prices ([ADR 0003](../../ai-gateway/adr/0003-unified-api-before-passthrough.md)).

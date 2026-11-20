@@ -16,6 +16,11 @@ import type {
 /** Transport-neutral application facade. No implicit operation or payment keys. */
 export class Client {
   constructor(readonly transport: Transport) {}
+  /** Fetch for OpenAI-compatible SDKs, scoped to the configured AI gateway. */
+  compatFetch(): typeof fetch {
+    if (!this.transport.compatFetch) failure("unsupported_operation");
+    return this.transport.compatFetch();
+  }
   session() {
     return this.transport.session();
   }

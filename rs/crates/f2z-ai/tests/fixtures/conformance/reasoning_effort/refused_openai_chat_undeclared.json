@@ -33,6 +33,29 @@
         "field": "reasoning_effort"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "reason": "reasoning_effort_unsupported",
+            "field": "/reasoning_effort"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "this model does not support reasoning_effort",
+              "details": {
+                "reason": "reasoning_effort_unsupported",
+                "field": "/reasoning_effort"
+              },
+              "type": "invalid_request_error",
+              "param": "/reasoning_effort"
+            }
+          }
+        }
+      }
+    }
   }
 }
