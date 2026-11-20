@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   configureFormattingLocale,
   formatDate,
+  formatTuzis,
   formatZec,
   MAX_COMMENT_TUZIS,
   MAX_MEMBER_PRICE_TUZIS,
@@ -215,5 +216,16 @@ describe("localized date and relative-time formatting", () => {
   it("uses an explicit calendar-date context beyond the relative window", () => {
     const old = Date.parse("2025-01-01T01:02:03Z") / 1000;
     expect(timeAgo(old, "en-US")).toBe("Jan 1, 2025");
+  });
+});
+
+// Confirmed funding uses milli-2Z; header balances must not round it away.
+describe("formatTuzis account credit precision", () => {
+  it.each([
+    [0.001, "0.001 2Z"],
+    [45.678, "45.678 2Z"],
+    [2_000, "2,000 2Z"],
+  ] as const)("preserves credit %s", (balance, expected) => {
+    expect(formatTuzis(balance)).toBe(expected);
   });
 });

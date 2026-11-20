@@ -218,7 +218,7 @@ export function tuzisToUsd(tuzis: number): number {
 
 /** Human 2Z amount, grouped with commas. */
 export function formatTuzis(tuzis: number): string {
-  return `${Math.round(tuzis).toLocaleString()} 2Z`;
+  return `${tuzis.toLocaleString(undefined, { maximumFractionDigits: 3 })} 2Z`;
 }
 
 /** USD display for a 2Z purchase price. Do not use for balances or spends. */
