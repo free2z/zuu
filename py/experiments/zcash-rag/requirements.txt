@@ -189,7 +189,7 @@ text-generation==0.7.0
 tiktoken==0.6.0
 tinycss2==1.2.1
 tokenizers==0.15.2
-tornado==6.4
+tornado==6.6.1
 tqdm==4.66.2
 traitlets==5.14.2
 transformers==4.39.3
