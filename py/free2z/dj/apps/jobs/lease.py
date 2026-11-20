@@ -2134,7 +2134,7 @@ def install_queue_fetch_gate(manager) -> None:
         else:
             candidate_queues = list(queues)
         candidate_queues = [queue for queue in candidate_queues
-                            if not queue.startswith('paused.')]
+                            if not queue.startswith('paused.') and queue != 'account-exports-v1']
         paused = await sync_to_async(list)(QueueControl.objects.filter(
             paused_at__isnull=False).values_list('queue', flat=True))
         candidate_queues = [queue for queue in candidate_queues

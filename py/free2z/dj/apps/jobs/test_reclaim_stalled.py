@@ -2029,6 +2029,7 @@ def test_the_thresholds_the_registry_actually_produces():
     assert t('search.index_zpage') == search_runtime + 300
     assert t('search.index_multilingual_zpage') == search_runtime + 300
     assert t('exports.export_publication') is None      # NEVER
+    assert t('exports.export_account_data_v1') is None  # NEVER
     assert t('a.task.that.does.not.exist') is None      # unclassified
 
 

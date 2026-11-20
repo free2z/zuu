@@ -23,6 +23,15 @@ const methods = new Set([
   "head",
   "options",
 ]);
+// Full account archives require native in-session authentication and are not
+// delegated through this local MCP server. The canonical schema still includes
+// them for ordinary API clients; discovery is not authorization to expose them.
+const privateAccountExportOperations = new Set([
+  "account_data_export_create",
+  "account_data_export_latest",
+  "account_data_export_retrieve",
+  "account_data_export_download",
+]);
 export const operations = new Map<string, Operation>();
 for (const [path, item] of Object.entries(document.paths) as [
   string,
@@ -30,6 +39,7 @@ for (const [path, item] of Object.entries(document.paths) as [
 ][]) {
   for (const [method, spec] of Object.entries(item) as [string, Schema][]) {
     if (!methods.has(method) || !spec.operationId) continue;
+    if (privateAccountExportOperations.has(spec.operationId)) continue;
     if (operations.has(spec.operationId))
       throw new Error("Duplicate API operation ID");
     operations.set(spec.operationId, {

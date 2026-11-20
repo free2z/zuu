@@ -4105,6 +4105,130 @@ paths:
                     recipient_username:
                       type: string
           description: ''
+  /api/exports/account/:
+    post:
+      operationId: account_data_export_create
+      description: Queues a private ZIP archive containing the account owner's profile,
+        publication export, comments, ledger history, purchases, and connected app
+        grants. A timestamp-signed in-session download token expires after 15 minutes;
+        the archive expires after 24 hours.
+      summary: Request an account data archive
+      tags:
+      - Exports
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountExport'
+          description: ''
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountExport'
+          description: ''
+        '429':
+          description: Export request limit exceeded.
+        '401':
+          description: A recent sign-in is required.
+        '503':
+          description: Account export admission is not enabled.
+  /api/exports/account/{id}/:
+    get:
+      operationId: account_data_export_retrieve
+      summary: Check account export status
+      parameters:
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Exports
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountExport'
+          description: ''
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationExportError'
+          description: ''
+  /api/exports/account/{id}/download/:
+    get:
+      operationId: account_data_export_download
+      description: Streams the private ZIP only to its owning, active account after
+        recent authentication. The signed token expires after 15 minutes.
+      summary: Download the account data archive
+      parameters:
+      - in: header
+        name: X-Account-Export-Signature
+        schema:
+          type: string
+        description: The account-bound, timestamp-signed download token returned by
+          the status endpoint.
+        required: true
+      - in: path
+        name: id
+        schema:
+          type: string
+          format: uuid
+        required: true
+      tags:
+      - Exports
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+          description: Private ZIP archive.
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationExportError'
+          description: ''
+        '410':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationExportError'
+          description: ''
+  /api/exports/account/latest/:
+    get:
+      operationId: account_data_export_latest
+      description: Restore the signed-in account's latest export after leaving the
+        page.
+      summary: Retrieve the latest account data archive status
+      tags:
+      - Exports
+      security:
+      - cookieAuth: []
+      - knoxApiToken: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountExportLatest'
+          description: ''
   /api/exports/publications/:
     get:
       operationId: publication_exports_list
@@ -10566,6 +10690,71 @@ components:
       required:
       - purge_after
       - username_free_after
+    AccountExport:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/PublicationExportJobStatusEnum'
+        error_message:
+          type: string
+        complete:
+          type: boolean
+        warnings:
+          type: array
+          items:
+            type: string
+        file_name:
+          type: string
+        file_size:
+          type: integer
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        download_url:
+          type: string
+          nullable: true
+          description: Authenticated download endpoint; available for 15 minutes after
+            status is read.
+        download_token:
+          type: string
+          nullable: true
+          description: Timestamp-signed for this account, session and job, valid for
+            15 minutes. Send it in X-Account-Export-Signature rather than putting
+            it in the URL.
+      required:
+      - complete
+      - completed_at
+      - created_at
+      - download_token
+      - download_url
+      - error_message
+      - expires_at
+      - file_name
+      - file_size
+      - id
+      - status
+      - warnings
+    AccountExportLatest:
+      type: object
+      properties:
+        export:
+          allOf:
+          - $ref: '#/components/schemas/AccountExport'
+          nullable: true
+      required:
+      - export
     AccountRecoveryNextStepEnum:
       enum:
       - add_email

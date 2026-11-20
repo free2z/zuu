@@ -1,4 +1,5 @@
 account-delete.spec.ts
+account-export.spec.ts
 ai-translation-delivery-concurrency.spec.ts
 ai-translation-parallel-bulk.spec.ts
 ai-translation-parallel-review.spec.ts

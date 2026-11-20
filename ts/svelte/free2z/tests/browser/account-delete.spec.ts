@@ -373,3 +373,138 @@ test("cancelling a keep from an app's sign-in offers no way into the site", asyn
   await expect(left.locator('a[href="/"]')).toHaveCount(0);
   await expect(page.getByTestId("navbar-brand")).toHaveCount(0);
 });
+
+test("account export stays unavailable under the rollout hold", async ({
+  page,
+}) => {
+  await signedIn(page);
+  const requests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.startsWith("/api/exports/account/"))
+      requests.push(request.url());
+  });
+  await page.route("**/api/auth/account-deletion/", (route) =>
+    json(route, 200, PREVIEW),
+  );
+  await page.goto("/account/delete");
+  await expect(page.getByTestId("account-delete-confirm")).toBeVisible();
+  await expect(page.getByTestId("account-export")).toHaveCount(0);
+  expect(requests).toEqual([]);
+});
+
+// Enable the existing hard-coded rollout gate only in the served test module;
+// production source remains closed. This exercises the real deletion page.
+async function enableExportModule(page: Page) {
+  await page.route(
+    /\/src\/routes\/account\/delete\/\+page\.svelte(?:\?.*)?$/,
+    async (route) => {
+      const response = await route.fetch();
+      const body = await response.text();
+      const enabled = body.replace(
+        /const ACCOUNT_EXPORT_UI_ENABLED = false/,
+        "const ACCOUNT_EXPORT_UI_ENABLED = true",
+      );
+      if (enabled === body)
+        throw new Error(
+          "export gate was not found in transformed deletion page",
+        );
+      await route.fulfill({ response, body: enabled });
+    },
+  );
+}
+
+test("export reload resumes the same job on the deletion page", async ({
+  page,
+}) => {
+  await signedIn(page);
+  await enableExportModule(page);
+  await page.route("**/api/auth/account-deletion/", (route) =>
+    json(route, 200, PREVIEW),
+  );
+  let posts = 0;
+  const ready = {
+    id: "11111111-1111-4111-8111-111111111111",
+    status: "ready",
+    complete: false,
+    warnings: ["Partial archive"],
+    error_message: "",
+    file_name: "account.zip",
+    file_size: 4,
+    created_at: "2026-01-01T00:00:00Z",
+    completed_at: "2026-01-01T00:00:00Z",
+    expires_at: "2027-01-01T00:00:00Z",
+    download_url:
+      "/api/exports/account/11111111-1111-4111-8111-111111111111/download/",
+    download_token: "signed",
+  };
+  await page.route("**/api/exports/account/**", (route) => {
+    if (route.request().method() === "POST") {
+      posts++;
+      return json(route, 201, ready);
+    }
+    return json(route, 200, { export: ready });
+  });
+  await page.goto("/account/delete");
+  await expect(page.getByTestId("account-export")).toContainText(
+    "Partial archive",
+  );
+  await page.reload();
+  await expect(page.getByTestId("account-export")).toContainText(
+    "Partial archive",
+  );
+  await expect(
+    page.getByRole("button", { name: "Download archive" }),
+  ).toBeVisible();
+  expect(posts).toBe(0);
+});
+
+test("export recent-auth refusal signs out and returns without email", async ({
+  page,
+}) => {
+  await signedIn(page);
+  await page.route("**/api/auth/user/", (route) => {
+    const hasSession = (route.request().headers().cookie || "").includes(
+      "billing-fixture-session",
+    );
+    return json(
+      route,
+      hasSession ? 200 : 401,
+      hasSession
+        ? { id: 4301, username: "fixtureowner", email: "" }
+        : { detail: "Not authenticated" },
+    );
+  });
+  await enableExportModule(page);
+  await page.route("**/api/auth/account-deletion/", (route) =>
+    json(route, 200, PREVIEW),
+  );
+  let posts = 0;
+  await page.route("**/api/exports/account/**", (route) => {
+    if (route.request().method() === "POST") {
+      posts++;
+      return json(route, 401, {
+        code: "insufficient_user_authentication",
+        detail: "Sign in again",
+      });
+    }
+    return json(route, 200, { export: null });
+  });
+  await page.route("**/api/auth/logout/", async (route) => {
+    await page.context().clearCookies();
+    return json(route, 200, {});
+  });
+  await page.goto("/account/delete");
+  await expect(page.getByTestId("account-export")).toContainText(
+    "No email is required",
+  );
+  await page.getByRole("button", { name: "Request export" }).click();
+  await page.getByRole("button", { name: "Sign in again" }).click();
+  await page.waitForURL((url) => url.pathname === "/login");
+  expect(new URL(page.url()).searchParams.get("next")).toBe("/account/delete");
+  await signedIn(page);
+  await page.goto("/account/delete");
+  await expect(page.getByTestId("account-export")).toContainText(
+    "No email is required",
+  );
+  expect(posts).toBe(1);
+});

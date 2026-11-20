@@ -96,6 +96,16 @@ try {
       "example-team",
     );
     assert.ok(!JSON.stringify(result).includes(dir));
+    const hidden = await client.callTool({
+      name: "free2z_search_operations",
+      arguments: { query: "account_data_export" },
+    });
+    assert.equal(JSON.parse(hidden.content[0].text).total, 0);
+    const denied = await client.callTool({
+      name: "free2z_describe_operation",
+      arguments: { operation_id: "account_data_export_latest" },
+    });
+    assert.equal(denied.isError, true);
   } finally {
     await client.close();
   }

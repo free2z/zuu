@@ -32,7 +32,7 @@ from dj.apps.exports.exporter import (
     process_export_job,
     sanitize_archive_path,
 )
-from dj.apps.exports.models import ExportStatus, PublicationExportJob
+from dj.apps.exports.models import ExportStatus, ExportType, PublicationExportJob
 from dj.apps.exports.storage import get_export_storage
 from dj.apps.jobs.priorities import RECOVERY
 from dj.apps.g12f.localization import get_owner_visible_variants
@@ -406,6 +406,9 @@ def test_export_bounds_and_rollout_delay_settings(settings):
     # Export generation task is on exports queue
     export_task = app.tasks["exports.export_publication"]
     assert export_task.queue == "exports"
+    account_task = app.tasks["exports.export_account_data_v1"]
+    assert account_task.queue == "account-exports-v1"
+    assert account_task.queue != export_task.queue
 
     # PostgreSQL advisory lock key is stable documented 32-bit signed int
     import zlib
@@ -523,6 +526,8 @@ def test_post_export_task_rollout_delay_scheduling(settings):
         mock_qs = MagicMock()
         mock_qs.order_by.return_value.first.return_value = None
         mock_qs.count.return_value = 0
+        mock_qs.exists.return_value = False
+        mock_qs.filter.return_value = mock_qs
         mock_filter.return_value = mock_qs
 
         mock_job = MagicMock()
@@ -669,6 +674,59 @@ def test_global_active_jobs_capacity_limit(api_client, creator, settings):
 
 
 @pytest.mark.django_db
+def test_held_account_jobs_do_not_consume_publication_capacity(api_client, creator, settings):
+    """Unconsumed held account jobs leave the publication queue's slots usable."""
+    settings.EXPORT_MAX_ACTIVE_JOBS = 4
+
+    for i in range(4):
+        other_user = Creator.objects.create_user(
+            username=f"held_account_{i}",
+            email=f"held_account_{i}@example.com",
+            password="pwd",
+        )
+        PublicationExportJob.objects.create(
+            creator=other_user,
+            export_type=ExportType.ACCOUNT,
+            status=ExportStatus.QUEUED if i % 2 == 0 else ExportStatus.RUNNING,
+        )
+
+    response = api_client.post('/api/exports/publications/')
+
+    assert response.status_code == 201
+    assert PublicationExportJob.objects.filter(
+        creator=creator,
+        export_type=ExportType.PUBLICATIONS,
+        status=ExportStatus.QUEUED,
+    ).exists()
+    assert PublicationExportJob.objects.filter(
+        export_type=ExportType.ACCOUNT,
+        status__in=[ExportStatus.QUEUED, ExportStatus.RUNNING],
+    ).count() == 4
+
+
+@pytest.mark.django_db
+def test_held_account_job_does_not_block_owners_publication_export(api_client, creator):
+    held_account_job = PublicationExportJob.objects.create(
+        creator=creator,
+        export_type=ExportType.ACCOUNT,
+        status=ExportStatus.QUEUED,
+    )
+
+    response = api_client.post('/api/exports/publications/')
+
+    assert response.status_code == 201
+    assert PublicationExportJob.objects.filter(
+        pk=held_account_job.pk,
+        status=ExportStatus.QUEUED,
+    ).exists()
+    assert PublicationExportJob.objects.filter(
+        creator=creator,
+        export_type=ExportType.PUBLICATIONS,
+        status=ExportStatus.QUEUED,
+    ).exists()
+
+
+@pytest.mark.django_db
 def test_concurrent_same_user_active_job_reuses_before_capacity(api_client, creator, settings):
     """If creator already has an active in-flight job, POST returns 200 even if global capacity is full."""
     settings.EXPORT_MAX_ACTIVE_JOBS = 4
@@ -699,7 +757,12 @@ def test_concurrent_same_user_active_job_reuses_before_capacity(api_client, crea
 
 @pytest.mark.django_db
 def test_unique_active_job_constraint(creator):
-    """DB constraint unique_active_publication_export_job prevents two active jobs."""
+    """An active publication and account job may coexist; duplicate publication jobs may not."""
+    PublicationExportJob.objects.create(
+        creator=creator,
+        export_type=ExportType.ACCOUNT,
+        status=ExportStatus.QUEUED,
+    )
     PublicationExportJob.objects.create(creator=creator, status=ExportStatus.QUEUED)
     with pytest.raises(IntegrityError):
         PublicationExportJob.objects.create(creator=creator, status=ExportStatus.RUNNING)

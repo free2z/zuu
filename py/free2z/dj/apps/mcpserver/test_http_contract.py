@@ -75,3 +75,6 @@ def test_manifest_matches_reviewed_registry():
     manifest = json.loads((root / 'docs/free2z/mcp/capabilities.json').read_text())
     assert manifest['operations'] == [summary(op) for op in sorted(operations())]
     assert manifest['supported_count'] == sum(row['supported'] for row in manifest['operations'])
+    account_exports = {row['operation_id']: row for row in manifest['operations'] if row['operation_id'].startswith('account_data_export_')}
+    assert set(account_exports) == {'account_data_export_create', 'account_data_export_latest', 'account_data_export_retrieve', 'account_data_export_download'}
+    assert all(not row['supported'] for row in account_exports.values())
