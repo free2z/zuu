@@ -581,6 +581,10 @@ async fn issue_device_credential<R: Runtime>(
     admitted: &AdmittedIntent,
     request: &IssueDeviceCredentialRequestV1,
 ) -> Result<Vec<u8>, IntentError> {
+    let _network = zuuli_transport::global()
+        .direct()
+        .await
+        .map_err(|_| IntentError::Unavailable)?;
     let handle =
         Handle::new(request.handle.as_slice().to_vec()).map_err(|_| IntentError::InvalidValue)?;
     let device_kem_pk = KemPublicKey::new(request.device_kem_pk.as_slice().to_vec())
@@ -669,6 +673,10 @@ async fn issue_and_publish_device_credential<R: Runtime>(
     admitted: &AdmittedIntent,
     request: &IssueDeviceCredentialRequestV2,
 ) -> Result<Vec<u8>, IntentError> {
+    let _network = zuuli_transport::global()
+        .direct()
+        .await
+        .map_err(|_| IntentError::Unavailable)?;
     let handle =
         Handle::new(request.handle.as_slice().to_vec()).map_err(|_| IntentError::InvalidValue)?;
     let requested_handle = core::str::from_utf8(request.handle.as_slice())

@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openNetworkUrl as openUrl } from "@/lib/network";
 import { AlertTriangle, Check, Copy, ExternalLink, Mail, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Callout } from "@/components/ui/callout";

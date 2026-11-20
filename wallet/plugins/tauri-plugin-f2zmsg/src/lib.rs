@@ -277,9 +277,18 @@ fn plugin<R: Runtime>(location: StoreLocation, wrap_key_namespace: &'static str)
                     // a task that can be left stopped by a command that failed
                     // halfway. There is nothing to poll without an engine, so
                     // the faulted arm spawns no task at all.
+                    let wallet_authority = app.config().identifier == "cash.free2z.zuuli";
                     tauri::async_runtime::spawn(async move {
                         loop {
                             tokio::time::sleep(POLL_INTERVAL).await;
+                            let _network = if wallet_authority {
+                                match zuuli_transport::global().direct().await {
+                                    Ok(lease) => Some(lease),
+                                    Err(_) => continue,
+                                }
+                            } else {
+                                None
+                            };
                             if let Err(error) = engine.pump_inbound().await {
                                 tracing::debug!(code = %error.code(), "inbound poll");
                             }

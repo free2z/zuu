@@ -2,6 +2,8 @@ mod bridge;
 mod directory_publish;
 pub mod intent;
 mod messaging;
+mod navigation;
+mod network;
 mod oauth;
 mod session;
 
@@ -28,7 +30,9 @@ const WRAP_KEY_NAMESPACE: &str = "cash.free2z.zuuli.f2zmsg.wrap.v1";
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    zuuli_transport::global().suspend();
     tauri::Builder::default()
+        .plugin(navigation::plugin())
         .plugin(tauri_plugin_opener::init())
         // Native payment confirmation is intentionally available only to Rust.
         // No dialog permission is granted to the privileged webview.
@@ -40,7 +44,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         // Native HTTP client the frontend uses (@tauri-apps/plugin-http) to call
         // the free2z API without browser CORS — required for Login with Zcash.
-        .plugin(tauri_plugin_http::init())
+        // HTTP plugin commands are deliberately unregistered: network::api_request
+        // is the only WebView HTTP authority.
         // The shared Zcash engine — same plugin the zuuallet reference wallet
         // uses (librustzcash path dependency). This is what makes ZUULI a real
         // Zcash wallet on the desktop.
@@ -104,6 +109,11 @@ pub fn run() {
         .manage(oauth::OauthLoopbackState::default())
         .manage(oauth::OauthMobileState::default())
         .invoke_handler(tauri::generate_handler![
+            network::tor_status,
+            network::tor_set,
+            network::tor_suspend,
+            network::api_request,
+            network::network_open,
             oauth::oauth_loopback_start,
             oauth::oauth_loopback_wait,
             oauth::oauth_loopback_cancel,
@@ -132,8 +142,22 @@ pub fn run() {
         // into a wallet confirmation would be #367's confused deputy with an
         // IPC name.
         .setup(|app| {
+            tauri::async_runtime::block_on(network::initialize(app.handle()));
+            navigation::create_main(app.handle())?;
             bridge::install(app.handle());
             Ok(())
+        })
+        .on_window_event(|_, event| {
+            if matches!(event, tauri::WindowEvent::Focused(false)) {
+                network::tor_suspend();
+            }
+            #[cfg(mobile)]
+            if matches!(
+                event,
+                tauri::WindowEvent::Suspended | tauri::WindowEvent::Resumed
+            ) {
+                network::tor_suspend();
+            }
         })
         .run(app_context())
         .expect("error while running tauri application");

@@ -44,5 +44,24 @@
       "label": "Billetera anterior conservada",
       "title": "Billetera anterior conservada"
     }
+  },
+  "tor": {
+    "title": "Tor para conexiones de la cartera",
+    "scope": "Los RPC de la cartera usan tu servicio Tor local. La API de Free2Z, la inscripción, las descargas de parámetros y los enlaces externos se bloquean al activarlo. No cubre otras aplicaciones.",
+    "enable": "Activar Tor",
+    "disable": "Desactivar Tor",
+    "reconnect": "Reconectar",
+    "advanced": "Diagnóstico avanzado",
+    "details": "Requiere un servicio Tor SOCKS5 independiente en 127.0.0.1:9050. Los nombres de host se envían al proxy. ZUULI no inicia Tor, verifica su identidad ni mide su progreso de inicio. Una conexión al proxy no prueba que sea Tor. Al volver del segundo plano o cambiar de red, pulsa Reconectar.",
+    "mobile": "La aceptación en dispositivos Android e iOS con firma sigue pendiente. No incluye Tor móvil ni protección de todo el sistema.",
+    "epoch": "Época de conexión",
+    "direct": "Conexión directa",
+    "waiting": "Esperando una solicitud de la cartera por el proxy",
+    "proxyConnected": "Proxy conectado · identidad Tor sin verificar",
+    "degraded": "Proxy no disponible · sin conexión directa alternativa",
+    "suspended": "Conexiones pausadas · reconecta para continuar",
+    "web": "Solo disponible en la aplicación nativa",
+    "loading": "Leyendo el estado de conexión",
+    "error": "Error al cambiar la conexión · comprueba el estado nativo antes de continuar"
   }
 }

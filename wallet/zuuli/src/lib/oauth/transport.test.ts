@@ -21,8 +21,8 @@ vi.mock("@tauri-apps/plugin-deep-link", () => ({
   onOpenUrl: mocks.onOpenUrl,
 }));
 
-vi.mock("@tauri-apps/plugin-opener", () => ({
-  openUrl: mocks.openUrl,
+vi.mock("@/lib/network", () => ({
+  openNetworkUrl: mocks.openUrl,
 }));
 
 const STATE = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG";

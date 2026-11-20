@@ -7354,7 +7354,9 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
+ "ureq",
  "zeroize",
+ "zuuli-transport",
 ]
 
 [[package]]
@@ -7469,6 +7471,7 @@ dependencies = [
  "zeroize",
  "zip32",
  "zip321",
+ "zuuli-transport",
 ]
 
 [[package]]
@@ -7767,6 +7770,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
 dependencies = [
  "rustls",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-socks"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7e2948f60dbe26b35f2c7fb74ac2854c1fddded0fe9d7548fcc674a246f7615"
+dependencies = [
+ "either",
+ "futures-util",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -9846,6 +9861,23 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "webkit2gtk",
+ "zcash_client_backend",
+ "zuuli-transport",
+]
+
+[[package]]
+name = "zuuli-transport"
+version = "0.1.0"
+dependencies = [
+ "http",
+ "hyper-util",
+ "rustls",
+ "serde",
+ "tokio",
+ "tokio-socks",
+ "tonic",
+ "tower",
 ]
 
 [[package]]
