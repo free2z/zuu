@@ -71,17 +71,11 @@ export interface SocialButtonsProps {
   loginDestination?: LoginDestination;
 }
 
-const DEFAULT_EMPTY_STATE = (
-  <p className="text-center text-xs text-muted-foreground">
-    More sign-in options coming soon.
-  </p>
-);
-
 export function SocialButtons({
   associate = false,
   alreadyLinked,
   onLinked,
-  emptyState = DEFAULT_EMPTY_STATE,
+  emptyState,
   loginDestination = "/",
 }: SocialButtonsProps) {
   const {

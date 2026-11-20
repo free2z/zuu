@@ -61,15 +61,15 @@
         {
           "id": "01-articles-fresh",
           "path": "store/media/en-US/play-phone-portrait/01-articles-fresh.png",
-          "sha256": "964df51e69e0f545ed45c1912ed049558fe9e271a361f27bcdfab568913761a1",
-          "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
+          "sha256": "ae24d260144207bf7eeb39b14ef825673ab3347e6b167f7e013572837f60bed7",
+          "sourceSha": "951672161a91f9e505a252e769b677cbaff8dc34",
           "reviewIssue": 989
         },
         {
           "id": "02-article-reader",
           "path": "store/media/en-US/play-phone-portrait/02-article-reader.png",
           "sha256": "bdbf7a0f81e4c2c19b37b9dfc1d6f52ca15f41af23dfe717ddbb92bf4043f7f0",
-          "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
+          "sourceSha": "951672161a91f9e505a252e769b677cbaff8dc34",
           "reviewIssue": 989
         }
       ]
@@ -88,15 +88,15 @@
         {
           "id": "01-articles-fresh",
           "path": "store/media/en-US/play-7-inch-tablet-portrait/01-articles-fresh.png",
-          "sha256": "e6917293ccd6ad268d93910d44c87c17a309aa16a54fe333c22edf4238b8dd06",
-          "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
+          "sha256": "48c54c4b7d782a5ef510a0da4978255809b6aa930e0d3f981830c69b71d3bfc7",
+          "sourceSha": "951672161a91f9e505a252e769b677cbaff8dc34",
           "reviewIssue": 989
         },
         {
           "id": "02-article-reader",
           "path": "store/media/en-US/play-7-inch-tablet-portrait/02-article-reader.png",
           "sha256": "aa569c9223e201da6a79aedfa2d6f74ca9072705c772a6e18c804a03c7d0028e",
-          "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
+          "sourceSha": "951672161a91f9e505a252e769b677cbaff8dc34",
           "reviewIssue": 989
         }
       ]
@@ -115,15 +115,15 @@
         {
           "id": "01-articles-fresh",
           "path": "store/media/en-US/play-10-inch-tablet-portrait/01-articles-fresh.png",
-          "sha256": "cdccb47c94715348a904c2b6ff4832b9d41b9dcc184d8fcf3ec9ad4460e71577",
-          "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
+          "sha256": "aca581b2c841bfda0939ea52bea9cf3da63d6825d836fe2be7186caf7f0d3319",
+          "sourceSha": "951672161a91f9e505a252e769b677cbaff8dc34",
           "reviewIssue": 989
         },
         {
           "id": "02-article-reader",
           "path": "store/media/en-US/play-10-inch-tablet-portrait/02-article-reader.png",
           "sha256": "c2673ba7d8828646f79c8bd6c0813a4f106418747a8998fbdecffe811d6c1287",
-          "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
+          "sourceSha": "951672161a91f9e505a252e769b677cbaff8dc34",
           "reviewIssue": 989
         }
       ]
@@ -149,9 +149,9 @@
       "playwright"
     ],
     "runtimeEvidence": "linux-chromium-fixture-render-not-physical-android-device",
-    "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
-    "sourceDigest": "82e5e08178f81df7b364628a73ffc4d2232de5246cb07270a6d19398f3077b6e",
-    "contractDigest": "b63a50947f2a2481443e729c7218ffb8232c21ac0129160c1ce30f72ff16bada",
+    "sourceSha": "951672161a91f9e505a252e769b677cbaff8dc34",
+    "sourceDigest": "d4f14588d2c32f7d25c024bed5497d5d0bbbeefd7f243344640eaff0bc6f4f80",
+    "contractDigest": "fc4a1de98b4a56e67d6ddf6ccbebcb06c6ce8c1a7e69ba03294b56d374e47844",
     "captureConfig": "store/capture.json",
     "captureRecord": "store/capture-record.json"
   }

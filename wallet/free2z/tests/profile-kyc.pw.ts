@@ -39,9 +39,23 @@ async function setSession(page: Page, signedIn: boolean) {
 
 async function setSocialProviders(page: Page, scenario: "all-off" | "x") {
   await page.addInitScript((next) => {
-    sessionStorage.setItem("zuuli.mock.social-providers", next);
+    if (!sessionStorage.getItem("zuuli.mock.social-providers")) {
+      sessionStorage.setItem("zuuli.mock.social-providers", next);
+    }
   }, scenario);
 }
+
+test("login hides unconfigured providers and exposes a configured provider", async ({ page }) => {
+  await setSession(page, false);
+  await setSocialProviders(page, "all-off");
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { name: "Log in" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Continue with X" })).toHaveCount(0);
+  await expect(page.getByText("More sign-in options coming soon.")).toHaveCount(0);
+  await page.evaluate(() => sessionStorage.setItem("zuuli.mock.social-providers", "x"));
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Continue with X" })).toBeVisible();
+});
 
 async function expectNoHorizontalOverflow(page: Page, route: string) {
   const metrics = await page.evaluate(() => ({

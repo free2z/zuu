@@ -49,14 +49,14 @@ describe("SocialButtons provider availability", () => {
     expect(render(true)).toContain("Link X");
   });
 
-  it("uses the empty product state only for valid all-unconfigured", () => {
+  it("hides the provider surface when none are configured", () => {
     useSocialProvidersMock.mockReturnValue({
       providers: [],
       loading: false,
       error: null,
       reload,
     });
-    expect(render()).toContain("More sign-in options coming soon.");
+    expect(render()).toBe("");
   });
 
   it("renders a retryable failure instead of roadmap copy", () => {

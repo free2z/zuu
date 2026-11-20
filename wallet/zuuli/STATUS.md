@@ -1,5 +1,12 @@
 # ZUULI product status
 
+The [#396 scope audit](docs/product-readiness-396.md) records current source
+ownership and anonymous production reads for the requested product surfaces.
+It supplements the historical matrix below; it does not replace that matrix,
+refresh this document's release-wide source marker or authorize a release.
+The release candidate still needs a complete re-derivation and current native
+evidence before promotion.
+
 This is a release-readiness record, not a feature catalogue. A browser fixture,
 compiled code path, successful package build, or store upload does **not** prove
 that a product operation works. In this document, **production-observed** means
