@@ -27,7 +27,11 @@ const RECORD = 'store/capture-record.json';
 const commonInputs = ['index.html', 'package.json', 'package-lock.json', 'postcss.config.cjs', 'src', 'tailwind.config.cjs', 'tsconfig.json', 'tsconfig.build.json', 'release.json'];
 export function renderInputs(app) {
   assert(Object.hasOwn(SHOTS, app), 'unknown capture app');
-  return [...commonInputs.map((p) => `${app}/${p}`), ...(app === 'free2z' ? ['free2z/vite.config.ts'] : ['e2e2z/src-tauri/src', 'plugins/tauri-plugin-f2zmsg/src']), 'shared/package.json', 'shared/src'];
+  return [...commonInputs.map((p) => `${app}/${p}`), ...(app === 'free2z' ? ['free2z/vite.config.ts'] : [
+    'e2e2z/src-tauri/src', 'e2e2z/src-tauri/Cargo.toml', 'e2e2z/src-tauri/tauri.conf.json',
+    'plugins/tauri-plugin-f2zmsg/src', 'plugins/tauri-plugin-f2zmsg/Cargo.toml',
+    'plugins/tauri-plugin-f2zmsg/build.rs', 'plugins/tauri-plugin-f2zmsg/internal-directory.conf',
+  ]), 'shared/package.json', 'shared/src'];
 }
 export function contractInputs(app) {
   return [`${app}/${CONFIG}`, 'zuuli/package.json', 'zuuli/package-lock.json',
@@ -111,7 +115,11 @@ export async function validateSurfaceCaptureRecord(app, { root = walletRoot, enf
   const contractDigest = await inputDigest(root, contractInputs(app));
   assert(HEX.test(record.sourceDigest), 'invalid source digest');
   const sourceDigest = enforceCurrentSource ? await inputDigest(root, renderInputs(app)) : record.sourceDigest;
-  if (enforceCurrentSource) await assertSourceCommit(app, config.sourceSha, root);
+  if (enforceCurrentSource) {
+    assert.equal(record.sourceDigest, sourceDigest, 'capture render inputs are stale; update sourceSha and rerun --write');
+    await assertSourceCommit(app, config.sourceSha, root);
+    await assertCaptureEnvironment(app, root);
+  }
   validateRecordMatrix(config, record, { sourceDigest, contractDigest });
   return { config, record };
 }

@@ -126,17 +126,24 @@ repository. The published document and the contact are owner and legal work.
 
 ---
 
-## 3. Store graphics are absent
+## 3. Store catalogs now exist; console reconciliation remains
 
 `wallet/zuuli/store/` is the catalog pattern: `manifest.json`,
 `locales/en-US/play.json`, hash-pinned media in `wallet/zuuli/assets/store/`,
 and deterministic captures from `scripts/store-screenshot-capture.mjs`.
 
-**`wallet/free2z/` and `wallet/e2e2z/` have no `store/` and no `assets/store/`.**
-Play will not complete a listing without a 512 × 512 icon, a 1024 × 500 feature
-graphic and two phone screenshots per app. The listing *text* is already saved
-in the console and should be moved into `store/locales/en-US/play.json` so the
-repository, not the console, is the source of truth.
+The missing catalogs from the 2026-09-07 session landed in #992/#995, and
+#1035 repaired the capture startup contract. Both `wallet/free2z/store/` and
+`wallet/e2e2z/store/` now contain proposed English copy, hash-pinned 512 × 512
+icons, 1024 × 500 feature graphics, and two screenshots at each Play phone and
+tablet geometry. See [capture evidence and reproduction](SURFACE-STORE-CAPTURE.md).
+
+This is repository evidence, not a new console observation. The exact listing
+descriptions saved during that session were not recorded here. They still need
+to be compared with `store/locales/en-US/play.json`; owner review of the copy,
+brand derivatives and captures is also outstanding. `publicationReady` remains
+false. Today's upload, listing-completion and publication states have not been
+verified; the historical table above must not be read as current store state.
 
 ---
 
@@ -159,9 +166,9 @@ the listing half can be automated.
 
 ## 5. Suggested order for whoever picks this up
 
-1. **Store catalogs for free2z and e2e2z** (§3). Pure repository work, blocks
-   nothing else, and is the largest remaining chunk that an agent can finish
-   alone.
+1. **Reconcile and review the free2z/e2e2z catalogs** (§3). Compare the proposed
+   text with saved console copy, review the media, and verify store state
+   separately. The local catalog/capture implementation already exists.
 2. **Report and block for user content.** Unblocks child safety standards, fixes
    a real Play UGC-policy gap, and is API-first — the private production
    repository has the issue with the scope.
@@ -170,4 +177,4 @@ the listing half can be automated.
    account.
 5. **Resubmit the IARC questionnaire** once report/block ships.
 
-Steps 1 and 2 need no human input and do not depend on each other.
+Catalog review and report/block implementation do not depend on each other.

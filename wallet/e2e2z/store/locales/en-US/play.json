@@ -1,7 +1,7 @@
 {
   "title": "E2E2Z",
   "shortDescription": "An early preview of the Free2Z private messaging app.",
-  "fullDescription": "E2E2Z is the dedicated Free2Z messaging app, designed to keep device messaging keys separate from the ZUULI wallet.\n\nThis internal preview does not yet provide a working messaging transport. Device enrollment depends on the wallet integration and may be unavailable. This preview is for evaluating the current interface, not for sending messages.",
+  "fullDescription": "E2E2Z is the dedicated Free2Z messaging app, designed to keep device messaging keys separate from the ZUULI wallet.\n\nThis is an experimental internal preview. On iPhone and Android, enrollment requests are passed to ZUULI for confirmation. This build uses a disposable internal directory; free2z operates the log and its witnesses, so they are not independent. The directory is erased before public launch.\n\nAn unenrolled device cannot start a conversation. Enrollment, directory availability, and connectivity determine which messaging features are available. Desktop builds cannot enroll through ZUULI. Diagnostics stay on the device unless you choose to share them.",
   "releaseNotes": "Internal preview for approved testers.",
   "supportEmail": "help@free2z.com",
   "supportUrl": "https://free2z.cash/docs/",
