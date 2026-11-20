@@ -18,6 +18,10 @@ from drf_spectacular.utils import (
 from taggit.models import Tag, TaggedItem
 
 from dj.apps.g12f.models import zPage, ZPageTranslation, ZPageVariant
+from dj.apps.g12f.blocks import exclude_blocked
+from dj.apps.search.drf_filters import (
+    VectorSearchFilter, normalize_search_query,
+)
 from dj.apps.g12f.localization import normalize_zpage_language
 from dj.apps.g12f.preconditions import (
     canonical_etag, variant_etag, check_if_match, PreconditionFailedSerializer,
@@ -51,6 +55,9 @@ TAG_CORPUS_TYPES = frozenset({'zpage', 'comment'})
 #page carries a handful, so a nonsense value should widen the suggestions
 #rather than break the editor's category control.
 MAX_SELECTED_TAGS = 50
+# Bound public facet autocomplete work and mirror the zPage feed's semantic
+# filters. These are inputs to a public endpoint, not trusted UI values.
+MAX_TAG_QUERY_CHARS = 128
 
 LEVEL_HELP = (
     "`broad` or `narrow`, derived from how many published zPages carry the "
@@ -149,6 +156,20 @@ def _tag_usage(scope):
             ),
         ),
         OpenApiParameter(
+            "category", str,
+            description="Restrict zPage facets to this feed category.",
+        ),
+        OpenApiParameter(
+            "homeSort", str, enum=["score", "updated", "random", "popular"],
+            description=("Apply the public homepage eligibility rule: ranked "
+                         "zPages must have a featured image."),
+        ),
+        OpenApiParameter(
+            "article_facets", bool,
+            description=("Use public article-feed visibility and hybrid search "
+                        "semantics for intersecting tag facets."),
+        ),
+        OpenApiParameter(
             "selected_tags", str,
             description=(
                 "Comma-separated tags already chosen. They are excluded from "
@@ -180,9 +201,13 @@ def _tag_usage(scope):
 @api_view(['GET'])
 @permission_classes([AllowAny])
 def autocomplete(request):
-    query = request.query_params.get('query', '').strip()
+    query = request.query_params.get('query', '').strip()[:MAX_TAG_QUERY_CHARS]
     username = request.query_params.get('username', '').strip()
-    search = request.query_params.get('search', '').strip()
+    article_facets = request.query_params.get('article_facets') == 'true'
+    raw_search = request.query_params.get('search', '').strip()
+    search = normalize_search_query(raw_search) if article_facets else raw_search
+    category = request.query_params.get('category', '').strip()
+    home_sort = request.query_params.get('homeSort', '').strip()
     type = request.query_params.get('type', '').strip()
     mine = request.query_params.get('mine', '').strip().lower() == 'true'
     if type and type not in TAG_CORPUS_TYPES:
@@ -241,6 +266,14 @@ def autocomplete(request):
         zpage_scope = zPage.objects.filter(creator=request.user)
     else:
         zpage_scope = zPage.objects.published_and_active()
+        # Member-only content is not part of the anonymous reader's facet
+        # corpus. Its tag names/counts must not disclose private content.
+        if article_facets:
+            zpage_scope = zpage_scope.filter(is_subscriber_only=False)
+            zpage_scope = exclude_blocked(zpage_scope, request.user, 'creator')
+            zpage_scope = zpage_scope.exclude(title="").exclude(
+                vanity="",
+            ).exclude(vanity__isnull=True)
     # Only comments whose parent is visible to the caller — else tag
     # names/counts belonging solely to private conversations or hidden pages
     # leak through this public endpoint.
@@ -251,11 +284,23 @@ def autocomplete(request):
     # requiring `type`; applying them to the untyped corpus below would be a
     # silent contract change on top of the visibility fix.
     if type == 'zpage':
+        if article_facets and category:
+            zpage_scope = zpage_scope.filter(category=category)
+        if article_facets and home_sort:
+            zpage_scope = zpage_scope.exclude(featured_image__isnull=True)
         if username:
             zpage_scope = zpage_scope.filter(
                 creator__username__iexact=username
             )
-        if search:
+        if search and article_facets:
+            # Use the identical bounded hybrid search backend as GET /api/zpage/.
+            # It reuses cached embeddings, admits cold provider calls through
+            # the existing budget, and falls back to indexed PostgreSQL FTS;
+            # facet counting never scans vectors or computes embeddings itself.
+            zpage_scope = VectorSearchFilter().filter_queryset(
+                request, zpage_scope, view=None,
+            )
+        elif search:
             zpage_scope = zpage_scope.filter(
                 Q(title__icontains=search) | Q(content__icontains=search)
             )

@@ -4,7 +4,10 @@
     "tagline": "Articles by creators"
   },
   "articles": {
-    "searchAccessible": "Search articles"
+    "searchAccessible": "Search articles",
+    "topicFilter": "Filter by topic",
+    "topicSelectedCount": "{{count}} selected",
+    "clearTopics": "Clear topics"
   },
   "auth": {
     "zcashPending": {

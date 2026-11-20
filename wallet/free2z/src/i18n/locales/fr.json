@@ -4,7 +4,10 @@
     "tagline": "Les articles des créateurs"
   },
   "articles": {
-    "searchAccessible": "Rechercher des articles"
+    "searchAccessible": "Rechercher des articles",
+    "topicFilter": "Filtrer par sujet",
+    "topicSelectedCount": "{{count}} sélectionnés",
+    "clearTopics": "Effacer les sujets"
   },
   "auth": {
     "zcashPending": {
