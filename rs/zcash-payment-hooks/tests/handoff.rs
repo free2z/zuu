@@ -1226,7 +1226,10 @@ fn compiled_stream_deadline_releases_lock_when_stdout_stops_draining() -> Result
 #[test]
 fn corrupt_event_with_below_floor_receipt_keeps_diagnostics_and_unknown_derived_counts()
 -> Result<()> {
-    let dir = TempDir::new()?;
+    // /tmp's root-owned sticky bit is explicitly accepted by Journal::inspect;
+    // keep this security-boundary test independent of the checkout's ancestors.
+    let dir = TempDir::new_in("/tmp")?;
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))?;
     let mut c = config(&dir);
     let lock = StateLock::acquire(&c.state_dir)?;
     let mut j = Journal::open(&c, "key")?;
@@ -1246,12 +1249,16 @@ fn corrupt_event_with_below_floor_receipt_keeps_diagnostics_and_unknown_derived_
         [],
     )?;
     let before = snapshot(&c)?;
+    let started = Instant::now();
     let status = Journal::inspect(&c)?.status(&c)?;
+    assert!(started.elapsed() < Duration::from_secs(30));
     assert_eq!(status["delivery_inventory_verified"], false);
     assert!(status["missing_deliveries"].is_null());
     assert!(status["inventory_receipt_count"].is_null());
     assert!(status["inventory_bytes"].is_null());
     assert_eq!(status["inventory_event_count"], 1);
+    assert_eq!(status["inventory_verification_deadline_ms"], 30_000);
+    assert!(status["delivery_inventory_error"].as_str().is_some());
     assert_eq!(status["cursor"][0], c.automation_start_height);
     assert_eq!(status["active_receipts"], 2);
     assert_eq!(status["pending_deliveries"], 0);
