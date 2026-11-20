@@ -186,6 +186,11 @@ impl ModelCapabilities {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelControls {
+    /// The provider role used for system/developer instructions. Only the
+    /// signed value `"developer"` selects that role; absent or other values
+    /// use `system`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_role: Option<String>,
     /// The `reasoning_effort` levels this model accepts, as wire strings
     /// (`"low"`, `"high"`, …). Only read when
     /// [`ModelCapabilities::reasoning_effort`] is `true`. Present: a level not
@@ -223,7 +228,8 @@ pub struct ModelControls {
 
 impl ModelControls {
     fn is_empty(&self) -> bool {
-        self.effort_levels.is_none()
+        self.system_role.is_none()
+            && self.effort_levels.is_none()
             && !self.tools_require_effort_none
             && !self.temperature_top_p_exclusive
             && self.temperature.is_none()
@@ -673,6 +679,19 @@ mod tests {
         ] {
             assert!(serde_json::from_str::<ModelCapabilities>(invalid).is_err());
         }
+    }
+
+    #[test]
+    fn system_role_is_a_signed_control_and_absence_defaults_to_system() {
+        let absent: ModelControls = serde_json::from_str("{}").unwrap();
+        assert_eq!(absent.system_role, None);
+        let developer: ModelControls =
+            serde_json::from_str(r#"{"system_role":"developer"}"#).unwrap();
+        assert_eq!(developer.system_role.as_deref(), Some("developer"));
+        assert_eq!(
+            serde_json::to_string(&developer).unwrap(),
+            r#"{"system_role":"developer"}"#
+        );
     }
 
     #[test]

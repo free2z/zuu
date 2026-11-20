@@ -361,7 +361,7 @@ pub struct InputEstimate {
 pub fn input_tokens(request: &ChatRequest, model: &CatalogModel) -> Option<InputEstimate> {
     match Encoding::for_model(model) {
         Some(encoding) => Some(InputEstimate {
-            tokens: prompt_tokens(encoding, request),
+            tokens: prompt_tokens(encoding, request, model),
             exact: true,
         }),
         None => byte_bound(request).map(|tokens| InputEstimate {
@@ -389,9 +389,14 @@ fn byte_bound(request: &ChatRequest) -> Option<u64> {
     )
 }
 
-const fn role_word(role: Role) -> &'static str {
+fn role_word(role: Role, model: &CatalogModel) -> &'static str {
     match role {
-        Role::System => "system",
+        Role::System | Role::Developer
+            if model.controls.system_role.as_deref() == Some("developer") =>
+        {
+            "developer"
+        }
+        Role::System | Role::Developer => "system",
         Role::User => "user",
         Role::Assistant => "assistant",
         Role::Tool => "tool",
@@ -400,13 +405,13 @@ const fn role_word(role: Role) -> &'static str {
 
 /// OpenAI Chat Completions prompt tokens: messages, tools, `tool_choice`
 /// and `response_format`, with the measured framing.
-fn prompt_tokens(encoding: Encoding, request: &ChatRequest) -> u64 {
+fn prompt_tokens(encoding: Encoding, request: &ChatRequest, model: &CatalogModel) -> u64 {
     let count = |text: &str| encoding.count(text);
     let mut n = REPLY_PRIMING;
     for message in &request.messages {
         n = n
             .saturating_add(PER_MESSAGE)
-            .saturating_add(count(role_word(message.role)));
+            .saturating_add(count(role_word(message.role, model)));
         // The adapter sends a message's text parts concatenated, and token
         // counts are not additive across a concatenation (`"jaa"` + `"oog"`
         // is 2 tokens apart and 3 together), so the parts are counted as

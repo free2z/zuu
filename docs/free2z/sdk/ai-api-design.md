@@ -266,15 +266,18 @@ endpoints are unusable without it (LangChain's `ChatOpenAI` sends
 
 ### 2.8 System / developer roles
 
-OpenAI: `system` or `developer` (o-series and GPT-5 want `developer`);
-Responses: `instructions`. Anthropic: top-level `system` (string or blocks
-with `cache_control`). xAI: `system`. **We have:** at most one `system`
-message, first. **Gap:** `developer` alias; several system messages
-(LangChain prepends; Anthropic accepts multiple blocks). **Design (S2):**
-accept `developer` as a synonym (emitted as `developer` where the catalogue
-says `controls.system_role: "developer"`, else `system`); allow more than
-one `system`/`developer` message anywhere before the first `user` turn,
-concatenated in order with a blank line for providers that take one.
+OpenAI Chat Completions: `system` or `developer` (o-series and GPT-5 want
+`developer`); Responses: one `instructions` string; Anthropic: top-level
+`system` blocks (including distinct cache breakpoints); xAI: `system`.
+**Design (S2):** accept `developer` as a synonym for `system`; emit the
+`developer` role only when the verified catalogue's signed
+`controls.system_role` is `"developer"`, otherwise `system`. Allow any number
+of `system`/`developer` messages before the first `user` turn, preserving
+order. Providers with one instruction string join their text with a blank
+line; Anthropic receives one top-level system text block per input message.
+Those messages are text-only: an image part is refused with
+`reason: "image_not_supported_for_role"` before any hold. Either role after
+the first user is refused with `reason: "position"`.
 
 ### 2.9 Conversation state
 

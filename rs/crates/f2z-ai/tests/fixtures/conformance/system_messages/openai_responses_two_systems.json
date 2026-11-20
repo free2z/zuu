@@ -1,0 +1,59 @@
+{
+  "name": "openai_responses_two_systems",
+  "feature": "system_messages",
+  "source": "OpenAI Responses create API reference, instructions and input messages: https://developers.openai.com/api/reference/resources/responses/methods/create . Synthetic documented shape; no live provider call.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {},
+  "request": {
+    "model": "m-openai_responses",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "First instruction."
+          }
+        ]
+      },
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "text",
+            "text": "Second instruction."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question?"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "encodings": {},
+    "provider_request": {
+      "instructions": "First instruction.\n\nSecond instruction.",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "Question?"
+            }
+          ]
+        }
+      ]
+    },
+    "hold_extends": 0
+  }
+}

@@ -134,7 +134,14 @@ impl Provider for OpenAiChat {
             .messages
             .iter()
             .map(|message| match message.role {
-                Role::System => json!({"role": "system", "content": text_of(&message.content)}),
+                Role::System | Role::Developer => json!({
+                    "role": if model.controls.system_role.as_deref() == Some("developer") {
+                        "developer"
+                    } else {
+                        "system"
+                    },
+                    "content": text_of(&message.content),
+                }),
                 Role::User => {
                     let content: Vec<Value> = message
                         .content
