@@ -126,6 +126,12 @@ async function readWalletSnapshot(
     wallet.getWalletStatus(),
     wallet.listWallets(),
   ]);
+  // A native fail-closed recovery state must reach the recovery screen even
+  // when its database cannot open. Never reinterpret it as onboarding.
+  if (status.custodyState === "dataUnavailable") {
+    return { status, wallets, activeWallet: null, activeWalletId: status.activeWalletId,
+      balance: null, sync: null, unifiedAddress: null };
+  }
   const activeWallet = activeWalletFrom(status, wallets);
 
   if (expectedWalletId && activeWallet?.id !== expectedWalletId) {

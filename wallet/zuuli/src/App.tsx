@@ -176,6 +176,11 @@ function MobileCheckoutRecovery() {
 }
 
 function AppRoutes() {
+  const custody = useWallet((s) => s.status?.custodyState);
+  const { pathname } = useLocation();
+  if (custody && !["none", "present", "unchecked"].includes(custody) && pathname !== "/wallet/move") {
+    return <Navigate to="/wallet/move" replace />;
+  }
   return (
     <>
       <MobileOAuthRecovery />

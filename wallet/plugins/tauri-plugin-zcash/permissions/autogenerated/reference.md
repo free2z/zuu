@@ -7,6 +7,10 @@ Default permissions for the Zcash wallet plugin
 - `allow-create-wallet`
 - `allow-restore-wallet`
 - `allow-get-wallet-status`
+- `allow-get-phone-snapshot`
+- `allow-verify-phone-recovery`
+- `allow-recover-phone-wallet`
+- `allow-show-phone-backup`
 - `allow-preview-legacy-wallet-import`
 - `allow-retry-wallet-cleanup`
 - `allow-get-seed-phrase`
@@ -446,6 +450,32 @@ Denies the get_pending_send command without any pre-configured scope.
 <tr>
 <td>
 
+`zcash:allow-get-phone-snapshot`
+
+</td>
+<td>
+
+Enables the get_phone_snapshot command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-get-phone-snapshot`
+
+</td>
+<td>
+
+Denies the get_phone_snapshot command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-get-seed-phrase`
 
 </td>
@@ -784,6 +814,32 @@ Denies the propose_send_all command without any pre-configured scope.
 <tr>
 <td>
 
+`zcash:allow-recover-phone-wallet`
+
+</td>
+<td>
+
+Enables the recover_phone_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-recover-phone-wallet`
+
+</td>
+<td>
+
+Denies the recover_phone_wallet command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `zcash:allow-rename-wallet`
 
 </td>
@@ -907,6 +963,32 @@ Enables the set_lightwalletd_url command without any pre-configured scope.
 <td>
 
 Denies the set_lightwalletd_url command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-show-phone-backup`
+
+</td>
+<td>
+
+Enables the show_phone_backup command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-show-phone-backup`
+
+</td>
+<td>
+
+Denies the show_phone_backup command without any pre-configured scope.
 
 </td>
 </tr>
@@ -1063,6 +1145,32 @@ Enables the validate_address command without any pre-configured scope.
 <td>
 
 Denies the validate_address command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:allow-verify-phone-recovery`
+
+</td>
+<td>
+
+Enables the verify_phone_recovery command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`zcash:deny-verify-phone-recovery`
+
+</td>
+<td>
+
+Denies the verify_phone_recovery command without any pre-configured scope.
 
 </td>
 </tr>
