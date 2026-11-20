@@ -87,6 +87,40 @@ Until a fail-closed cross-inventory policy and positive/negative fixtures cover
 every platform boundary, the exact artifact inventories must not be described
 as declared-dependency reconciliation.
 
+The reusable `scripts/macho-cargo-runtime.mjs` reader is groundwork for
+**Refs #379**, with no Apple packaging or release integration yet.
+`collectMachOCargoRuntime({ executable, cargoManifest, cargoLock, targets })`
+accepts explicit `{ target, features }` entries, recovers `.dep-v0` from every
+thin/fat slice, and reconciles each slice against its own target-filtered,
+locked Cargo runtime graph. `verifyMachOCargoRuntime({ binding, ...options })`
+independently repeats that collection and rejects any binding difference.
+The binding includes the whole executable, slice ranges/digests, recovered
+compressed/JSON evidence digests, Cargo.lock digest, and per-target graph.
+The reader does not execute or modify binaries. It deliberately accepts only
+64-bit little-endian baseline arm64/x86_64 executables with `LC_BUILD_VERSION`
+for macOS, iOS device, or iOS simulator; arm64e, legacy platform commands,
+32-bit images and dylibs fail closed. Fat32/fat64 tables in either byte order
+must contain exactly the requested targets, with consistent platform, CPU
+headers, non-overlapping slices, and one bounded regular evidence section per
+slice. Limits are 256 MiB per binary, 8 slices, 4096 load commands/4 MiB of
+commands per slice, 1 MiB compressed/8 MiB decoded evidence, and 10,000 packages.
+
+The section name/segment and format-8 expectations were checked against the
+[checksum-pinned cargo-auditable 0.7.5 crate](https://static.crates.io/crates/cargo-auditable/cargo-auditable-0.7.5.crate)
+(`src/object_file.rs`, `src/sbom_precursor.rs`; SHA-256
+`cd121127b91d68074770a620544182345d7db56d03dcbd85316ab11e54a5b1bc`).
+`npm run test:artifact-sbom` includes checkable synthetic binary mutations and
+real Cargo target-filtered reconciliation. With `clang`, `ld64.lld-18`, and
+`llvm-lipo-18` available it also links tiny thin/universal Mach-O executables
+containing fixture audit JSON and verifies those exact bytes. Those fixtures
+prove parser/reconciliation behavior, not a cargo-auditable Apple build or
+signed production payload. The shared decoder also retains real ELF/objcopy
+coverage. Apple build instrumentation, format-8 evidence surviving the actual
+link/lipo/sign/archive pipeline, fresh artifact extraction integration, and
+hosted validation are still required before enabling Apple publication gates.
+Android Cargo evidence and Gradle/Vite bundle-graph reconciliation remain open;
+no source sidecar or source-SBOM equality substitutes for embedded shipped data.
+
 `release.json` schema v2 is the source of truth. It must remain valid UTF-8 and
 byte-canonical pretty-printed JSON; the verifier uses fatal UTF-8 decoding and
 compares the original bytes with the canonical serialization, rejecting invalid
