@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "profile": "vault-empty-v1",
+  "locale": "en-US",
+  "identityClassification": "public-synthetic-empty-wallet",
+  "status": {
+    "initialized": true,
+    "hasSeed": true,
+    "syncedHeight": null,
+    "chainTip": null,
+    "activeWalletId": "00000000-0000-4000-8000-000000000000",
+    "activeWalletName": "Personal wallet",
+    "walletCount": 1,
+    "backupRequired": false,
+    "cleanup": {
+      "pendingOperations": 0,
+      "blockedOperations": 0,
+      "pendingStages": 0,
+      "completedStages": 0,
+      "diagnostics": []
+    },
+    "legacyAppData": {
+      "state": "none",
+      "legacyIdentifier": null,
+      "diagnostic": null
+    }
+  },
+  "wallets": [
+    {
+      "id": "00000000-0000-4000-8000-000000000000",
+      "name": "Personal wallet",
+      "isActive": true,
+      "birthdayHeight": null,
+      "createdAt": "2026-08-19T12:00:00.000Z"
+    }
+  ],
+  "balance": {
+    "accountIndex": 0,
+    "totalShielded": 0,
+    "spendable": 0,
+    "changePending": 0,
+    "valuePending": 0
+  },
+  "unifiedAddress": "PUBLIC-SYNTHETIC-NONPAYABLE",
+  "sync": {
+    "syncing": false,
+    "syncedHeight": 0,
+    "chainTip": 0,
+    "progressPercent": 0,
+    "lastError": null
+  },
+  "transactions": [],
+  "pendingSend": null
+}

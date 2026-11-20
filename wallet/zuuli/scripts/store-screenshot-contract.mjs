@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { validateVaultFixture } from "./store-vault-fixture.mjs";
+
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
@@ -10,7 +12,7 @@ const canonicalRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 export const CAPTURE_CONFIG_PATH = "store/capture.json";
 export const CAPTURE_RECORD_PATH = "store/capture-record.json";
-export const CAPTURE_FIXTURE_PATH = "store/fixtures/en-US/articles.json";
+export const CAPTURE_FIXTURE_PATH = "store/fixtures/en-US/vault.json";
 export const VITE_PRODUCTION_ENV_FILES = [".env", ".env.local", ".env.production", ".env.production.local"];
 export const CAPTURE_LOCAL_OVERRIDE_FILES = [...VITE_PRODUCTION_ENV_FILES, ".npmrc"];
 export const CAPTURE_NPM_ENVIRONMENT = Object.freeze({
@@ -39,11 +41,23 @@ export const CAPTURE_RENDER_INPUTS = [
   "tailwind.config.cjs",
   "tsconfig.json",
   "vite.config.ts",
+  "tsconfig.build.json",
+  "release.json",
+  "build-info.json",
+  "scripts/build-identity.mjs",
+  "scripts/wasm-build.mjs",
+  "wasm-spike/Cargo.toml",
+  "wasm-spike/Cargo.lock",
+  "wasm-spike/src",
+  "../rust-toolchain.toml",
+  "../shared/package.json",
+  "../shared/src",
 ];
 
 export const CAPTURE_CONTRACT_INPUTS = [
   CAPTURE_CONFIG_PATH,
-  "store/fixtures",
+  CAPTURE_FIXTURE_PATH,
+  "scripts/store-vault-fixture.mjs",
   "scripts/store-screenshot-preflight.mjs",
   "scripts/capture-tls.mjs",
   "scripts/tls/ca-certificates.pem",
@@ -54,11 +68,12 @@ export const CAPTURE_CONTRACT_INPUTS = [
 export const CAPTURE_INPUTS = [...CAPTURE_RENDER_INPUTS, ...CAPTURE_CONTRACT_INPUTS];
 
 export const CAPTURE_SHOTS = new Map([
-  ["01-articles-fresh", { route: "/articles", action: "fresh" }],
-  ["02-semantic-search", { route: "/articles", action: "search-privacy" }],
-  ["03-article-reader", { route: "/articles/why-shielded-defaults-matter", action: "article-reader" }],
-  ["04-creator-profile", { route: "/creator/example_editorial", action: "creator-profile" }],
+  ["01-vault-home", { route: "/", action: "vault-home" }],
+  ["02-wallet-send", { route: "/wallet/send", action: "wallet-send" }],
+  ["03-wallet-history", { route: "/wallet/history", action: "wallet-history" }],
+  ["04-about", { route: "/about", action: "about" }],
 ]);
+export const CAPTURE_IMAGE = "ghcr.io/free2z/zuuli-store-capture@sha256:13c508c86e0a458c180059dbb6fa6e45406fcd01e24f5416de7c78acf8b57be9";
 
 export class ScreenshotContractError extends Error {
   constructor(code, message) {
@@ -154,7 +169,8 @@ async function computeInputDigest(root, inputs) {
   for (const path of await captureInputFiles(root, inputs)) {
     const absolute = resolve(root, path);
     const actual = await realpath(absolute);
-    if (!actual.startsWith(`${actualRoot}${sep}`)) fail("UNSAFE_CAPTURE_INPUT", `capture input escapes the project root: ${path}`);
+    const allowedRoot = path.startsWith("../") ? resolve(actualRoot, "..") : actualRoot;
+    if (!actual.startsWith(`${allowedRoot}${sep}`)) fail("UNSAFE_CAPTURE_INPUT", `capture input escapes the project root: ${path}`);
     const bytes = await readFile(absolute);
     hash.update(path);
     hash.update("\0");
@@ -221,6 +237,95 @@ function validateSafeArea(value, target) {
   }
 }
 
+async function validatePlaywrightDependency(root, expectedVersion) {
+  const packageJson = await readCanonicalJson(resolve(root, "package.json"), "package manifest");
+  const packageLock = await readCanonicalJson(resolve(root, "package-lock.json"), "package lock");
+  const versions = [
+    packageJson.devDependencies?.["@playwright/test"],
+    packageLock.packages?.[""]?.devDependencies?.["@playwright/test"],
+    packageLock.packages?.["node_modules/@playwright/test"]?.version,
+    packageLock.packages?.["node_modules/playwright"]?.version,
+    packageLock.packages?.["node_modules/playwright-core"]?.version,
+  ];
+  if (versions.some((version) => version !== expectedVersion)) {
+    fail("INVALID_CAPTURE_CONTRACT", "capture browser version must match the exact Playwright manifest and lock entries");
+  }
+}
+
+export async function validateCaptureConfig({ root = canonicalRoot, screenshotSets, computeSource = true } = {}) {
+  if (!Array.isArray(screenshotSets)) fail("INVALID_CAPTURE_CONTRACT", "screenshotSets are required to validate capture targets");
+  const config = await readCanonicalJson(resolve(root, CAPTURE_CONFIG_PATH), "capture configuration");
+  exactKeys(config, ["schemaVersion", "sourceSha", "fixtureProfile", "locale", "timezone", "fixedTime", "colorScheme", "browser", "targets", "shots"], "capture configuration");
+  if (config.schemaVersion !== 1 || !/^[0-9a-f]{40}$/.test(config.sourceSha) || config.fixtureProfile !== "vault-empty-v1" || config.locale !== "en-US" || config.timezone !== "UTC" || config.colorScheme !== "dark" || Number.isNaN(Date.parse(config.fixedTime))) {
+    fail("INVALID_CAPTURE_CONTRACT", "capture identity, locale, clock, or color scheme is invalid");
+  }
+  exactKeys(config.browser, ["engine", "playwrightVersion", "containerImage", "platform"], "capture browser");
+  if (config.browser.engine !== "chromium" || config.browser.playwrightVersion !== "1.62.1" || config.browser.containerImage !== CAPTURE_IMAGE || config.browser.platform !== "linux/amd64") fail("INVALID_CAPTURE_CONTRACT", "capture browser must match the immutable Playwright Chromium contract");
+  await validatePlaywrightDependency(root, config.browser.playwrightVersion);
+  if (!Array.isArray(config.targets) || config.targets.length !== screenshotSets.length) fail("INVALID_CAPTURE_CONTRACT", "capture must declare one target per screenshot set");
+  const sets = new Map(screenshotSets.map((set) => [set.id, set]));
+  const targets = new Set();
+  for (const target of config.targets) {
+    exactKeys(target, ["setId", "cssWidth", "cssHeight", "deviceScaleFactor", "safeArea"], `capture target ${target?.setId ?? "unknown"}`);
+    requireString(target.setId, "capture target setId", /^[a-z0-9.-]+$/);
+    if (targets.has(target.setId)) fail("INVALID_CAPTURE_CONTRACT", `duplicate capture target ${target.setId}`);
+    targets.add(target.setId);
+    const set = sets.get(target.setId);
+    if (!set) fail("INVALID_CAPTURE_CONTRACT", `capture target has no screenshot set: ${target.setId}`);
+    requireInteger(target.cssWidth, `${target.setId} cssWidth`, { min: 320, max: 1400 });
+    requireInteger(target.cssHeight, `${target.setId} cssHeight`, { min: 568, max: 1600 });
+    requireInteger(target.deviceScaleFactor, `${target.setId} deviceScaleFactor`, { min: 1, max: 4 });
+    if (target.cssWidth * target.deviceScaleFactor !== set.width || target.cssHeight * target.deviceScaleFactor !== set.height) {
+      fail("INVALID_CAPTURE_CONTRACT", `${target.setId} CSS viewport/DPR does not produce ${set.width}x${set.height}`);
+    }
+    validateSafeArea(target.safeArea, target);
+  }
+  if (sets.size !== targets.size || [...sets.keys()].some((id) => !targets.has(id))) fail("INVALID_CAPTURE_CONTRACT", "capture targets and screenshot sets differ");
+  if (!Array.isArray(config.shots) || config.shots.length !== CAPTURE_SHOTS.size) fail("INVALID_CAPTURE_CONTRACT", "capture must declare the four reviewed public product surfaces");
+  const shots = new Set();
+  for (const shot of config.shots) {
+    exactKeys(shot, ["id", "route", "action"], `capture shot ${shot?.id ?? "unknown"}`);
+    const contract = CAPTURE_SHOTS.get(shot.id);
+    if (!contract || shots.has(shot.id) || shot.route !== contract.route || shot.action !== contract.action) fail("INVALID_CAPTURE_CONTRACT", `capture shot does not match the reviewed contract: ${shot?.id ?? "unknown"}`);
+    shots.add(shot.id);
+  }
+  const fixture = await readCanonicalJson(resolve(root, CAPTURE_FIXTURE_PATH), "capture fixture");
+  validateVaultFixture(fixture);
+  return { config, fixture, sourceDigest: computeSource ? await computeCaptureSourceDigest(root) : null };
+}
+
+export async function validateCaptureRecord({ root = canonicalRoot, screenshotSets, enforceCurrentSource = false } = {}) {
+  const { config, fixture, sourceDigest: currentSourceDigest } = await validateCaptureConfig({ root, screenshotSets, computeSource: enforceCurrentSource });
+  const currentContractDigest = await computeCaptureContractDigest(root);
+  const record = await readCanonicalJson(resolve(root, CAPTURE_RECORD_PATH), "capture record");
+  exactKeys(record, ["schemaVersion", "sourceSha", "sourceDigest", "contractDigest", "fixtureProfile", "locale", "fixedTime", "browser", "entries"], "capture record");
+  if (record.schemaVersion !== 1 || record.sourceSha !== config.sourceSha || !/^[0-9a-f]{64}$/.test(record.sourceDigest) || record.contractDigest !== currentContractDigest || (enforceCurrentSource && record.sourceDigest !== currentSourceDigest) || record.fixtureProfile !== config.fixtureProfile || record.locale !== config.locale || record.fixedTime !== config.fixedTime || JSON.stringify(record.browser) !== JSON.stringify(config.browser) || !Array.isArray(record.entries)) {
+    fail("STALE_CAPTURE", "capture record does not match the current deterministic source contract");
+  }
+  if (enforceCurrentSource) await assertCaptureSourceCommit(config.sourceSha, root);
+  const sourceDigest = record.sourceDigest;
+  const expectedCount = config.targets.length * config.shots.length;
+  if (record.entries.length !== expectedCount) fail("INCOMPLETE_CAPTURE", `capture record requires exactly ${expectedCount} entries`);
+  const keys = new Set();
+  const hashes = new Set();
+  for (const entry of record.entries) {
+    exactKeys(entry, ["setId", "id", "path", "sha256", "renderedTextSha256", "sourceSha", "sourceDigest", "route", "action", "cssWidth", "cssHeight", "deviceScaleFactor", "width", "height", "safeArea", "disclosureScan"], `capture record entry ${entry?.setId ?? "unknown"}:${entry?.id ?? "unknown"}`);
+    const target = config.targets.find(({ setId }) => setId === entry.setId);
+    const shot = config.shots.find(({ id }) => id === entry.id);
+    const set = screenshotSets.find(({ id }) => id === entry.setId);
+    const key = `${entry.setId}:${entry.id}`;
+    if (!target || !shot || !set || keys.has(key) || hashes.has(entry.sha256)) fail("INVALID_CAPTURE_RECORD", `capture record has an unknown or duplicate entry: ${key}`);
+    keys.add(key);
+    hashes.add(entry.sha256);
+    const expectedPath = `store/media/${config.locale}/${entry.setId}/${entry.id}.png`;
+    if (entry.path !== expectedPath || !/^[0-9a-f]{64}$/.test(entry.sha256) || !/^[0-9a-f]{64}$/.test(entry.renderedTextSha256) || entry.sourceSha !== config.sourceSha || entry.sourceDigest !== sourceDigest || entry.route !== shot.route || entry.action !== shot.action || entry.cssWidth !== target.cssWidth || entry.cssHeight !== target.cssHeight || entry.deviceScaleFactor !== target.deviceScaleFactor || entry.width !== set.width || entry.height !== set.height || JSON.stringify(entry.safeArea) !== JSON.stringify(target.safeArea) || entry.disclosureScan !== "passed") {
+      fail("INVALID_CAPTURE_RECORD", `capture record entry does not match its deterministic plan: ${key}`);
+    }
+  }
+  return { config, fixture, sourceDigest, record };
+}
+
+// Free2Z retains the independent editorial fixture; it is never used by ZUULI.
 function fixtureText(value) {
   if (typeof value === "string") return value;
   if (Array.isArray(value)) return value.map(fixtureText).join(" ");
@@ -228,7 +333,7 @@ function fixtureText(value) {
   return "";
 }
 
-function validateFixture(fixture, config) {
+export function validateEditorialFixture(fixture, config) {
   exactKeys(fixture, ["schemaVersion", "profile", "locale", "identityClassification", "creators", "articles"], "capture fixture");
   if (fixture.schemaVersion !== 1 || fixture.profile !== config.fixtureProfile || fixture.locale !== config.locale || fixture.identityClassification !== "fictional-editorial" || !Array.isArray(fixture.creators) || fixture.creators.length !== 4 || !Array.isArray(fixture.articles) || fixture.articles.length < 8) {
     fail("INVALID_CAPTURE_FIXTURE", "capture fixture identity or article count is invalid");
@@ -265,92 +370,4 @@ function validateFixture(fixture, config) {
     if (text.includes(marker)) fail("FORBIDDEN_CAPTURE_DISCLOSURE", `capture fixture contains forbidden marker: ${marker}`);
   }
   if (/[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i.test(text)) fail("PRIVATE_CAPTURE_DATA", "capture fixture contains an email-like identity");
-}
-
-async function validatePlaywrightDependency(root, expectedVersion) {
-  const packageJson = await readCanonicalJson(resolve(root, "package.json"), "package manifest");
-  const packageLock = await readCanonicalJson(resolve(root, "package-lock.json"), "package lock");
-  const versions = [
-    packageJson.devDependencies?.["@playwright/test"],
-    packageLock.packages?.[""]?.devDependencies?.["@playwright/test"],
-    packageLock.packages?.["node_modules/@playwright/test"]?.version,
-    packageLock.packages?.["node_modules/playwright"]?.version,
-    packageLock.packages?.["node_modules/playwright-core"]?.version,
-  ];
-  if (versions.some((version) => version !== expectedVersion)) {
-    fail("INVALID_CAPTURE_CONTRACT", "capture browser version must match the exact Playwright manifest and lock entries");
-  }
-}
-
-export async function validateCaptureConfig({ root = canonicalRoot, screenshotSets, computeSource = true } = {}) {
-  if (!Array.isArray(screenshotSets)) fail("INVALID_CAPTURE_CONTRACT", "screenshotSets are required to validate capture targets");
-  const config = await readCanonicalJson(resolve(root, CAPTURE_CONFIG_PATH), "capture configuration");
-  exactKeys(config, ["schemaVersion", "sourceSha", "fixtureProfile", "locale", "timezone", "fixedTime", "colorScheme", "browser", "targets", "shots"], "capture configuration");
-  if (config.schemaVersion !== 1 || !/^[0-9a-f]{40}$/.test(config.sourceSha) || config.fixtureProfile !== "store-v1" || config.locale !== "en-US" || config.timezone !== "UTC" || config.colorScheme !== "dark" || Number.isNaN(Date.parse(config.fixedTime))) {
-    fail("INVALID_CAPTURE_CONTRACT", "capture identity, locale, clock, or color scheme is invalid");
-  }
-  exactKeys(config.browser, ["engine", "playwrightVersion", "containerImage", "platform"], "capture browser");
-  if (config.browser.engine !== "chromium" || config.browser.playwrightVersion !== "1.62.1" || config.browser.containerImage !== "mcr.microsoft.com/playwright@sha256:c091b21d9fae78c76e85cd4356431e9b018402f172a214fc7d7a5e9a7e29d8ac" || config.browser.platform !== "linux/amd64") fail("INVALID_CAPTURE_CONTRACT", "capture browser must match the immutable Playwright Chromium contract");
-  await validatePlaywrightDependency(root, config.browser.playwrightVersion);
-  if (!Array.isArray(config.targets) || config.targets.length !== screenshotSets.length) fail("INVALID_CAPTURE_CONTRACT", "capture must declare one target per screenshot set");
-  const sets = new Map(screenshotSets.map((set) => [set.id, set]));
-  const targets = new Set();
-  for (const target of config.targets) {
-    exactKeys(target, ["setId", "cssWidth", "cssHeight", "deviceScaleFactor", "safeArea"], `capture target ${target?.setId ?? "unknown"}`);
-    requireString(target.setId, "capture target setId", /^[a-z0-9.-]+$/);
-    if (targets.has(target.setId)) fail("INVALID_CAPTURE_CONTRACT", `duplicate capture target ${target.setId}`);
-    targets.add(target.setId);
-    const set = sets.get(target.setId);
-    if (!set) fail("INVALID_CAPTURE_CONTRACT", `capture target has no screenshot set: ${target.setId}`);
-    requireInteger(target.cssWidth, `${target.setId} cssWidth`, { min: 320, max: 1400 });
-    requireInteger(target.cssHeight, `${target.setId} cssHeight`, { min: 568, max: 1600 });
-    requireInteger(target.deviceScaleFactor, `${target.setId} deviceScaleFactor`, { min: 1, max: 4 });
-    if (target.cssWidth * target.deviceScaleFactor !== set.width || target.cssHeight * target.deviceScaleFactor !== set.height) {
-      fail("INVALID_CAPTURE_CONTRACT", `${target.setId} CSS viewport/DPR does not produce ${set.width}x${set.height}`);
-    }
-    validateSafeArea(target.safeArea, target);
-  }
-  if (sets.size !== targets.size || [...sets.keys()].some((id) => !targets.has(id))) fail("INVALID_CAPTURE_CONTRACT", "capture targets and screenshot sets differ");
-  if (!Array.isArray(config.shots) || config.shots.length !== CAPTURE_SHOTS.size) fail("INVALID_CAPTURE_CONTRACT", "capture must declare the four reviewed public product surfaces");
-  const shots = new Set();
-  for (const shot of config.shots) {
-    exactKeys(shot, ["id", "route", "action"], `capture shot ${shot?.id ?? "unknown"}`);
-    const contract = CAPTURE_SHOTS.get(shot.id);
-    if (!contract || shots.has(shot.id) || shot.route !== contract.route || shot.action !== contract.action) fail("INVALID_CAPTURE_CONTRACT", `capture shot does not match the reviewed contract: ${shot?.id ?? "unknown"}`);
-    shots.add(shot.id);
-  }
-  const fixture = await readCanonicalJson(resolve(root, CAPTURE_FIXTURE_PATH), "capture fixture");
-  validateFixture(fixture, config);
-  return { config, fixture, sourceDigest: computeSource ? await computeCaptureSourceDigest(root) : null };
-}
-
-export async function validateCaptureRecord({ root = canonicalRoot, screenshotSets, enforceCurrentSource = false } = {}) {
-  const { config, fixture, sourceDigest: currentSourceDigest } = await validateCaptureConfig({ root, screenshotSets, computeSource: enforceCurrentSource });
-  const currentContractDigest = await computeCaptureContractDigest(root);
-  const record = await readCanonicalJson(resolve(root, CAPTURE_RECORD_PATH), "capture record");
-  exactKeys(record, ["schemaVersion", "sourceSha", "sourceDigest", "contractDigest", "fixtureProfile", "locale", "fixedTime", "browser", "entries"], "capture record");
-  if (record.schemaVersion !== 1 || record.sourceSha !== config.sourceSha || !/^[0-9a-f]{64}$/.test(record.sourceDigest) || record.contractDigest !== currentContractDigest || (enforceCurrentSource && record.sourceDigest !== currentSourceDigest) || record.fixtureProfile !== config.fixtureProfile || record.locale !== config.locale || record.fixedTime !== config.fixedTime || JSON.stringify(record.browser) !== JSON.stringify(config.browser) || !Array.isArray(record.entries)) {
-    fail("STALE_CAPTURE", "capture record does not match the current deterministic source contract");
-  }
-  if (enforceCurrentSource) await assertCaptureSourceCommit(config.sourceSha, root);
-  const sourceDigest = record.sourceDigest;
-  const expectedCount = config.targets.length * config.shots.length;
-  if (record.entries.length !== expectedCount) fail("INCOMPLETE_CAPTURE", `capture record requires exactly ${expectedCount} entries`);
-  const keys = new Set();
-  const hashes = new Set();
-  for (const entry of record.entries) {
-    exactKeys(entry, ["setId", "id", "path", "sha256", "renderedTextSha256", "sourceSha", "sourceDigest", "route", "action", "cssWidth", "cssHeight", "deviceScaleFactor", "width", "height", "safeArea", "disclosureScan"], `capture record entry ${entry?.setId ?? "unknown"}:${entry?.id ?? "unknown"}`);
-    const target = config.targets.find(({ setId }) => setId === entry.setId);
-    const shot = config.shots.find(({ id }) => id === entry.id);
-    const set = screenshotSets.find(({ id }) => id === entry.setId);
-    const key = `${entry.setId}:${entry.id}`;
-    if (!target || !shot || !set || keys.has(key) || hashes.has(entry.sha256)) fail("INVALID_CAPTURE_RECORD", `capture record has an unknown or duplicate entry: ${key}`);
-    keys.add(key);
-    hashes.add(entry.sha256);
-    const expectedPath = `store/media/${config.locale}/${entry.setId}/${entry.id}.png`;
-    if (entry.path !== expectedPath || !/^[0-9a-f]{64}$/.test(entry.sha256) || !/^[0-9a-f]{64}$/.test(entry.renderedTextSha256) || entry.sourceSha !== config.sourceSha || entry.sourceDigest !== sourceDigest || entry.route !== shot.route || entry.action !== shot.action || entry.cssWidth !== target.cssWidth || entry.cssHeight !== target.cssHeight || entry.deviceScaleFactor !== target.deviceScaleFactor || entry.width !== set.width || entry.height !== set.height || JSON.stringify(entry.safeArea) !== JSON.stringify(target.safeArea) || entry.disclosureScan !== "passed") {
-      fail("INVALID_CAPTURE_RECORD", `capture record entry does not match its deterministic plan: ${key}`);
-    }
-  }
-  return { config, fixture, sourceDigest, record };
 }

@@ -267,7 +267,7 @@ async function listPngs(directory) {
   return result;
 }
 
-export async function validateStoreContract({ root = projectRoot, manifestPath = resolve(root, "store/manifest.json"), publish = false } = {}) {
+export async function validateStoreContract({ root = projectRoot, manifestPath = resolve(root, "store/manifest.json"), publish = false, enforceCurrentSource = publish } = {}) {
   const manifest = await readCanonicalJson(manifestPath, "store manifest");
   const release = await readCanonicalJson(resolve(root, "release.json"), "release identity");
   exactKeys(release, ["$schema", "schemaVersion", "applicationId", "iosUsesNonExemptEncryption", "version", "build", "minimums"], "release identity");
@@ -357,7 +357,7 @@ export async function validateStoreContract({ root = projectRoot, manifestPath =
 
   exactKeys(manifest.capturePolicy, ["status", "blockedByIssues", "fixtureProfile", "releaseEquivalentBuildRequired", "safeAreasRequired", "realSeedOrPrivateDataAllowed", "testerIdentityAllowed", "debugOrMockDisclosureAllowed", "reviewRequired", "forbiddenEmbeddedText", "sourceSha", "sourceDigest", "contractDigest", "captureConfig", "captureRecord"], "capturePolicy");
   const policy = manifest.capturePolicy;
-  if (policy.fixtureProfile !== "store-v1" || policy.releaseEquivalentBuildRequired !== true || policy.safeAreasRequired !== true || policy.realSeedOrPrivateDataAllowed !== false || policy.testerIdentityAllowed !== false || policy.debugOrMockDisclosureAllowed !== false || policy.reviewRequired !== true || !Array.isArray(policy.forbiddenEmbeddedText) || policy.forbiddenEmbeddedText.length < 1 || !/^[0-9a-f]{40}$/.test(policy.sourceSha) || !SHA256_PATTERN.test(policy.sourceDigest) || !SHA256_PATTERN.test(policy.contractDigest) || policy.captureConfig !== CAPTURE_CONFIG_PATH || policy.captureRecord !== CAPTURE_RECORD_PATH) fail("INVALID_MANIFEST", "capture policy does not preserve the store safety and provenance contract");
+  if (policy.fixtureProfile !== "vault-empty-v1" || policy.releaseEquivalentBuildRequired !== true || policy.safeAreasRequired !== true || policy.realSeedOrPrivateDataAllowed !== false || policy.testerIdentityAllowed !== false || policy.debugOrMockDisclosureAllowed !== false || policy.reviewRequired !== true || !Array.isArray(policy.forbiddenEmbeddedText) || policy.forbiddenEmbeddedText.length < 1 || !/^[0-9a-f]{40}$/.test(policy.sourceSha) || !SHA256_PATTERN.test(policy.sourceDigest) || !SHA256_PATTERN.test(policy.contractDigest) || policy.captureConfig !== CAPTURE_CONFIG_PATH || policy.captureRecord !== CAPTURE_RECORD_PATH) fail("INVALID_MANIFEST", "capture policy does not preserve the store safety and provenance contract");
   if (manifest.phase === "foundation" && (policy.status !== "deferred" || policy.blockedByIssues.length !== 0)) fail("INVALID_MANIFEST", "foundation screenshots must remain deferred during internal dependency review");
   if (manifest.phase === "captured" && (policy.status !== "captured-owner-review-required" || JSON.stringify(policy.blockedByIssues) !== "[371,373]")) fail("INVALID_MANIFEST", "captured screenshots must remain unapproved behind the exact public owner-controlled security-policy blocker set");
   if (manifest.phase === "ready" && (!Array.isArray(policy.blockedByIssues) || policy.blockedByIssues.length !== 0)) fail("INVALID_MANIFEST", "publication-ready screenshots cannot retain unresolved blocker issues");
@@ -370,7 +370,7 @@ export async function validateStoreContract({ root = projectRoot, manifestPath =
   if (manifest.phase !== "foundation") {
     let capture;
     try {
-      capture = await validateCaptureRecord({ root, screenshotSets: manifest.screenshotSets, enforceCurrentSource: publish });
+      capture = await validateCaptureRecord({ root, screenshotSets: manifest.screenshotSets, enforceCurrentSource: publish || enforceCurrentSource });
     } catch (error) {
       if (error instanceof ScreenshotContractError) fail(error.code, error.message);
       throw error;
@@ -391,9 +391,9 @@ export async function validateStoreContract({ root = projectRoot, manifestPath =
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  const allowed = new Set(["--publish"]);
+  const allowed = new Set(["--publish", "--current-source"]);
   for (const arg of argv) if (!allowed.has(arg)) fail("INVALID_ARGUMENT", `unknown argument: ${arg}`);
-  const result = await validateStoreContract({ publish: argv.includes("--publish") });
+  const result = await validateStoreContract({ publish: argv.includes("--publish"), enforceCurrentSource: argv.includes("--publish") || argv.includes("--current-source") });
   process.stdout.write(`${JSON.stringify({ ...result, locales: result.locales.map(({ appleMetadata: _apple, playMetadata: _play, ...locale }) => locale) }, null, 2)}\n`);
 }
 

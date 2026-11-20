@@ -11,7 +11,7 @@ import { chromium } from '@playwright/test';
 import { PNG } from 'pngjs';
 import { CAPTURE_PUBLIC_REQUESTS, computeFeedCaptureScroll } from './store-screenshot-capture.mjs';
 import { captureTlsDockerArguments, CAPTURE_TLS_BOOTSTRAP, assertCaptureTlsRuntime } from "./capture-tls.mjs";
-import { CAPTURE_NPM_CI_ARGUMENTS, CAPTURE_NPM_ENVIRONMENT, readCanonicalJson, validateCaptureConfig } from './store-screenshot-contract.mjs';
+import { CAPTURE_NPM_CI_ARGUMENTS, CAPTURE_NPM_ENVIRONMENT, readCanonicalJson, validateEditorialFixture } from './store-screenshot-contract.mjs';
 import { walletRoot, BROWSER, SHOTS, RUNTIME_EVIDENCE, FORBIDDEN_TEXT, canonical, sha256, captureDigests, assertSourceCommit, assertCaptureEnvironment, validateSurfaceCaptureConfig, validateSurfaceCaptureRecord, validateRecordMatrix } from './surface-store-capture-contract.mjs';
 import { validateSurfaceCatalog } from './surface-store-catalogs.mjs';
 
@@ -176,8 +176,8 @@ export async function capturePass(app, config, digests, output, dist) {
   const entries = [];
   try {
     browser = await chromium.launch({ headless: true });
-    const legacyManifest = await readCanonicalJson(resolve(walletRoot, 'zuuli/store/manifest.json'), 'legacy store manifest');
-    const { fixture } = await validateCaptureConfig({ root: resolve(walletRoot, 'zuuli'), screenshotSets: legacyManifest.screenshotSets, computeSource: false });
+    const fixture = await readCanonicalJson(resolve(walletRoot, 'zuuli/store/fixtures/en-US/articles.json'), 'editorial fixture');
+    validateEditorialFixture(fixture, { fixtureProfile: 'store-v1', locale: 'en-US' });
     for (const target of config.targets) for (const shot of config.shots) {
       const context = await browser.newContext({ viewport: { width: target.cssWidth, height: target.cssHeight }, deviceScaleFactor: target.deviceScaleFactor, locale: config.locale, timezoneId: config.timezone, colorScheme: config.colorScheme, reducedMotion: 'reduce', serviceWorkers: 'block' });
       try {

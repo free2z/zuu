@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { readFile, realpath, readdir } from 'node:fs/promises';
 import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { captureInputFiles, assertNoLocalCaptureOverrides, readCanonicalJson } from './store-screenshot-contract.mjs';
+import { captureInputFiles, assertNoLocalCaptureOverrides, readCanonicalJson, validateEditorialFixture } from './store-screenshot-contract.mjs';
 
 export const walletRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 export const canonical = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -35,6 +35,7 @@ export function contractInputs(app) {
     'zuuli/scripts/surface-store-capture.mjs', 'zuuli/scripts/surface-store-capture-contract.mjs',
     'zuuli/scripts/surface-store-catalogs.mjs', 'zuuli/scripts/store-contract.mjs',
     'zuuli/scripts/store-screenshot-contract.mjs', 'zuuli/scripts/store-screenshot-capture.mjs',
+    'zuuli/scripts/store-vault-fixture.mjs',
     'zuuli/store/fixtures/en-US/articles.json'];
 }
 export async function inputDigest(root, inputs) {
@@ -81,12 +82,13 @@ export async function validateSurfaceCaptureConfig(app, root = walletRoot) {
     const versions = [manifest.devDependencies['@playwright/test'], lock.packages[''].devDependencies['@playwright/test'], ...['@playwright/test', 'playwright', 'playwright-core'].map((p) => lock.packages[`node_modules/${p}`].version)];
     assert(versions.every((v) => v === BROWSER.playwrightVersion), 'Playwright lock/version mismatch');
   }
+  const editorial = await readCanonicalJson(resolve(root, 'zuuli/store/fixtures/en-US/articles.json'), 'editorial fixture');
+  validateEditorialFixture(editorial, { fixtureProfile: 'store-v1', locale: 'en-US' });
   return config;
 }
 
-// Keep the legacy ZUULI runner/contract byte-identical: its historical capture
-// pins those files. This app-selected matrix follows the same closed record
-// shape, with explicit two-pass evidence and shared-package source coverage.
+// Shared-tool changes require fresh captures, never relabelled historical evidence.
+// This app-selected matrix carries explicit two-pass and shared-source evidence.
 export function validateRecordMatrix(config, record, digests) {
   const { entries, reproducibility, ...header } = record;
   assert.deepEqual(header, { schemaVersion: 1, app: config.app, runtimeEvidence: RUNTIME_EVIDENCE, sourceSha: config.sourceSha, ...digests, fixtureProfile: config.fixtureProfile, locale: config.locale, fixedTime: config.fixedTime, browser: config.browser });
