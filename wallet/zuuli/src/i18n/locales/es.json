@@ -36,7 +36,9 @@
     "signOut": "Cerrar sesión",
     "wallet": "Billetera",
     "walletAccessible": "Billetera Zcash",
-    "zcashLogin": "Inicio de sesión con Zcash"
+    "zcashLogin": "Inicio de sesión con Zcash",
+    "language": "Idioma",
+    "languageError": "No se pudo cambiar el idioma. Inténtalo de nuevo."
   },
   "shell": {
     "legacyWallet": {

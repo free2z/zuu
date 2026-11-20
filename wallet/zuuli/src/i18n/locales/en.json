@@ -36,7 +36,9 @@
     "signOut": "Sign out",
     "wallet": "Wallet",
     "walletAccessible": "Zcash wallet",
-    "zcashLogin": "Zcash login"
+    "zcashLogin": "Zcash login",
+    "language": "Language",
+    "languageError": "Language could not be changed. Please try again."
   },
   "shell": {
     "legacyWallet": {

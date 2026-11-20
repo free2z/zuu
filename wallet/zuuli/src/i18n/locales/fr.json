@@ -36,7 +36,9 @@
     "signOut": "Se déconnecter",
     "wallet": "Portefeuille",
     "walletAccessible": "Portefeuille Zcash",
-    "zcashLogin": "Connexion Zcash"
+    "zcashLogin": "Connexion Zcash",
+    "language": "Langue",
+    "languageError": "Impossible de changer de langue. Réessayez."
   },
   "shell": {
     "legacyWallet": {
