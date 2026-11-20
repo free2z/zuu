@@ -1,4 +1,4 @@
-//! Durable single-model admission, settlement, and public receipt projection.
+//! Durable per-attempt admission, settlement, and public receipt projection.
 //! Provider work is authorized only by a new durable claim and a confirmed hold.
 
 use crate::{
@@ -416,16 +416,14 @@ fn plan_with(
     c: &Context,
     precomputed: Option<crate::estimate::InputEstimate>,
 ) -> Result<Plan, ApiFailure> {
-    if !request.fallback.is_empty()
-        || request.messages.iter().any(|m| {
-            m.content
-                .iter()
-                .any(|p| !matches!(p, ContentPart::Text { .. }))
-        })
-    {
+    if request.messages.iter().any(|m| {
+        m.content
+            .iter()
+            .any(|p| !matches!(p, ContentPart::Text { .. }))
+    }) {
         return Err(ApiFailure::new(
             ErrorCode::InvalidRequest,
-            "this gateway release supports text input and a single model",
+            "this gateway release supports text input",
         ));
     }
     let catalog = catalog.catalog();
@@ -625,6 +623,7 @@ struct Active {
     request_meta: Value,
     hold: Mutex<Option<Operation>>,
     hold_id: Mutex<Option<Uuid>>,
+    prior_attempts: Mutex<bool>,
     completion: Mutex<Option<Value>>,
     provider_started: Mutex<bool>,
     output_bytes: Mutex<u64>,
@@ -1040,6 +1039,7 @@ impl ChatBackend for Metered {
             request_meta,
             hold: Mutex::new(None),
             hold_id: Mutex::new(None),
+            prior_attempts: Mutex::new(false),
             completion: Mutex::new(None),
             provider_started: Mutex::new(false),
             output_bytes: Mutex::new(0),
@@ -1144,7 +1144,6 @@ impl ChatBackend for Metered {
         }
         let admitted_context = Context::parse(row.get("context").ok_or_else(invalid)?.clone())?;
         let (request, estimate) = estimate_off_runtime(request, &catalog).await?;
-        let mut request = request;
         let p = match plan_with(&request, &catalog, &admitted_context, estimate) {
             Ok(p) => p,
             Err(refused) if is_terminal_refusal(&refused) => {
@@ -1167,135 +1166,35 @@ impl ChatBackend for Metered {
             }
             Err(refused) => return Err(refused),
         };
-        *lock(&active.plan) = Some(p.clone());
-        let hold = Operation::Hold {
-            identity,
-            call: id,
-            amount_milli: i64::try_from(p.hold.to_milli().ok_or_else(invalid)?.get())
-                .map_err(|_| invalid())?,
-            model: p.model.id.clone(),
-            rate_card: i64::try_from(catalog.catalog().rate_card_version).map_err(|_| invalid())?,
-            catalog: catalog.catalog().version.to_string(),
-            consented_markup: i32::try_from(admitted_context.consented_markup_bps)
-                .map_err(|_| invalid())?,
-            provider: p.model.provider.clone(),
-        };
-        // Store intent BEFORE awaiting: a lost hold response still has a recovery owner.
-        *lock(&active.hold) = Some(hold.clone());
-        let (held, ambiguous) = match self.ledger.execute(&hold).await {
-            Ok(row) => (row, false),
-            Err(_) => (
-                self.ledger
-                    .execute(&hold)
-                    .await
-                    .map_err(|_| unavailable().detail("call_id", id.to_string()))?,
-                true,
-            ),
-        };
-        if !matches!(status(&held)?, "held" | "replayed") {
-            // Refusal after a lost response cannot prove that the first hold did
-            // not commit. Keep its intent for captured-identity completion recovery.
-            if !ambiguous
-                && matches!(
-                    status(&held)?,
-                    "revoked"
-                        | "frozen"
-                        | "unknown_rate_card"
-                        | "markup_mismatch"
-                        | "in_debt"
-                        | "too_many_holds"
-                        | "cap_exceeded"
-                        | "insufficient_balance"
-                )
-            {
-                *lock(&active.hold) = None;
-            }
-            return Err(refusal(status(&held)?));
-        }
-        if held.get("state").and_then(Value::as_str) != Some("open") {
-            return Err(unavailable().detail("call_id", id.to_string()));
-        }
-        // Success rows are nullable in the SQL ABI only for other statuses.
-        // Validate every required success field before any provider request.
-        let hold_id: Uuid = held
-            .get("hold_id")
-            .and_then(Value::as_str)
-            .ok_or_else(invalid)?
-            .parse()
-            .map_err(|_| invalid())?;
-        let reserved = money(&held, "amount")?;
-        if reserved == 0 {
-            return Err(invalid());
-        }
-        money(&held, "available")?;
-        match held.get("cap_remaining") {
-            Some(Value::Null) => {}
-            Some(_) => {
-                money(&held, "cap_remaining")?;
-            }
-            None => return Err(invalid()),
-        }
-        if held
-            .get("expires_at")
-            .and_then(Value::as_str)
-            .is_none_or(str::is_empty)
-        {
-            return Err(invalid());
-        }
-        *lock(&active.hold_id) = Some(hold_id);
-        let applied = held
-            .get("applied_markup_bps")
-            .and_then(Value::as_u64)
-            .filter(|n| *n <= 10_000)
-            .ok_or_else(invalid)?;
-        let mut actual = p.clone();
-        actual.markup = Bps(u32::try_from(applied).map_err(|_| invalid())?);
-        actual.hold = actual.worst(actual.output)?;
-        if actual.hold.to_milli().ok_or_else(invalid)?.get() > reserved {
-            let extended = ledger::recover(
-                self.ledger.as_ref(),
-                &Operation::Extend {
-                    identity,
-                    hold: hold_id,
-                    amount_milli: Some(
-                        i64::try_from(actual.hold.to_milli().ok_or_else(invalid)?.get())
-                            .map_err(|_| invalid())?,
-                    ),
-                },
-            )
-            .await
-            .map_err(|_| unavailable())?;
-            if status(&extended)? != "held" {
-                return Err(refusal(status(&extended)?));
-            }
-            if extended.get("state").and_then(Value::as_str) != Some("open")
-                || money(&extended, "amount")? < actual.hold.to_milli().ok_or_else(invalid)?.get()
-            {
-                return Err(invalid());
-            }
-            money(&extended, "available")?;
-            if extended.get("cap_remaining").is_none()
-                || extended
-                    .get("expires_at")
-                    .and_then(Value::as_str)
-                    .is_none_or(str::is_empty)
-            {
-                return Err(invalid());
-            }
-        } else {
-            actual.hold = whole(reserved)?;
-        }
-        *lock(&active.plan) = Some(actual.clone());
+        let actual =
+            reserve_attempt(&self.ledger, &active, &catalog, &admitted_context, p, 1).await?;
+        // Fingerprinting and feature capture above see the complete request.
+        // Providers and per-model planners need only the materialized queue,
+        // never another copy of its caller-supplied fallback vector.
+        let (original, attempts) = attempt_requests(request);
+        let mut request = original.clone();
         request.max_output_tokens = Some(actual.output);
-        let upstream = self.provider.start(request, catalog, call).await?;
+        let upstream = self
+            .provider
+            .start(request, Arc::clone(&catalog), call)
+            .await?;
         *lock(&active.provider_started) = true;
         let mut meta = Meta::new(id.to_string(), actual.model.id.clone(), actual.hold);
-        meta.requested_model = Some(actual.model.id.clone());
+        meta.requested_model = Some(original.model.clone());
         meta.provider = Some(actual.model.provider.clone());
         meta.max_output_tokens = Some(actual.output);
         meta.input_tokens_estimate = Some(actual.input);
         Ok(Box::new(MeterStream {
             upstream,
+            attempts,
+            attempt: 1,
+            original: Some(original),
+            catalog,
+            call: call.clone(),
+            provider: Arc::clone(&self.provider),
+            allowed_models: self.allowed_models.clone(),
+            switching: None,
+            upload: None,
             active,
             ledger: Arc::clone(&self.ledger),
             meta: Some(meta),
@@ -1307,6 +1206,139 @@ impl ChatBackend for Metered {
             extending: None,
         }))
     }
+}
+
+/// Confirm the attempt's immutable hold intent before provider I/O. A lost
+/// response keeps its identity for read-only completion recovery.
+async fn reserve_attempt(
+    ledger: &Arc<dyn Ledger>,
+    active: &Active,
+    catalog: &VerifiedCatalog,
+    admitted_context: &Context,
+    p: Plan,
+    attempt: i32,
+) -> Result<Plan, ApiFailure> {
+    *lock(&active.plan) = Some(p.clone());
+    let hold = Operation::Hold {
+        identity: active.identity,
+        call: active.id,
+        attempt,
+        amount_milli: i64::try_from(p.hold.to_milli().ok_or_else(invalid)?.get())
+            .map_err(|_| invalid())?,
+        model: p.model.id.clone(),
+        rate_card: i64::try_from(catalog.catalog().rate_card_version).map_err(|_| invalid())?,
+        catalog: catalog.catalog().version.to_string(),
+        consented_markup: i32::try_from(admitted_context.consented_markup_bps)
+            .map_err(|_| invalid())?,
+        provider: p.model.provider.clone(),
+    };
+    // Store intent BEFORE awaiting: a lost hold response still has a recovery owner.
+    *lock(&active.hold) = Some(hold.clone());
+    let (held, ambiguous) = match ledger.execute(&hold).await {
+        Ok(row) => (row, false),
+        Err(_) => (
+            ledger
+                .execute(&hold)
+                .await
+                .map_err(|_| unavailable().detail("call_id", active.id.to_string()))?,
+            true,
+        ),
+    };
+    if !matches!(status(&held)?, "held" | "replayed") {
+        // Refusal after a lost response cannot prove that the first hold did
+        // not commit. Keep its intent for captured-identity completion recovery.
+        if !ambiguous
+            && matches!(
+                status(&held)?,
+                "revoked"
+                    | "frozen"
+                    | "unknown_rate_card"
+                    | "markup_mismatch"
+                    | "in_debt"
+                    | "too_many_holds"
+                    | "cap_exceeded"
+                    | "insufficient_balance"
+            )
+        {
+            *lock(&active.hold) = None;
+        }
+        return Err(refusal(status(&held)?));
+    }
+    if held.get("state").and_then(Value::as_str) != Some("open") {
+        return Err(unavailable().detail("call_id", active.id.to_string()));
+    }
+    // Success rows are nullable in the SQL ABI only for other statuses.
+    // Validate every required success field before any provider request.
+    let hold_id: Uuid = held
+        .get("hold_id")
+        .and_then(Value::as_str)
+        .ok_or_else(invalid)?
+        .parse()
+        .map_err(|_| invalid())?;
+    let reserved = money(&held, "amount")?;
+    if reserved == 0 {
+        return Err(invalid());
+    }
+    money(&held, "available")?;
+    match held.get("cap_remaining") {
+        Some(Value::Null) => {}
+        Some(_) => {
+            money(&held, "cap_remaining")?;
+        }
+        None => return Err(invalid()),
+    }
+    if held
+        .get("expires_at")
+        .and_then(Value::as_str)
+        .is_none_or(str::is_empty)
+    {
+        return Err(invalid());
+    }
+    *lock(&active.hold_id) = Some(hold_id);
+    let applied = held
+        .get("applied_markup_bps")
+        .and_then(Value::as_u64)
+        .filter(|n| *n <= 10_000)
+        .ok_or_else(invalid)?;
+    let mut actual = p;
+    actual.markup = Bps(u32::try_from(applied).map_err(|_| invalid())?);
+    actual.hold = actual.worst(actual.output)?;
+    if actual.hold.to_milli().ok_or_else(invalid)?.get() > reserved {
+        let extended = ledger::recover(
+            ledger.as_ref(),
+            &Operation::Extend {
+                identity: active.identity,
+                hold: hold_id,
+                amount_milli: Some(
+                    i64::try_from(actual.hold.to_milli().ok_or_else(invalid)?.get())
+                        .map_err(|_| invalid())?,
+                ),
+            },
+        )
+        .await
+        .map_err(|_| unavailable())?;
+        if status(&extended)? != "held" {
+            return Err(refusal(status(&extended)?));
+        }
+        if extended.get("state").and_then(Value::as_str) != Some("open")
+            || money(&extended, "amount")? < actual.hold.to_milli().ok_or_else(invalid)?.get()
+        {
+            return Err(invalid());
+        }
+        money(&extended, "available")?;
+        if extended.get("cap_remaining").is_none()
+            || extended
+                .get("expires_at")
+                .and_then(Value::as_str)
+                .is_none_or(str::is_empty)
+        {
+            return Err(invalid());
+        }
+    } else {
+        actual.hold = whole(reserved)?;
+    }
+    *lock(&active.plan) = Some(actual.clone());
+    Ok(actual)
 }
 
 /// A refusal `plan` makes after the idempotency claim that must be
@@ -1427,7 +1459,7 @@ fn project(record: &Value, replayed: bool) -> Result<Value, ApiFailure> {
         out[key] = record.get(key).ok_or_else(invalid)?.clone();
     }
     if let Some(completion) = record.get("completion").filter(|v| !v.is_null()) {
-        for key in ["finish_reason", "usage_source"] {
+        for key in ["model", "provider", "finish_reason", "usage_source"] {
             if let Some(v) = completion.get(key) {
                 out[key] = v.clone();
             }
@@ -1497,6 +1529,10 @@ fn completion(active: &Active, outcome: Option<&ProviderOutcome>) -> Value {
         Value::Null
     };
     let mut value = json!({"model":active.request_meta.get("model"),"provider":active.request_meta.get("provider"),"finish_reason":outcome.and_then(|o|o.finish_reason).unwrap_or(FinishReason::Stop),"partial":bytes>0 && !error.is_null(),"error":error});
+    if let Some(p) = lock(&active.plan).as_ref() {
+        value["model"] = json!(p.model.id);
+        value["provider"] = json!(p.model.provider);
+    }
     // The provider accepted the request (a 2xx head), so it bills the call
     // whether or not its usage frame arrived. A request it refused — never
     // sent, a non-2xx head, or its own `error` event before any content
@@ -1625,7 +1661,7 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
         identity: active.identity,
         call: active.id,
         completion: intent.clone(),
-        no_hold: lock(&active.hold).is_none(),
+        no_hold: lock(&active.hold).is_none() && !*lock(&active.prior_attempts),
     };
     let first = ledger::recover(ledger, &complete)
         .await
@@ -1656,12 +1692,19 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
         .get("attempts")
         .and_then(Value::as_array)
         .ok_or_else(invalid)?;
-    if attempts.len() > 1 {
-        return Err(invalid());
-    } // This release admits one attempt.
     let known = *lock(&active.hold_id);
-    let recovered = attempts
-        .first()
+    // Snapshots are ordered by hold id, not attempt number. In particular,
+    // a released earlier attempt remains in the envelope after a retry.
+    // Recover only the attempt whose immutable hold intent we captured.
+    let attempt = match lock(&active.hold).as_ref() {
+        Some(Operation::Hold { attempt, .. }) => *attempt,
+        _ => return Err(invalid()),
+    };
+    let mut matching = attempts
+        .iter()
+        .filter(|a| a.get("attempt").and_then(Value::as_i64) == Some(i64::from(attempt)));
+    let recovered = matching
+        .next()
         .map(|a| {
             a.get("hold_id")
                 .and_then(Value::as_str)
@@ -1670,6 +1713,9 @@ async fn finalize(ledger: &dyn Ledger, active: &Active) -> Result<Value, ApiFail
                 .map_err(|_| invalid())
         })
         .transpose()?;
+    if matching.next().is_some() {
+        return Err(invalid());
+    }
     if known.is_some() && recovered.is_some() && known != recovered {
         return Err(invalid());
     }
@@ -1827,7 +1873,67 @@ fn terminal(active: &Active, record: Option<&Value>) -> Event {
 
 type TerminalFuture = Pin<Box<dyn Future<Output = Option<Value>> + Send>>;
 type ExtendFuture = Pin<Box<dyn Future<Output = ()> + Send>>;
+/// Split the routing list off once. Every later per-attempt request clone has
+/// constant routing storage, regardless of the original list's size.
+fn attempt_requests(mut request: ChatRequest) -> (ChatRequest, VecDeque<String>) {
+    let attempts = request.attempts().skip(1).map(str::to_owned).collect();
+    request.fallback = Vec::new();
+    (request, attempts)
+}
+
+type SwitchFuture =
+    Pin<Box<dyn Future<Output = Result<(Box<dyn Upstream>, Meta), ApiFailure>> + Send>>;
+
+/// A switching release never records call completion. Confirm it before a new
+/// reservation; lost responses can be resolved by the durable read envelope.
+async fn release_attempt(ledger: &dyn Ledger, active: &Active) -> Result<(), ApiFailure> {
+    let hold = lock(&active.hold_id).ok_or_else(invalid)?;
+    if let Ok(row) = ledger::recover(
+        ledger,
+        &Operation::Release {
+            hold,
+            usage: json!({}),
+        },
+    )
+    .await
+        && status(&row)? == "released"
+    {
+        return Ok(());
+    }
+    let row = ledger::recover(
+        ledger,
+        &Operation::Read {
+            identity: active.identity,
+            call: active.id,
+        },
+    )
+    .await
+    .map_err(|_| unavailable())?;
+    let settlement = row
+        .get("record")
+        .and_then(|r| r.get("settlement"))
+        .ok_or_else(invalid)?;
+    if status(&row)? == "found"
+        && settlement.get("hold_id").and_then(Value::as_str) == Some(hold.to_string().as_str())
+        && settlement.get("outcome").and_then(Value::as_str) == Some("released")
+    {
+        Ok(())
+    } else {
+        Err(unavailable())
+    }
+}
+
 struct MeterStream {
+    original: Option<ChatRequest>,
+    attempts: VecDeque<String>,
+    attempt: i32,
+    catalog: Arc<VerifiedCatalog>,
+    call: CallHandle,
+    provider: Arc<dyn ChatBackend>,
+    allowed_models: Option<std::collections::BTreeSet<String>>,
+    // Retained across call::run's cancelled next() futures (250 ms ticks).
+    switching: Option<SwitchFuture>,
+    upload: Option<tokio::sync::OwnedSemaphorePermit>,
     upstream: Box<dyn Upstream>,
     active: Arc<Active>,
     ledger: Arc<dyn Ledger>,
@@ -1857,6 +1963,35 @@ impl Upstream for MeterStream {
                 self.terminal = None;
                 self.ended = true;
                 return Some(terminal(&self.active, record.as_ref()));
+            }
+            if let Some(future) = self.switching.as_mut() {
+                let result = future.await;
+                self.switching = None;
+                match result {
+                    Ok((upstream, meta)) => {
+                        self.upstream = upstream;
+                        self.meta = Some(meta);
+                        self.outcome = None;
+                        self.heartbeat.as_mut().reset(
+                            tokio::time::Instant::now()
+                                .checked_add(Duration::from_secs(60))
+                                .unwrap_or_else(tokio::time::Instant::now),
+                        );
+                        continue;
+                    }
+                    Err(failure) => {
+                        let mut intent = completion(&self.active, None);
+                        if let Some(object) = intent.as_object_mut() {
+                            object.insert(
+                                "error".into(),
+                                json!({"code":failure.code(),"message":bounded(failure.message())}),
+                            );
+                        }
+                        *lock(&self.active.completion) = Some(intent);
+                        self.begin_terminal();
+                        continue;
+                    }
+                }
             }
             let event = tokio::select! {
                 event=self.upstream.next()=>event,
@@ -1918,13 +2053,35 @@ impl Upstream for MeterStream {
                     _ => {}
                 }
                 if let Some(meta) = self.meta.take() {
+                    self.upload = None;
+                    self.original = None;
                     self.queued.push_back(event);
                     return Some(Event::Meta(meta));
                 }
                 return Some(event);
             }
             self.outcome = self.upstream.outcome();
-            *lock(&self.active.completion) = Some(completion(&self.active, self.outcome.as_ref()));
+            let intent = completion(&self.active, self.outcome.as_ref());
+            if self.meta.is_some()
+                && !self.call.delivery_ended()
+                && intent.get("usage").is_none()
+                && !*lock(&self.active.accepted)
+                && self.outcome.as_ref().and_then(|o| o.failure.as_ref())
+                    .is_some_and(|f| {
+                        f.phase == Phase::BeforeContent && f.code.falls_back()
+                            // A lost head or an intermediary error may hide a
+                            // committed provider request. Never send a second
+                            // model in that ambiguous case, even without meta.
+                            && !matches!(f.reason, "transport" | "first_byte" | "hard_limit" | "drained")
+                            && !matches!(f.status, Some(408 | 502 | 504))
+                    })
+                && let Some(model) = self.attempts.pop_front()
+            {
+                self.attempt = self.attempt.saturating_add(1);
+                self.switch_to(model);
+                continue;
+            }
+            *lock(&self.active.completion) = Some(intent);
             let success = self.outcome.as_ref().is_some_and(|o| o.failure.is_none());
             let intent = lock(&self.active.completion).clone().unwrap_or(Value::Null);
             // `meta` precedes every terminal that carries a charge: a call
@@ -1953,14 +2110,7 @@ impl Upstream for MeterStream {
                     }));
                 }
             }
-            let ledger = Arc::clone(&self.ledger);
-            let active = Arc::clone(&self.active);
-            self.terminal = Some(Box::pin(async move {
-                tokio::time::timeout(Duration::from_secs(10), finalize(ledger.as_ref(), &active))
-                    .await
-                    .ok()
-                    .and_then(Result::ok)
-            }));
+            self.begin_terminal();
         }
     }
     fn outcome(&mut self) -> Option<ProviderOutcome> {
@@ -1975,11 +2125,92 @@ impl Upstream for MeterStream {
         *lock(&self.active.accepted) || self.upstream.accepted()
     }
     fn keep_upload_reservation(&mut self, reservation: tokio::sync::OwnedSemaphorePermit) {
-        self.upstream.keep_upload_reservation(reservation);
+        self.upload = Some(reservation);
     }
 }
 
 impl MeterStream {
+    fn begin_terminal(&mut self) {
+        self.upload = None;
+        self.original = None;
+        let ledger = Arc::clone(&self.ledger);
+        let active = Arc::clone(&self.active);
+        self.terminal = Some(Box::pin(async move {
+            tokio::time::timeout(Duration::from_secs(10), finalize(ledger.as_ref(), &active))
+                .await
+                .ok()
+                .and_then(Result::ok)
+        }));
+    }
+
+    fn switch_to(&mut self, model: String) {
+        let ledger = Arc::clone(&self.ledger);
+        let active = Arc::clone(&self.active);
+        let catalog = Arc::clone(&self.catalog);
+        let provider = Arc::clone(&self.provider);
+        let call = self.call.clone();
+        let Some(mut request) = self.original.clone() else {
+            return;
+        };
+        request.model = model;
+        let allowed = self.allowed_models.clone();
+        let attempt = self.attempt;
+        let last_code = self
+            .outcome
+            .as_ref()
+            .and_then(|o| o.failure.as_ref())
+            .map_or(ErrorCode::Unavailable, |f| f.code);
+        self.extending = None;
+        self.switching = Some(Box::pin(async move {
+            release_attempt(ledger.as_ref(), &active).await?;
+            // A refusal may now have no current hold, but no_hold must remain
+            // false: this call already has a durable attempt snapshot.
+            *lock(&active.prior_attempts) = true;
+            *lock(&active.hold) = None;
+            *lock(&active.hold_id) = None;
+            *lock(&active.provider_started) = false;
+            *lock(&active.accepted) = false;
+            if call.delivery_ended() {
+                return Err(ApiFailure::new(last_code, "delivery ended before fallback"));
+            }
+            if allowed
+                .as_ref()
+                .is_some_and(|ids| !ids.contains(&request.model))
+            {
+                return Err(ApiFailure::new(
+                    ErrorCode::ModelDisabled,
+                    "model is not enabled for new calls",
+                ));
+            }
+            let row = ledger::recover(ledger.as_ref(), &Operation::Context(active.identity))
+                .await
+                .map_err(|_| unavailable())?;
+            let context = Context::parse(row)?;
+            let (mut request, estimate) = estimate_off_runtime(request, &catalog).await?;
+            let p = plan_with(&request, &catalog, &context, estimate)?;
+            if call.delivery_ended() {
+                return Err(ApiFailure::new(last_code, "delivery ended before fallback"));
+            }
+            let actual = reserve_attempt(&ledger, &active, &catalog, &context, p, attempt).await?;
+            if call.delivery_ended() {
+                return Err(ApiFailure::new(last_code, "delivery ended before fallback"));
+            }
+            request.max_output_tokens = Some(actual.output);
+            let upstream = provider.start(request, catalog, &call).await?;
+            *lock(&active.provider_started) = true;
+            let mut meta = Meta::new(active.id.to_string(), actual.model.id, actual.hold);
+            meta.requested_model = active
+                .request_meta
+                .get("requested_model")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            meta.provider = Some(actual.model.provider);
+            meta.max_output_tokens = Some(actual.output);
+            meta.input_tokens_estimate = Some(actual.input);
+            Ok((upstream, meta))
+        }));
+    }
+
     /// Copy the upstream's acceptance and its record of the tool fragments
     /// into the call's shared state, where the settler reads them after
     /// this stream is gone.
@@ -2040,6 +2271,42 @@ impl Upstream for Replay {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn large_fallback_list_is_materialized_once_and_not_retained_in_attempt_clones() {
+        let mut request = ask(100, false);
+        let expected: Vec<String> = (0..10_000).map(|n| format!("fallback-{n}")).collect();
+        request.fallback = expected
+            .iter()
+            .cloned()
+            .chain(expected.iter().cloned())
+            .chain(std::iter::once(request.model.clone()))
+            .collect();
+        let original_fingerprint = request_fingerprint(&request).unwrap();
+        let features = crate::features::RequestFeatures::of(&request).to_json();
+        assert_eq!(features["fallback"], 20_001);
+        let original_model = request.model.clone();
+        let (retained, attempts) = attempt_requests(request);
+        assert_eq!(retained.model, original_model);
+        assert_eq!(attempts.into_iter().collect::<Vec<_>>(), expected);
+        // Structural bound, not a timing threshold: no full routing vector
+        // (nor even its old allocation) survives in ANY per-attempt clone.
+        for model in [&original_model, "fallback-0", "fallback-9999"] {
+            let mut attempt = retained.clone();
+            attempt.model = model.to_owned();
+            assert!(attempt.fallback.is_empty());
+            assert_eq!(attempt.fallback.capacity(), 0);
+        }
+        assert_ne!(
+            request_fingerprint(&retained).unwrap(),
+            original_fingerprint,
+            "claim fingerprint must be captured before splitting routing data"
+        );
+        assert_eq!(
+            features["fallback"], 20_001,
+            "captured feature count stays original"
+        );
+    }
 
     #[test]
     fn claims_are_keyed_deterministic_and_change_with_the_key() {
@@ -2282,6 +2549,7 @@ mod tests {
             request_meta: json!({}),
             hold: Mutex::new(None),
             hold_id: Mutex::new(None),
+            prior_attempts: Mutex::new(false),
             completion: Mutex::new(None),
             provider_started: Mutex::new(true),
             output_bytes: Mutex::new(0),
@@ -2309,6 +2577,7 @@ mod tests {
     async fn unpriced_hourly_finalize_persists_reported_and_interrupted_usage_without_settlement() {
         struct RecordingLedger {
             hold: Uuid,
+            prior_hold: Uuid,
             operations: Mutex<Vec<Operation>>,
             durable_completion: Mutex<Option<Value>>,
         }
@@ -2325,7 +2594,9 @@ mod tests {
                     assert!(!no_hold, "the admitted call has a hold");
                     *lock(&self.durable_completion) = Some(completion.clone());
                     Ok(json!({"status":"recorded","record":{
-                        "status":"settling","attempts":[{"hold_id":self.hold}]
+                        "status":"settling","attempts":[
+                            {"hold_id":self.prior_hold,"attempt":1},
+                            {"hold_id":self.hold,"attempt":2}]
                     }}))
                 } else {
                     Err(ledger::Failure)
@@ -2350,6 +2621,7 @@ mod tests {
             *lock(&active.hold) = Some(Operation::Hold {
                 identity: active.identity,
                 call: active.id,
+                attempt: 2,
                 amount_milli: 1000,
                 model: "m".into(),
                 rate_card: 1,
@@ -2391,6 +2663,7 @@ mod tests {
             *lock(&active.completion) = Some(intent.clone());
             let ledger = RecordingLedger {
                 hold,
+                prior_hold: Uuid::now_v7(),
                 operations: Mutex::new(Vec::new()),
                 durable_completion: Mutex::new(None),
             };

@@ -81,6 +81,8 @@ pub enum Operation {
     Hold {
         identity: Identity,
         call: Uuid,
+        /// One-based, durable identity of this model attempt within the call.
+        attempt: i32,
         amount_milli: i64,
         model: String,
         rate_card: i64,
@@ -236,8 +238,8 @@ impl Postgres {
                 .bind(i.subject).bind(i.app).bind(i.account_epoch).bind(i.grant_generation).bind(call),
             Operation::Complete { identity:i, call, completion, no_hold } => sqlx_core::query::query("SELECT to_jsonb(r) AS result FROM ledger.call_complete($1::uuid,$2::uuid,$3::int,$4::int,$5::uuid,$6::jsonb,$7::bool) r")
                 .bind(i.subject).bind(i.app).bind(i.account_epoch).bind(i.grant_generation).bind(call).bind(completion).bind(no_hold),
-            Operation::Hold { identity:i, call, amount_milli, model, rate_card, catalog, consented_markup, provider } => sqlx_core::query::query("SELECT to_jsonb(r) AS result FROM ledger.hold($1::uuid,$2::uuid,$3::bigint,$4::text,$5::text,$6::int,$7::int,$8::int,$9::int,$10::text,$11::bigint,$12::text,$13::int,$14::jsonb) r")
-                .bind(i.subject).bind(i.app).bind(amount_milli).bind(format!("{call}:1")).bind(call.to_string()).bind(1_i32).bind(300_i32).bind(i.account_epoch).bind(i.grant_generation).bind(model).bind(rate_card).bind(catalog).bind(consented_markup).bind(serde_json::json!({"provider":provider})),
+            Operation::Hold { identity:i, call, attempt, amount_milli, model, rate_card, catalog, consented_markup, provider } => sqlx_core::query::query("SELECT to_jsonb(r) AS result FROM ledger.hold($1::uuid,$2::uuid,$3::bigint,$4::text,$5::text,$6::int,$7::int,$8::int,$9::int,$10::text,$11::bigint,$12::text,$13::int,$14::jsonb) r")
+                .bind(i.subject).bind(i.app).bind(amount_milli).bind(format!("{call}:{attempt}")).bind(call.to_string()).bind(attempt).bind(300_i32).bind(i.account_epoch).bind(i.grant_generation).bind(model).bind(rate_card).bind(catalog).bind(consented_markup).bind(serde_json::json!({"provider":provider})),
             Operation::Extend { identity:i, hold, amount_milli } => sqlx_core::query::query("SELECT to_jsonb(r) AS result FROM ledger.extend($1::uuid,$2::bigint,$3::int,$4::int,$5::int) r")
                 .bind(hold).bind(amount_milli).bind(300_i32).bind(i.account_epoch).bind(i.grant_generation),
             Operation::Settle { hold, cost_nusd, usage } => sqlx_core::query::query("SELECT to_jsonb(r) AS result FROM ledger.settle($1::uuid,$2::bigint,$3::jsonb) r")
