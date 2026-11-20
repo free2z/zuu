@@ -737,3 +737,30 @@ async function clickEditorPublish(page: Page) {
   const now = page.getByRole("button", { name: "Publish now" });
   if (await now.isVisible().catch(() => false)) await now.click();
 }
+
+for (const [code, message] of [
+  [
+    "timeout",
+    "The translation took too long. Try a shorter article or try again later.",
+  ],
+  [
+    "output_truncated",
+    "The translation reached its output limit before it was finished. Try a shorter article.",
+  ],
+] as const) {
+  test(`the tray explains ${code} to the creator`, async ({ page }) => {
+    await stubParallelApi(page, {
+      initialJobs: [
+        { language: "fr", status: "refunded", refunded: "9", error: code },
+      ],
+    });
+    await openEditor(page);
+    await page.getByTestId("translation-jobs-indicator").click();
+    const failure = page
+      .getByTestId("translation-tray")
+      .locator('[data-language="fr"]')
+      .getByTestId("translation-failure");
+    await expect(failure).toContainText(message);
+    await expect(failure).toContainText("All 9 2Z are back in your balance.");
+  });
+}
