@@ -22,8 +22,14 @@
  * Must be constructed during component initialisation (it registers an
  * `$effect`), and `attach()` must be called from `onMount`.
  */
+import { Marked, marked } from "marked";
+import {
+  parseCaptionedImage,
+  serializeCaptionedImage,
+} from "$lib/utils/image-caption";
 import { toast, captureAccountToast } from "$lib/toast.js";
 import { apiFetch } from "$lib/api/config";
+import * as env from "$app/env/public";
 import { creatorList } from "$lib/api/creator/creator";
 import type { CreatorList, CreatorListParams } from "$lib/api/f2z.schemas";
 import { isUploadRejection, uploadPublicFile } from "$lib/api/uploads";
@@ -35,6 +41,7 @@ import {
   satisfiesSlot,
   type MediaSlotContext,
 } from "$lib/components/media/mediaAccess";
+import { readCurrentUpload } from "$lib/components/media/promoteMediaAccess";
 import {
   checkUploadSize,
   confirmOversize,
@@ -45,6 +52,7 @@ import type { TranslationFunction } from "$lib/i18n";
 import type { CoverLibraryImage } from "./coverTypes";
 import {
   buildImageMarkdown,
+  buildDescribedImageMarkdown,
   buildVideoMarkdown,
   createInlineUploader,
 } from "./inlineUploads";
@@ -109,6 +117,9 @@ export interface MarkdownTextareaOptions {
   /** "The page this document belongs to is gone." Read live. */
   isAbandoned: () => boolean;
   openImagePicker: (defaultTab?: "device" | "cloud") => void;
+  requestImageDetails?: (
+    name: string,
+  ) => Promise<{ alt: string; caption: string } | null>;
   openMediaPicker?: (kind: "video" | "audio" | "document" | "link") => void;
   openVideoPicker?: (defaultTab?: "device" | "cloud") => void;
   /** Re-measure the host's layout after a programmatic edit. */
@@ -1145,6 +1156,78 @@ export class MarkdownTextareaController {
     });
   };
 
+  /** Capture a standalone image at the caret. The full-document lexer keeps
+   * fenced examples inert; the original source is checked again at apply. */
+  captureImageDetails = () => {
+    const textarea = this.#textarea;
+    if (!textarea) return null;
+    const value = this.#value;
+    const caret = textarea.selectionStart;
+    const lineStart = value.lastIndexOf("\n", Math.max(0, caret - 1)) + 1;
+    const lineEnd = value.indexOf("\n", lineStart);
+    const end = lineEnd < 0 ? value.length : lineEnd;
+    const image = value.slice(lineStart, end).trim();
+    const inline = marked.Lexer.lexInline(image);
+    if (
+      inline.length !== 1 ||
+      inline[0].type !== "image" ||
+      inline[0].raw !== image
+    )
+      return null;
+    let offset = 0;
+    // A private lexer is unaffected by render-time extensions registered on marked.
+    const blocks = new Marked({ breaks: true, gfm: true }).lexer(value);
+    const block = blocks.find((token) => {
+      const start = offset;
+      offset += token.raw.length;
+      return lineStart >= start && lineStart < offset;
+    });
+    if (!block || block.type !== "paragraph") return null;
+    const parsed = parseCaptionedImage(value.slice(lineStart));
+    const captionLine = parsed
+      ? (value.slice(end + 1).match(/^[^\n]*/)?.[0] ?? "")
+      : "";
+    const replaceEnd = parsed ? end + 1 + captionLine.length : end;
+    const token = inline[0];
+    return {
+      alt: token.text,
+      caption: parsed?.caption ?? "",
+      apply: (alt: string, caption: string) => {
+        if (this.#options.isAbandoned() || this.#value !== value) return false;
+        // Keep the destination and title byte-for-byte; escape Markdown label delimiters.
+        let depth = 0;
+        let closing = -1;
+        for (let i = 2; i < image.length; i++) {
+          if (image[i] === "\\") {
+            i++;
+            continue;
+          }
+          if (image[i] === "[") depth++;
+          else if (image[i] === "]") {
+            if (depth > 0) depth--;
+            else {
+              closing = i;
+              break;
+            }
+          }
+        }
+        if (closing < 0 || image[closing + 1] !== "(") return false;
+        const safeAlt = alt
+          .replace(/\\/g, "\\\\")
+          .replace(/\[/g, "\\[")
+          .replace(/\]/g, "\\]")
+          .replace(/[\r\n]+/g, " ");
+        const next = serializeCaptionedImage(
+          alt === token.text ? image : `![${safeAlt}${image.slice(closing)}`,
+          caption,
+        );
+        this.#splice(lineStart, replaceEnd, next, "end");
+        this.#textarea?.focus();
+        return true;
+      },
+    };
+  };
+
   // -------------------------------------------------------------------------
   // Image picker callbacks
   // -------------------------------------------------------------------------
@@ -1182,13 +1265,26 @@ export class MarkdownTextareaController {
       return true;
     }
 
+    const original = this.#value;
+    const start = this.#textarea?.selectionStart ?? original.length;
+    const details: { alt: string; caption: string }[] = [];
+    if (!mediaKind && this.#options.requestImageDetails) {
+      for (const file of files) {
+        const entry = await this.#options.requestImageDetails(file.name);
+        if (!entry || this.#options.isAbandoned() || this.#value !== original)
+          return false;
+        details.push(entry);
+      }
+    }
     if (!(await this.#prepareLocalUpload())) return false;
+    if (this.#options.isAbandoned() || this.#value !== original) return false;
 
     this.#textarea?.focus();
     void this.#uploader.startInlineUploads(
       files,
-      this.#textarea?.selectionStart ?? this.#value.length,
+      start,
       mediaKind,
+      details.length ? details : undefined,
     );
     return true;
   };
@@ -1209,6 +1305,10 @@ export class MarkdownTextareaController {
    */
   insertCloudImage = async (item: CoverLibraryImage) => {
     const t = this.#t;
+    const operationNotice = captureAccountToast();
+    const original = this.#value;
+    const start = this.#textarea?.selectionStart ?? original.length;
+    const end = this.#textarea?.selectionEnd ?? start;
     const title =
       item.title ||
       item.name ||
@@ -1230,6 +1330,7 @@ export class MarkdownTextareaController {
       );
     }
 
+    if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
     const slot = this.#options.mediaSlot();
 
     if (!slot || !satisfiesSlot(item.access, slot)) {
@@ -1241,12 +1342,58 @@ export class MarkdownTextareaController {
       );
     }
 
-    // Keep the URL relative — the markdown renderer prefixes /uploadz/ paths
-    // with the API base in both preview and published pages.
+    const details =
+      !item.mime_type?.startsWith("video/") && this.#options.requestImageDetails
+        ? await this.#options.requestImageDetails(title)
+        : undefined;
+    if (details === null) return;
+    if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
+    if (details) {
+      if (!(await this.#runMediaPreflight())) return;
+      if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
+      const current = await readCurrentUpload<CoverLibraryImage>({
+        id: item.id,
+        apiBase: env.PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "",
+        request: apiFetch,
+      });
+      if (!operationNotice.isCurrent() || this.#options.isAbandoned()) return;
+      if (
+        !current ||
+        current.id !== item.id ||
+        !current.url ||
+        !current.mime_type?.startsWith("image/")
+      )
+        throw new Error(
+          t(
+            "editor.imageAccessCheckFailed",
+            "Could not check who can open that image. Please try again.",
+          ),
+        );
+      item = current;
+    }
+    if (this.#options.isAbandoned() || this.#value !== original)
+      throw new Error(
+        t(
+          "editor.documentChanged",
+          "The document changed. Choose the insertion point again.",
+        ),
+      );
+    const currentSlot = this.#options.mediaSlot();
+    if (!currentSlot || !satisfiesSlot(item.access, currentSlot))
+      throw new Error(
+        t(
+          "editor.imageAccessUnreachable",
+          "Readers of this page cannot open that image yet.",
+        ),
+      );
+    this.#textarea?.setSelectionRange(start, end);
+    // Keep the existing access check and original URL.
     this.#insertImageMarkdownAtCursor(
       item.mime_type?.startsWith("video/")
         ? buildVideoMarkdown(item.url)
-        : buildImageMarkdown(title, item.url, t),
+        : details
+          ? `\n\n${buildDescribedImageMarkdown(item.url, details.alt, details.caption)}\n\n`
+          : buildImageMarkdown(title, item.url, t),
     );
   };
 
