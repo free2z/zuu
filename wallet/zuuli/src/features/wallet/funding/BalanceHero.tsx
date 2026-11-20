@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { ArrowRight } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -20,6 +22,8 @@ import { formatZecTrim } from "@/lib/format";
  * and a single step of lift — no gradient, no glow.
  */
 export function BalanceHero() {
+  const { t: uiT } = useUiTranslation();
+
   const tuzis = useSession((s) => s.tuzis);
   const balance = useWallet((s) => s.balance);
   const walletLoading = useWallet((s) => s.loading);
@@ -29,7 +33,9 @@ export function BalanceHero() {
       <div className="grid gap-6 p-6 sm:grid-cols-[1.4fr_auto_1fr] sm:items-center sm:p-8">
         {/* 2Z balance */}
         <div className="space-y-2.5">
-          <div className="eyebrow text-muted-foreground">2Z balance</div>
+          <div className="eyebrow text-muted-foreground">
+            {uiT(MESSAGE_KEYS.featuresWalletFundingBalanceHero2ZBalance)}
+          </div>
           <div className="bidi-number numeral flex min-w-0 items-baseline leading-none">
             <span className="text-4xl font-semibold text-foreground md:text-5xl">
               {tuzis.toLocaleString()}
@@ -39,7 +45,9 @@ export function BalanceHero() {
             </span>
           </div>
           <div className="text-sm text-muted-foreground">
-            Spendable platform credit
+            {uiT(
+              MESSAGE_KEYS.featuresWalletFundingBalanceHeroSpendablePlatformCredit,
+            )}
           </div>
         </div>
 
@@ -48,7 +56,9 @@ export function BalanceHero() {
 
         {/* ZEC spendable */}
         <div className="space-y-2.5">
-          <div className="eyebrow text-muted-foreground">ZEC in wallet</div>
+          <div className="eyebrow text-muted-foreground">
+            {uiT(MESSAGE_KEYS.featuresWalletFundingBalanceHeroZECInWallet)}
+          </div>
           {walletLoading && !balance ? (
             <Skeleton className="h-9 w-32" />
           ) : (
@@ -62,9 +72,15 @@ export function BalanceHero() {
             </div>
           )}
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Badge variant="zec">spendable</Badge>
+            <Badge variant="zec">
+              {uiT(MESSAGE_KEYS.featuresWalletFundingBalanceHeroSpendable)}
+            </Badge>
             <ArrowRight className="rtl:-scale-x-100 h-3 w-3" aria-hidden />
-            <span>fund 2Zs instantly</span>
+            <span>
+              {uiT(
+                MESSAGE_KEYS.featuresWalletFundingBalanceHeroFund2ZsInstantly,
+              )}
+            </span>
           </div>
         </div>
       </div>

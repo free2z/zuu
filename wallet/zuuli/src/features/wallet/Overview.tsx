@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Wallet overview: balance, sync, address, recent activity.
 import { Link } from "react-router-dom";
 import { ArrowDownToLine, ArrowUpRight, History } from "lucide-react";
@@ -15,6 +17,8 @@ import { AmountDisplay } from "./shared";
 import { AddressCard, SyncBar, TxRow, ViewAllLink } from "./components";
 
 export function Overview() {
+  const { t: uiT } = useUiTranslation();
+
   const balance = useWallet((s) => s.balance);
   const sync = useWallet((s) => s.sync);
   const unifiedAddress = useWallet((s) => s.unifiedAddress);
@@ -32,9 +36,7 @@ export function Overview() {
   // Sync runs automatically and is polled by the wallet store, so there is no
   // manual start/stop here — the SyncBar below is a passive status indicator.
 
-  const pending = balance
-    ? balance.valuePending + balance.changePending
-    : 0;
+  const pending = balance ? balance.valuePending + balance.changePending : 0;
 
   return (
     <div className="space-y-6">
@@ -44,7 +46,7 @@ export function Overview() {
           <CardContent className="relative space-y-6 p-6">
             <div className="space-y-2.5">
               <div className="eyebrow text-muted-foreground">
-                Spendable balance
+                {uiT(MESSAGE_KEYS.featuresWalletOverviewSpendableBalance)}
               </div>
               {balance ? (
                 <AmountDisplay
@@ -61,7 +63,9 @@ export function Overview() {
                 amount above, one hairline below it. */}
             <div className="flex flex-wrap gap-x-8 gap-y-3 border-t border-border pt-4">
               <div className="space-y-1">
-                <div className="eyebrow text-muted-foreground">Pending</div>
+                <div className="eyebrow text-muted-foreground">
+                  {uiT(MESSAGE_KEYS.featuresWalletOverviewPending)}
+                </div>
                 {balance ? (
                   <div className="bidi-number numeral text-sm text-foreground">
                     {formatZecDisplay(pending)}
@@ -72,7 +76,7 @@ export function Overview() {
               </div>
               <div className="space-y-1">
                 <div className="eyebrow text-muted-foreground">
-                  Total shielded
+                  {uiT(MESSAGE_KEYS.featuresWalletOverviewTotalShielded)}
                 </div>
                 {balance ? (
                   <div className="bidi-number numeral text-sm text-foreground">
@@ -88,13 +92,13 @@ export function Overview() {
               <Button asChild variant="zec" size="lg">
                 <Link to="/wallet/send">
                   <ArrowUpRight className="rtl:-scale-x-100 h-4 w-4" />
-                  Send
+                  {uiT(MESSAGE_KEYS.featuresWalletOverviewSend)}
                 </Link>
               </Button>
               <Button asChild variant="secondary" size="lg">
                 <Link to="/wallet/receive">
                   <ArrowDownToLine className="h-4 w-4" />
-                  Receive
+                  {uiT(MESSAGE_KEYS.featuresWalletOverviewReceive)}
                 </Link>
               </Button>
             </div>
@@ -117,7 +121,9 @@ export function Overview() {
       {/* Recent activity */}
       <Card className="rounded-xl">
         <CardHeader className="flex flex-row items-center justify-between space-y-0">
-          <CardTitle className="text-base">Recent activity</CardTitle>
+          <CardTitle className="text-base">
+            {uiT(MESSAGE_KEYS.featuresWalletOverviewRecentActivity)}
+          </CardTitle>
           {recent && recent.length > 0 ? <ViewAllLink /> : null}
         </CardHeader>
         <CardContent className="pt-0">
@@ -126,13 +132,21 @@ export function Overview() {
               className="mb-3"
               title={
                 recent === null
-                  ? "Couldn't load recent activity"
-                  : "Couldn't refresh recent activity"
+                  ? uiT(
+                      MESSAGE_KEYS.featuresWalletOverviewCouldnTLoadRecentActivity,
+                    )
+                  : uiT(
+                      MESSAGE_KEYS.featuresWalletOverviewCouldnTRefreshRecentActivity,
+                    )
               }
               description={
                 recent === null
-                  ? "Your transaction history is temporarily unavailable."
-                  : "Showing the last transaction history loaded on this device."
+                  ? uiT(
+                      MESSAGE_KEYS.featuresWalletOverviewYourTransactionHistoryIsTemporarilyUnavailable,
+                    )
+                  : uiT(
+                      MESSAGE_KEYS.featuresWalletOverviewShowingTheLastTransactionHistoryLoadedOn,
+                    )
               }
               retry={reloadRecent}
               retrying={recentLoading}
@@ -155,8 +169,10 @@ export function Overview() {
           ) : recentError && recent === null ? null : recent?.length === 0 ? (
             <EmptyState
               icon={History}
-              title="No transactions yet"
-              description="Once you send or receive ZEC, your activity shows up here."
+              title={uiT(MESSAGE_KEYS.featuresWalletOverviewNoTransactionsYet)}
+              description={uiT(
+                MESSAGE_KEYS.featuresWalletOverviewOnceYouSendOrReceiveZECYour,
+              )}
             />
           ) : recent ? (
             <div className="-mx-3 divide-y divide-border/60">

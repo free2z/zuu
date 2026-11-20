@@ -1,3 +1,7 @@
+import { translate } from "@/i18n/translate";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { localizedError } from "@/i18n/errors";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Real social login (X / Google / GitHub) — desktop RFC 8252 loopback
 // transport on Tauri, a popup fallback on the web (see
 // `@/lib/oauth/transport.ts`), wired to `dj.apps.social` on the backend.
@@ -71,19 +75,27 @@ export interface SocialButtonsProps {
   loginDestination?: LoginDestination;
 }
 
-const DEFAULT_EMPTY_STATE = (
-  <p className="text-center text-xs text-muted-foreground">
-    More sign-in options coming soon.
-  </p>
-);
+function DefaultEmptyState() {
+  const { t: uiT } = useUiTranslation();
+
+  return (
+    <p className="text-center text-xs text-muted-foreground">
+      {uiT(
+        MESSAGE_KEYS.componentsCommonSocialButtonsMoreSignInOptionsComingSoon,
+      )}
+    </p>
+  );
+}
 
 export function SocialButtons({
   associate = false,
   alreadyLinked,
   onLinked,
-  emptyState = DEFAULT_EMPTY_STATE,
+  emptyState = <DefaultEmptyState />,
   loginDestination = "/",
 }: SocialButtonsProps) {
+  const { t: uiT } = useUiTranslation();
+
   const {
     providers: configured,
     loading,
@@ -105,8 +117,12 @@ export function SocialButtons({
       >
         <span>
           {associate
-            ? "Couldn't check account-link options."
-            : "Couldn't check sign-in options."}
+            ? uiT(
+                MESSAGE_KEYS.componentsCommonSocialButtonsCouldnTCheckAccountLinkOptions,
+              )
+            : uiT(
+                MESSAGE_KEYS.componentsCommonSocialButtonsCouldnTCheckSignInOptions,
+              )}
         </span>
         <Button
           type="button"
@@ -121,7 +137,9 @@ export function SocialButtons({
           ) : (
             <RefreshCw className="h-4 w-4" aria-hidden />
           )}
-          {loading ? "Retrying" : "Retry"}
+          {loading
+            ? uiT(MESSAGE_KEYS.componentsCommonSocialButtonsRetrying)
+            : uiT(MESSAGE_KEYS.componentsCommonSocialButtonsRetry)}
         </Button>
       </div>
     );
@@ -142,28 +160,54 @@ export function SocialButtons({
       assertOAuthResultCurrent(result.sessionGeneration);
       const name = PROVIDER_NAME[provider];
       if (associate) {
-        if (result.status !== "associated") throw new Error("Unexpected login result");
+        if (result.status !== "associated")
+          throw new Error("Unexpected login result");
         setUser(result.user);
-        toast.success(`${name} linked`, {
-          description: `This ${name} identity is now linked to your account.`,
-        });
+        toast.success(
+          translate(MESSAGE_KEYS.componentsCommonSocialButtonsLinked, {
+            value1: name,
+          }),
+          {
+            description: translate(
+              MESSAGE_KEYS.componentsCommonSocialButtonsThisIdentityIsNowLinkedToYour,
+              { value1: name },
+            ),
+          },
+        );
         onLinked?.(provider);
       } else {
-        if (result.status !== "authenticated") throw new Error("Unexpected link result");
+        if (result.status !== "authenticated")
+          throw new Error("Unexpected link result");
         setToken(result.session.token);
         setUser(result.session.user);
-        toast.success("Welcome to ZUULI", {
-          description: `Logged in with ${name}.`,
-        });
+        toast.success(
+          translate(MESSAGE_KEYS.componentsCommonSocialButtonsWelcomeToZUULI),
+          {
+            description: translate(
+              MESSAGE_KEYS.componentsCommonSocialButtonsLoggedInWith,
+              { value1: name },
+            ),
+          },
+        );
         clearPendingSocialLoginDestination();
         navigate(loginDestination, { replace: true });
       }
     } catch (e) {
       if (!isCurrent()) return;
       if (!associate) clearPendingSocialLoginDestination();
-      toast.error(associate ? "Couldn't link that account" : "Couldn't log in", {
-        description: e instanceof Error ? e.message : "Please try again.",
-      });
+      toast.error(
+        associate
+          ? translate(
+              MESSAGE_KEYS.componentsCommonSocialButtonsCouldnTLinkThatAccount,
+            )
+          : translate(MESSAGE_KEYS.componentsCommonSocialButtonsCouldnTLogIn),
+        {
+          description: localizedError(
+            e,
+            translate(MESSAGE_KEYS.componentsCommonSocialButtonsPleaseTryAgain),
+          ),
+        },
+      );
     } finally {
       if (isCurrent()) setPending(null);
     }
@@ -186,8 +230,12 @@ export function SocialButtons({
             PROVIDER_MARK[provider]
           )}
           {associate
-            ? `Link ${PROVIDER_NAME[provider]}`
-            : `Continue with ${PROVIDER_NAME[provider]}`}
+            ? uiT(MESSAGE_KEYS.componentsCommonSocialButtonsLink, {
+                value1: PROVIDER_NAME[provider],
+              })
+            : uiT(MESSAGE_KEYS.componentsCommonSocialButtonsContinueWith, {
+                value1: PROVIDER_NAME[provider],
+              })}
         </Button>
       ))}
     </div>

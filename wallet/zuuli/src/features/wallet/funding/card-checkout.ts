@@ -1,3 +1,5 @@
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ApiError } from "@/lib/api/http";
 import { CheckoutLinkError } from "@/lib/api/checkout";
@@ -25,7 +27,11 @@ export class CheckoutOpenError extends Error {
   readonly cause: unknown;
 
   constructor(cause?: unknown) {
-    super("The secure checkout page could not be opened.");
+    super(
+      translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutTheSecureCheckoutPageCouldNotBe,
+      ),
+    );
     this.name = "CheckoutOpenError";
     this.cause = cause;
   }
@@ -108,8 +114,12 @@ export function cardCheckoutFeedback(error: unknown): CardCheckoutFeedback {
     (error.status === 401 || error.status === 403)
   ) {
     return {
-      title: "Log in again",
-      description: "Your session expired. Log in, then retry your purchase.",
+      title: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutLogInAgain,
+      ),
+      description: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutYourSessionExpiredLogInThenRetry,
+      ),
       signIn: true,
     };
   }
@@ -118,53 +128,86 @@ export function cardCheckoutFeedback(error: unknown): CardCheckoutFeedback {
     (error.status === 400 || error.status === 422)
   ) {
     return {
-      title: "Check the amount",
-      description: "Choose a valid amount, then try again.",
+      title: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutCheckTheAmount,
+      ),
+      description: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutChooseAValidAmountThenTryAgain,
+      ),
       signIn: false,
     };
   }
   if (error instanceof ApiError && error.status === 429) {
     return {
-      title: "Too many attempts",
-      description: "Wait a moment before trying checkout again.",
+      title: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutTooManyAttempts,
+      ),
+      description: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutWaitAMomentBeforeTryingCheckoutAgain,
+      ),
       signIn: false,
     };
   }
   if (error instanceof ApiError && error.status >= 500) {
     return {
-      title: "Checkout unavailable",
-      description:
-        "The payment service is temporarily unavailable. Try again shortly.",
+      title: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutCheckoutUnavailable,
+      ),
+      description: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutThePaymentServiceIsTemporarilyUnavailableTry,
+      ),
       signIn: false,
     };
   }
   if (error instanceof CheckoutLinkError) {
     const blocked = error.reason === "untrusted-host";
     return {
-      title: blocked ? "Checkout link blocked" : "Checkout unavailable",
+      title: blocked
+        ? translate(
+            MESSAGE_KEYS.featuresWalletFundingCardCheckoutCheckoutLinkBlocked,
+          )
+        : translate(
+            MESSAGE_KEYS.featuresWalletFundingCardCheckoutCheckoutUnavailable,
+          ),
       description: blocked
-        ? "The payment link was not an approved Stripe Checkout address."
-        : "The payment service returned an invalid checkout link. Try again shortly.",
+        ? translate(
+            MESSAGE_KEYS.featuresWalletFundingCardCheckoutThePaymentLinkWasNotAnApproved,
+          )
+        : translate(
+            MESSAGE_KEYS.featuresWalletFundingCardCheckoutThePaymentServiceReturnedAnInvalidCheckout,
+          ),
       signIn: false,
     };
   }
   if (error instanceof CheckoutOpenError) {
     return {
-      title: "Couldn't open checkout",
-      description: "Allow ZUULI to open external links, then try again.",
+      title: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutCouldnTOpenCheckout,
+      ),
+      description: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutAllowZUULIToOpenExternalLinksThen,
+      ),
       signIn: false,
     };
   }
   if (error instanceof TypeError) {
     return {
-      title: "Can't reach checkout",
-      description: "Check your connection, then try again.",
+      title: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutCanTReachCheckout,
+      ),
+      description: translate(
+        MESSAGE_KEYS.featuresWalletFundingCardCheckoutCheckYourConnectionThenTryAgain,
+      ),
       signIn: false,
     };
   }
   return {
-    title: "Checkout failed",
-    description: "Try again. If this keeps happening, contact support.",
+    title: translate(
+      MESSAGE_KEYS.featuresWalletFundingCardCheckoutCheckoutFailed,
+    ),
+    description: translate(
+      MESSAGE_KEYS.featuresWalletFundingCardCheckoutTryAgainIfThisKeepsHappeningContact,
+    ),
     signIn: false,
   };
 }

@@ -1,3 +1,8 @@
+import { translate } from "@/i18n/translate";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { localizedError } from "@/i18n/errors";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { Trans } from "react-i18next";
 // Send ZEC: live address validation, memo, payment-URI paste, review + confirm.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
@@ -81,9 +86,7 @@ function clampToBytes(value: string, maxBytes: number): string {
 }
 
 function errorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
-  return fallback;
+  return localizedError(error, fallback);
 }
 
 export function Send({
@@ -91,11 +94,12 @@ export function Send({
 }: {
   creatorTipRoute?: boolean;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   const location = useLocation();
   const navigate = useNavigate();
   const creatorTip = useMemo(
-    () =>
-      creatorTipRoute ? readCreatorTipRouteState(location.state) : null,
+    () => (creatorTipRoute ? readCreatorTipRouteState(location.state) : null),
     [creatorTipRoute, location.state],
   );
 
@@ -103,24 +107,29 @@ export function Send({
     return (
       <Card className="mx-auto max-w-xl rounded-xl">
         <CardHeader>
-          <CardTitle>Creator ZEC tip unavailable</CardTitle>
+          <CardTitle>
+            {uiT(MESSAGE_KEYS.featuresWalletSendCreatorZECTipUnavailable)}
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <Callout
             tone="destructive"
             icon={TriangleAlert}
-            title="The creator payment details could not be verified"
+            title={uiT(
+              MESSAGE_KEYS.featuresWalletSendTheCreatorPaymentDetailsCouldNotBe,
+            )}
             role="alert"
           >
-            Return to the creator profile and start the ZEC tip again. No
-            recipient or payment has been substituted.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletSendReturnToTheCreatorProfileAndStart,
+            )}
           </Callout>
           <Button
             type="button"
             variant="outline"
             onClick={() => navigate("/search")}
           >
-            Browse creators
+            {uiT(MESSAGE_KEYS.featuresWalletSendBrowseCreators)}
           </Button>
         </CardContent>
       </Card>
@@ -136,6 +145,8 @@ export function Send({
 }
 
 function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
+  const { t: uiT } = useUiTranslation();
+
   const navigate = useNavigate();
   const balance = useWallet((s) => s.balance);
   const refreshBalance = useWallet((s) => s.refreshBalance);
@@ -151,11 +162,14 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
   const [preparingParams, setPreparingParams] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [sending, setSending] = useState(false);
-  const [broadcastResult, setBroadcastResult] = useState<ExecuteSendResult | null>(null);
-  const [pendingSend, setPendingSend] = useState<PendingSendStatus | null>(null);
-  const [pendingCheck, setPendingCheck] = useState<"loading" | "ready" | "failed">(
-    "loading",
+  const [broadcastResult, setBroadcastResult] =
+    useState<ExecuteSendResult | null>(null);
+  const [pendingSend, setPendingSend] = useState<PendingSendStatus | null>(
+    null,
   );
+  const [pendingCheck, setPendingCheck] = useState<
+    "loading" | "ready" | "failed"
+  >("loading");
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const debounceRef = useRef<number | null>(null);
@@ -213,7 +227,11 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
   const hasUnknownBroadcast =
     broadcastResult?.status === "unknown" || pendingSend?.status === "unknown";
   const formLocked =
-    hasUnknownBroadcast || preparingParams || reviewing || sending || proposal !== null;
+    hasUnknownBroadcast ||
+    preparingParams ||
+    reviewing ||
+    sending ||
+    proposal !== null;
 
   useEffect(() => {
     let active = true;
@@ -234,7 +252,14 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       .catch((error) => {
         if (active) {
           setPendingCheck("failed");
-          toast.error(errorMessage(error, "Couldn't load pending payment state"));
+          toast.error(
+            errorMessage(
+              error,
+              translate(
+                MESSAGE_KEYS.featuresWalletSendCouldnTLoadPendingPaymentState,
+              ),
+            ),
+          );
         }
       });
     return () => {
@@ -259,10 +284,16 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
         setTo(req.address);
         if (req.amount !== null) setAmount(formatZec(req.amount));
         if (req.memo !== null) setMemo(clampToBytes(req.memo, MEMO_MAX_BYTES));
-        toast.success("Payment request loaded");
+        toast.success(
+          translate(MESSAGE_KEYS.featuresWalletSendPaymentRequestLoaded),
+        );
       } catch {
         if (mountedRef.current && generation === generationRef.current) {
-          toast.error("Couldn't read that payment link");
+          toast.error(
+            translate(
+              MESSAGE_KEYS.featuresWalletSendCouldnTReadThatPaymentLink,
+            ),
+          );
         }
       }
     },
@@ -315,7 +346,8 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
     }, 350);
     return () => {
       active = false;
-      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
+      if (debounceRef.current !== null)
+        window.clearTimeout(debounceRef.current);
     };
   }, [to]);
 
@@ -348,7 +380,11 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       }
       setPreparingParams(false);
       setReviewing(true);
-      const p = await wallet.proposeSend(requested.recipient, requested.amount, requested.memo);
+      const p = await wallet.proposeSend(
+        requested.recipient,
+        requested.amount,
+        requested.memo,
+      );
       if (!mountedRef.current || generation !== generationRef.current) {
         void discardNativeProposal(p);
         return;
@@ -364,7 +400,14 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       setDialogOpen(true);
     } catch (e) {
       if (mountedRef.current && generation === generationRef.current) {
-        toast.error(errorMessage(e, "Couldn't build the transaction"));
+        toast.error(
+          errorMessage(
+            e,
+            translate(
+              MESSAGE_KEYS.featuresWalletSendCouldnTBuildTheTransaction,
+            ),
+          ),
+        );
       }
     } finally {
       if (mountedRef.current && generation === generationRef.current) {
@@ -410,16 +453,23 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       if (result.status === "accepted") {
         if (creatorTip) retireCreatorTipIntent(creatorTip);
         setPendingSend(null);
-        toast.success("Transaction sent", {
-          description: (
-            <span>
-              txid <BidiIdentifier value={result.txid} shorten />
-            </span>
-          ),
-        });
+        toast.success(
+          translate(MESSAGE_KEYS.featuresWalletSendTransactionSent),
+          {
+            description: (
+              <span>
+                txid <BidiIdentifier value={result.txid} shorten />
+              </span>
+            ),
+          },
+        );
         await refreshBalance().catch(() => {
           if (mountedRef.current && generation === generationRef.current) {
-            toast.warning("Payment sent; balance refresh is still pending");
+            toast.warning(
+              translate(
+                MESSAGE_KEYS.featuresWalletSendPaymentSentBalanceRefreshIsStillPending,
+              ),
+            );
           }
         });
         if (!mountedRef.current || generation !== generationRef.current) return;
@@ -431,13 +481,23 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
           recoveryRequired: false,
           canDiscard: false,
         });
-        toast.warning("Broadcast status unknown", {
-          description: "Retrying will rebroadcast the same transaction safely.",
-        });
+        toast.warning(
+          translate(MESSAGE_KEYS.featuresWalletSendBroadcastStatusUnknown),
+          {
+            description: translate(
+              MESSAGE_KEYS.featuresWalletSendRetryingWillRebroadcastTheSameTransactionSafely,
+            ),
+          },
+        );
       } else {
-        toast.error("Transaction rejected", {
-          description: result.message ?? "The server rejected this transaction.",
-        });
+        toast.error(
+          translate(MESSAGE_KEYS.featuresWalletSendTransactionRejected),
+          {
+            description: translate(
+              MESSAGE_KEYS.featuresWalletSendTheServerRejectedThisTransaction,
+            ),
+          },
+        );
       }
     } catch (e) {
       const recovered = await wallet.getPendingSend().catch(() => null);
@@ -447,10 +507,13 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       setProposal(null);
       setDialogOpen(false);
       if (recovered?.status === "unknown") setPendingSend(recovered);
-      toast.error(errorMessage(e, "Send failed"));
+      toast.error(
+        errorMessage(e, translate(MESSAGE_KEYS.featuresWalletSendSendFailed)),
+      );
     } finally {
       confirmingRef.current = false;
-      if (mountedRef.current && generation === generationRef.current) setSending(false);
+      if (mountedRef.current && generation === generationRef.current)
+        setSending(false);
     }
   }, [creatorTip, discardNativeProposal, refreshBalance, navigate]);
 
@@ -462,32 +525,56 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       if (result.status === "accepted") {
         if (creatorTip) retireCreatorTipIntent(creatorTip);
         setPendingSend(null);
-        toast.success("Transaction broadcast confirmed", {
-          description: (
-            <span>
-              txid <BidiIdentifier value={result.txid} shorten />
-            </span>
+        toast.success(
+          translate(
+            MESSAGE_KEYS.featuresWalletSendTransactionBroadcastConfirmed,
           ),
-        });
+          {
+            description: (
+              <span>
+                txid <BidiIdentifier value={result.txid} shorten />
+              </span>
+            ),
+          },
+        );
         await refreshBalance();
         navigate("/wallet/history");
       } else if (result.status === "unknown") {
         setPendingSend((pending) =>
           pending ? { ...pending, ...result } : null,
         );
-        toast.warning("Broadcast is still unresolved", {
-          description: "No replacement payment was created.",
-        });
+        toast.warning(
+          translate(MESSAGE_KEYS.featuresWalletSendBroadcastIsStillUnresolved),
+          {
+            description: translate(
+              MESSAGE_KEYS.featuresWalletSendNoReplacementPaymentWasCreated,
+            ),
+          },
+        );
       } else {
         setPendingSend(null);
         proposalRef.current = null;
         setProposal(null);
-        toast.info("Transaction expired without being found", {
-          description: result.message ?? "It is safe to review a new payment.",
-        });
+        toast.info(
+          translate(
+            MESSAGE_KEYS.featuresWalletSendTransactionExpiredWithoutBeingFound,
+          ),
+          {
+            description: translate(
+              MESSAGE_KEYS.featuresWalletSendItIsSafeToReviewANew,
+            ),
+          },
+        );
       }
     } catch (error) {
-      toast.error(errorMessage(error, "Couldn't retry the pending transaction"));
+      toast.error(
+        errorMessage(
+          error,
+          translate(
+            MESSAGE_KEYS.featuresWalletSendCouldnTRetryThePendingTransaction,
+          ),
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -496,7 +583,9 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
   const onDiscardUnrecoverable = useCallback(async () => {
     if (!pendingSend?.canDiscard) return;
     const confirmed = window.confirm(
-      "Only continue if you checked wallet history and verified that no payment was sent. Discarding this recovery lock can allow a replacement payment.",
+      translate(
+        MESSAGE_KEYS.featuresWalletSendOnlyContinueIfYouCheckedWalletHistory,
+      ),
     );
     if (!confirmed) return;
     setSending(true);
@@ -506,9 +595,18 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       setBroadcastResult(null);
       proposalRef.current = null;
       setProposal(null);
-      toast.warning("Recovery lock discarded after wallet-history confirmation");
+      toast.warning(
+        translate(
+          MESSAGE_KEYS.featuresWalletSendRecoveryLockDiscardedAfterWalletHistoryConfirmation,
+        ),
+      );
     } catch (error) {
-      toast.error(errorMessage(error, "Couldn't discard recovery state"));
+      toast.error(
+        errorMessage(
+          error,
+          translate(MESSAGE_KEYS.featuresWalletSendCouldnTDiscardRecoveryState),
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -518,22 +616,27 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
     return (
       <Card className="mx-auto max-w-xl rounded-xl">
         <CardHeader>
-          <CardTitle>Checking wallet recovery</CardTitle>
+          <CardTitle>
+            {uiT(MESSAGE_KEYS.featuresWalletSendCheckingWalletRecovery)}
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {pendingCheck === "failed" ? (
             <Callout
               tone="destructive"
               icon={TriangleAlert}
-              title="Wallet recovery state unavailable"
+              title={uiT(
+                MESSAGE_KEYS.featuresWalletSendWalletRecoveryStateUnavailable,
+              )}
               role="alert"
             >
-              Return to Wallet Send and resolve recovery before starting a new
-              payment.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletSendReturnToWalletSendAndResolveRecovery,
+              )}
             </Callout>
           ) : (
             <p className="text-sm text-muted-foreground" role="status">
-              Checking for an earlier payment…
+              {uiT(MESSAGE_KEYS.featuresWalletSendCheckingForAnEarlierPayment)}
             </p>
           )}
         </CardContent>
@@ -545,31 +648,48 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
     <div className="mx-auto max-w-xl">
       <Card className="rounded-xl">
         <CardHeader>
-          <CardTitle>Send ZEC</CardTitle>
+          <CardTitle>{uiT(MESSAGE_KEYS.featuresWalletSendSendZEC)}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-5">
           {creatorTip ? (
             <Callout
               tone="info"
               icon={Heart}
-              title={`ZEC tip for ${creatorTip.label}`}
+              title={uiT(MESSAGE_KEYS.featuresWalletSendZECTipFor, {
+                value1: creatorTip.label,
+              })}
               data-testid="creator-tip-context"
             >
               <p className="text-muted-foreground">
-                @{creatorTip.username} · The creator destination is locked from
-                the profile you just loaded.
+                {uiT(
+                  MESSAGE_KEYS.featuresWalletSendTheCreatorDestinationIsLockedFromThe,
+                  { value1: creatorTip.username },
+                )}
               </p>
             </Callout>
           ) : null}
           {pendingSend?.status === "unknown" ? (
-            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning" role="status">
-              <p className="font-medium">A previous broadcast is unresolved</p>
+            <div
+              className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning"
+              role="status"
+            >
+              <p className="font-medium">
+                {uiT(
+                  MESSAGE_KEYS.featuresWalletSendAPreviousBroadcastIsUnresolved,
+                )}
+              </p>
               <p className="mt-1 text-xs">
                 {pendingSend.canDiscard
-                  ? "Transaction creation was interrupted and exact retry data is unavailable. Check wallet history before unlocking sends."
+                  ? uiT(
+                      MESSAGE_KEYS.featuresWalletSendTransactionCreationWasInterruptedAndExactRetry,
+                    )
                   : pendingSend.recoveryRequired
-                    ? "The recovery journal could not be decoded safely. It remains locked to preserve possible transaction evidence; restore or reconcile the wallet data before sending again."
-                  : "ZUULI recovered the exact transaction after restart. Retry it before creating another payment."}
+                    ? uiT(
+                        MESSAGE_KEYS.featuresWalletSendTheRecoveryJournalCouldNotBeDecoded,
+                      )
+                    : uiT(
+                        MESSAGE_KEYS.featuresWalletSendZUULIRecoveredTheExactTransactionAfterRestart,
+                      )}
               </p>
               <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
                 txid <BidiIdentifier value={pendingSend.txid} />
@@ -578,7 +698,9 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
           ) : null}
           {/* Recipient */}
           <div className="space-y-1.5">
-            <Label htmlFor="to">Recipient address</Label>
+            <Label htmlFor="to">
+              {uiT(MESSAGE_KEYS.featuresWalletSendRecipientAddress)}
+            </Label>
             <Input
               id="to"
               dir="ltr"
@@ -586,7 +708,9 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               onChange={
                 creatorTip ? undefined : (e) => onToChange(e.target.value)
               }
-              placeholder="u1… / zs1… / t1… or paste a zcash: link"
+              placeholder={uiT(
+                MESSAGE_KEYS.featuresWalletSendU1Zs1T1OrPasteAZcash,
+              )}
               autoComplete="off"
               spellCheck={false}
               readOnly={Boolean(creatorTip)}
@@ -594,7 +718,10 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               disabled={formLocked}
               className={cn(
                 "font-mono",
-                validation && !validation.valid && to.trim() && "border-destructive",
+                validation &&
+                  !validation.valid &&
+                  to.trim() &&
+                  "border-destructive",
               )}
               aria-invalid={validation ? !validation.valid : undefined}
             />
@@ -602,45 +729,48 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               {validating ? (
                 <span className="flex items-center gap-1.5 text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  Checking address…
+                  {uiT(MESSAGE_KEYS.featuresWalletSendCheckingAddress)}
                 </span>
               ) : validation && to.trim() ? (
                 validation.valid ? (
                   <span className="flex items-center gap-1.5 text-success">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    Valid {validation.addressType} address
-                    {validation.canReceiveMemo
-                      ? " · supports memos"
-                      : " · no memo support"}
+                    {uiT(MESSAGE_KEYS.validAddress, {
+                      type: validation.addressType,
+                      memo: validation.canReceiveMemo ? "yes" : "no",
+                    })}
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 text-destructive">
                     <AlertCircle className="h-3.5 w-3.5" />
-                    {validation.error ?? "Not a recognizable Zcash address"}
+                    {uiT(
+                      MESSAGE_KEYS.featuresWalletSendNotARecognizableZcashAddress,
+                    )}
                   </span>
                 )
               ) : null}
             </div>
           </div>
 
-          {creatorTip &&
-            validation?.valid &&
-            !validation.canReceiveMemo ? (
+          {creatorTip && validation?.valid && !validation.canReceiveMemo ? (
             <Callout
               icon={TriangleAlert}
-              title="Transparent ZEC tip"
+              title={uiT(MESSAGE_KEYS.featuresWalletSendTransparentZECTip)}
               role="alert"
               data-testid="creator-tip-privacy-warning"
             >
-              This payment will be publicly visible on-chain, and this
-              destination cannot receive an encrypted memo.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletSendThisPaymentWillBePubliclyVisibleOn,
+              )}
             </Callout>
           ) : null}
 
           {/* Amount */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <Label htmlFor="amount">Amount</Label>
+              <Label htmlFor="amount">
+                {uiT(MESSAGE_KEYS.featuresWalletSendAmount)}
+              </Label>
               {balance ? (
                 <button
                   type="button"
@@ -651,7 +781,9 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                     setAmount(formatZec(maxSpendable));
                   }}
                 >
-                  Max: {formatZecDisplay(maxSpendable)}
+                  {uiT(MESSAGE_KEYS.featuresWalletSendMax, {
+                    value1: formatZecDisplay(maxSpendable),
+                  })}
                 </button>
               ) : null}
             </div>
@@ -683,12 +815,16 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               {invalidAmount ? (
                 <span className="flex items-center gap-1.5 text-destructive">
                   <AlertCircle className="h-3.5 w-3.5" />
-                  Enter a positive ZEC amount with no more than 8 decimal places
+                  {uiT(
+                    MESSAGE_KEYS.featuresWalletSendEnterAPositiveZECAmountWithNo,
+                  )}
                 </span>
               ) : overBalance ? (
                 <span className="flex items-center gap-1.5 text-destructive">
                   <AlertCircle className="h-3.5 w-3.5" />
-                  Amount plus network fee exceeds spendable balance
+                  {uiT(
+                    MESSAGE_KEYS.featuresWalletSendAmountPlusNetworkFeeExceedsSpendableBalance,
+                  )}
                 </span>
               ) : null}
             </div>
@@ -698,7 +834,12 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label htmlFor="memo">
-                Memo <span className="text-muted-foreground">(optional)</span>
+                <Trans
+                  i18nKey={MESSAGE_KEYS.featuresWalletSendMemoOptional}
+                  components={{
+                    part1: <span className="text-muted-foreground"></span>,
+                  }}
+                />
               </Label>
               {canReceiveMemo ? (
                 <span
@@ -707,7 +848,10 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                     memoBytes >= MEMO_MAX_BYTES && "text-destructive",
                   )}
                 >
-                  {memoBytes}/{MEMO_MAX_BYTES} bytes
+                  {uiT(MESSAGE_KEYS.memoBytes, {
+                    count: memoBytes,
+                    limit: MEMO_MAX_BYTES,
+                  })}
                 </span>
               ) : null}
             </div>
@@ -721,15 +865,21 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               disabled={!canReceiveMemo || formLocked}
               placeholder={
                 canReceiveMemo
-                  ? "Encrypted note delivered with the payment"
-                  : "This address type can't receive memos"
+                  ? uiT(
+                      MESSAGE_KEYS.featuresWalletSendEncryptedNoteDeliveredWithThePayment,
+                    )
+                  : uiT(
+                      MESSAGE_KEYS.featuresWalletSendThisAddressTypeCanTReceiveMemos,
+                    )
               }
               className="resize-none"
             />
             {canReceiveMemo ? (
               <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <ShieldCheck className="h-3.5 w-3.5" />
-                Memos are encrypted and only visible to the recipient.
+                {uiT(
+                  MESSAGE_KEYS.featuresWalletSendMemosAreEncryptedAndOnlyVisibleTo,
+                )}
               </p>
             ) : null}
           </div>
@@ -752,45 +902,45 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 ? onDiscardUnrecoverable
                 : pendingSend?.recoveryRequired
                   ? undefined
-                : pendingSend?.status === "unknown"
-                  ? onRetryPending
-                  : onReview
+                  : pendingSend?.status === "unknown"
+                    ? onRetryPending
+                    : onReview
             }
           >
             {pendingSend?.canDiscard ? (
               sending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Unlocking…
+                  {uiT(MESSAGE_KEYS.featuresWalletSendUnlocking)}
                 </>
               ) : (
-                "I checked history — unlock sends"
+                uiT(MESSAGE_KEYS.featuresWalletSendICheckedHistoryUnlockSends)
               )
             ) : pendingSend?.recoveryRequired ? (
-              "Recovery data locked"
+              uiT(MESSAGE_KEYS.featuresWalletSendRecoveryDataLocked)
             ) : pendingSend?.status === "unknown" ? (
               sending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Retrying exact transaction…
+                  {uiT(MESSAGE_KEYS.featuresWalletSendRetryingExactTransaction)}
                 </>
               ) : (
-                "Retry recovered transaction"
+                uiT(MESSAGE_KEYS.featuresWalletSendRetryRecoveredTransaction)
               )
             ) : hasUnknownBroadcast ? (
-              "Resume pending broadcast"
+              uiT(MESSAGE_KEYS.featuresWalletSendResumePendingBroadcast)
             ) : preparingParams ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Preparing proving data…
+                {uiT(MESSAGE_KEYS.featuresWalletSendPreparingProvingData)}
               </>
             ) : reviewing ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Building…
+                {uiT(MESSAGE_KEYS.featuresWalletSendBuilding)}
               </>
             ) : (
-              "Review payment"
+              uiT(MESSAGE_KEYS.featuresWalletSendReviewPayment)
             )}
           </Button>
         </CardContent>
@@ -805,9 +955,13 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
       >
         <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Confirm payment</DialogTitle>
+            <DialogTitle>
+              {uiT(MESSAGE_KEYS.featuresWalletSendConfirmPayment)}
+            </DialogTitle>
             <DialogDescription>
-              Review the details before broadcasting. This can't be undone.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletSendReviewTheDetailsBeforeBroadcastingThisCan,
+              )}
             </DialogDescription>
           </DialogHeader>
 
@@ -817,31 +971,31 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                 <Callout
                   tone="info"
                   icon={Heart}
-                  title={`Creator tip for ${creatorTip.label}`}
+                  title={uiT(MESSAGE_KEYS.featuresWalletSendCreatorTipFor, {
+                    value1: creatorTip.label,
+                  })}
                   data-testid="creator-tip-review-context"
                 >
                   @{creatorTip.username}
                 </Callout>
               ) : null}
               <div className="space-y-3 rounded-lg border border-border bg-background/40 p-4 text-sm">
-                <Row label="To">
+                <Row label={uiT(MESSAGE_KEYS.featuresWalletSendTo)}>
                   <BidiIdentifier
                     value={proposal.review.payments[0]?.recipient ?? ""}
                     className="mono-id min-w-0 break-all text-end font-mono text-xs"
                     data-testid="send-review-recipient"
                   />
                 </Row>
-                <Row label="Amount">
+                <Row label={uiT(MESSAGE_KEYS.featuresWalletSendAmount)}>
                   <span
                     className="bidi-number tabular-nums"
                     data-testid="send-review-amount"
                   >
-                    {formatZecDisplay(
-                      proposal.review.payments[0]?.amount ?? 0,
-                    )}
+                    {formatZecDisplay(proposal.review.payments[0]?.amount ?? 0)}
                   </span>
                 </Row>
-                <Row label="Network fee">
+                <Row label={uiT(MESSAGE_KEYS.featuresWalletSendNetworkFee)}>
                   <span
                     className="bidi-number tabular-nums text-muted-foreground"
                     title={proposal.review.feePolicy}
@@ -849,30 +1003,31 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
                     {formatZecDisplay(proposal.review.fee)}
                   </span>
                 </Row>
-                <Row label="Memo">
+                <Row label={uiT(MESSAGE_KEYS.featuresWalletSendMemo)}>
                   <span
                     className="min-w-0 whitespace-pre-wrap break-words text-end text-muted-foreground"
                     data-testid="send-review-memo"
                   >
-                    {proposal.review.payments[0]?.memo ?? "None"}
+                    {proposal.review.payments[0]?.memo ??
+                      uiT(MESSAGE_KEYS.featuresWalletSendNone)}
                   </span>
                 </Row>
-                <Row label="Network">
+                <Row label={uiT(MESSAGE_KEYS.featuresWalletSendNetwork)}>
                   <span className="capitalize text-muted-foreground">
                     {proposal.review.network}
                   </span>
                 </Row>
-                <Row label="Change">
+                <Row label={uiT(MESSAGE_KEYS.featuresWalletSendChange)}>
                   <span
                     className="text-muted-foreground"
                     data-testid="send-review-change-policy"
                     title={proposal.review.changePolicy}
                   >
-                    Shielded automatically
+                    {uiT(MESSAGE_KEYS.featuresWalletSendShieldedAutomatically)}
                   </span>
                 </Row>
                 <Separator />
-                <Row label="Total">
+                <Row label={uiT(MESSAGE_KEYS.featuresWalletSendTotal)}>
                   <span className="text-base font-semibold bidi-number tabular-nums text-zec">
                     {formatZecDisplay(proposal.review.total)}
                   </span>
@@ -893,11 +1048,15 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
             >
               <p className="font-medium">
                 {broadcastResult.status === "unknown"
-                  ? "Broadcast status unknown"
-                  : "Broadcast rejected"}
+                  ? uiT(MESSAGE_KEYS.featuresWalletSendBroadcastStatusUnknown)
+                  : uiT(MESSAGE_KEYS.featuresWalletSendBroadcastRejected)}
               </p>
               <p className="mt-1 text-xs opacity-90">
-                {broadcastResult.message}
+                {uiT(
+                  broadcastResult.status === "unknown"
+                    ? MESSAGE_KEYS.featuresWalletSendRetryingWillRebroadcastTheSameTransactionSafely
+                    : MESSAGE_KEYS.featuresWalletSendTheServerRejectedThisTransaction,
+                )}
               </p>
               <p className="mono-id mt-1 break-all font-mono text-xs opacity-75">
                 txid <BidiIdentifier value={broadcastResult.txid} />
@@ -912,7 +1071,7 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               onClick={invalidateReview}
               disabled={sending}
             >
-              Cancel
+              {uiT(MESSAGE_KEYS.featuresWalletSendCancel)}
             </Button>
             <Button
               type="button"
@@ -923,10 +1082,10 @@ function SendForm({ creatorTip }: { creatorTip: CreatorTipIntent | null }) {
               {sending ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Sending…
+                  {uiT(MESSAGE_KEYS.featuresWalletSendSending)}
                 </>
               ) : (
-                "Confirm & send"
+                uiT(MESSAGE_KEYS.featuresWalletSendConfirmSend)
               )}
             </Button>
           </DialogFooter>

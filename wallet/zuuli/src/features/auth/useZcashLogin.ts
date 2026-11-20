@@ -1,3 +1,6 @@
+import { errorKey } from "@/i18n/errors";
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // The Login-with-Zcash state machine.
 //
 // A thin wrapper over the shared `useZcashChallengeFlow` stepper
@@ -29,23 +32,53 @@ export { STEP_ORDER };
 export const STEP_META: Record<StepKey, StepMeta> = {
   prepare: {
     key: "prepare",
-    title: "Preparing your identity",
-    detail: "Locating the Zcash key that will represent you. No key ever leaves this device.",
+    get title() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthUseZcashLoginPreparingYourIdentity,
+      );
+    },
+    get detail() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthUseZcashLoginLocatingTheZcashKeyThatWillRepresent,
+      );
+    },
   },
   challenge: {
     key: "challenge",
-    title: "Requesting a challenge",
-    detail: "Asking free2z for a one-time, timestamped nonce to sign — bound to this session, so it can't be replayed.",
+    get title() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthUseZcashLoginRequestingAChallenge,
+      );
+    },
+    get detail() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthUseZcashLoginAskingFree2zForAOneTimeTimestamped,
+      );
+    },
   },
   sign: {
     key: "sign",
-    title: "Signing with your key",
-    detail: "Producing a ZIP-304 signature over the challenge to prove you control the address.",
+    get title() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthUseZcashLoginSigningWithYourKey,
+      );
+    },
+    get detail() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthUseZcashLoginProducingAZIP304SignatureOverThe,
+      );
+    },
   },
   verify: {
     key: "verify",
-    title: "Verifying",
-    detail: "free2z checks the signature against your address and derives your W3C DID.",
+    get title() {
+      return translate(MESSAGE_KEYS.featuresAuthUseZcashLoginVerifying);
+    },
+    get detail() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthUseZcashLoginFree2zChecksTheSignatureAgainstYourAddress,
+      );
+    },
   },
 };
 
@@ -65,18 +98,26 @@ export function useZcashLogin(
         signature: signed.signature,
         pubkey: signed.pubkey,
       }),
-    verifyErrorMessage:
-      "free2z couldn't verify your Zcash signature. Please try again.",
+    verifyErrorMessage: errorKey(
+      null,
+      MESSAGE_KEYS.featuresAuthUseZcashLoginFree2zCouldnTVerifyYourZcashSignature,
+    ),
     onVerified: (session) => {
-      if (!session.token) throw new Error("Zcash login returned no session token");
+      if (!session.token)
+        throw new Error("Zcash login returned no session token");
       setToken(session.token);
       setUser(session.user);
     },
     afterSuccess: async (_session, _address, isCurrent) => {
       if (!isCurrent()) return;
-      toast.success("Welcome to ZUULI", {
-        description: "Logged in with your Zcash key.",
-      });
+      toast.success(
+        translate(MESSAGE_KEYS.featuresAuthUseZcashLoginWelcomeToZUULI),
+        {
+          description: translate(
+            MESSAGE_KEYS.featuresAuthUseZcashLoginLoggedInWithYourZcashKey,
+          ),
+        },
+      );
       await new Promise((r) => setTimeout(r, 700));
       if (!isCurrent()) return;
       navigate(loginDestination, { replace: true });

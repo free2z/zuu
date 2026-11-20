@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Recovery-phrase backup gate.
 //
 // The phrase is the identity — whoever holds it *is* the account. So we blur it
@@ -27,6 +29,8 @@ export function SeedReveal({
   confirming = false,
   error,
 }: SeedRevealProps) {
+  const { t: uiT } = useUiTranslation();
+
   const [revealed, setRevealed] = useState(false);
   const [acknowledged, setAcknowledged] = useState(false);
   const words = seedPhrase.trim().split(/\s+/);
@@ -35,12 +39,15 @@ export function SeedReveal({
     <div className="animate-slide-up space-y-5">
       <Callout
         icon={ShieldAlert}
-        title="This recovery phrase is your identity."
+        title={uiT(
+          MESSAGE_KEYS.featuresAuthSeedRevealThisRecoveryPhraseIsYourIdentity,
+        )}
       >
         <p className="text-muted-foreground">
-          Write these {words.length} words down in order and keep them offline.
-          Anyone who sees them controls your account. We cannot recover them for
-          you — there is no reset.
+          {uiT(
+            MESSAGE_KEYS.featuresAuthSeedRevealWriteTheseWordsDownInOrderAnd,
+            { count: words.length },
+          )}
         </p>
       </Callout>
 
@@ -75,10 +82,12 @@ export function SeedReveal({
               type="button"
               onClick={() => setRevealed(true)}
               className="min-tap inline-flex items-center gap-2 rounded-full border border-border bg-card px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              aria-label="Reveal recovery phrase"
+              aria-label={uiT(
+                MESSAGE_KEYS.featuresAuthSeedRevealRevealRecoveryPhrase,
+              )}
             >
               <Eye className="h-4 w-4" aria-hidden />
-              Tap to reveal
+              {uiT(MESSAGE_KEYS.featuresAuthSeedRevealTapToReveal)}
             </button>
           </div>
         )}
@@ -88,7 +97,7 @@ export function SeedReveal({
         <div className="flex items-center justify-between animate-fade-in">
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <AlertTriangle className="h-3.5 w-3.5 text-warning" aria-hidden />
-            Never share this. No one from 2Z will ever ask for it.
+            {uiT(MESSAGE_KEYS.featuresAuthSeedRevealNeverShareThisNoOneFrom2Z)}
           </p>
           <Button
             type="button"
@@ -101,7 +110,7 @@ export function SeedReveal({
             }}
           >
             <EyeOff className="h-4 w-4" aria-hidden />
-            Hide
+            {uiT(MESSAGE_KEYS.featuresAuthSeedRevealHide)}
           </Button>
         </div>
       )}
@@ -123,8 +132,9 @@ export function SeedReveal({
           className="mt-0.5 h-4 w-4 accent-[hsl(var(--primary))] disabled:opacity-40"
         />
         <span className={cn(!revealed && "text-muted-foreground")}>
-          I have written down my recovery phrase and stored it somewhere safe. I
-          understand it cannot be recovered.
+          {uiT(
+            MESSAGE_KEYS.featuresAuthSeedRevealIHaveWrittenDownMyRecoveryPhrase,
+          )}
         </span>
       </label>
 
@@ -136,7 +146,9 @@ export function SeedReveal({
         onClick={() => void onConfirm()}
       >
         <Check className="h-4 w-4" aria-hidden />
-        {confirming ? "Saving confirmation…" : "I saved it — continue"}
+        {confirming
+          ? uiT(MESSAGE_KEYS.featuresAuthSeedRevealSavingConfirmation)
+          : uiT(MESSAGE_KEYS.featuresAuthSeedRevealISavedItContinue)}
       </Button>
     </div>
   );

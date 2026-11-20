@@ -1,3 +1,7 @@
+import { translate } from "@/i18n/translate";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { Trans } from "react-i18next";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -65,6 +69,8 @@ type QuoteState =
   | { status: "error" };
 
 export function BuyTab() {
+  const { t: uiT } = useUiTranslation();
+
   const navigate = useNavigate();
   const user = useSession((s) => s.user);
   const sessionLoading = useSession((s) => s.loading);
@@ -156,9 +162,16 @@ export function BuyTab() {
         navigate("/login", { state: { returnTo: "/wallet/fund" } });
         return;
       }
-      toast.info("Opening secure checkout…", {
-        description: "Complete your purchase with Stripe.",
-      });
+      toast.info(
+        translate(
+          MESSAGE_KEYS.featuresWalletFundingBuyTabOpeningSecureCheckout,
+        ),
+        {
+          description: translate(
+            MESSAGE_KEYS.featuresWalletFundingBuyTabCompleteYourPurchaseWithStripe,
+          ),
+        },
+      );
     } catch (error) {
       const feedback = cardCheckoutFeedback(error);
       toast.error(feedback.title, { description: feedback.description });
@@ -188,9 +201,16 @@ export function BuyTab() {
     setZecLoading(true);
     try {
       await settleZecTopUpDemo(zecDemoRuntime, amount, adjustTuzis);
-      toast.success(`Demo: added ${formatTuzis(amount)}`, {
-        description: "Local mock balance only. No ZEC was sent.",
-      });
+      toast.success(
+        translate(MESSAGE_KEYS.featuresWalletFundingBuyTabDemoAdded, {
+          value1: formatTuzis(amount),
+        }),
+        {
+          description: translate(
+            MESSAGE_KEYS.featuresWalletFundingBuyTabLocalMockBalanceOnlyNoZECWas,
+          ),
+        },
+      );
       setZecConfirm(false);
     } finally {
       setZecLoading(false);
@@ -202,9 +222,13 @@ export function BuyTab() {
       {/* Packs + custom */}
       <div className="min-w-0 space-y-5">
         <div>
-          <h2 className="text-sm font-semibold">Choose an amount</h2>
+          <h2 className="text-sm font-semibold">
+            {uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabChooseAnAmount)}
+          </h2>
           <p className="text-sm text-muted-foreground">
-            2Zs never expire and power AI, tips, pay-per-view and subscriptions.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletFundingBuyTab2ZsNeverExpireAndPowerAITips,
+            )}
           </p>
         </div>
 
@@ -220,7 +244,13 @@ export function BuyTab() {
                   setCustom("");
                 }}
                 aria-pressed={active}
-                aria-label={`Buy ${formatTuzis(pack)} for ${formatUsd(tuzisToUsd(pack))}`}
+                aria-label={uiT(
+                  MESSAGE_KEYS.featuresWalletFundingBuyTabBuyFor,
+                  {
+                    value1: formatTuzis(pack),
+                    value2: formatUsd(tuzisToUsd(pack)),
+                  },
+                )}
                 className={cn(
                   "min-tap group relative flex flex-col items-start gap-1 rounded-xl border p-4 text-start transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
@@ -246,12 +276,16 @@ export function BuyTab() {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="custom-tuzis">Custom amount (2Z)</Label>
+          <Label htmlFor="custom-tuzis">
+            {uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabCustomAmount2Z)}
+          </Label>
           <div className="relative">
             <Input
               id="custom-tuzis"
               inputMode="numeric"
-              placeholder={`e.g. ${tuziInputExample()}`}
+              placeholder={uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabEG, {
+                value1: tuziInputExample(),
+              })}
               maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
@@ -273,9 +307,14 @@ export function BuyTab() {
             className="min-h-[1rem] text-xs text-destructive"
           >
             {hasCustomAmount && customAmount.error === "tooLarge"
-              ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per purchase.`
+              ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabMax2ZPerPurchase, {
+                  value1: MAX_TUZIS.toLocaleString(),
+                })
               : hasCustomAmount && customAmount.error !== null
-                ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
+                ? uiT(
+                    MESSAGE_KEYS.featuresWalletFundingBuyTabEnterAPositiveWhole2ZAmountE,
+                    { value1: tuziInputExample() },
+                  )
                 : null}
           </div>
         </div>
@@ -285,13 +324,15 @@ export function BuyTab() {
       <Card className="h-fit min-w-0 lg:sticky lg:top-4">
         <CardHeader className="pb-4">
           <CardTitle className="flex items-baseline justify-between">
-            <span>You pay</span>
+            <span>{uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabYouPay)}</span>
             <span className="text-2xl font-bold bidi-number tabular-nums">
               {valid ? formatUsd(usd) : "—"}
             </span>
           </CardTitle>
           <CardDescription className="bidi-number tabular-nums">
-            for {valid && amount !== null ? formatTuzis(amount) : "—"}
+            {uiT(MESSAGE_KEYS.fundingForAmount, {
+              amount: valid && amount !== null ? formatTuzis(amount) : "—",
+            })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -308,16 +349,22 @@ export function BuyTab() {
             ) : (
               <CreditCard className="h-4 w-4" />
             )}
-            {user ? "Pay with card" : "Log in to buy"}
+            {user
+              ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabPayWithCard)
+              : uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabLogInToBuy)}
           </Button>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 text-success" />
-            Secured by Stripe. We never see your card details.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletFundingBuyTabSecuredByStripeWeNeverSeeYour,
+            )}
           </p>
 
           <div className="flex items-center gap-3">
             <Separator className="flex-1" />
-            <span className="text-xs text-muted-foreground">or</span>
+            <span className="text-xs text-muted-foreground">
+              {uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabOr)}
+            </span>
             <Separator className="flex-1" />
           </div>
 
@@ -342,19 +389,23 @@ export function BuyTab() {
               <Wallet className="h-4 w-4" />
             )}
             {!user
-              ? "Log in to pay with ZEC"
+              ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabLogInToPayWithZEC)
               : zecDemoEnabled
-                ? "Demo: Pay with ZEC"
-                : "Pay with ZEC unavailable"}
+                ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabDemoPayWithZEC)
+                : uiT(
+                    MESSAGE_KEYS.featuresWalletFundingBuyTabPayWithZECUnavailable,
+                  )}
           </Button>
           {user && zecDemoEnabled ? (
             <>
               <div className="space-y-1 text-xs">
                 <div className="flex items-center justify-between text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    {isEstimate ? "Est. demo cost" : "Demo cost"}
+                    {isEstimate
+                      ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabEstDemoCost)
+                      : uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabDemoCost)}
                     <Badge variant="zec" className="px-1.5 py-0 text-xs">
-                      demo only
+                      {uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabDemoOnly)}
                     </Badge>
                   </span>
                   <span className="bidi-number tabular-nums text-zec">
@@ -363,36 +414,48 @@ export function BuyTab() {
                       : quoteLoading
                         ? "…"
                         : validQuote && quote
-                          ? `${quote.zec_amount} ZEC`
+                          ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabZEC, {
+                              value1: quote.zec_amount,
+                            })
                           : "—"}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-muted-foreground">
-                  <span>Mock wallet spendable</span>
+                  <span>
+                    {uiT(
+                      MESSAGE_KEYS.featuresWalletFundingBuyTabMockWalletSpendable,
+                    )}
+                  </span>
                   <span className="bidi-number tabular-nums">
                     {formatZecTrim(spendable)} ZEC
                   </span>
                 </div>
                 {valid && quoteUnavailable && (
                   <p className="pt-1 text-destructive">
-                    Demo pricing unavailable — try again.
+                    {uiT(
+                      MESSAGE_KEYS.featuresWalletFundingBuyTabDemoPricingUnavailableTryAgain,
+                    )}
                   </p>
                 )}
                 {valid && validQuote && !enoughZec && (
                   <p className="pt-1 text-destructive">
-                    Not enough mock ZEC for this demo.
+                    {uiT(
+                      MESSAGE_KEYS.featuresWalletFundingBuyTabNotEnoughMockZECForThisDemo,
+                    )}
                   </p>
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                Demo only: this changes a local mock 2Z balance. It does not
-                send ZEC or create a real purchase.
+                {uiT(
+                  MESSAGE_KEYS.featuresWalletFundingBuyTabDemoOnlyThisChangesALocalMock,
+                )}
               </p>
             </>
           ) : user ? (
             <p className="text-xs text-muted-foreground">
-              ZEC top-ups are not available yet. No ZEC will be sent and no 2Z
-              balance will change. Pay with card for now.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletFundingBuyTabZECTopUpsAreNotAvailableYet,
+              )}
             </p>
           ) : null}
         </CardContent>
@@ -405,37 +468,55 @@ export function BuyTab() {
       >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Confirm demo ZEC payment</DialogTitle>
+            <DialogTitle>
+              {uiT(
+                MESSAGE_KEYS.featuresWalletFundingBuyTabConfirmDemoZECPayment,
+              )}
+            </DialogTitle>
             <DialogDescription>
-              Simulate funding a local mock 2Z balance. No ZEC will be sent.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletFundingBuyTabSimulateFundingALocalMock2ZBalance,
+              )}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 rounded-lg border border-border bg-secondary/40 p-4 text-sm">
             <Row
-              label="You receive"
+              label={uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabYouReceive)}
               value={amount !== null ? formatTuzis(amount) : "—"}
               strong
             />
-            <Row label="Price" value={formatUsd(usd)} />
+            <Row
+              label={uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabPrice)}
+              value={formatUsd(usd)}
+            />
             <Separator />
             <Row
               label={
                 <span className="flex items-center gap-1.5">
-                  {isEstimate ? "Estimated ZEC" : "ZEC to send"}
+                  {isEstimate
+                    ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabEstimatedZEC)
+                    : uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabZECToSend)}
                   {isEstimate && (
                     <Badge variant="zec" className="px-1.5 py-0 text-xs">
-                      estimated
+                      {uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabEstimated)}
                     </Badge>
                   )}
                 </span>
               }
-              value={quote ? `${quote.zec_amount} ZEC` : "—"}
+              value={
+                quote
+                  ? uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabZEC, {
+                      value1: quote.zec_amount,
+                    })
+                  : "—"
+              }
               accent
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            Demo only: no transaction is proposed, signed, broadcast, or
-            settled.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletFundingBuyTabDemoOnlyNoTransactionIsProposedSigned,
+            )}
           </p>
           <DialogFooter>
             <Button
@@ -443,11 +524,23 @@ export function BuyTab() {
               onClick={() => setZecConfirm(false)}
               disabled={zecLoading}
             >
-              Cancel
+              {uiT(MESSAGE_KEYS.featuresWalletFundingBuyTabCancel)}
             </Button>
             <Button variant="zec" onClick={payWithZec} disabled={zecLoading}>
-              {zecLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-              Run demo purchase
+              <Trans
+                i18nKey={
+                  MESSAGE_KEYS.featuresWalletFundingBuyTabRunDemoPurchase
+                }
+                components={{
+                  part1: (
+                    <>
+                      {zecLoading && (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      )}
+                    </>
+                  ),
+                }}
+              />
             </Button>
           </DialogFooter>
         </DialogContent>

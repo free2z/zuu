@@ -1,3 +1,5 @@
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import type { SimpleCreator } from "@/lib/api/types";
 import { ApiError } from "@/lib/api/http";
 import { isDonationIdempotencyKey } from "@/lib/api/donation";
@@ -144,7 +146,8 @@ export function persistPendingDonation(
   review: TransferReview,
   storage: StorageLike | null = defaultStorage(),
 ): boolean {
-  if (!storage || !isDonationIdempotencyKey(review.idempotencyKey)) return false;
+  if (!storage || !isDonationIdempotencyKey(review.idempotencyKey))
+    return false;
   try {
     const existing = loadPendingDonation(storage);
     if (existing && existing.idempotencyKey !== review.idempotencyKey) {
@@ -324,12 +327,7 @@ export function recipientReducer(
 }
 
 export type TransferBlock =
-  | "auth"
-  | "unresolved"
-  | "self"
-  | "amount"
-  | "balance"
-  | "sending";
+  "auth" | "unresolved" | "self" | "amount" | "balance" | "sending";
 
 export function transferBlock({
   selected,
@@ -483,22 +481,59 @@ export function transferFailureIsAmbiguous(failure: TransferFailure): boolean {
 }
 
 export const TRANSFER_FAILURE_MESSAGES: Record<TransferFailure, string> = {
-  auth: "Your session expired. Log in again before sending 2Z.",
-  balance: "Your 2Z balance changed and is no longer enough for this tip.",
-  "not-found":
-    "That creator is no longer available. Search again before sending.",
-  self: "You can't send 2Z to your own account.",
-  pending:
-    "This transfer is still processing. Wait, then retry the same transfer safely.",
-  "pending-conflict":
-    "A previous transfer is unresolved. Restore its exact recipient and amount before starting another.",
-  "idempotency-conflict":
-    "This transfer ID conflicts with the server record. Nothing new was sent; contact support before trying another transfer.",
-  unsupported:
-    "Secure 2Z transfers are not available on this server yet. Nothing was sent.",
-  rejected: "The server rejected this transfer. Nothing was sent.",
-  security:
-    "A crash-safe transfer ID could not be saved. Nothing was sent.",
-  network:
-    "The transfer result is uncertain. Retry uses the same transfer ID and cannot charge twice.",
+  get auth() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientYourSessionExpiredLogInAgainBefore,
+    );
+  },
+  get balance() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientYour2ZBalanceChangedAndIsNo,
+    );
+  },
+  get "not-found"() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientThatCreatorIsNoLongerAvailableSearch,
+    );
+  },
+  get self() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientYouCanTSend2ZToYour,
+    );
+  },
+  get pending() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientThisTransferIsStillProcessingWaitThen,
+    );
+  },
+  get "pending-conflict"() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientAPreviousTransferIsUnresolvedRestoreIts,
+    );
+  },
+  get "idempotency-conflict"() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientThisTransferIDConflictsWithTheServer,
+    );
+  },
+  get unsupported() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientSecure2ZTransfersAreNotAvailableOn,
+    );
+  },
+  get rejected() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientTheServerRejectedThisTransferNothingWas,
+    );
+  },
+  get security() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientACrashSafeTransferIDCouldNot,
+    );
+  },
+  get network() {
+    return translate(
+      MESSAGE_KEYS.featuresWalletFundingSendRecipientTheTransferResultIsUncertainRetryUses,
+    );
+  },
 };

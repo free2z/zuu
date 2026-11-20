@@ -20,6 +20,7 @@ export default defineConfig(async () => {
   return {
   plugins: [react()],
   test: {
+    setupFiles: ["./tests/setup-i18n.ts"],
     // Workers must not inherit a contributor's locale or timezone. LC_ALL is
     // pinned with LANG because it takes precedence on POSIX systems.
     env: {

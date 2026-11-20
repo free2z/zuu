@@ -1,3 +1,6 @@
+import { translate } from "@/i18n/translate";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import {
   useEffect,
   useId,
@@ -82,6 +85,8 @@ function useDebounced<T>(value: T, delay: number): T {
 }
 
 export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
+  const { t: uiT } = useUiTranslation();
+
   const navigate = useNavigate();
   const user = useSession((s) => s.user);
   const sessionLoading = useSession((s) => s.loading);
@@ -256,10 +261,14 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
       : undefined;
 
   const recipientHelp = useMemo(() => {
-    if (!ownUsername) return "Log in before sending 2Z.";
-    if (exactSelfQuery) return "You can't send 2Z to your own account.";
+    if (!ownUsername)
+      return uiT(MESSAGE_KEYS.featuresWalletFundingSendTabLogInBeforeSending2Z);
+    if (exactSelfQuery)
+      return uiT(MESSAGE_KEYS.featuresWalletFundingSendTabYouCanTSend2ZToYour);
     if (recipientState.searchStatus === "error") {
-      return "Creator search failed. Check your connection and try again.";
+      return uiT(
+        MESSAGE_KEYS.featuresWalletFundingSendTabCreatorSearchFailedCheckYourConnectionAnd,
+      );
     }
     if (
       debouncedQuery &&
@@ -267,13 +276,18 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
       recipientState.searchStatus === "ready" &&
       recipientState.results.length === 0
     ) {
-      return `No creator found for “${debouncedQuery}”.`;
+      return uiT(MESSAGE_KEYS.featuresWalletFundingSendTabNoCreatorFoundFor, {
+        value1: debouncedQuery,
+      });
     }
     if (!recipientState.selected) {
-      return "Search and choose a creator. Typed text alone can never be sent.";
+      return uiT(
+        MESSAGE_KEYS.featuresWalletFundingSendTabSearchAndChooseACreatorTypedText,
+      );
     }
     return null;
   }, [
+    uiT,
     debouncedQuery,
     debouncedQueryIsCurrent,
     exactSelfQuery,
@@ -397,11 +411,19 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
       // attempt must replay this key rather than create a second charge.
       setCompletedTransfer({ review, result });
       toast.success(
-        `${result.replayed ? "Confirmed" : "Sent"} ${formatTuzis(review.amount)} to @${review.recipient.username}`,
+        translate(MESSAGE_KEYS.fundingReceipt, {
+          replayed: result.replayed ? "yes" : "no",
+          amount: formatTuzis(review.amount),
+          username: review.recipient.username,
+        }),
         {
           description: result.replayed
-            ? "The original transfer was not charged again."
-            : "Thanks for supporting the creator.",
+            ? translate(
+                MESSAGE_KEYS.featuresWalletFundingSendTabTheOriginalTransferWasNotChargedAgain,
+              )
+            : translate(
+                MESSAGE_KEYS.featuresWalletFundingSendTabThanksForSupportingTheCreator,
+              ),
         },
       );
       setCustom("");
@@ -436,7 +458,9 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
     <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
       <div className="space-y-5">
         <div className="space-y-3">
-          <Label htmlFor="recipient">Send to</Label>
+          <Label htmlFor="recipient">
+            {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabSendTo)}
+          </Label>
           <div className="relative">
             <Search
               className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -447,13 +471,17 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               type="search"
               autoComplete="off"
               maxLength={128}
-              placeholder="Search creators by name or username"
+              placeholder={uiT(
+                MESSAGE_KEYS.featuresWalletFundingSendTabSearchCreatorsByNameOrUsername,
+              )}
               value={recipientState.query}
               onChange={(event) => changeRecipient(event.target.value)}
               onKeyDown={onRecipientKeyDown}
               className="h-11 ps-9"
               role="combobox"
-              aria-label="Search for a 2Z recipient"
+              aria-label={uiT(
+                MESSAGE_KEYS.featuresWalletFundingSendTabSearchForA2ZRecipient,
+              )}
               aria-autocomplete="list"
               aria-expanded={
                 showingResults && recipientState.results.length > 0
@@ -471,7 +499,9 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             {recipientState.searchStatus === "loading" ? (
               <Loader2
                 className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground"
-                aria-label="Searching creators"
+                aria-label={uiT(
+                  MESSAGE_KEYS.featuresWalletFundingSendTabSearchingCreators,
+                )}
               />
             ) : null}
           </div>
@@ -480,7 +510,9 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             <div
               id={resultsId}
               role="listbox"
-              aria-label="Matching creators"
+              aria-label={uiT(
+                MESSAGE_KEYS.featuresWalletFundingSendTabMatchingCreators,
+              )}
               className="overflow-hidden rounded-xl border border-border bg-card shadow-lg"
             >
               {recipientState.results.map((creator, index) => {
@@ -502,7 +534,9 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                   >
                     <CreatorAvatar creator={creator} className="h-9 w-9" />
                     <span className="min-w-0">
-                      <span className="block break-words font-medium">{name}</span>
+                      <span className="block break-words font-medium">
+                        {name}
+                      </span>
                       <span className="block break-words text-xs text-muted-foreground">
                         @{creator.username}
                       </span>
@@ -537,9 +571,12 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                 size="sm"
                 onClick={() => changeRecipient("")}
                 disabled={sending || flowLocked}
-                aria-label={`Change recipient from @${recipientState.selected.username}`}
+                aria-label={uiT(
+                  MESSAGE_KEYS.featuresWalletFundingSendTabChangeRecipientFrom,
+                  { value1: recipientState.selected.username },
+                )}
               >
-                Change
+                {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabChange)}
               </Button>
             </div>
           ) : null}
@@ -562,7 +599,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
         </div>
 
         <div className="space-y-3">
-          <Label>Amount</Label>
+          <Label>{uiT(MESSAGE_KEYS.featuresWalletFundingSendTabAmount)}</Label>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             {TIP_PRESETS.map((preset) => {
               const active = !hasCustomAmount && selectedAmount === preset;
@@ -596,14 +633,18 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
           <div className="relative">
             <Input
               inputMode="numeric"
-              placeholder="Custom amount"
+              placeholder={uiT(
+                MESSAGE_KEYS.featuresWalletFundingSendTabCustomAmount,
+              )}
               maxLength={tuziInputMaxLength(MAX_TUZIS)}
               value={custom}
               onChange={(event) =>
                 changeAmount(() => setCustom(event.target.value))
               }
               className="pe-24 bidi-number tabular-nums"
-              aria-label="Custom tip amount in 2Z"
+              aria-label={uiT(
+                MESSAGE_KEYS.featuresWalletFundingSendTabCustomTipAmountIn2Z,
+              )}
               aria-describedby="custom-tip-error"
               aria-invalid={hasCustomAmount && !validAmount}
               disabled={sending || flowLocked}
@@ -617,9 +658,14 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             className="min-h-[1rem] text-xs text-destructive"
           >
             {hasCustomAmount && customAmount.error === "tooLarge"
-              ? `Max ${MAX_TUZIS.toLocaleString()} 2Z per tip.`
+              ? uiT(MESSAGE_KEYS.featuresWalletFundingSendTabMax2ZPerTip, {
+                  value1: MAX_TUZIS.toLocaleString(),
+                })
               : hasCustomAmount && customAmount.error !== null
-                ? `Enter a positive whole 2Z amount, e.g. ${tuziInputExample()}.`
+                ? uiT(
+                    MESSAGE_KEYS.featuresWalletFundingSendTabEnterAPositiveWhole2ZAmountE,
+                    { value1: tuziInputExample() },
+                  )
                 : null}
           </div>
         </div>
@@ -627,14 +673,20 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
 
       <Card className="h-fit lg:sticky lg:top-4">
         <CardHeader className="pb-4">
-          <CardTitle>Review tip</CardTitle>
+          <CardTitle>
+            {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabReviewTip)}
+          </CardTitle>
           <CardDescription>
-            You will confirm before anything is sent.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletFundingSendTabYouWillConfirmBeforeAnythingIsSent,
+            )}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm text-muted-foreground">Recipient</span>
+            <span className="text-sm text-muted-foreground">
+              {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabRecipient)}
+            </span>
             {recipientState.selected ? (
               <span className="min-w-0 text-end">
                 <span className="block break-words font-medium">
@@ -650,14 +702,18 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             )}
           </div>
           <div className="flex items-baseline justify-between">
-            <span className="text-sm text-muted-foreground">Amount</span>
+            <span className="text-sm text-muted-foreground">
+              {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabAmount)}
+            </span>
             <div className="text-xl font-bold bidi-number tabular-nums">
               {validAmount && amount !== null ? formatTuzis(amount) : "—"}
             </div>
           </div>
           {user ? (
             <div className="flex items-center justify-between border-t border-border pt-3 text-sm">
-              <span className="text-muted-foreground">Balance after</span>
+              <span className="text-muted-foreground">
+                {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabBalanceAfter)}
+              </span>
               <span
                 className={cn(
                   "bidi-number tabular-nums",
@@ -688,14 +744,16 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
             <div className="space-y-3 rounded-xl border border-success/40 bg-success/10 p-3">
               <div className="flex items-center gap-2 font-medium text-success">
                 <CheckCircle2 className="h-4 w-4" aria-hidden />
-                Transfer confirmed
+                {uiT(
+                  MESSAGE_KEYS.featuresWalletFundingSendTabTransferConfirmed,
+                )}
               </div>
               <p className="text-sm text-muted-foreground">
-                {formatTuzis(completedTransfer.result.charged)} was sent to @
-                {completedTransfer.review.recipient.username}.
-                {completedTransfer.result.replayed
-                  ? " The stored result was replayed without another charge."
-                  : ""}
+                {uiT(MESSAGE_KEYS.fundingConfirmed, {
+                  amount: formatTuzis(completedTransfer.result.charged),
+                  username: completedTransfer.review.recipient.username,
+                  replayed: completedTransfer.result.replayed ? "yes" : "no",
+                })}
               </p>
               <Button
                 type="button"
@@ -706,31 +764,38 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                   setCompletedTransfer(null);
                 }}
               >
-                Start another transfer
+                {uiT(
+                  MESSAGE_KEYS.featuresWalletFundingSendTabStartAnotherTransfer,
+                )}
               </Button>
             </div>
           ) : gate === "loading" ? (
             <Button className="w-full" disabled>
               <Loader2 className="h-4 w-4 animate-spin" />
-              Checking account
+              {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabCheckingAccount)}
             </Button>
           ) : gate === "sign-in" ? (
             <Button className="w-full" onClick={signInToSend}>
-              Sign in to send 2Z
+              {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabSignInToSend2Z)}
               <ArrowRight className="rtl:-scale-x-100 h-4 w-4" />
             </Button>
           ) : block === "balance" && !pendingMatchesCurrent ? (
             <Button variant="outline" className="w-full" onClick={onNeedBuy}>
-              Not enough 2Z — buy more
+              {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabNotEnough2ZBuyMore)}
               <ArrowRight className="rtl:-scale-x-100 h-4 w-4" />
             </Button>
           ) : recipientState.review && reviewIsCurrent ? (
             <div className="space-y-3 rounded-xl border border-primary/40 bg-primary/5 p-3">
-              <p className="text-sm font-medium">Confirm this transfer</p>
+              <p className="text-sm font-medium">
+                {uiT(
+                  MESSAGE_KEYS.featuresWalletFundingSendTabConfirmThisTransfer,
+                )}
+              </p>
               <p className="text-xs text-muted-foreground">
-                Send {formatTuzis(recipientState.review.amount)} to @
-                {recipientState.review.recipient.username}? This transfer is
-                immediate and cannot be undone.
+                {uiT(MESSAGE_KEYS.fundingConfirm, {
+                  amount: formatTuzis(recipientState.review.amount),
+                  username: recipientState.review.recipient.username,
+                })}
               </p>
               <div
                 className={cn("grid gap-2", !transferLocked && "grid-cols-2")}
@@ -742,7 +807,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                     onClick={() => dispatch({ type: "clearReview" })}
                     disabled={sending}
                   >
-                    Cancel
+                    {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabCancel)}
                   </Button>
                 ) : null}
                 <Button
@@ -759,7 +824,11 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
                   ) : (
                     <Gift className="h-4 w-4" />
                   )}
-                  {transferCanRetry ? "Retry same transfer" : "Confirm send"}
+                  {transferCanRetry
+                    ? uiT(
+                        MESSAGE_KEYS.featuresWalletFundingSendTabRetrySameTransfer,
+                      )
+                    : uiT(MESSAGE_KEYS.featuresWalletFundingSendTabConfirmSend)}
                 </Button>
               </div>
             </div>
@@ -770,7 +839,7 @@ export function SendTab({ onNeedBuy }: { onNeedBuy: () => void }) {
               onClick={beginReview}
             >
               <Gift className="h-4 w-4" />
-              Review transfer
+              {uiT(MESSAGE_KEYS.featuresWalletFundingSendTabReviewTransfer)}
             </Button>
           )}
         </CardContent>

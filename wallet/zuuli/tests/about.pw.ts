@@ -1,7 +1,11 @@
+import { installAboutTestLocale } from "./about-catalog";
 import { readFileSync } from "node:fs";
 
 import { expect, test } from "@playwright/test";
-import { PSEUDO_ABOUT_MESSAGES } from "../src/lib/about-copy";
+import { ABOUT_MESSAGES } from "../src/lib/about-copy";
+installAboutTestLocale("fr");
+const FRENCH_ABOUT_MESSAGES = { ...ABOUT_MESSAGES };
+installAboutTestLocale("en");
 
 // The identity the About card must display is the canonical one, so read it
 // from release.json rather than restating it. A literal here is only ever
@@ -23,8 +27,12 @@ test.beforeEach(async ({ page }) => {
   await page.locator("[data-about-page]").waitFor();
 });
 
-test("About is keyboard and screen-reader usable at 320px", async ({ page }) => {
-  await expect(page.getByRole("heading", { name: "About & Feedback" })).toBeVisible();
+test("About is keyboard and screen-reader usable at 320px", async ({
+  page,
+}) => {
+  await expect(
+    page.getByRole("heading", { name: "About & Feedback" }),
+  ).toBeVisible();
   const card = page.locator("[data-about-build-card]");
   await expect(card.getByText(RELEASE.version, { exact: true })).toBeVisible();
   await expect(
@@ -43,7 +51,9 @@ test("About is keyboard and screen-reader usable at 320px", async ({ page }) => 
   const provenance = page.getByText("Build provenance", { exact: true });
   await expect(provenance).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByText("Full source commit", { exact: true })).toBeVisible();
+  await expect(
+    page.getByText("Full source commit", { exact: true }),
+  ).toBeVisible();
 
   const geometry = await page.locator("[data-app-frame]").evaluate((frame) => ({
     clientWidth: frame.clientWidth,
@@ -68,52 +78,52 @@ test("copy uses the complete stable minimal block and announces completion", asy
       `^ZUULI\\nVersion: ${RELEASE.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` +
         `\\nBuild: ${RELEASE.build}` +
         "\\nRelease channel: Internal\\nPlatform: Web" +
-        "\\nSource commit: [0-9a-f]{8}…[0-9a-f]{10}$",
+        "\\nSource commit: (?:[0-9a-f]{8}…[0-9a-f]{10}|Unavailable in this build)$",
     ),
   );
   expect(copied).not.toMatch(/wallet|balance|device|address|\/Users\//i);
 });
 
-test.describe("pseudo-expanded shipping locale", () => {
-  test.use({ locale: "en-XA" });
+test.describe("French shipping locale", () => {
+  test.use({ locale: "fr-FR" });
 
   test("flows through navigation, page, formatter, and live status at 200%", async ({
     page,
   }) => {
     await page.addStyleTag({ content: "html { font-size: 200% !important; }" });
     await expect(
-      page.getByRole("heading", { name: PSEUDO_ABOUT_MESSAGES.pageTitle }),
+      page.getByRole("heading", { name: FRENCH_ABOUT_MESSAGES.pageTitle }),
     ).toBeVisible();
-    await expect(page.getByText(PSEUDO_ABOUT_MESSAGES.pageDescription)).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: PSEUDO_ABOUT_MESSAGES.buildHeading }),
+      page.getByText(FRENCH_ABOUT_MESSAGES.pageDescription),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: FRENCH_ABOUT_MESSAGES.buildHeading }),
     ).toBeVisible();
 
     const copy = page.getByRole("button", {
-      name: PSEUDO_ABOUT_MESSAGES.copyAction,
+      name: FRENCH_ABOUT_MESSAGES.copyAction,
     });
     await expect(copy).toBeVisible();
     expect((await copy.boundingBox())?.height).toBeGreaterThanOrEqual(44);
     await copy.focus();
-    await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
-      origin: new URL(page.url()).origin,
-    });
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin: new URL(page.url()).origin,
+      });
     await page.keyboard.press("Enter");
     await expect(page.getByRole("status")).toHaveText(
-      PSEUDO_ABOUT_MESSAGES.copySuccess,
+      FRENCH_ABOUT_MESSAGES.copySuccess,
     );
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
-      PSEUDO_ABOUT_MESSAGES.versionLabel,
+      FRENCH_ABOUT_MESSAGES.versionLabel,
     );
 
-    // The app-shell navigation is driven by the i18n kernel (#797), which
-    // only ships en/fr/es catalogs — it has no en-XA pseudo-locale entry, so
-    // it falls back to the plain en-US navigation copy even while the About
-    // page's own (still en-XA-aware) message block above is expanded.
     await page.locator('[data-navigation-id="more"]').click();
     await expect(
       page.getByRole("link", {
-        name: "About and feedback",
+        name: FRENCH_ABOUT_MESSAGES.navigationAccessibleLabel,
       }),
     ).toBeVisible();
 

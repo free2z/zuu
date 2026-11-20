@@ -1,3 +1,5 @@
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Shared constants + helpers for the 2Z platform-credit feature.
 //
 // 2Z ("Tuzi") is a prepaid platform credit, not a currency — it has a
@@ -26,7 +28,9 @@ export const BUY_PACKS = [500, 2_000, 5_000, 10_000] as const;
 export const TIP_PRESETS = [100, 500, 1_000, 2_500] as const;
 
 /** Validate the backend's exact ZEC quote before balance checks or confirmation. */
-export function zatoshisFromQuote(quote: Pick<PricingQuote, "zec_amount">): number | null {
+export function zatoshisFromQuote(
+  quote: Pick<PricingQuote, "zec_amount">,
+): number | null {
   return parseZecToZatoshis(quote.zec_amount);
 }
 
@@ -41,17 +45,47 @@ interface KindMeta {
 }
 
 const KIND_META: Record<Kind, KindMeta> = {
-  buy: { label: "Purchase", icon: CreditCard, badge: "success" },
-  donate: { label: "Tip", icon: Gift, badge: "default" },
-  ai: { label: "AI", icon: Sparkles, badge: "default" },
-  ppv: { label: "Pay-per-view", icon: Video, badge: "ppv" },
-  subscribe: { label: "Subscription", icon: Star, badge: "sub" },
+  buy: {
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletFundingLibPurchase);
+    },
+    icon: CreditCard,
+    badge: "success",
+  },
+  donate: {
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletFundingLibTip);
+    },
+    icon: Gift,
+    badge: "default",
+  },
+  ai: {
+    get label() {
+      return translate(MESSAGE_KEYS.fundingAi);
+    },
+    icon: Sparkles,
+    badge: "default",
+  },
+  ppv: {
+    get label() {
+      return translate(MESSAGE_KEYS.fundingPayPerView);
+    },
+    icon: Video,
+    badge: "ppv",
+  },
+  subscribe: {
+    get label() {
+      return translate(MESSAGE_KEYS.featuresWalletFundingLibSubscription);
+    },
+    icon: Star,
+    badge: "sub",
+  },
 };
 
 export function kindMeta(kind?: Kind): KindMeta {
   return (
     (kind && KIND_META[kind]) ?? {
-      label: "Activity",
+      label: translate(MESSAGE_KEYS.featuresWalletFundingLibActivity),
       icon: Coins,
       badge: "secondary" as const,
     }

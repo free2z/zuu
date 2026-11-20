@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Receive: large QR of the unified address with copy + shielded receipt note.
 import { QRCodeSVG } from "qrcode.react";
 import { ShieldCheck } from "lucide-react";
@@ -8,6 +10,8 @@ import { useWallet } from "@/store/wallet";
 import { CopyButton } from "./shared";
 
 export function Receive() {
+  const { t: uiT } = useUiTranslation();
+
   const address = useWallet((s) => s.unifiedAddress);
 
   return (
@@ -15,9 +19,13 @@ export function Receive() {
       <Card className="rounded-xl">
         <CardContent className="flex flex-col items-center gap-6 p-8 text-center">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold">Receive ZEC</h2>
+            <h2 className="text-lg font-semibold">
+              {uiT(MESSAGE_KEYS.featuresWalletReceiveReceiveZEC)}
+            </h2>
             <p className="text-sm text-muted-foreground">
-              Share this unified address to get paid.
+              {uiT(
+                MESSAGE_KEYS.featuresWalletReceiveShareThisUnifiedAddressToGetPaid,
+              )}
             </p>
           </div>
 
@@ -29,7 +37,9 @@ export function Receive() {
                 bgColor="#ffffff"
                 fgColor="#1a1206"
                 level="M"
-                aria-label="Unified address QR code"
+                aria-label={uiT(
+                  MESSAGE_KEYS.featuresWalletReceiveUnifiedAddressQRCode,
+                )}
               />
             </div>
           ) : (
@@ -45,8 +55,10 @@ export function Receive() {
               <CopyButton
                 value={address}
                 size="sm"
-                label="Address copied"
-                ariaLabel="Copy unified address"
+                label={uiT(MESSAGE_KEYS.featuresWalletReceiveAddressCopied)}
+                ariaLabel={uiT(
+                  MESSAGE_KEYS.featuresWalletReceiveCopyUnifiedAddress,
+                )}
                 className="w-full"
               />
             </div>
@@ -56,8 +68,9 @@ export function Receive() {
 
           <p className="flex items-start gap-2 text-start text-xs text-muted-foreground">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-zec" />
-            Unified addresses receive shielded ZEC and support encrypted memos,
-            keeping the amount and sender private on-chain.
+            {uiT(
+              MESSAGE_KEYS.featuresWalletReceiveUnifiedAddressesReceiveShieldedZECAndSupport,
+            )}
           </p>
         </CardContent>
       </Card>

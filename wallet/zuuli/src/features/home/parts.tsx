@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { Link } from "react-router-dom";
 import { ArrowRight, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -11,7 +13,7 @@ export function SectionHeader({
   title,
   subtitle,
   to,
-  linkLabel = "View all",
+  linkLabel,
   accent = "text-primary",
 }: {
   icon: LucideIcon;
@@ -21,6 +23,9 @@ export function SectionHeader({
   linkLabel?: string;
   accent?: string;
 }) {
+  const { t: uiT } = useUiTranslation();
+  linkLabel ??= uiT(MESSAGE_KEYS.featuresHomePartsViewAll);
+
   return (
     <div className="mb-4 flex items-end justify-between gap-4">
       <div className="min-w-0 space-y-1">
@@ -68,7 +73,10 @@ export function Section({
 }) {
   return (
     <section
-      className={cn("animate-slide-up [animation-fill-mode:backwards]", className)}
+      className={cn(
+        "animate-slide-up [animation-fill-mode:backwards]",
+        className,
+      )}
       style={{ animationDelay: `${delay}ms` }}
     >
       {children}

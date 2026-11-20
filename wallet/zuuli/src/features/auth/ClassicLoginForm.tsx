@@ -1,3 +1,8 @@
+import { translate } from "@/i18n/translate";
+import { errorKey, useMessageError } from "@/i18n/errors";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { Trans } from "react-i18next";
 // Username/password sign-in — a first-class login method, peer to Login with
 // Zcash. When the account has 2FA (TOTP) enabled, the password step hands off
 // to a second, 6-digit code step before the session is considered established.
@@ -14,7 +19,10 @@ import { setToken } from "@/lib/api/http";
 import type { AuthenticatedSession } from "@/lib/api/types";
 import { useSession } from "@/store/session";
 import type { LoginDestination } from "@/lib/auth/login-destination";
-import { useAttemptLease, type IsCurrentAttempt } from "@/hooks/useAttemptLease";
+import {
+  useAttemptLease,
+  type IsCurrentAttempt,
+} from "@/hooks/useAttemptLease";
 
 export function ClassicLoginForm({
   loginDestination = "/",
@@ -23,12 +31,14 @@ export function ClassicLoginForm({
   loginDestination?: LoginDestination;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   const navigate = useNavigate();
   const setUser = useSession((s) => s.setUser);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageError();
   // When 2FA is required, we advance to the code step; the password stays in
   // component memory only long enough to complete the second factor.
   const [needsOtp, setNeedsOtp] = useState(false);
@@ -38,9 +48,15 @@ export function ClassicLoginForm({
     if (!isCurrent()) return;
     setToken(session.token);
     setUser(session.user);
-    toast.success("Welcome back", {
-      description: `Logged in as ${session.user.username}.`,
-    });
+    toast.success(
+      translate(MESSAGE_KEYS.featuresAuthClassicLoginFormWelcomeBack),
+      {
+        description: translate(
+          MESSAGE_KEYS.featuresAuthClassicLoginFormLoggedInAs,
+          { value1: session.user.username },
+        ),
+      },
+    );
     navigate(loginDestination, { replace: true });
   }
 
@@ -62,7 +78,10 @@ export function ClassicLoginForm({
     } catch (err) {
       if (!isCurrent()) return;
       setError(
-        err instanceof Error ? err.message : "Sign-in failed. Check your details.",
+        errorKey(
+          err,
+          MESSAGE_KEYS.featuresAuthClassicLoginFormSignInFailedCheckYourDetails,
+        ),
       );
     } finally {
       if (isCurrent()) {
@@ -92,7 +111,9 @@ export function ClassicLoginForm({
   return (
     <form onSubmit={onSubmit} className="animate-slide-up space-y-4">
       <div className="space-y-2">
-        <Label htmlFor="f2z-username">Email or username</Label>
+        <Label htmlFor="f2z-username">
+          {uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormEmailOrUsername)}
+        </Label>
         <Input
           id="f2z-username"
           autoComplete="username"
@@ -104,7 +125,9 @@ export function ClassicLoginForm({
         />
       </div>
       <div className="space-y-2">
-        <Label htmlFor="f2z-password">Password</Label>
+        <Label htmlFor="f2z-password">
+          {uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormPassword)}
+        </Label>
         <Input
           id="f2z-password"
           type="password"
@@ -133,7 +156,9 @@ export function ClassicLoginForm({
         ) : (
           <LogIn className="rtl:-scale-x-100 h-4 w-4" aria-hidden />
         )}
-        {submitting ? "Logging in…" : "Log in"}
+        {submitting
+          ? uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormLoggingIn)
+          : uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormLogIn)}
       </Button>
     </form>
   );
@@ -151,14 +176,19 @@ function OtpStep({
 }: {
   username: string;
   password: string;
-  onVerified: (session: AuthenticatedSession, isCurrent: IsCurrentAttempt) => void;
+  onVerified: (
+    session: AuthenticatedSession,
+    isCurrent: IsCurrentAttempt,
+  ) => void;
   beginAttempt: () => IsCurrentAttempt;
   onBack: () => void;
   onBusyChange?: (busy: boolean) => void;
 }) {
+  const { t: uiT } = useUiTranslation();
+
   const [code, setCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useMessageError();
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -173,7 +203,12 @@ function OtpStep({
       onVerified(session, isCurrent);
     } catch (err) {
       if (!isCurrent()) return;
-      setError(err instanceof Error ? err.message : "Verification failed.");
+      setError(
+        errorKey(
+          err,
+          MESSAGE_KEYS.featuresAuthClassicLoginFormVerificationFailed,
+        ),
+      );
       setCode("");
     } finally {
       if (isCurrent()) {
@@ -190,17 +225,32 @@ function OtpStep({
           <ShieldCheck className="h-5 w-5" aria-hidden />
         </span>
         <div className="space-y-0.5">
-          <p className="text-sm font-medium">Two-factor authentication</p>
+          <p className="text-sm font-medium">
+            {uiT(
+              MESSAGE_KEYS.featuresAuthClassicLoginFormTwoFactorAuthentication,
+            )}
+          </p>
           <p className="text-sm text-muted-foreground">
-            Enter the 6-digit code from your authenticator app to finish logging
-            in as{" "}
-            <span className="font-medium text-foreground">{username}</span>.
+            <Trans
+              i18nKey={
+                MESSAGE_KEYS.featuresAuthClassicLoginFormEnterThe6DigitCodeFromYour
+              }
+              components={{
+                part1: (
+                  <span className="font-medium text-foreground">
+                    {username}
+                  </span>
+                ),
+              }}
+            />
           </p>
         </div>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="f2z-otp">Authentication code</Label>
+        <Label htmlFor="f2z-otp">
+          {uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormAuthenticationCode)}
+        </Label>
         <Input
           id="f2z-otp"
           inputMode="numeric"
@@ -208,7 +258,9 @@ function OtpStep({
           autoFocus
           maxLength={6}
           value={code}
-          onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+          onChange={(e) =>
+            setCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+          }
           placeholder="000000"
           className="text-center text-lg tracking-[0.5em] bidi-number tabular-nums"
           disabled={submitting}
@@ -232,7 +284,9 @@ function OtpStep({
         ) : (
           <ShieldCheck className="h-4 w-4" aria-hidden />
         )}
-        {submitting ? "Verifying…" : "Verify and log in"}
+        {submitting
+          ? uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormVerifying)
+          : uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormVerifyAndLogIn)}
       </Button>
 
       <Button
@@ -244,7 +298,7 @@ function OtpStep({
         disabled={submitting}
       >
         <ArrowLeft className="rtl:-scale-x-100 h-3.5 w-3.5" aria-hidden />
-        Use a different account
+        {uiT(MESSAGE_KEYS.featuresAuthClassicLoginFormUseADifferentAccount)}
       </Button>
     </form>
   );

@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Coins, Gift, Receipt } from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -21,6 +23,8 @@ export function fundingTabForPath(pathname: string): TabKey {
 }
 
 export default function FundingFeature() {
+  const { t: uiT } = useUiTranslation();
+
   const location = useLocation();
   const navigate = useNavigate();
   const user = useSession((state) => state.user);
@@ -39,8 +43,10 @@ export default function FundingFeature() {
   return (
     <div className="animate-fade-in space-y-6">
       <PageHeader
-        title="Wallet funding"
-        description="Buy or send 2Zs and review activity."
+        title={uiT(MESSAGE_KEYS.featuresWalletFundingIndexWalletFunding)}
+        description={uiT(
+          MESSAGE_KEYS.featuresWalletFundingIndexBuyOrSend2ZsAndReviewActivity,
+        )}
       />
 
       {user ? <BalanceHero /> : null}
@@ -49,15 +55,15 @@ export default function FundingFeature() {
         <TabsList className="grid w-full grid-cols-3 sm:inline-flex sm:w-auto">
           <TabsTrigger value="buy" className="gap-1.5">
             <Coins className="h-4 w-4" />
-            Buy
+            {uiT(MESSAGE_KEYS.featuresWalletFundingIndexBuy)}
           </TabsTrigger>
           <TabsTrigger value="send" className="gap-1.5">
             <Gift className="h-4 w-4" />
-            Send &amp; Tip
+            {uiT(MESSAGE_KEYS.featuresWalletFundingIndexSendTip)}
           </TabsTrigger>
           <TabsTrigger value="activity" className="gap-1.5">
             <Receipt className="h-4 w-4" />
-            Activity
+            {uiT(MESSAGE_KEYS.featuresWalletFundingIndexActivity)}
           </TabsTrigger>
         </TabsList>
 

@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { Link } from "react-router-dom";
 import { Coins, Wallet, ArrowUpRight } from "lucide-react";
 import { formatTuzis, formatZecTrim } from "@/lib/format";
@@ -30,7 +32,10 @@ function StatChip({
       className="group flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <span
-        className={cn("grid h-9 w-9 shrink-0 place-items-center rounded-lg", accent)}
+        className={cn(
+          "grid h-9 w-9 shrink-0 place-items-center rounded-lg",
+          accent,
+        )}
         aria-hidden
       >
         <Icon className="h-[18px] w-[18px]" />
@@ -47,6 +52,8 @@ function StatChip({
 }
 
 export function Hero() {
+  const { t: uiT } = useUiTranslation();
+
   const user = useSession((s) => s.user);
   const tuzis = useSession((s) => s.tuzis);
   const sessionLoading = useSession((s) => s.loading);
@@ -54,17 +61,20 @@ export function Hero() {
   const walletLoading = useWallet((s) => s.loading);
 
   const name = user?.display_name || user?.username;
-  const greeting = name ? `Welcome back, ${name}` : "Welcome to ZUULI";
+  const greeting = name
+    ? uiT(MESSAGE_KEYS.featuresHomeHeroWelcomeBack, { value1: name })
+    : uiT(MESSAGE_KEYS.featuresHomeHeroWelcomeToZUULI);
   const spendable = balance?.spendable ?? 0;
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border bg-card px-6 py-10 md:px-10 md:py-14">
       <div className="max-w-2xl space-y-3">
-        <p className="eyebrow text-muted-foreground">Your vault</p>
+        <p className="eyebrow text-muted-foreground">
+          {uiT(MESSAGE_KEYS.featuresHomeHeroYourVault)}
+        </p>
         <h1 className="text-3xl font-semibold md:text-4xl">{greeting}</h1>
         <p className="max-w-xl text-sm text-muted-foreground md:text-base">
-          Your seed and your spending keys live in this app and never leave it.
-          ZUULI signs and sends; it renders nothing it did not write.
+          {uiT(MESSAGE_KEYS.featuresHomeHeroYourSeedAndYourSpendingKeysLive)}
         </p>
       </div>
 
@@ -72,20 +82,26 @@ export function Hero() {
         <StatChip
           to="/wallet/fund"
           icon={Coins}
-          label="2Z balance"
+          label={uiT(MESSAGE_KEYS.featuresHomeHero2ZBalance)}
           value={formatTuzis(tuzis)}
           loading={sessionLoading}
           accent="bg-tuzi/10 text-tuzi"
-          ariaLabel={`2Z balance ${formatTuzis(tuzis)}. Buy more 2Z.`}
+          ariaLabel={uiT(MESSAGE_KEYS.featuresHomeHero2ZBalanceBuyMore2Z, {
+            value1: formatTuzis(tuzis),
+          })}
         />
         <StatChip
           to="/wallet"
           icon={Wallet}
-          label="ZEC spendable"
-          value={`${formatZecTrim(spendable)} ZEC`}
+          label={uiT(MESSAGE_KEYS.featuresHomeHeroZECSpendable)}
+          value={uiT(MESSAGE_KEYS.featuresHomeHeroZEC, {
+            value1: formatZecTrim(spendable),
+          })}
           loading={walletLoading}
           accent="bg-zec/10 text-zec"
-          ariaLabel={`ZEC spendable ${formatZecTrim(spendable)}. Open wallet.`}
+          ariaLabel={uiT(MESSAGE_KEYS.featuresHomeHeroZECSpendableOpenWallet, {
+            value1: formatZecTrim(spendable),
+          })}
         />
       </div>
     </div>

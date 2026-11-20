@@ -1,3 +1,7 @@
+import { useMessageError } from "@/i18n/errors";
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { Trans } from "react-i18next";
 import {
   useEffect,
   useId,
@@ -31,13 +35,15 @@ export function RestoreIdentity({
   onCancel,
   onRestore,
 }: RestoreIdentityProps) {
+  const { t: uiT } = useUiTranslation();
+
   const recoveryId = useId();
   const birthdayId = useId();
   const phraseRef = useRef("");
   const [seedPhrase, setSeedPhrase] = useState("");
   const [birthday, setBirthday] = useState("");
   const [revealed, setRevealed] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
+  const [localError, setLocalError] = useMessageError();
   const normalizedPhrase = useMemo(
     () => seedPhrase.trim().replace(/\s+/g, " "),
     [seedPhrase],
@@ -63,11 +69,15 @@ export function RestoreIdentity({
     event.preventDefault();
     setLocalError(null);
     if (!normalizedPhrase) {
-      setLocalError("Enter your recovery phrase.");
+      setLocalError(
+        MESSAGE_KEYS.featuresAuthRestoreIdentityEnterYourRecoveryPhrase,
+      );
       return;
     }
     if (!supportedWordCount) {
-      setLocalError("A recovery phrase must have 12, 15, 18, 21, or 24 words.");
+      setLocalError(
+        MESSAGE_KEYS.featuresAuthRestoreIdentityARecoveryPhraseMustHave1215,
+      );
       return;
     }
 
@@ -76,7 +86,9 @@ export function RestoreIdentity({
       birthdayHeight !== undefined &&
       (!Number.isSafeInteger(birthdayHeight) || birthdayHeight < 0)
     ) {
-      setLocalError("Enter a valid birthday height.");
+      setLocalError(
+        MESSAGE_KEYS.featuresAuthRestoreIdentityEnterAValidBirthdayHeight,
+      );
       return;
     }
 
@@ -103,21 +115,29 @@ export function RestoreIdentity({
             onCancel();
           }}
           disabled={restoring}
-          aria-label="Back to identity choices"
+          aria-label={uiT(
+            MESSAGE_KEYS.featuresAuthRestoreIdentityBackToIdentityChoices,
+          )}
         >
           <ArrowLeft className="rtl:-scale-x-100" aria-hidden />
         </Button>
         <div className="min-w-0">
-          <h2 className="font-semibold">Use existing identity</h2>
+          <h2 className="font-semibold">
+            {uiT(MESSAGE_KEYS.featuresAuthRestoreIdentityUseExistingIdentity)}
+          </h2>
           <p className="text-xs text-muted-foreground">
-            Restore locally with your recovery phrase.
+            {uiT(
+              MESSAGE_KEYS.featuresAuthRestoreIdentityRestoreLocallyWithYourRecoveryPhrase,
+            )}
           </p>
         </div>
       </div>
 
       <div className="space-y-1.5">
         <div className="flex items-center justify-between gap-2">
-          <Label htmlFor={recoveryId}>Recovery phrase</Label>
+          <Label htmlFor={recoveryId}>
+            {uiT(MESSAGE_KEYS.featuresAuthRestoreIdentityRecoveryPhrase)}
+          </Label>
           <Button
             type="button"
             variant="ghost"
@@ -128,7 +148,9 @@ export function RestoreIdentity({
             aria-pressed={revealed}
           >
             {revealed ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-            {revealed ? "Hide" : "Show"}
+            {revealed
+              ? uiT(MESSAGE_KEYS.featuresAuthRestoreIdentityHide)
+              : uiT(MESSAGE_KEYS.featuresAuthRestoreIdentityShow)}
           </Button>
         </div>
         <Textarea
@@ -138,7 +160,9 @@ export function RestoreIdentity({
             phraseRef.current = event.target.value;
             setSeedPhrase(event.target.value);
           }}
-          placeholder="Words separated by spaces"
+          placeholder={uiT(
+            MESSAGE_KEYS.featuresAuthRestoreIdentityWordsSeparatedBySpaces,
+          )}
           spellCheck={false}
           autoComplete="off"
           autoCapitalize="none"
@@ -147,41 +171,57 @@ export function RestoreIdentity({
           aria-describedby={`${recoveryId}-hint`}
           className={cn(
             "min-h-20 resize-none font-mono",
-            !revealed && seedPhrase && "[-webkit-text-security:disc] [text-security:disc]",
+            !revealed &&
+              seedPhrase &&
+              "[-webkit-text-security:disc] [text-security:disc]",
           )}
         />
         <div
           id={`${recoveryId}-hint`}
           className="flex min-w-0 items-start justify-between gap-3 text-xs text-muted-foreground"
         >
-          <span className="min-w-0">Never sent to free2z.</span>
+          <span className="min-w-0">
+            {uiT(MESSAGE_KEYS.featuresAuthRestoreIdentityNeverSentToFree2z)}
+          </span>
           <span
             className={cn(
               "shrink-0 bidi-number tabular-nums",
               wordCount && supportedWordCount && "text-success",
             )}
           >
-            {wordCount || 0} words
+            {uiT(MESSAGE_KEYS.wordCount, { count: wordCount })}
           </span>
         </div>
         {wordCount > 0 && !supportedWordCount && (
           <p className="text-xs text-warning">
-            Supported phrases usually have 12, 15, 18, 21, or 24 words. Native
-            validation makes the final check.
+            {uiT(
+              MESSAGE_KEYS.featuresAuthRestoreIdentitySupportedPhrasesUsuallyHave121518,
+            )}
           </p>
         )}
       </div>
 
       <div className="space-y-1.5">
         <Label htmlFor={birthdayId}>
-          Birthday height <span className="text-muted-foreground">(optional)</span>
+          <Trans
+            i18nKey={
+              MESSAGE_KEYS.featuresAuthRestoreIdentityBirthdayHeightOptional
+            }
+            components={{
+              part1: <span className="text-muted-foreground"></span>,
+            }}
+          />
         </Label>
         <Input
           id={birthdayId}
           value={birthday}
-          onChange={(event) => setBirthday(event.target.value.replace(/[^\d]/g, ""))}
+          onChange={(event) =>
+            setBirthday(event.target.value.replace(/[^\d]/g, ""))
+          }
           inputMode="numeric"
-          placeholder="Faster wallet scan"
+          placeholder={uiT(
+            MESSAGE_KEYS.featuresAuthRestoreIdentityFasterWalletScan,
+          )}
           className="min-tap bidi-number tabular-nums"
           disabled={restoring}
         />
@@ -204,11 +244,15 @@ export function RestoreIdentity({
         ) : (
           <RotateCcw aria-hidden />
         )}
-        {restoring ? "Restoring identity…" : "Restore and continue"}
+        {restoring
+          ? uiT(MESSAGE_KEYS.featuresAuthRestoreIdentityRestoringIdentity)
+          : uiT(MESSAGE_KEYS.featuresAuthRestoreIdentityRestoreAndContinue)}
       </Button>
 
       <p className="text-center text-xs text-muted-foreground">
-        External wallet signing isn’t supported yet.
+        {uiT(
+          MESSAGE_KEYS.featuresAuthRestoreIdentityExternalWalletSigningIsnTSupportedYet,
+        )}
       </p>
     </form>
   );

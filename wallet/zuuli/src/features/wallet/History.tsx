@@ -1,3 +1,5 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // Full transaction history.
 import {
   ArrowDownLeft,
@@ -17,6 +19,8 @@ import { cn } from "@/lib/utils";
 import { CopyButton } from "./shared";
 
 export function History() {
+  const { t: uiT } = useUiTranslation();
+
   const {
     data: txs,
     loading,
@@ -46,8 +50,12 @@ export function History() {
   if (error && txs === null) {
     return (
       <SectionLoadError
-        title="Couldn't load transaction history"
-        description="Your transaction history is temporarily unavailable."
+        title={uiT(
+          MESSAGE_KEYS.featuresWalletHistoryCouldnTLoadTransactionHistory,
+        )}
+        description={uiT(
+          MESSAGE_KEYS.featuresWalletHistoryYourTransactionHistoryIsTemporarilyUnavailable,
+        )}
         retry={reload}
         retrying={loading}
       />
@@ -61,8 +69,12 @@ export function History() {
       <div className="space-y-3">
         {error ? (
           <SectionLoadError
-            title="Couldn't refresh transaction history"
-            description="Showing the last transaction history loaded on this device."
+            title={uiT(
+              MESSAGE_KEYS.featuresWalletHistoryCouldnTRefreshTransactionHistory,
+            )}
+            description={uiT(
+              MESSAGE_KEYS.featuresWalletHistoryShowingTheLastTransactionHistoryLoadedOn,
+            )}
             retry={reload}
             retrying={loading}
             stale
@@ -70,8 +82,10 @@ export function History() {
         ) : null}
         <EmptyState
           icon={HistoryIcon}
-          title="No transactions yet"
-          description="Send or receive ZEC and every transaction will appear here."
+          title={uiT(MESSAGE_KEYS.featuresWalletHistoryNoTransactionsYet)}
+          description={uiT(
+            MESSAGE_KEYS.featuresWalletHistorySendOrReceiveZECAndEveryTransaction,
+          )}
         />
       </div>
     );
@@ -81,8 +95,12 @@ export function History() {
     <div className="space-y-3">
       {error ? (
         <SectionLoadError
-          title="Couldn't refresh transaction history"
-          description="Showing the last transaction history loaded on this device."
+          title={uiT(
+            MESSAGE_KEYS.featuresWalletHistoryCouldnTRefreshTransactionHistory,
+          )}
+          description={uiT(
+            MESSAGE_KEYS.featuresWalletHistoryShowingTheLastTransactionHistoryLoadedOn,
+          )}
           retry={reload}
           retrying={loading}
           stale
@@ -100,6 +118,8 @@ export function History() {
 }
 
 function HistoryRow({ tx }: { tx: TransactionEntry }) {
+  const { t: uiT } = useUiTranslation();
+
   const incoming = tx.incoming;
   return (
     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 px-3 py-4 sm:flex sm:gap-3">
@@ -122,11 +142,13 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium">
-            {incoming ? "Received" : "Sent"}
+            {incoming
+              ? uiT(MESSAGE_KEYS.featuresWalletHistoryReceived)
+              : uiT(MESSAGE_KEYS.featuresWalletHistorySent)}
           </span>
           {tx.blockHeight === null ? (
             <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">
-              Pending
+              {uiT(MESSAGE_KEYS.featuresWalletHistoryPending)}
             </span>
           ) : null}
         </div>
@@ -145,8 +167,8 @@ function HistoryRow({ tx }: { tx: TransactionEntry }) {
           />
           <CopyButton
             value={tx.txid}
-            label="Transaction ID copied"
-            ariaLabel="Copy transaction ID"
+            label={uiT(MESSAGE_KEYS.featuresWalletHistoryTransactionIDCopied)}
+            ariaLabel={uiT(MESSAGE_KEYS.featuresWalletHistoryCopyTransactionID)}
             className="h-6 w-6"
           />
         </div>

@@ -1,3 +1,6 @@
+import { useTranslation as useUiTranslation } from "react-i18next";
+import { translate } from "@/i18n/translate";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 // "How does this work?" — a plain-language explainer of the ZShield concept:
 // any Zcash address is a self-sovereign W3C DID, and you prove control by
 // signing a challenge (ZIP-304). No third party, no password, no email.
@@ -15,22 +18,46 @@ import {
 const POINTS = [
   {
     icon: Fingerprint,
-    title: "Your address is a DID",
-    body: "Any Zcash address maps to a W3C Decentralized Identifier (did:zcash). It is yours the moment you generate a key — nobody issues it, nobody can revoke it.",
+    get title() {
+      return translate(MESSAGE_KEYS.featuresAuthZShieldInfoYourAddressIsADID);
+    },
+    get body() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthZShieldInfoAnyZcashAddressMapsToAW3C,
+      );
+    },
   },
   {
     icon: KeyRound,
-    title: "You prove control by signing",
-    body: "To log in you sign a fresh, one-time challenge with your key using ZIP-304. The signature proves you hold the key without ever revealing it.",
+    get title() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthZShieldInfoYouProveControlBySigning,
+      );
+    },
+    get body() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthZShieldInfoToLogInYouSignAFresh,
+      );
+    },
   },
   {
     icon: ShieldCheck,
-    title: "No third party in the loop",
-    body: "free2z verifies the signature against your address and mints a session. There is no password to leak, no email to harvest, and no identity provider to trust.",
+    get title() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthZShieldInfoNoThirdPartyInTheLoop,
+      );
+    },
+    get body() {
+      return translate(
+        MESSAGE_KEYS.featuresAuthZShieldInfoFree2zVerifiesTheSignatureAgainstYourAddress,
+      );
+    },
   },
 ] as const;
 
 export function ZShieldInfo({ children }: { children: React.ReactNode }) {
+  const { t: uiT } = useUiTranslation();
+
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
@@ -38,11 +65,14 @@ export function ZShieldInfo({ children }: { children: React.ReactNode }) {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-primary" aria-hidden />
-            ZShield — your key is your identity
+            {uiT(
+              MESSAGE_KEYS.featuresAuthZShieldInfoZShieldYourKeyIsYourIdentity,
+            )}
           </DialogTitle>
           <DialogDescription>
-            Login with Zcash replaces passwords and email with a cryptographic
-            proof of control. Here is what actually happens.
+            {uiT(
+              MESSAGE_KEYS.featuresAuthZShieldInfoLoginWithZcashReplacesPasswordsAndEmail,
+            )}
           </DialogDescription>
         </DialogHeader>
         <ul className="space-y-4">
