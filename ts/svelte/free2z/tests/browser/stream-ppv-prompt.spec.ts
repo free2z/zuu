@@ -16,6 +16,13 @@ import { SONNER_LOADER } from "./dev-source-module";
 // No spec here reaches RealtimeKit: every join is answered by a route stub,
 // so the assertions are about what the page ASKED the server for.
 
+// Balance overrides fetch and decode an APIResponse asynchronously. Drain
+// those handlers before Playwright disposes the request context at teardown.
+// "wait" preserves handler failures rather than suppressing cleanup errors.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: "wait" });
+});
+
 const OWNER = "livefixture";
 const PRICE = "2.00";
 const RESERVE = 75; // ceil(2 * 30) + 15
@@ -152,6 +159,7 @@ test("paid join fails closed when live status has no provider session identity",
       }),
     });
   });
+  const money = recordMoneyRequests(page);
   const joins: unknown[] = [];
   await page.route(`**/api/dyte/${OWNER}/ppv`, (route) => {
     if (route.request().method() === "POST") {
@@ -163,6 +171,7 @@ test("paid join fails closed when live status has no provider session identity",
   await page.goto(`/${OWNER}/ppv?lang=en`);
   await expect.poll(() => statusChecks).toBeGreaterThan(0);
   await expect.poll(() => joins.length).toBe(0);
+  expect(money).toEqual([]);
 });
 
 test("paid join fails closed when retry-key storage throws, including after reload", async ({
