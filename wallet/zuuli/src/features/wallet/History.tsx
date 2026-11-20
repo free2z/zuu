@@ -4,6 +4,10 @@ import {
   ArrowUpRight,
   History as HistoryIcon,
 } from "lucide-react";
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { useSearchParams } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -12,17 +16,27 @@ import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import { useAsync } from "@/hooks/useAsync";
 import { formatDate, formatZecDisplay } from "@/lib/format";
 import { wallet } from "@/lib/wallet/bridge";
+import { findWalletTransaction } from "@/lib/wallet/history-lookup";
 import type { TransactionEntry } from "@/lib/wallet/types";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "./shared";
 
 export function History() {
+  const { t } = useTranslation();
+  const [params, setParams] = useSearchParams();
+  const requested = params.get("txid");
+  const selected =
+    requested && /^[0-9a-f]{64}$/.test(requested) ? requested : null;
   const {
     data: txs,
     loading,
     error,
     reload,
-  } = useAsync<TransactionEntry[]>(() => wallet.getTransactionHistory(0), []);
+  } = useAsync<TransactionEntry[]>(async () => {
+    if (!selected) return wallet.getTransactionHistory(0);
+    const transaction = await findWalletTransaction(selected);
+    return transaction ? [transaction] : [];
+  }, [selected]);
 
   if (loading && txs === null && !error) {
     return (
@@ -55,6 +69,35 @@ export function History() {
   }
 
   if (!txs) return null;
+
+  if (requested) {
+    const tx = selected
+      ? txs.find((entry) => entry.txid === selected)
+      : undefined;
+    return (
+      <div className="space-y-3" data-wallet-transaction>
+        <p className="break-all font-mono text-xs">{selected}</p>
+        {tx ? (
+          <HistoryRow tx={tx} />
+        ) : (
+          <EmptyState
+            icon={HistoryIcon}
+            title={t(MESSAGE_KEYS.walletHistoryMissingTitle)}
+            description={t(MESSAGE_KEYS.walletHistoryMissingBody)}
+          />
+        )}
+        {error ? (
+          <p role="alert">{t(MESSAGE_KEYS.walletHistoryRefreshError)}</p>
+        ) : null}
+        <Button variant="outline" onClick={reload} disabled={loading}>
+          {t(MESSAGE_KEYS.walletHistoryRefresh)}
+        </Button>
+        <Button variant="ghost" onClick={() => setParams({})}>
+          {t(MESSAGE_KEYS.walletHistoryAll)}
+        </Button>
+      </div>
+    );
+  }
 
   if (txs.length === 0) {
     return (

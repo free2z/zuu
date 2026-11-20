@@ -120,7 +120,19 @@
       "unsent": {
         "body": "Les informations de paiement de ce créateur ne peuvent pas franchir le pont, donc ZUULI n'a jamais été sollicité et rien n'a été envoyé.",
         "title": "free2z n'a pas pu envoyer cette demande"
-      }
+      },
+      "openManually": "Ouvrez ZUULI sur cet appareil et consultez l’historique du portefeuille.",
+      "attribution": "{amount} pour {creator} (@{username})",
+      "pending": "En attente de ZUULI. Ne lancez pas un autre paiement.",
+      "recovery": "Une demande ZEC précédente a pu parvenir à ZUULI. Consultez l’historique et récupérez toute transaction en attente avant de lancer un autre paiement.",
+      "history": "Voir dans l’historique ZUULI",
+      "checked": "J’ai vérifié ce paiement et les transactions en attente dans ZUULI. Un nouveau paiement pourrait payer deux fois.",
+      "newPayment": "Lancer un nouveau paiement",
+      "changed": "Les coordonnées de paiement du créateur ont changé. Fermez cette fenêtre et vérifiez le profil.",
+      "destination": "Destination chargée pour @{username} ; ZUULI la valide avant confirmation.",
+      "walletBalance": "ZUULI vérifie votre solde ZEC, les fonds disponibles et les frais exacts. Votre solde 2Z est distinct.",
+      "loadingDestination": "Chargement de la destination ZEC de l’auteur…",
+      "failedDestination": "Impossible de vérifier la destination ZEC de l’auteur. Rechargez l’article pour réessayer."
     }
   },
   "error": {

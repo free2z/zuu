@@ -32,7 +32,9 @@ test("the shell exposes no wallet destination and no ZEC balance", async ({
   const header = page.locator("[data-app-top-bar]");
   await expect(header).toBeVisible();
   // The 2Z chip stays: 2Z is a fiat-funded content credit, not a key.
-  await expect(header.getByRole("link", { name: /Buy 2Zs\. Balance/ })).toBeVisible();
+  await expect(
+    header.getByRole("link", { name: /Buy 2Zs\. Balance/ }),
+  ).toBeVisible();
   await expect(header.getByText("ZEC")).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Open wallet" })).toHaveCount(0);
 
@@ -65,7 +67,9 @@ test("an unmounted wallet path renders NotFound rather than a wallet", async ({
   await page.goto("/wallet/send");
 
   await expect(page.getByText("Page not found")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Back to Articles" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Back to Articles" }),
+  ).toBeVisible();
 });
 
 test("login offers password and states why Zcash is not here", async ({
@@ -107,8 +111,8 @@ test("a creator ZEC tip collects an amount and then fails closed", async ({
   await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
 
   // #790's product gap: the ZEC path now asks for the amount here, because
-  // this is where the tip is chosen. The address is not shown or edited — it
-  // is ZUULI that renders the destination it is about to pay.
+  // this is where the tip is chosen. The loaded address is visible and locked;
+  // ZUULI independently validates and reviews it before any signing.
   const amount = page.getByLabel("Amount (ZEC)");
   await expect(amount).toBeVisible();
   await page.getByRole("button", { name: "0.05", exact: true }).click();
@@ -130,7 +134,9 @@ test("a creator ZEC tip collects an amount and then fails closed", async ({
 
   expect(page.url()).toBe(before);
   expect(navigations.filter((url) => url !== before)).toEqual([]);
-  await expect(page.locator("[data-testid='creator-tip-context']")).toHaveCount(0);
+  await expect(page.locator("[data-testid='creator-tip-context']")).toHaveCount(
+    0,
+  );
 });
 
 test("a ZEC tip amount that is not a positive ZEC value cannot be sent", async ({
@@ -148,7 +154,9 @@ test("a ZEC tip amount that is not a positive ZEC value cannot be sent", async (
   for (const bad of ["0", "-1", "abc", "1.000000001"]) {
     await amount.fill(bad);
     await expect(
-      page.getByText("Enter a ZEC amount above zero, using a period, with up to 8 decimals."),
+      page.getByText(
+        "Enter a ZEC amount above zero, using a period, with up to 8 decimals.",
+      ),
     ).toBeVisible();
     await expect(submit).toBeDisabled();
   }
@@ -159,4 +167,95 @@ test("a ZEC tip amount that is not a positive ZEC value cannot be sent", async (
 
   await amount.fill("0.25");
   await expect(submit).toBeEnabled();
+});
+
+for (const locale of ["en", "es", "fr"]) {
+  test(`an interrupted ZEC request stays blocked after navigation and reload (${locale})`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      ({ language }) => {
+        localStorage.setItem("free2z-locale", language);
+        if (!sessionStorage.getItem("test.interrupted-tip-seeded")) {
+          localStorage.setItem("free2z.zec-tip-needs-wallet-check", "1");
+          sessionStorage.setItem("test.interrupted-tip-seeded", "1");
+        }
+      },
+      { language: locale },
+    );
+    await page.setViewportSize(PHONE);
+    await page.goto("/creator/zooko");
+    await page.getByRole("button", { name: /Tip zooko/i }).click();
+    await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
+    const outcome = page.locator("[data-zec-tip-outcome]");
+    await expect(outcome).toBeVisible();
+    await expect(outcome.getByRole("checkbox")).not.toBeChecked();
+    await expect(outcome.getByRole("button").last()).toBeDisabled();
+    await expect(
+      page.getByRole("button", { name: "Continue with ZEC" }),
+    ).toBeDisabled();
+    await page.goto("/articles");
+    await page.goto("/creator/zooko");
+    await page.getByRole("button", { name: /Tip zooko/i }).click();
+    await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
+    await expect(
+      page.getByRole("button", { name: "Continue with ZEC" }),
+    ).toBeDisabled();
+    await outcome.getByRole("checkbox").check();
+    await expect(outcome.getByRole("button").last()).toBeEnabled();
+    await outcome.getByRole("button").last().click();
+    await expect(
+      page.getByRole("button", { name: "Continue with ZEC" }),
+    ).toBeEnabled();
+    // Acknowledgement never dispatches; it only permits an explicit new payment.
+    expect(
+      await page.evaluate(() =>
+        localStorage.getItem("free2z.zec-tip-needs-wallet-check"),
+      ),
+    ).toBeNull();
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await page.reload();
+    await page.getByRole("button", { name: /Tip zooko/i }).click();
+    await expect(page.locator("[data-zec-tip-outcome]")).toHaveCount(0);
+  });
+}
+
+test("article tipping offers ZEC alongside 2Z and uses the exact author's resolved address", async ({
+  page,
+}) => {
+  await page.goto("/creator/zooko");
+  await page
+    .locator("[data-creator-page-card]")
+    .first()
+    .getByRole("link")
+    .click();
+  const trigger = page.locator("button").filter({ hasText: "Tip the author" });
+  await trigger.click();
+  await expect(page.getByLabel("Amount (2Z)")).toBeVisible();
+  await page.getByRole("button", { name: /^ZEC Zcash wallet$/ }).click();
+  await expect(
+    page.getByText("Loading the author’s ZEC destination…"),
+  ).toHaveCount(0);
+  // Opening during profile resolution must never swap in its late address.
+  // Reopen explicitly if that snapshot predates the lookup.
+  if (
+    await page
+      .getByRole("alert")
+      .filter({ hasText: "payment details changed" })
+      .count()
+  ) {
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await trigger.click();
+  }
+  await expect(page.getByLabel("Amount (ZEC)")).toBeVisible();
+  await expect(page.locator("#creator-tip-zec-destination")).toContainText(
+    "@zooko",
+  );
+  await page.getByRole("button", { name: "Continue with ZEC" }).click();
+  await expect(page.locator("[data-zec-tip-outcome]")).toContainText(
+    "Zooko (@zooko)",
+  );
+  await expect(page.locator("[data-zec-tip-outcome]")).toContainText(
+    "nothing was sent",
+  );
 });

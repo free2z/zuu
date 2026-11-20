@@ -650,3 +650,74 @@ encoder. [#564](https://github.com/free2z/zuu/issues/564) is why: an encoder and
 a decoder that move together stay green straight through a format break, so
 each implementation round-tripping itself proves only that it agrees with
 itself.
+
+## Creator tipping follow-up: Refs #790
+
+PR #1045 already landed the Free2Z App Link transport. This follow-up keeps that
+transport and the wallet's guarded proposal/confirmation/signing/recovery routes.
+It closes additional runtime gaps rather than replacing the merged bridge.
+
+| Acceptance item | Current implementation and regression evidence |
+| --- | --- |
+| ZEC wherever creator tipping is offered | The creator profile and article reader share `features/creator/TipButton.tsx`. Articles resolve the exact author's public profile through the existing API; a foreign username never supplies a destination. |
+| Distinct assets, balances and outcomes | ZEC input and receipt amounts are explicitly ZEC; 2Z retains its platform balance and login restoration. ZEC balance/available funds/exact fee are checked in ZUULI, never inferred from 2Z. New interface copy ships in en/es/fr. |
+| Immutable recipient resolution | Opening the dialog freezes the creator label, username and loaded address. A changed profile or late destination requires closing and reviewing again. Article tests cover wrong-author results, late resolution and an old author's response arriving after navigation. |
+| Confirmation binds payment before signing | Existing `review_matches_request`, request/review digests, native dialog and one-use confirmation remain authoritative. The source guard and send-review boundary checks still pass. The new UI snapshot does not replace a native approval. |
+| Shielded preference/privacy disclosure | Native `execute_payment` now uses `validate_recipient_address` against the held wallet network and includes `payment_privacy::disclosure` before the OS confirmation. Transparent-only destinations, including Unified Addresses without shielded receivers, get an explicit public-recipient/public-amount/no-private-memo warning. No address is rewritten. |
+| Failure, cancellation and retry | A synchronous session lock prevents rapid taps/remounts from issuing another request. Unknown/malformed/uncorrelated/expired/unavailable responses retain uncertainty. A persisted anonymous flag survives interruption; a new payment requires an explicit wallet check, never an automatic retry. The delayed rejection of an old OS link-open promise cannot reject a newer exchange. |
+| Receipt and wallet state | The receipt retains the original creator, destination, amount and full correlated txid. A bounded read-only App Link selects that exact txid through ZUULI's existing paginated history adapter, including older pages; failed or budget-exhausted lookup is an error, not proof of absence. Creator attribution stays in Free2Z process memory, not durable native metadata or an on-chain memo. |
+| Android/iOS complete signed path | **OPEN**. Device access is disabled in the implementation environment. Browser fixtures and mocked IPC are not signed-device evidence. |
+
+### Verification limits and remaining external acceptance
+
+The two tests in the actual production `payment_privacy.rs` module run directly
+with pinned `rustc +1.97.1 --test`; they exercise both disclosure branches. They do
+**not** compile the Tauri application or prove native address classification,
+dialog presentation, signing, or transport. Full Tauri compilation/native app
+tests remain **OPEN**: the host had only approximately 1 GB free after frontend
+dependencies, insufficient for a clean native dependency graph. No Rust
+dependency, feature, lockfile or toolchain was changed. The native intent
+binding test gained ordering anchors for address validation and privacy
+disclosure; no guard was weakened or bypassed. The compiler-bound external
+source guards remain unchanged.
+
+Before issue #790 can close, both signed Android and signed iOS builds need the
+complete controlled-test path: creator and article entry points, exact author
+and destination, amount/asset/fee/memo review, shielded and transparent-only
+receivers, cancel/refuse, insufficient funds, incomplete sync, failed fee
+proposal, ambiguous submission and exact-byte recovery. Kill/relaunch each app
+around dispatch and return; a lost response must not create another payment.
+Confirm that the receipt opens the same transaction in the active wallet after
+restart, and that a missing/wrong-wallet txid is never promoted to success.
+Verify OS association and foreground/cold-start return delivery on those signed
+builds, including Android's still-unmeasured caller/response transport behavior
+in `CALLER-AUTHENTICATION.md` §3.1. No such device, signing or payment proof was
+produced here.
+
+The added browser cases live in the existing Free2Z
+`tests/surface-separation.pw.ts` and ZUULI `tests/creator-zec-tip.pw.ts`. Their
+owning Playwright configurations already discover every `*.pw.ts`; these
+surfaces have no explicit browser shard inventory. The Svelte site's separate
+shards do not own either wallet app.
+
+### Local checks recorded on 2026-11-12
+
+- Free2Z: 326 targeted Vitest tests in 11 files (bridge, shared tip UI,
+  article resolution, session recovery and all locale policies); 12 Playwright
+  cases in `surface-separation.pw.ts` and `creator-responsive.pw.ts`.
+- ZUULI: 120 targeted Vitest tests in 5 files (receipt parsing/listeners,
+  paginated lookup, creator snapshots and locale policies); 5 Playwright receipt
+  cases in `creator-zec-tip.pw.ts` and 8 existing `send-review.pw.ts` cases.
+- Both apps: production and test TypeScript checks and production builds pass.
+  ZUULI's small WASM build/dist verification also passes; this is not a native
+  Tauri application build.
+- Native disclosure: 2 direct Rust module tests and rustfmt pass on 1.97.1.
+- Boundaries: full `project-boundary.mjs` passes across 5 projects and 3
+  constrained Vite builds; capability authority and the 6 send-review boundary
+  tests pass. `check-librustzcash-compat.mjs` passes live and its self-test kills
+  all 114 negative controls. Namespace ownership, UI-copy checks and relative
+  Markdown links pass.
+
+The final recovery tests include an accepted answer lost before receipt
+acknowledgement. The anonymous flag remains until an explicit wallet check; an
+app restart cannot silently turn that success into another payable request.

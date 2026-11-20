@@ -5,6 +5,12 @@
  * hard failure in every locale.
  */
 export const MESSAGE_KEYS = {
+  walletHistoryMissingTitle: "wallet.history.missingTitle",
+  walletHistoryMissingBody: "wallet.history.missingBody",
+  walletHistoryRefreshError: "wallet.history.refreshError",
+  walletHistoryRefresh: "wallet.history.refresh",
+  walletHistoryAll: "wallet.history.all",
+
   commonLoading: "common.loading",
   commonPending: "common.pending",
   commonRetry: "common.retry",
