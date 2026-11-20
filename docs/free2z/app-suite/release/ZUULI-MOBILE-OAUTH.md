@@ -77,11 +77,11 @@ policy, or unsafe authorization response makes the command fail. Passing this
 preflight is necessary but does not replace the signed-device callback proof
 below.
 
-This preflight depends on an unshipped backend capability tracked internally.
-At the time this client change was prepared, the production mobile discovery
-path still resolved to an authenticated legacy route and returned HTTP 403,
-while the generic endpoint reported desktop X ready. That is an external
-activation blocker, not evidence of live mobile success.
+Read-only observation on 2026-11-12: production generic discovery reported
+X configured and Google/GitHub unconfigured; mobile discovery returned HTTP 200
+with every provider false. This establishes that mobile readiness is not being
+advertised. It does not identify which rollout prerequisites are missing and
+is not evidence of provider-console setup or a successful device callback.
 
 ## Signed-device smoke test
 
@@ -115,3 +115,90 @@ private app URI with the provider, or put client secrets in the app/repository.
 Record device/OS versions, signing identity fingerprints, provider, backend
 environment, app commit, backend commit, and screen recording in the release
 candidate issue. Do not paste codes, states, tokens, or provider secrets.
+
+## Apple web sign-in (issue #1301)
+
+Apple is a **web-only** provider. It is available on the Free2Z sign-in sheet
+and in account settings when configured; native loopback and mobile PKCE
+clients must not offer it. This does not enable Google or change the mobile
+rollout decision above. Both native discovery parsers tolerate the web-only
+Apple row while retaining their native provider set.
+
+The Django integration uses Apple's confidential authorization-code flow with
+`response_mode=fragment`, **no name/email scopes**, and a per-attempt nonce.
+The exact HTTPS `/oauth/reauth-callback` URI is registered with Apple. Codes
+arrive in the browser fragment, which is never sent in an HTTP request URL;
+the callback immediately clears history and keeps the code in memory until
+its CSRF-protected POST. No cross-site POST callback or CSRF exemption is
+needed. The attempt also requires a Secure, HttpOnly, host-only cookie and the
+same initiating account/epoch. The popup's sessionStorage state, opener origin,
+window and random notification nonce bind the UI return. Concurrent starts
+replace the cookie and invalidate the older attempt; restart if needed.
+
+Only the verified `(apple, sub)` identifies a person. The token is checked with
+PyJWT against Apple's fixed JWKS endpoint, RS256, exact issuer and Services-ID
+audience, expiry, issued-at and required matching nonce. The set cache expires
+after five minutes; an unknown key triggers a refresh after PyJWT's 30-second
+cooldown. No indefinitely cached signing keys or token-supplied key URLs are
+used. The single-use state is consumed before exchange; failed/cancelled,
+expired or incorrect-OTP attempts require a new authorization. Apple codes
+also expire after five minutes and Apple enforces their single use. Access and
+refresh tokens are discarded; Free2Z manages its normal revocable session.
+
+Apple email claims, including private relay, changed, empty or absent email,
+are ignored. They cannot sign in to, merge with, or link an existing Free2Z
+account by email. New accounts get an unusable password, no recovery email and
+a random public username that does not expose the Apple subject. Users may
+add a recovery address separately under the existing confirmation policy.
+Explicit linking requires the current account's recent authentication and
+MFA when enrolled. Apple web unlink sends `provider_uid` in the JSON body of
+`POST /api/auth/social/apple/unlink/`, keeping the stable subject out of access-log
+URLs. It uses the shared last-usable-login guard and account
+epoch/session revocation. Add/reconnect another usable method before removing
+the last one. A team/Services-ID transfer needs Apple's separate user-migration
+procedure; do not change those identifiers assuming email will reconnect users.
+
+### Operator setup — external acceptance
+
+1. In Apple Developer, use a primary App ID enabled for Sign in with Apple,
+   an associated web Services ID and a Sign in with Apple P-256 key. Register
+   the web domain and exact `https://<web-host>/oauth/reauth-callback` return URL.
+   Do not register localhost, IP/loopback or private-use native callbacks.
+2. Install **server-only** `APPLE_CLIENT_ID` (Services ID), `APPLE_TEAM_ID`,
+   `APPLE_KEY_ID`, and `APPLE_PRIVATE_KEY` (multiline PEM) through the existing
+   deployment secret channel. The server signs a five-minute ES256 client
+   secret for each exchange. No Apple credential belongs in an app bundle,
+   browser environment, URL, screenshot or repository.
+3. Set `APPLE_REDIRECT_URIS` to the comma-separated exact registered HTTPS web
+   callback URIs. Empty credentials/redirects leave discovery false and start
+   and completion return 503 without preventing boot. Configuration presence
+   is not proof of successful registration or credentials. After separately
+   verifying callback registration, add `apple` to `SOCIAL_WEB_REAUTH_PROVIDERS`
+   to offer reauthentication of an already-linked identity.
+4. With an owned test account, verify actual Apple consent, code exchange,
+   cancellation, existing-account linking, MFA and private/absent email. Check
+   edge/application logging does not capture POST bodies or fragments. Keep
+   the callback free of analytics that capture location fragments. No live
+   provider registration/console changes were performed by the local tests.
+
+As of the issue #1301 local implementation, **signed-device Google acceptance
+has not been established**. Repository records contain a smoke procedure, not
+successful Google device proof. No connected provider-console/device document
+session, `adb` or `xcrun` was available in the implementation environment.
+`ZUULI_SOCIAL_AUTH_ENABLED` stays false by default. Do not turn it on based on
+unit/browser tests, credential presence or the anonymous start preflight.
+Complete the separate provider-console and signed iOS/Android checklist above,
+record its build/environment and redacted results, then make the rollout
+configuration decision. Apple setup and signed-device Google verification
+remain external acceptance requirements.
+
+Primary references checked for this flow:
+
+- [Apple authorization parameters and response modes](https://developer.apple.com/documentation/signinwithapple/incorporating-sign-in-with-apple-into-other-platforms)
+- [Apple code exchange](https://developer.apple.com/documentation/signinwithapplerestapi/generate-and-validate-tokens)
+- [Apple stable subject and optional email](https://developer.apple.com/documentation/signinwithapplejs/authorizationi/id_token)
+- [Apple public keys and key selection](https://developer.apple.com/documentation/signinwithapplerestapi/fetch-apple's-public-key-for-verifying-token-signature)
+- [Apple client-secret creation (linked from the Sign in with Apple REST overview)](https://developer.apple.com/documentation/accountorganizationaldatasharing/creating-a-client-secret)
+- [Apple discovery: RS256 and fixed issuer/endpoints](https://appleid.apple.com/.well-known/openid-configuration)
+- [Google web-server redirect registration](https://developers.google.com/identity/protocols/oauth2/web-server)
+- [Google native app browser/PKCE requirements](https://developers.google.com/identity/protocols/oauth2/native-app)

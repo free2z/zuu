@@ -779,6 +779,10 @@ ALLOWED_METADATA_IN_WRITE = {
     ): "Checked against the handshake cookie before anything is written — this "
        "read is the CSRF defence for the callback, not an input to it.",
     (
+        "dj/apps/social/views.py::SocialLoginView.post",
+        "request.COOKIES['__Host-apple-oauth']",
+    ): "Apple-only browser authentication precondition; declared cookie with HTTP 400 on missing/mismatched nonce, compared to server state, never an account field.",
+    (
         "dj/apps/g12f/views/account_deletion.py::AccountDeletionKeepView.post",
         "request.COOKIES['f2z_keep']",
     ): "The keep token's browser binding (login-CSRF defence, account "
@@ -2129,6 +2133,24 @@ def upload_binary(request, upload_id):
             "request.headers['X-Free2Z-Upload-Capability']") in found.keys() & allowed
     assert set(found) - allowed == {
         ('dj/apps/mcpserver/uploads.py::upload_binary', "request.GET['title']"),
+    }
+
+
+def test_apple_cookie_exception_does_not_allow_content_metadata_writes():
+    synthetic = index_sources({"dj.apps.social.views": """
+class SocialLoginView:
+    def post(self, request, provider):
+        binding = request.COOKIES.get('__Host-apple-oauth', '')
+        Thing.objects.create(title=request.GET.get('title'),
+                             handle=request.COOKIES.get('handle'))
+"""})
+    found = _findings(synthetic, "metadata", "is_write_context")
+    allowed = set(ALLOWED_METADATA_IN_WRITE)
+    owner = "dj/apps/social/views.py::SocialLoginView.post"
+    assert (owner, "request.COOKIES['__Host-apple-oauth']") in found.keys() & allowed
+    assert set(found) - allowed == {
+        (owner, "request.GET['title']"),
+        (owner, "request.COOKIES['handle']"),
     }
 
 

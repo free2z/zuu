@@ -1047,7 +1047,7 @@ def test_mobile_providers_advertise_only_supported_ready_providers(
         entry["provider"]: entry["configured"]
         for entry in response.data["providers"]
     }
-    assert by_key == {"x": True, "google": True, "github": False}
+    assert by_key == {"x": True, "google": True, "github": False, "apple": False}
 
 
 @pytest.mark.django_db

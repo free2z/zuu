@@ -416,6 +416,11 @@ export const ApiStyleEnum = {
   anthropic_messages: 'anthropic_messages',
 } as const;
 
+export interface AppleUnlinkRequest {
+  /** @maxLength 191 */
+  provider_uid: string;
+}
+
 /**
  * `{"status":...}` from `POST /api/kyc/change-status`.
  */
@@ -4839,6 +4844,7 @@ export interface SocialProviderAvailability {
   provider: string;
   configured: boolean;
   web_reauthentication?: boolean;
+  web_only?: boolean;
 }
 
 export interface SocialProviderDiscovery {
@@ -6153,7 +6159,7 @@ export type AuthSocialStartRetrieveParams = {
  */
 code_challenge?: string;
 /**
- * Exact configured web redirect, strict ZUULI desktop loopback URI, or cash.free2z.zuuli://oauth/callback.
+ * Apple requires an exact registered HTTPS web callback (code in fragment, no scopes). Other providers: configured web redirect, strict ZUULI desktop loopback URI, or cash.free2z.zuuli://oauth/callback.
  */
 redirect_uri: string;
 };

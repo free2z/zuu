@@ -83,6 +83,7 @@ from .models import SocialIdentity
 from .state import store_state, get_state, pop_state
 from .clients import (
     get_provider,
+    apple_redirect_uris,
     generate_state,
     generate_pkce_pair,
     pkce_challenge,
@@ -215,6 +216,8 @@ def is_allowed_redirect_uri(uri: str, provider: str | None = None) -> bool:
     ephemeral 127.0.0.1 URI with ZUULI's 128-bit path nonce. Web redirects
     remain limited to explicitly configured origins.
     """
+    if provider == "apple":
+        return uri in apple_redirect_uris()
     if not uri:
         return False
     if uri == ZUULI_MOBILE_REDIRECT_URI:
@@ -295,7 +298,7 @@ def username_for_identity(provider: str, uid: str, handle: str) -> str:
     """
     base = _handle_base(handle)
     if not base:
-        base = f"{provider}{uid}"
+        base = f"apple{secrets.token_hex(8)}" if provider == "apple" else f"{provider}{uid}"
     base = base[:140] or f"{provider}{uid}"
     username = base
     suffix = 0
@@ -353,7 +356,7 @@ class SocialStartView(APIView):
             OpenApiParameter(
                 "redirect_uri", str, required=True,
                 description=(
-                    "Exact configured web redirect, strict ZUULI desktop "
+                    "Apple requires an exact registered HTTPS web callback (code in fragment, no scopes). Other providers: configured web redirect, strict ZUULI desktop "
                     "loopback URI, or cash.free2z.zuuli://oauth/callback."
                 ),
             ),
@@ -472,14 +475,27 @@ class SocialStartView(APIView):
             })
 
         state = generate_state()
+        browser_binding = generate_state() if provider == "apple" else ""
         store_state(state, {
             "flow": "direct",
+            "browser_binding": _code_digest(browser_binding),
+            "actor": str(request.user.pk) if request.user.is_authenticated else "",
+            "actor_epoch": request.user.kt_account_epoch if request.user.is_authenticated else None,
             "verifier": verifier,
             "redirect_uri": redirect_uri,
             "provider": provider,
         })
         authorize_url = prov.build_authorize_url(redirect_uri, state, challenge)
-        return Response({"authorize_url": authorize_url, "state": state})
+        response = Response({"authorize_url": authorize_url, "state": state})
+        response["Cache-Control"] = "no-store"
+        if provider == "apple":
+            # Independent of provider state/nonce. Survives the top-level
+            # cross-site GET but cannot be set/read by another web origin.
+            response.set_cookie(
+                "__Host-apple-oauth", browser_binding, max_age=600,
+                secure=True, httponly=True, samesite="Lax", path="/",
+            )
+        return response
 
 
 def relay_rejects_without_state_lookup(request) -> bool:
@@ -620,6 +636,19 @@ class SocialLoginView(APIView):
     throttle_classes = OAUTH_COMPLETION_THROTTLES
 
     @extend_schema(
+        parameters=[OpenApiParameter(
+            name="__Host-apple-oauth", location=OpenApiParameter.COOKIE,
+            required=False, type=str,
+            description=(
+                "Required only when provider is apple; unused for X, Google "
+                "and GitHub. A Secure, HttpOnly, SameSite=Lax, host-only nonce "
+                "set by GET /api/auth/social/apple/start and returned "
+                "unchanged by that browser. After state and CSRF validation, "
+                "a missing or mismatched cookie answers HTTP 400 before "
+                "provider code exchange or any identity/session/token write. "
+                "It is compared to the server-held digest as an authentication "
+                "precondition, never used as a mutable account field."),
+        )],
         request=inline_serializer(
             name="SocialOAuthLoginRequest",
             fields={
@@ -733,6 +762,26 @@ class SocialLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        if provider == "apple":
+            from rest_framework.authentication import CSRFCheck
+            # DRF only enforces session CSRF for authenticated callers. Apple
+            # also creates anonymous web sessions, so require it explicitly.
+            check = CSRFCheck(lambda req: None)
+            check.process_request(request)
+            if check.process_view(request, None, (), {}):
+                return Response({"detail": "CSRF verification failed."}, status=403)
+            actor = str(request.user.pk) if request.user.is_authenticated else ""
+            actor_epoch = request.user.kt_account_epoch if request.user.is_authenticated else None
+            if (
+                not secrets.compare_digest(
+                    stored.get("browser_binding", ""),
+                    _code_digest(request.COOKIES.get("__Host-apple-oauth", "")),
+                )
+                or stored.get("actor") != actor
+                or stored.get("actor_epoch") != actor_epoch
+            ):
+                return Response({"detail": "The sign-in session changed. Start again."}, status=400)
+
         # Defense in depth: re-validate the redirect_uri allowlist.
         if not is_allowed_redirect_uri(redirect_uri, provider):
             return Response(
@@ -815,7 +864,7 @@ class SocialLoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         except Exception:  # noqa: BLE001 - never 500 on a provider hiccup
-            logger.exception("social: unexpected error exchanging %s", provider)
+            logger.warning("social: unexpected error exchanging %s", provider)
             return Response(
                 {"detail": "Provider authorization failed."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -1037,6 +1086,14 @@ class SocialLoginView(APIView):
             )
         clear_totp_attempt("social", creator.pk)
 
+        if provider == "apple" and acting_user is None:
+            # Apple is a web-only flow. Establish the normal CSRF-rotated
+            # Django session; the website discards the native bearer response.
+            from django.contrib.auth import login
+            login(request, creator, backend="django.contrib.auth.backends.ModelBackend")
+            record_login(request, creator, methods=[federated(provider)],
+                         second_factor=second_factor, account_epoch=issuing_epoch)
+
         # (e) response.
         return Response({
             "token": token,
@@ -1182,12 +1239,43 @@ class SocialUnlinkView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class SocialAppleUnlinkView(APIView):
+    """Apple unlink without putting the stable subject in the request URL."""
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        operation_id="auth_social_apple_unlink",
+        description=(
+            "Unlink an Apple web identity using a JSON body so its stable "
+            "subject does not enter access-log URLs. Uses the same ownership "
+            "and last-sign-in-method policy as social unlink."
+        ),
+        request=inline_serializer(
+            name="AppleUnlinkRequest",
+            fields={"provider_uid": serializers.CharField(max_length=191)},
+        ),
+        responses={
+            204: OpenApiResponse(description="Apple identity unlinked."),
+            400: OpenApiResponse(description="Invalid identity."),
+            404: OpenApiResponse(description="No such identity."),
+            409: OpenApiResponse(description="Another usable sign-in method is required."),
+            503: OpenApiResponse(description="Concurrent update; retry."),
+        },
+    )
+    def post(self, request):
+        uid = _body_string(request.data, "provider_uid")
+        if not uid or len(uid) > 191:
+            return Response({"detail": "provider_uid is required."}, status=400)
+        return SocialUnlinkView().delete(request, "apple", uid)
+
+
 class SocialProviderAvailabilitySerializer(serializers.Serializer):
     # Keep this a string rather than a generated enum: clients must fail closed
     # on unknown future providers instead of assuming this list is exhaustive.
     provider = serializers.CharField()
     configured = serializers.BooleanField()
     web_reauthentication = serializers.BooleanField(required=False)
+    web_only = serializers.BooleanField(required=False)
 
 
 class SocialProviderDiscoverySerializer(serializers.Serializer):
@@ -1210,6 +1298,7 @@ class SocialProvidersView(APIView):
             "providers": [
                 {
                     "provider": key, "configured": ok,
+                    **({"web_only": True} if key == "apple" else {}),
                     "web_reauthentication": bool(ok and key in getattr(
                         settings, "SOCIAL_WEB_REAUTH_PROVIDERS", (),
                     )),

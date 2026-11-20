@@ -13,25 +13,32 @@
   let code = "";
   let submitting = false;
   onMount(() => {
-    const raw = sessionStorage.getItem("free2z-reauth");
-    sessionStorage.removeItem("free2z-reauth");
-    const params = new URLSearchParams(window.location.search);
+    const callbackHash = window.location.hash.slice(1);
+    const callbackSearch = window.location.search;
     // Keep the one-time code in memory only, never in history or storage.
     history.replaceState(null, "", window.location.pathname);
     try {
+      const raw = sessionStorage.getItem("free2z-reauth");
+      sessionStorage.removeItem("free2z-reauth");
       const attempt = JSON.parse(raw || "null");
+      const params = new URLSearchParams(
+        attempt?.provider === "apple" ? callbackHash : callbackSearch,
+      );
       if (
         !attempt ||
         !window.opener ||
+        typeof attempt.expires !== "number" ||
+        !Number.isFinite(attempt.expires) ||
         attempt.expires < Date.now() ||
-        !["google", "github", "x"].includes(attempt.provider) ||
+        !["google", "github", "x", "apple"].includes(attempt.provider) ||
         attempt.redirect !==
           `${window.location.origin}/oauth/reauth-callback` ||
         params.getAll("state").length !== 1 ||
         params.get("state") !== attempt.state ||
         params.getAll("code").length !== 1 ||
         !params.get("code") ||
-        params.has("error")
+        params.has("error") ||
+        (attempt.provider === "apple" && callbackSearch !== "")
       ) {
         throw new Error(
           "This sign-in attempt is invalid or expired. Start again from settings.",

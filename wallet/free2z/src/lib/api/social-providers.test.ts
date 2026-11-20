@@ -89,7 +89,9 @@ describe("social-provider discovery contract", () => {
     ],
     [
       "extra entry field",
-      { providers: [{ provider: "x", configured: true, url: "https://x.com" }] },
+      {
+        providers: [{ provider: "x", configured: true, url: "https://x.com" }],
+      },
     ],
     [
       "duplicate provider",
@@ -157,5 +159,43 @@ describe("social-provider discovery contract", () => {
     await expect(auth.socialProviders()).rejects.toBeInstanceOf(
       SocialProvidersContractError,
     );
+  });
+});
+
+describe("web-only Apple discovery compatibility", () => {
+  it("accepts real optional web metadata while retaining native providers", () => {
+    const response = {
+      providers: [
+        { provider: "x", configured: true, web_reauthentication: false },
+        { provider: "google", configured: false, web_reauthentication: false },
+        { provider: "github", configured: false, web_reauthentication: false },
+        {
+          provider: "apple",
+          configured: true,
+          web_only: true,
+          web_reauthentication: true,
+        },
+      ],
+    };
+    expect(
+      configuredSocialProviders(parseSocialProvidersStatus(response)),
+    ).toEqual(["x"]);
+  });
+  it.each(
+    [
+      [{ provider: "apple", configured: true }],
+      [{ provider: "apple", configured: "true", web_only: true }],
+      [
+        { provider: "apple", configured: true, web_only: true },
+        { provider: "apple", configured: false },
+      ],
+      [{ provider: "apple", configured: false, web_reauthentication: "false" }],
+    ].map((appleRows) => ({ appleRows })),
+  )("rejects ambiguous Apple metadata", ({ appleRows }) => {
+    expect(() =>
+      parseSocialProvidersStatus({
+        providers: [...productionResponse.providers, ...appleRows],
+      }),
+    ).toThrow(SocialProvidersContractError);
   });
 });

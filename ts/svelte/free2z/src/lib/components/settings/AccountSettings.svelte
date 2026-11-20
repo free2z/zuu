@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AppleSignIn from "$lib/components/auth/AppleSignIn.svelte";
   import { onMount } from "svelte";
   import { toast, captureAccountToast } from "$lib/toast.js";
   import { mode, resetMode, setMode, userPrefersMode } from "mode-watcher";
@@ -449,6 +450,8 @@
         )}
       </p>
     </div>
+
+    <AppleSignIn associate />
 
     <div class="grid gap-8 md:grid-cols-2">
       <div class="space-y-2">

@@ -28,6 +28,7 @@ import type {
   AccountDeletionPreview,
   AccountDeletionRequest,
   AccountDeletionScheduled,
+  AppleUnlinkRequest,
   AuthSocialMobileCallbackRetrieveParams,
   AuthSocialStartRetrieveParams,
   CreatorLogin,
@@ -849,6 +850,70 @@ export function createAuthSocialStartRetrieve<TData = Awaited<ReturnType<typeof 
 
 
 /**
+ * Unlink an Apple web identity using a JSON body so its stable subject does not enter access-log URLs. Uses the same ownership and last-sign-in-method policy as social unlink.
+ */
+export const authSocialAppleUnlink = (
+    appleUnlinkRequest: AppleUnlinkRequest,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<void>(
+      {url: `/api/auth/social/apple/unlink/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: appleUnlinkRequest, signal
+    },
+      options);
+    }
+
+
+
+
+export const getAuthSocialAppleUnlinkMutationKey = () => ['authSocialAppleUnlink'] as const;
+
+export const getAuthSocialAppleUnlinkMutationOptions = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authSocialAppleUnlink>>, TError,AuthSocialAppleUnlinkMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof authSocialAppleUnlink>>, TError,AuthSocialAppleUnlinkMutationVariables, TContext> => {
+
+const mutationKey = getAuthSocialAppleUnlinkMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof authSocialAppleUnlink>>, AuthSocialAppleUnlinkMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  authSocialAppleUnlink(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AuthSocialAppleUnlinkMutationResult = NonNullable<Awaited<ReturnType<typeof authSocialAppleUnlink>>>
+    export type AuthSocialAppleUnlinkMutationBody = AppleUnlinkRequest
+    export type AuthSocialAppleUnlinkMutationError = void
+    export type AuthSocialAppleUnlinkMutationVariables = {data: AppleUnlinkRequest}
+
+    export const createAuthSocialAppleUnlink = <TError = void,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authSocialAppleUnlink>>, TError,AuthSocialAppleUnlinkMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof authSocialAppleUnlink>>,
+        TError,
+        AuthSocialAppleUnlinkMutationVariables,
+        TContext
+      > => {
+      return createMutation(getAuthSocialAppleUnlinkMutationOptions(options));
+    }
+    /**
  * Provider-only callback. Atomically consumes provider state and redirects only to ZUULI's fixed private-use URI. Callers cannot supply a destination.
  */
 export const authSocialMobileCallbackRetrieve = (

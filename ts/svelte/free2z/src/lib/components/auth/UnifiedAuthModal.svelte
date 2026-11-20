@@ -5,6 +5,7 @@
 </script>
 
 <script lang="ts">
+  import AppleSignIn from "./AppleSignIn.svelte";
   import ExistingMethodReauth from "./ExistingMethodReauth.svelte";
   import { createEventDispatcher, onDestroy, onMount } from "svelte";
   import { z } from "zod";
@@ -935,6 +936,9 @@
             </svg>
             {$t("auth.twitterSignIn")}
           </Button>
+          <AppleSignIn
+            on:success={(event) => dispatch("success", event.detail)}
+          />
           <div
             class="my-6 flex items-center text-sm text-(--f2z-text-secondary)"
           >
