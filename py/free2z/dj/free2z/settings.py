@@ -1643,6 +1643,9 @@ SPECTACULAR_SETTINGS = {
         # InsufficientFundsError contract; without the pin the shared choice
         # set is renamed to a hash-suffixed enum under the generated client.
         'InsufficientFundsErrorCodeEnum': ('insufficient_funds',),
+        # The notice preference uses the same actor-change error as the
+        # existing AI contract; preserve that published enum component name.
+        'ExpectedActorErrorCodeEnum': ('account_changed',),
         'OidcAuthorizeActionEnum': ('login', 'consent', 'approve', 'redirect'),
         # The comments client imports this generated name. Keep it stable if
         # another field later reuses the same access choices.

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import { toast, captureAccountToast } from "$lib/toast.js";
   import { mode, resetMode, setMode, userPrefersMode } from "mode-watcher";
   import { requestLogin } from "$lib/stores/auth-modal";
@@ -40,6 +41,139 @@
   let emailNeedsReauth = false;
   let mentionNotifications = false;
   let mentionPreferenceLoading = false;
+  let lowBalanceNotice = false;
+  let lowBalanceReady = false;
+  let lowBalanceBusy = false;
+  let lowBalanceError = false;
+
+  let lowBalanceMounted = false;
+  let lowBalanceContext = 0;
+  let lowBalanceRead = 0;
+  let lowBalanceOwner = "";
+  let lowBalanceRoute = "";
+  let lowBalanceOwnership: (() => boolean) | null = null;
+
+  function synchronizeLowBalanceOwner() {
+    if (!lowBalanceMounted) return;
+    const state = get(authStore);
+    const actor =
+      state.isAuthenticated &&
+      state.creator?.username === username &&
+      typeof state.creator.id === "number"
+        ? state.creator.id
+        : null;
+    const owner = actor === null ? "" : String(actor);
+    if (
+      owner === lowBalanceOwner &&
+      lowBalanceRoute === username &&
+      lowBalanceOwnership?.()
+    )
+      return;
+    lowBalanceOwner = owner;
+    lowBalanceRoute = username;
+    lowBalanceOwnership = authStore.captureRequestOwnership();
+    lowBalanceContext++;
+    lowBalanceRead++;
+    lowBalanceNotice = false;
+    lowBalanceReady = false;
+    lowBalanceBusy = false;
+    lowBalanceError = false;
+    if (actor !== null) void loadLowBalancePreference();
+  }
+  $: if (lowBalanceMounted && username !== lowBalanceRoute)
+    synchronizeLowBalanceOwner();
+
+  async function loadLowBalancePreference() {
+    const owns = authStore.captureRequestOwnership();
+    const context = lowBalanceContext;
+    const read = ++lowBalanceRead;
+    const actor = get(authStore).creator;
+    const route = username;
+    if (
+      !lowBalanceMounted ||
+      actor?.username !== route ||
+      typeof actor.id !== "number"
+    )
+      return;
+    const current = () =>
+      lowBalanceMounted &&
+      context === lowBalanceContext &&
+      read === lowBalanceRead &&
+      owns() &&
+      username === route;
+    lowBalanceReady = false;
+    try {
+      const response = await apiFetch(
+        `/api/events/low-balance-preference/?expected_actor_id=${actor.id}`,
+        { method: "GET" },
+      );
+      const data = await response.json();
+      if (!current()) return;
+      if (
+        !response.ok ||
+        typeof data?.enabled !== "boolean" ||
+        data.actor_id !== actor.id
+      )
+        throw new Error("invalid preference");
+      lowBalanceNotice = data.enabled;
+      lowBalanceReady = true;
+      lowBalanceError = false;
+    } catch {
+      if (current()) lowBalanceError = true;
+    }
+  }
+
+  async function toggleLowBalanceNotice(enabled: boolean) {
+    const owns = authStore.captureRequestOwnership();
+    const context = lowBalanceContext;
+    const actor = get(authStore).creator;
+    const route = username;
+    if (
+      !lowBalanceMounted ||
+      !lowBalanceReady ||
+      lowBalanceBusy ||
+      actor?.username !== route ||
+      typeof actor.id !== "number"
+    )
+      return;
+    ++lowBalanceRead;
+    const current = () =>
+      lowBalanceMounted &&
+      context === lowBalanceContext &&
+      owns() &&
+      username === route;
+    lowBalanceBusy = true;
+    const previous = lowBalanceNotice;
+    lowBalanceNotice = enabled;
+    try {
+      const response = await apiFetch("/api/events/low-balance-preference/", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          enabled,
+          expected_actor_id: actor.id,
+          ...(enabled ? { locale: getCurrentLocale() } : {}),
+        }),
+      });
+      const data = await response.json();
+      if (!current()) return;
+      if (
+        !response.ok ||
+        data?.enabled !== enabled ||
+        data.actor_id !== actor.id
+      )
+        throw new Error("invalid preference");
+      lowBalanceNotice = enabled;
+      lowBalanceError = false;
+    } catch {
+      if (current()) {
+        lowBalanceNotice = previous;
+        lowBalanceError = true;
+      }
+    } finally {
+      if (current()) lowBalanceBusy = false;
+    }
+  }
 
   let themePreference: "light" | "dark" | "system" = "system";
   let derivedMode: "light" | "dark" | undefined = undefined;
@@ -433,6 +567,14 @@
     fetchEmailStatus();
     fetchMentionPreference();
     void fetchDeletionState();
+    lowBalanceMounted = true;
+    const unsubscribe = authStore.subscribe(() => synchronizeLowBalanceOwner());
+    return () => {
+      lowBalanceMounted = false;
+      lowBalanceContext++;
+      lowBalanceRead++;
+      unsubscribe();
+    };
   });
 </script>
 
@@ -654,6 +796,40 @@
 
     <div class="max-w-xs">
       <ModeToggle />
+    </div>
+
+    <div class="flex items-center gap-2 border-t pt-4">
+      <Switch
+        checked={lowBalanceNotice}
+        onCheckedChange={toggleLowBalanceNotice}
+        disabled={!lowBalanceReady || lowBalanceBusy}
+        id="low-balance-notice"
+      />
+      <div>
+        <Label for="low-balance-notice" control class="font-normal">
+          {$t(
+            "settings.account.lowBalanceNotice",
+            "Low-balance notice for connected apps",
+          )}
+        </Label>
+        <p class="text-xs text-muted-foreground">
+          {$t(
+            "settings.account.lowBalanceDescription",
+            "Optionally receive a notice when a connected app cannot use 2Z. We attempt at most one every 24 hours. Eligible confirmed email addresses receive email; otherwise the notice appears here. No email is required.",
+          )}
+        </p>
+        {#if lowBalanceError}
+          <p role="alert">
+            {$t(
+              "settings.account.lowBalanceError",
+              "Could not update or load the notice preference.",
+            )}
+          </p>
+          <Button variant="outline" onclick={loadLowBalancePreference}
+            >{$t("common.retry", "Retry")}</Button
+          >
+        {/if}
+      </div>
     </div>
 
     <div class="flex items-center gap-2 border-t pt-4">

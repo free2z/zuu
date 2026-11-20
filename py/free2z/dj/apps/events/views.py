@@ -2,6 +2,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.core.exceptions import PermissionDenied
 from django.utils.decorators import method_decorator
+from django.db import transaction
 from django.views.decorators.vary import vary_on_headers
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
@@ -13,7 +14,8 @@ from django.contrib.contenttypes.prefetch import GenericPrefetch
 from .models import Event, SOCIAL_EVENTS
 from .recovery import EventPagination
 from .serializers import EventSerializer
-from .serializers import MentionPreferenceSerializer
+from .serializers import (MentionPreferenceSerializer, LowBalancePreferenceSerializer,
+                          LowBalancePreferenceConflictSerializer, LowBalancePreferenceWriteSerializer)
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from dj.apps.g12f.zpage_paths import CANONICAL_CONTENT_URL_HEADER
 
@@ -156,21 +158,60 @@ class MentionPreferenceView(APIView):
             'enabled': request.user.mention_notifications_enabled,
         })
 
-    @extend_schema(
-        request=MentionPreferenceSerializer,
-        responses={200: MentionPreferenceSerializer},
-    )
+    @extend_schema(request=MentionPreferenceSerializer, responses={200: MentionPreferenceSerializer})
     def patch(self, request):
         enabled = request.data.get('enabled')
         if not isinstance(enabled, bool):
-            return Response(
-                {'enabled': ['A boolean is required.']},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            return Response({'enabled': ['A boolean is required.']}, status=status.HTTP_400_BAD_REQUEST)
         request.user.mention_notifications_enabled = enabled
-        request.user.save(update_fields=[
-            'mention_notifications_enabled', 'updated_at',
-        ])
-        return Response({
-            'enabled': request.user.mention_notifications_enabled,
-        })
+        request.user.save(update_fields=['mention_notifications_enabled', 'updated_at'])
+        return Response({'enabled': request.user.mention_notifications_enabled})
+
+
+class LowBalancePreferenceView(APIView):
+    """First-party account preference; no OAuth scope grants access."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    @extend_schema(request=None, parameters=[OpenApiParameter('expected_actor_id', int, required=True)],
+                   responses={200: LowBalancePreferenceSerializer, 409: LowBalancePreferenceConflictSerializer})
+    def get(self, request):
+        if request.query_params.get('expected_actor_id') != str(request.user.pk):
+            return self.account_changed()
+        return Response({'enabled': request.user.low_balance_notice_enabled, 'actor_id': request.user.pk})
+
+    @staticmethod
+    def account_changed():
+        return Response({'code': 'account_changed', 'detail': 'The signed-in account or session changed.'}, status=409)
+
+    @extend_schema(request=LowBalancePreferenceWriteSerializer,
+                   responses={200: LowBalancePreferenceSerializer, 409: LowBalancePreferenceConflictSerializer})
+    def patch(self, request):
+        expected_actor = request.data.get('expected_actor_id')
+        if type(expected_actor) is not int or expected_actor < 1:
+            return Response({'expected_actor_id': ['A positive integer is required.']}, status=400)
+        if expected_actor != request.user.pk:
+            return self.account_changed()
+        snapshot_epoch = request.user.kt_account_epoch
+        enabled = request.data.get('enabled')
+        if not isinstance(enabled, bool):
+            return Response({'enabled': ['A boolean is required.']}, status=status.HTTP_400_BAD_REQUEST)
+        locale = request.data.get('locale')
+        if locale is not None and locale not in ('en', 'es', 'fr', 'pt-BR'):
+            return Response({'locale': ['Unsupported language.']}, status=status.HTTP_400_BAD_REQUEST)
+        from dj.apps.g12f.models import Creator
+        with transaction.atomic():
+            creator = Creator.objects.select_for_update().filter(pk=expected_actor).first()
+            if creator is None or not creator.is_active or creator.kt_account_epoch != snapshot_epoch:
+                return self.account_changed()
+            if creator.low_balance_notice_enabled != enabled:
+                creator.low_balance_notice_enabled = enabled
+                creator.low_balance_notice_generation += 1
+                creator.low_balance_notice_pending = False
+                creator.low_balance_notice_pending_epoch = None
+                if enabled and locale is not None:
+                    creator.low_balance_notice_locale = locale
+                creator.save(update_fields=['low_balance_notice_enabled', 'low_balance_notice_generation',
+                                            'low_balance_notice_pending', 'low_balance_notice_pending_epoch',
+                                            'low_balance_notice_locale', 'updated_at'])
+        return Response({'enabled': enabled, 'actor_id': expected_actor})

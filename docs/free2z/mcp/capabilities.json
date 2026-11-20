@@ -1389,6 +1389,26 @@
       "paid": null
     },
     {
+      "operation_id": "events_low_balance_preference_partial_update",
+      "method": "PATCH",
+      "path": "/api/events/low-balance-preference/",
+      "summary": "First-party account preference; no OAuth scope grants access.",
+      "supported": false,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
+      "operation_id": "events_low_balance_preference_retrieve",
+      "method": "GET",
+      "path": "/api/events/low-balance-preference/",
+      "summary": "First-party account preference; no OAuth scope grants access.",
+      "supported": false,
+      "keywords": "notifications inbox unread catchup mentions interactions",
+      "reason": "This native operation has no reviewed hosted delegation adapter.",
+      "next_step": "Review its selected-account permissions, privacy, side effects and retry contract before registering it; use the native UI meanwhile."
+    },
+    {
       "operation_id": "events_mention_preference_partial_update",
       "method": "PATCH",
       "path": "/api/events/mention-preference/",

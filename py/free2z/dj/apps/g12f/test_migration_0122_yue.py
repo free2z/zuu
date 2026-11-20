@@ -6,7 +6,7 @@ import uuid
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.db.migrations.executor import MigrationExecutor
 from django.test import override_settings
 from rest_framework.test import APIClient
@@ -24,22 +24,30 @@ def migrate(target):
     return executor.loader.project_state([target]).apps
 
 
+def restore_leaves():
+    executor = MigrationExecutor(connection)
+    executor.migrate(executor.loader.graph.leaf_nodes())
+
+
 @pytest.fixture
 def historical(transactional_db):
+    reached_before = False
     try:
         assert connection.vendor == "postgresql"
-        yield migrate(BEFORE)
+        apps = migrate(BEFORE)
+        reached_before = True
+        yield apps
     finally:
         # Failed-collision fixtures must not block leaf restoration. Relabel
         # only test-created offending rows before the required finally migrate.
-        apps = MigrationExecutor(connection).loader.project_state([BEFORE]).apps
-        for name, field in migration.COLUMNS:
-            model = apps.get_model("g12f", name)
-            for pk, value in model.objects.values_list("pk", field):
-                if migration.canonical_yue(value) != value:
-                    model.objects.filter(pk=pk).update(**{field: f"qaa-x-{pk}"})
-        executor = MigrationExecutor(connection)
-        executor.migrate(executor.loader.graph.leaf_nodes())
+        if reached_before:
+            apps = MigrationExecutor(connection).loader.project_state([BEFORE]).apps
+            for name, field in migration.COLUMNS:
+                model = apps.get_model("g12f", name)
+                for pk, value in model.objects.values_list("pk", field):
+                    if migration.canonical_yue(value) != value:
+                        model.objects.filter(pk=pk).update(**{field: f"qaa-x-{pk}"})
+        restore_leaves()
 
 
 def page(apps, language="yue"):
@@ -104,6 +112,11 @@ def test_migrate_preserves_identity_and_both_urls(historical, reads, source):
     with connection.schema_editor() as editor:
         migration.forwards(apps, editor)
     assert snapshot(apps) == expected_snapshot(before)
+    # The URL views use current runtime models, not the historical apps used
+    # above. Restore every leaf before exercising them, including the later
+    # creator and ledger migrations; the fixture still restores on failure.
+    restore_leaves()
+    assert snapshot(apps) == expected_snapshot(before)
     with override_settings(ZPAGE_VARIANT_READS=reads):
         client = APIClient()
         for tag in ("yue", "yue-Hant"):
@@ -111,6 +124,26 @@ def test_migrate_preserves_identity_and_both_urls(historical, reads, source):
             assert response.status_code == 200, response.data
             assert response.data["actual_language"] == "yue-Hant"
             assert response.data["content"] == ("original body" if source else "translated body")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_leaf_restoration_preserves_consent_and_blocks_reverse(historical):
+    article = page(historical, "yue")
+    migrate(AFTER)
+    restore_leaves()
+    from dj.apps.g12f.models import Creator
+    Creator.objects.filter(pk=article.creator_id).update(
+        low_balance_notice_enabled=True, low_balance_notice_generation=1,
+    )
+    with pytest.raises(DatabaseError, match="low balance preference state exists"):
+        migrate(BEFORE)
+    # A failed reverse must not remove consent or leave the schema unusable.
+    restore_leaves()
+    creator = Creator.objects.get(pk=article.creator_id)
+    assert creator.low_balance_notice_enabled
+    assert creator.low_balance_notice_generation == 1
+    executor = MigrationExecutor(connection)
+    assert set(executor.loader.graph.leaf_nodes()) <= executor.loader.applied_migrations.keys()
 
 
 @pytest.mark.django_db(transaction=True)

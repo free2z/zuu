@@ -2422,6 +2422,14 @@ async fn non_strict_estimate_refusals_report_exact_minimum_and_do_not_reserve_or
             assert_eq!(state.claims, 1);
         }
         assert_eq!(mock.request_count(), 0, "chat refusal started the provider");
+        if expected_code == "insufficient_balance" {
+            db.0.lock().unwrap().available = required_milli + 100_000;
+            let (status, replay) = post(&r, "/v1/chat", &request).await;
+            assert_eq!(status, StatusCode::OK, "{replay}");
+            assert_eq!(replay["replayed"], true);
+            assert_eq!(replay["error"]["code"], "insufficient_balance");
+            assert_eq!(mock.request_count(), 0);
+        }
         mock.shutdown().await;
     }
 }

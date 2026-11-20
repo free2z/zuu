@@ -1,9 +1,11 @@
 """What this app may be (: new apps are self-contained so they can move).
 
-* Its runtime code imports only the shared economy epoch preparation helpers
-  and the immutable ``MAINTENANCE`` priority scalar from other ``dj.apps``
+* Its runtime code imports only the shared economy epoch preparation helpers,
+  the immutable ``MAINTENANCE`` priority scalar, and the events notice drain
+  used by its already-registered periodic maintenance task from other ``dj.apps``
   packages. The scalar comes from ``jobs.priorities``, which contains shared
-  priority values and their ordering assertion, not jobs runtime code. Other
+  priority values and their ordering assertion. The single drain seam schedules
+  delivery owned by events without registering a new task during rollout. Other
   app crossings, including dynamic model lookup and services, remain
   prohibited. The only foreign database object its SQL knows is the
   ``g12f_creator`` TABLE, named in SQL (the balance projection during
@@ -29,13 +31,14 @@ import dj.apps.ledger as ledger_pkg
 APP_DIR = Path(ledger_pkg.__file__).resolve().parent
 PACKAGE = "dj.apps.ledger"
 
-# Exact shared-helper exceptions: epoch preparation for the finance write ABI
-# and the immutable scalar used to order the ledger maintenance task. No app
-# models or runtime services may cross this boundary.
+# Exact shared-helper exceptions: epoch preparation for the finance write ABI,
+# the immutable scalar used to order maintenance, and one events delivery
+# entry point. No other app models or runtime services may cross this boundary.
 ALLOWED_CROSS_APP_IMPORTS = {
     ("dj.apps.economy.epoch", "pin_supported_policy"),
     ("dj.apps.economy.epoch", "prepared_writer"),
     ("dj.apps.jobs.priorities", "MAINTENANCE"),
+    ("dj.apps.events.low_balance_notice", "drain"),
 }
 
 # The tables the SQL may name outside its own: exactly one.
@@ -113,6 +116,17 @@ def test_runtime_code_reaches_no_other_app():
     for path in _runtime_modules():
         crossings |= cross_app_imports(path.read_text(), _package_of(path))
     assert crossings == ALLOWED_CROSS_APP_IMPORTS
+
+
+def test_only_registered_maintenance_task_calls_events_notice_drain():
+    imports = {
+        path.relative_to(APP_DIR).as_posix(): crossing
+        for path in _runtime_modules()
+        for crossing in cross_app_imports(path.read_text(), _package_of(path))
+        if crossing[0].startswith('dj.apps.events')
+    }
+    assert imports == {'tasks.py': ('dj.apps.events.low_balance_notice', 'drain')}
+    assert cross_app_imports('from dj.apps.events.models import Event', PACKAGE) != ALLOWED_CROSS_APP_IMPORTS
 
 
 def test_the_app_does_not_read_other_apps_models_through_the_registry():

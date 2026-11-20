@@ -80,6 +80,7 @@ SOCIAL_EVENTS = [
     'DONATION_RECEIVED',
     'ENCRYPTED_CHAT_REQUEST',
     'PAGE_MENTION',
+    'LOW_BALANCE_NOTICE',
 ]
 
 # A template is handed *anything* carrying the attributes it names -- tests
@@ -89,6 +90,9 @@ SOCIAL_EVENTS = [
 # methods. So a template interpolates ``format_amount(ev.amount)``, never an
 # ``Event``-only property.
 EVENT_TEMPLATES = {
+    'LOW_BALANCE_NOTICE': {
+        'get_message': lambda ev: 'A connected app could not use 2Z because your available balance was insufficient.',
+    },
     'AISCORE_COMMENT': {
         'get_message':
             lambda ev: f'You received {format_amount(ev.amount)} tuzi from the AI for your comment',

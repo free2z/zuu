@@ -2449,6 +2449,7 @@ export interface ErrorEnvelope {
 }
 
 /**
+ * * `LOW_BALANCE_NOTICE` - LOW_BALANCE_NOTICE
  * * `AISCORE_COMMENT` - AISCORE_COMMENT
  * * `MADE_COMMENT` - MADE_COMMENT
  * * `VOTE_COMMENT_RECEIVED` - VOTE_COMMENT_RECEIVED
@@ -2473,6 +2474,7 @@ export type TypeEnum = typeof TypeEnum[keyof typeof TypeEnum];
 
 
 export const TypeEnum = {
+  LOW_BALANCE_NOTICE: 'LOW_BALANCE_NOTICE',
   AISCORE_COMMENT: 'AISCORE_COMMENT',
   MADE_COMMENT: 'MADE_COMMENT',
   VOTE_COMMENT_RECEIVED: 'VOTE_COMMENT_RECEIVED',
@@ -3210,6 +3212,26 @@ export const LevelEnum = {
   broad: 'broad',
   narrow: 'narrow',
 } as const;
+
+export type LocaleEnum = typeof LocaleEnum[keyof typeof LocaleEnum];
+
+
+export const LocaleEnum = {
+  en: 'en',
+  es: 'es',
+  fr: 'fr',
+  'pt-BR': 'pt-BR',
+} as const;
+
+export interface LowBalancePreference {
+  enabled: boolean;
+  readonly actor_id: number;
+}
+
+export interface LowBalancePreferenceConflict {
+  code: ExpectedActorErrorCodeEnum;
+  detail: string;
+}
 
 export interface MCPAccount {
   id: string;
@@ -4048,6 +4070,13 @@ export interface PatchedFeaturedImage {
   description?: string;
   access?: AccessEnum;
   readonly mime_type?: MimeTypeEnum;
+}
+
+export interface PatchedLowBalancePreferenceWrite {
+  enabled: boolean;
+  /** @minimum 1 */
+  expected_actor_id: number;
+  locale?: LocaleEnum;
 }
 
 export interface PatchedMentionPreference {
@@ -6349,6 +6378,10 @@ export type EventsListRecovery = typeof EventsListRecovery[keyof typeof EventsLi
 export const EventsListRecovery = {
   payments: 'payments',
 } as const;
+
+export type EventsLowBalancePreferenceRetrieveParams = {
+expected_actor_id: number;
+};
 
 export type EventsUnreadCountRetrieveParams = {
 /**

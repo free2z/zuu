@@ -108,12 +108,15 @@ def test_every_template_needs_only_amount_and_renders_the_fraction():
         amount=Decimal("1.500"), contributor=person, payee=person,
         content_object=SimpleNamespace(title="a page"),
     )
-    non_monetary = {"NEW_REPLY", "PAGE_UPDATE", "PAGE_MENTION", "ZEC_PENDING"}
+    non_monetary = {"NEW_REPLY", "PAGE_UPDATE", "PAGE_MENTION", "ZEC_PENDING", "LOW_BALANCE_NOTICE"}
     for event_type, template in EVENT_TEMPLATES.items():
         message = template["get_message"](ev)
         assert "1.500" not in message, (event_type, message)
         if event_type not in non_monetary:
             assert "1.5" in message, (event_type, message)
+        if event_type == "LOW_BALANCE_NOTICE":
+            assert "1.5" not in message
+            assert template["get_message"](SimpleNamespace(amount=None)) == message
         if event_type == "ZEC_PENDING":
             # Detection copy carries no projected credit, including for the
             # current policy whose notification amount is null.

@@ -164,6 +164,9 @@ def test_ai_request_error_documents_parser_rejections():
     actor_code = components["ExpectedActorErrorCodeEnum"]
     assert actor_code["enum"] == ["account_changed"]
     assert actor_code["type"] == "string"
+    assert components["LowBalancePreferenceConflict"]["properties"]["code"] == {
+        "$ref": "#/components/schemas/ExpectedActorErrorCodeEnum",
+    }
     assert set(components["ExpectedActorError"]["required"]) == {
         "code",
         "detail",

@@ -8,6 +8,10 @@ import {
 import { defineMessage, translateMessage } from "$lib/i18n-message";
 
 const EVENT_MESSAGES = {
+  lowBalance: defineMessage(
+    "notifications.events.lowBalance",
+    "A connected app could not use 2Z because your available balance was insufficient.",
+  ),
   aiScoreComment: defineMessage(
     "notifications.events.aiScoreComment",
     "You received {amount} 2Z from the AI for your comment.",
@@ -254,6 +258,8 @@ export function formatEventNotification(
             { username: contributor },
             translator,
           );
+    case "LOW_BALANCE_NOTICE":
+      return translateMessage(EVENT_MESSAGES.lowBalance, undefined, translator);
     case "PAGE_VOTE":
       if (readerIsActor(event)) {
         return title

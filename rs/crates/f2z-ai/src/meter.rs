@@ -1315,6 +1315,11 @@ impl ChatBackend for Metered {
 /// feature (`tools_unsupported`) or `reasoning_effort`. Either way
 /// a same-key replay must name it, not an abandoned-claim `unavailable`.
 fn is_terminal_refusal(failure: &ApiFailure) -> bool {
+    // Persist pre-hold balance refusals so the ledger can enqueue a notice
+    // under the account lock, using the already admitted call identity.
+    if failure.code() == ErrorCode::InsufficientBalance.as_str() {
+        return true;
+    }
     if failure.code() == ErrorCode::InvalidRequest.as_str()
         && failure
             .detail_of("field")

@@ -10,7 +10,8 @@
     type EventReadFilter,
     type EventSortOrder,
   } from "$lib/stores/eventNotifications";
-  import { currentUser } from "$lib/stores/auth";
+  import { authStore, currentUser } from "$lib/stores/auth";
+  import { apiFetch } from "$lib/api/config";
   import { formatRelativeTime, toTimestamp } from "$lib/utils/date";
   import { formatEventNotification } from "$lib/utils/event-notifications";
   import { isSingularCount, locale, tStore as t } from "$lib/i18n";
@@ -27,6 +28,67 @@
   } from "@lucide/svelte";
 
   export let data: PageData;
+
+  let disablingNotice = false;
+  let noticeContext = 0;
+  let noticeRoute = "";
+  let noticeOwnership: (() => boolean) | null = null;
+  function synchronizeNoticeOwner() {
+    if (!mounted) return;
+    if (noticeRoute === data.username && noticeOwnership?.()) return;
+    noticeRoute = data.username;
+    noticeOwnership = authStore.captureRequestOwnership();
+    noticeContext++;
+    disablingNotice = false;
+  }
+  $: if (mounted && data.username !== noticeRoute) synchronizeNoticeOwner();
+  async function disableLowBalanceNotice() {
+    const owns = authStore.captureRequestOwnership();
+    const context = noticeContext;
+    const route = data.username;
+    const actor = $currentUser;
+    const notice = captureAccountToast();
+    if (
+      disablingNotice ||
+      actor?.username !== route ||
+      typeof actor.id !== "number"
+    )
+      return;
+    const current = () =>
+      mounted && context === noticeContext && owns() && data.username === route;
+    disablingNotice = true;
+    try {
+      const response = await apiFetch("/api/events/low-balance-preference/", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: false, expected_actor_id: actor.id }),
+      });
+      const result = await response.json();
+      if (
+        !response.ok ||
+        result?.actor_id !== actor.id ||
+        result.enabled !== false
+      )
+        throw new Error("preference update failed");
+      if (current())
+        notice.acknowledge(
+          $t(
+            "notifications.events.lowBalanceDisabled",
+            "Low-balance notices are off.",
+          ),
+        );
+    } catch {
+      if (current())
+        notice.error(
+          $t(
+            "settings.account.lowBalanceError",
+            "Could not update or load the notice preference.",
+          ),
+        );
+    } finally {
+      if (current()) disablingNotice = false;
+    }
+  }
 
   /**
    * "Mark all as read" used to fail silently and snap the list back.
@@ -89,6 +151,7 @@
     PAGE_UPDATE: ["pageUpdate", "Page Update"],
     PAGE_VOTE: ["pageVote", "Page Vote"],
     PAGE_MENTION: ["pageMention", "Page Mention"],
+    LOW_BALANCE_NOTICE: ["lowBalance", "Balance notice"],
     DONATION_RECEIVED: ["donationReceived", "Donation In"],
     DONATION_SENT: ["donationSent", "Donation Out"],
     SUBSCRIPTION_RECEIVED: ["subscriptionReceived", "Subscription In"],
@@ -233,10 +296,13 @@
 
   onMount(() => {
     mounted = true;
+    const unsubscribe = authStore.subscribe(() => synchronizeNoticeOwner());
+    return () => unsubscribe();
   });
 
   onDestroy(() => {
     mounted = false;
+    noticeContext++;
     view?.release();
     if (observer && sentinel) {
       observer.unobserve(sentinel);
@@ -601,6 +667,20 @@
                   >
                     {formatEventNotification(event, $t, $locale)}
                   </p>
+                {/if}
+
+                {#if event.type === "LOW_BALANCE_NOTICE" && $currentUser?.username === data.username}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={disablingNotice}
+                    onclick={disableLowBalanceNotice}
+                  >
+                    {$t(
+                      "notifications.events.disableLowBalance",
+                      "Turn off low-balance notices",
+                    )}
+                  </Button>
                 {/if}
 
                 <div
