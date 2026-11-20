@@ -18,6 +18,12 @@
     "retrying": "Reintentando",
     "tryAgain": "Inténtalo de nuevo."
   },
+  "kyc": {
+    "loadErrorTitle": "No se pudo cargar tu solicitud",
+    "loadErrorBody": "No se pudo conectar con el servicio KYC. Actualiza la página para intentarlo de nuevo.",
+    "classificationRefreshError": "Se guardaron tus respuestas, pero no se pudo actualizar el estado del formulario fiscal. Vuelve a cargar esta página antes de continuar.",
+    "reviewTaxRemediation": "Falta el formulario fiscal o la firma correspondiente a estas respuestas. Vuelve al paso del formulario, sube el formulario requerido y fírmalo de nuevo antes de enviar."
+  },
   "creator": {
     "chat": {
       "trigger": "Iniciar chat cifrado",

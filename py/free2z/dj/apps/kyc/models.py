@@ -80,6 +80,10 @@ class UserProfile(models.Model):
     is_individual = models.BooleanField(null=True)
     # https://www.irs.gov/newsroom/details-on-using-e-signatures-for-certain-forms
     tax_form_signature = models.CharField(max_length=255, blank=True)
+    # Classification for which the current file and typed signature were
+    # supplied. Null means legacy/unbound and must be re-completed.
+    tax_form_classification = models.CharField(max_length=16, blank=True, default='')
+    tax_form_version = models.PositiveBigIntegerField(default=0)
     created_at = models.DateField(auto_now_add=True)
     updated_at = models.DateField(auto_now=True)
 
@@ -140,6 +144,13 @@ class UserProfile(models.Model):
             if self.is_individual:
                 return self.w8ben
             return self.w8bene
+
+    def required_tax_form_kind(self):
+        if self.is_us is None or self.is_individual is None:
+            return ''
+        if self.is_us:
+            return 'W-9'
+        return 'W-8BEN' if self.is_individual else 'W-8BEN-E'
 
     def get_tax_form_url(self):
         # `self.w9` / `self.w8ben` / `self.w8bene` raise

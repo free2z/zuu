@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -20,6 +22,7 @@ export function ReviewStep({
   signature,
   onBack,
   onSubmitted,
+  taxFormPrecondition,
 }: {
   profile: KycProfile;
   docs: KycIdentityDocuments;
@@ -27,13 +30,15 @@ export function ReviewStep({
   signature: string | null;
   onBack: () => void;
   onSubmitted: () => void;
+  taxFormPrecondition: import("@/lib/api/types").KycTaxFormPrecondition;
 }) {
+  const { t } = useTranslation();
   const [submitting, setSubmitting] = useState(false);
 
   async function handleSubmit() {
     setSubmitting(true);
     try {
-      await kyc.submit();
+      await kyc.submit(taxFormPrecondition);
       toast.success("Application submitted for review");
       onSubmitted();
     } catch {
@@ -95,12 +100,19 @@ export function ReviewStep({
           >
             <span className="text-muted-foreground">{row.label}</span>
             <span
-              className={row.ok ? "font-medium" : "font-medium text-destructive"}
+              className={
+                row.ok ? "font-medium" : "font-medium text-destructive"
+              }
             >
               {row.value}
             </span>
           </div>
         ))}
+        {!taxFormUrl || !signature ? (
+          <p role="alert" className="pt-3 text-sm text-destructive">
+            {t(MESSAGE_KEYS.kycReviewTaxRemediation)}
+          </p>
+        ) : null}
       </CardContent>
       <div className="flex justify-between pt-2">
         <Button variant="outline" onClick={onBack}>

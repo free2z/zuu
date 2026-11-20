@@ -1002,6 +1002,8 @@ export function mockCreatorDetail(username: string): CreatorDetail {
 export const mockKycProfile: KycProfile = {
   is_us: null,
   is_individual: null,
+  tax_form_classification: "",
+  tax_form_version: 0,
   application_status: "NEW",
 };
 

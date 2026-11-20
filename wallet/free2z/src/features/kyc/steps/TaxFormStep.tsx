@@ -53,12 +53,14 @@ export function TaxFormStep({
   fileUrl,
   signature,
   onNext,
+  onProfileUpdated,
   onBack,
 }: {
   profile: KycProfile;
   fileUrl: string | null;
   signature: string | null;
   onNext: (fileUrl: string | null, signature: string | null) => void;
+  onProfileUpdated: (profile: KycProfile) => void;
   onBack: () => void;
 }) {
   const [file, setFile] = useState(fileUrl);
@@ -72,7 +74,15 @@ export function TaxFormStep({
   async function handleSelect(f: File) {
     setUploading(true);
     try {
-      const res = await kyc.uploadTaxForm(f);
+      const expected = {
+        tax_form_version: profile.tax_form_version,
+        tax_form_classification: form.kind,
+      };
+      const res = await kyc.uploadTaxForm(f, expected);
+      const fresh = await kyc.getProfile();
+      if (fresh.tax_form_version !== res.tax_form_version)
+        throw new Error("Tax form version changed; refresh and try again.");
+      onProfileUpdated(fresh);
       setFile(res.file_url);
     } catch {
       toast.error("Couldn't upload the form. Please try again.");
@@ -95,7 +105,18 @@ export function TaxFormStep({
     if (!file || !trimmed || !checked || signing) return;
     setSigning(true);
     try {
-      await kyc.signTaxForm(trimmed);
+      const fresh = await kyc.getProfile();
+      if (
+        fresh.tax_form_version !== profile.tax_form_version ||
+        fresh.tax_form_classification !== form.kind
+      )
+        throw new Error(
+          "The required form changed. Refresh and upload the current form.",
+        );
+      await kyc.signTaxForm(trimmed, {
+        tax_form_version: fresh.tax_form_version,
+        tax_form_classification: form.kind,
+      });
       onNext(file, trimmed);
     } catch {
       toast.error("Couldn't save your signature. Please try again.");
@@ -104,14 +125,16 @@ export function TaxFormStep({
     }
   }
 
-  const canContinue = Boolean(file) && sig.trim().length > 0 && checked && !signing;
+  const canContinue =
+    Boolean(file) && sig.trim().length > 0 && checked && !signing;
 
   return (
     <Card className="space-y-5 rounded-xl border-border/60 bg-card/60 p-5">
       <CardHeader className="p-0 pb-1">
         <CardTitle className="text-lg">Tax form — {form.kind}</CardTitle>
         <CardDescription>
-          Download, fill out, and upload the {form.kind} form ({form.description}
+          Download, fill out, and upload the {form.kind} form (
+          {form.description}
           ). No wet signature needed — you'll e-sign below.
         </CardDescription>
       </CardHeader>
@@ -152,8 +175,8 @@ export function TaxFormStep({
               disabled={!file}
               className="mt-0.5 h-3.5 w-3.5 rounded border-border"
             />
-            I understand that typing my name above acts as my legal signature
-            on the uploaded tax form.
+            I understand that typing my name above acts as my legal signature on
+            the uploaded tax form.
           </label>
         </div>
       </CardContent>
@@ -162,7 +185,9 @@ export function TaxFormStep({
           Back
         </Button>
         <Button onClick={handleContinue} disabled={!canContinue}>
-          {signing ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+          {signing ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : null}
           Continue
         </Button>
       </div>

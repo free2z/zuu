@@ -4644,6 +4644,17 @@ paths:
         REJECTED application answers 400 — only a reviewer moves those.'
       tags:
       - kyc
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaxFormPrecondition'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/TaxFormPrecondition'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/TaxFormPrecondition'
       security:
       - cookieAuth: []
       - knoxApiToken: []
@@ -4803,6 +4814,7 @@ paths:
           multipart/form-data:
             schema:
               $ref: '#/components/schemas/UserProfileSignature'
+        required: true
       security:
       - cookieAuth: []
       - knoxApiToken: []
@@ -10914,10 +10926,18 @@ components:
         rejection_reason:
           type: string
           readOnly: true
+        tax_form_classification:
+          type: string
+          readOnly: true
+        tax_form_version:
+          type: integer
+          readOnly: true
       required:
       - application_status
       - id
       - rejection_reason
+      - tax_form_classification
+      - tax_form_version
     BlankEnum:
       enum:
       - ''
@@ -17942,6 +17962,16 @@ components:
         * `comment` - Comment
         * `zpage` - zPage
         * `creator` - Creator
+    TaxFormClassificationEnum:
+      enum:
+      - W-9
+      - W-8BEN
+      - W-8BEN-E
+      type: string
+      description: |-
+        * `W-9` - W-9
+        * `W-8BEN` - W-8BEN
+        * `W-8BEN-E` - W-8BEN-E
     TaxFormFile:
       type: object
       description: '`GET /api/kyc/get-tax-form-file` — null when nothing is uploaded
@@ -17950,8 +17980,21 @@ components:
         file:
           type: string
           nullable: true
+        tax_form_version:
+          type: integer
+          minimum: 0
       required:
       - file
+      - tax_form_version
+    TaxFormPrecondition:
+      type: object
+      description: Required while submitting NEW; omitted only for APPROVED -> NEW.
+      properties:
+        tax_form_version:
+          type: integer
+          minimum: 0
+        tax_form_classification:
+          $ref: '#/components/schemas/TaxFormClassificationEnum'
     TaxFormUploadRequest:
       type: object
       description: |-
@@ -17961,6 +18004,11 @@ components:
         sniffed by `validation.validate_kyc_upload`. Documenting the field as a
         file says "send a file here", nothing more.
       properties:
+        tax_form_version:
+          type: integer
+          minimum: 0
+        tax_form_classification:
+          $ref: '#/components/schemas/TaxFormClassificationEnum'
         file:
           type: string
           format: uri
@@ -17968,6 +18016,8 @@ components:
             the Content-Type the client declares.
       required:
       - file
+      - tax_form_classification
+      - tax_form_version
     TaxFormUploadResponse:
       type: object
       properties:
@@ -17977,9 +18027,13 @@ components:
           type: string
           nullable: true
           description: Authenticated `/uploadz/private/...` path. Never public.
+        tax_form_version:
+          type: integer
+          minimum: 0
       required:
       - file_url
       - message
+      - tax_form_version
     ThreadAccessEnum:
       enum:
       - public
@@ -18999,6 +19053,15 @@ components:
         tax_form_signature:
           type: string
           maxLength: 255
+        tax_form_version:
+          type: integer
+          writeOnly: true
+        tax_form_classification:
+          type: string
+          writeOnly: true
+      required:
+      - tax_form_classification
+      - tax_form_version
     ZPageCreateIdempotencyError:
       type: object
       description: |-

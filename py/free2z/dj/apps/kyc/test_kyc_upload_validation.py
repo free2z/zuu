@@ -169,7 +169,7 @@ def test_tax_form_rejects_forged_pdf(api_client, applicant, name, payload, decla
 def test_tax_form_accepts_a_real_pdf(api_client, applicant):
     user, profile = applicant
     response = _authed(api_client, user).post(
-        TAX_FORM_URL, {"file": _upload("fw9.pdf", PDF, "application/pdf")},
+        TAX_FORM_URL, {"file": _upload("fw9.pdf", PDF, "application/pdf"), "tax_form_version": profile.tax_form_version, "tax_form_classification": "W-9"},
         format="multipart")
 
     assert response.status_code == 201, response.content
@@ -202,7 +202,7 @@ def test_tax_form_normalizes_a_hostile_filename(api_client, applicant):
         TAX_FORM_URL,
         {"file": _upload(
             "../../../W-9 <script>alert(1)</script>.pdf", PDF,
-            "application/pdf")},
+            "application/pdf"), "tax_form_version": profile.tax_form_version, "tax_form_classification": "W-9"},
         format="multipart")
 
     assert response.status_code == 201, response.content
@@ -456,7 +456,7 @@ def test_one_user_cannot_read_anothers_documents(
         IDENTITY_URL, {"id_front": _upload("front.jpg", JPEG, "image/jpeg")},
         format="multipart")
     _authed(api_client, user).post(
-        TAX_FORM_URL, {"file": _upload("fw9.pdf", PDF, "application/pdf")},
+        TAX_FORM_URL, {"file": _upload("fw9.pdf", PDF, "application/pdf"), "tax_form_version": profile.tax_form_version, "tax_form_classification": "W-9"},
         format="multipart")
     profile.refresh_from_db()
     owner_url = profile.get_id_url("id_front")
@@ -599,7 +599,7 @@ def test_audit_kyc_uploads_is_quiet_for_well_formed_rows(api_client, applicant, 
         IDENTITY_URL, {"id_front": _upload("front.jpg", JPEG, "image/jpeg")},
         format="multipart")
     _authed(api_client, user).post(
-        TAX_FORM_URL, {"file": _upload("fw9.pdf", PDF, "application/pdf")},
+        TAX_FORM_URL, {"file": _upload("fw9.pdf", PDF, "application/pdf"), "tax_form_version": profile.tax_form_version, "tax_form_classification": "W-9"},
         format="multipart")
 
     call_command("audit_kyc_uploads", "--json")

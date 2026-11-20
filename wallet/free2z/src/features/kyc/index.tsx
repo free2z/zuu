@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Clock, Lock, XCircle } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -8,7 +11,11 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { Skeleton } from "@/components/ui/skeleton";
 import { kyc } from "@/lib/api/free2z";
 import { useSession } from "@/store/session";
-import type { KycIdentityDocuments, KycProfile } from "@/lib/api/types";
+import type {
+  KycIdentityDocuments,
+  KycProfile,
+  KycTaxFormKind,
+} from "@/lib/api/types";
 import { Stepper } from "./Stepper";
 import { BasicInfoStep } from "./steps/BasicInfoStep";
 import { IdentityDocumentsStep } from "./steps/IdentityDocumentsStep";
@@ -50,6 +57,7 @@ export default function KycFeature() {
 }
 
 function KycApplication() {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [profile, setProfile] = useState<KycProfile | null>(null);
@@ -98,8 +106,8 @@ function KycApplication() {
       <div className="animate-slide-up">
         <PageHeader title="Revenue share" />
         <EmptyState
-          title="Couldn't load your application"
-          description="Something went wrong reaching the KYC service. Please try again shortly."
+          title={t(MESSAGE_KEYS.kycLoadErrorTitle)}
+          description={t(MESSAGE_KEYS.kycLoadErrorBody)}
         />
       </div>
     );
@@ -150,13 +158,13 @@ function KycApplication() {
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            Payout / cash-out isn't live yet — this only confirms your
-            creator verification is on file.
+            Payout / cash-out isn't live yet — this only confirms your creator
+            verification is on file.
           </p>
           <Button
             variant="outline"
             onClick={async () => {
-              await kyc.submit(); // APPROVED → NEW, re-opening the wizard.
+              await kyc.reopenApproved();
               setProfile({ ...profile, application_status: "NEW" });
               setStep(0);
             }}
@@ -179,8 +187,33 @@ function KycApplication() {
       {step === 0 ? (
         <BasicInfoStep
           profile={profile}
-          onNext={(p) => {
+          onNext={async (p) => {
+            const classificationChanged =
+              profile.is_us !== p.is_us ||
+              profile.is_individual !== p.is_individual;
+            if (classificationChanged) {
+              setTaxFormUrl(null);
+              setSignature("");
+            }
             setProfile(p);
+            if (classificationChanged) {
+              // Rehydrate from server authority after saving classification;
+              // an old client snapshot must never restore a previous form.
+              try {
+                const [tax, signed, fresh] = await Promise.all([
+                  kyc.getTaxFormFile(),
+                  kyc.getTaxFormSignature(),
+                  kyc.getProfile(),
+                ]);
+                setTaxFormUrl(tax.file);
+                setSignature(signed.tax_form_signature);
+                setProfile(fresh);
+              } catch {
+                setTaxFormUrl(null);
+                setSignature("");
+                toast.error(t(MESSAGE_KEYS.kycClassificationRefreshError));
+              }
+            }
             setStep(1);
           }}
         />
@@ -197,6 +230,7 @@ function KycApplication() {
       ) : null}
       {step === 2 ? (
         <TaxFormStep
+          key={`${profile.is_us}-${profile.is_individual}`}
           profile={profile}
           fileUrl={taxFormUrl}
           signature={signature}
@@ -205,10 +239,13 @@ function KycApplication() {
             setSignature(sig);
             setStep(3);
           }}
+          onProfileUpdated={setProfile}
           onBack={() => setStep(1)}
         />
       ) : null}
-      {step === 3 ? (
+      {step === 3 &&
+      profile.is_us !== null &&
+      profile.is_individual !== null ? (
         <ReviewStep
           profile={profile}
           docs={docs}
@@ -218,6 +255,14 @@ function KycApplication() {
           onSubmitted={() =>
             setProfile({ ...profile, application_status: "PENDING" })
           }
+          taxFormPrecondition={{
+            tax_form_version: profile.tax_form_version,
+            tax_form_classification: profile.is_us
+              ? "W-9"
+              : profile.is_individual
+                ? "W-8BEN"
+                : ("W-8BEN-E" as KycTaxFormKind),
+          }}
         />
       ) : null}
     </div>

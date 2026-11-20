@@ -30,6 +30,7 @@ import type {
   KYCIdentityError,
   KYCMessage,
   TaxFormFile,
+  TaxFormPrecondition,
   TaxFormUploadRequest,
   TaxFormUploadResponse,
   UserProfileSignature
@@ -73,13 +74,15 @@ type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
  * Toggle the applicant-controlled half of the state machine: NEW -> PENDING to submit for review, or APPROVED -> NEW to reopen. A PENDING or REJECTED application answers 400 — only a reviewer moves those.
  */
 export const kycChangeStatus = (
-
+    taxFormPrecondition?: TaxFormPrecondition,
  options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
 ) => {
 
 
       return customInstance<ApplicationStatusChange>(
-      {url: `/api/kyc/change-status`, method: 'POST', signal
+      {url: `/api/kyc/change-status`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: taxFormPrecondition, signal
     },
       options);
     }
@@ -90,8 +93,8 @@ export const kycChangeStatus = (
 export const getKycChangeStatusMutationKey = () => ['kycChangeStatus'] as const;
 
 export const getKycChangeStatusMutationOptions = <TError = KYCError,
-    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycChangeStatus>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
-): CreateMutationOptions<Awaited<ReturnType<typeof kycChangeStatus>>, TError,void, TContext> => {
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycChangeStatus>>, TError,KycChangeStatusMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof kycChangeStatus>>, TError,KycChangeStatusMutationVariables, TContext> => {
 
 const mutationKey = getKycChangeStatusMutationKey();
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -103,10 +106,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof kycChangeStatus>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof kycChangeStatus>>, KycChangeStatusMutationVariables> = (props) => {
+          const {data} = props ?? {};
 
-
-          return  kycChangeStatus(requestOptions)
+          return  kycChangeStatus(data,requestOptions)
         }
 
 
@@ -117,16 +120,16 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type KycChangeStatusMutationResult = NonNullable<Awaited<ReturnType<typeof kycChangeStatus>>>
-
+    export type KycChangeStatusMutationBody = TaxFormPrecondition | undefined
     export type KycChangeStatusMutationError = KYCError
-
+    export type KycChangeStatusMutationVariables = {data?: TaxFormPrecondition}
 
     export const createKycChangeStatus = <TError = KYCError,
-    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycChangeStatus>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycChangeStatus>>, TError,KycChangeStatusMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycChangeStatus>>,
         TError,
-        void,
+        KycChangeStatusMutationVariables,
         TContext
       > => {
       return createMutation(getKycChangeStatusMutationOptions(options));
@@ -544,7 +547,7 @@ export function createKycSignatureRetrieve<TData = Awaited<ReturnType<typeof kyc
  * https://www.irs.gov/newsroom/details-on-using-e-signatures-for-certain-forms
  */
 export const kycSignatureUpdate = (
-    userProfileSignature?: UserProfileSignature,
+    userProfileSignature: UserProfileSignature,
  options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
 ) => {
 
@@ -590,9 +593,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type KycSignatureUpdateMutationResult = NonNullable<Awaited<ReturnType<typeof kycSignatureUpdate>>>
-    export type KycSignatureUpdateMutationBody = UserProfileSignature | undefined
+    export type KycSignatureUpdateMutationBody = UserProfileSignature
     export type KycSignatureUpdateMutationError = KYCMessage
-    export type KycSignatureUpdateMutationVariables = {data?: UserProfileSignature}
+    export type KycSignatureUpdateMutationVariables = {data: UserProfileSignature}
 
     export const createKycSignatureUpdate = <TError = KYCMessage,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycSignatureUpdate>>, TError,KycSignatureUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
@@ -613,6 +616,8 @@ export const kycTaxFormUpload = (
 ) => {
 
       const formData = new FormData();
+formData.append(`tax_form_version`, taxFormUploadRequest.tax_form_version.toString())
+formData.append(`tax_form_classification`, taxFormUploadRequest.tax_form_classification);
 formData.append(`file`, taxFormUploadRequest.file);
 
       return customInstance<TaxFormUploadResponse>(

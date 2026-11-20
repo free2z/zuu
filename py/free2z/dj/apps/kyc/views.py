@@ -20,6 +20,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
+from django.db import transaction
 
 
 from dj.apps.uploads.tasks import (
@@ -39,6 +40,7 @@ from .serializers import (
     TaxFormFileSerializer,
     TaxFormUploadRequestSerializer,
     TaxFormUploadResponseSerializer,
+    TaxFormPreconditionSerializer,
     UserProfileSignatureSerializer,
 )
 from .validation import (
@@ -52,6 +54,18 @@ from .validation import (
 
 MAX_FILE_SIZE = 10 * 1024 * 1024
 MAX_FILE_SIZE_LABEL = '10MB'
+
+
+def _tax_precondition_error(request, profile):
+    kind = profile.required_tax_form_kind()
+    try:
+        version = int(request.data.get('tax_form_version'))
+    except (TypeError, ValueError):
+        version = None
+    supplied_kind = request.data.get('tax_form_classification')
+    if version != profile.tax_form_version or supplied_kind != kind:
+        return Response({'message': 'Your tax form answers or upload changed. Refresh this step and use the current required form.'}, status=status.HTTP_409_CONFLICT)
+    return None
 
 
 def _release_stored_file(instance, field_name):
@@ -106,20 +120,28 @@ class UserProfileBasicInfoView(APIView):
                     'cannot be self-advanced.',
     )
     def post(self, request):
-        user = request.user
-        user_profile, created = UserProfile.objects.get_or_create(user=user)
-
-        if not user_profile.can_edit():
-            return Response({
-                'message': f'Your application is {user_profile.application_status}. You cannot edit at this time. Please contact support.'},
-                status=status.HTTP_400_BAD_REQUEST)
-
-        # Update the user_profile instance with the provided data
-        serializer = BasicInfoSerializer(user_profile, data=request.data, partial=True)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            user_profile, created = UserProfile.objects.get_or_create(user=request.user)
+            user_profile = UserProfile.objects.select_for_update().get(pk=user_profile.pk)
+            if not user_profile.can_edit():
+                return Response({'message': f'Your application is {user_profile.application_status}. You cannot edit at this time. Please contact support.'}, status=status.HTTP_400_BAD_REQUEST)
+            serializer = BasicInfoSerializer(user_profile, data=request.data, partial=True)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            old_kind = user_profile.required_tax_form_kind()
+            updated = serializer.save()
+            if old_kind and old_kind != updated.required_tax_form_kind():
+                updated.tax_form_version += 1
+                for model in (W9, W8BEN, W8BENE):
+                    try:
+                        form = model.objects.get(profile=updated)
+                    except model.DoesNotExist:
+                        continue
+                    _release_stored_file(form, 'file')
+                updated.tax_form_signature = ''
+                updated.tax_form_classification = ''
+                updated.save(update_fields=['tax_form_signature', 'tax_form_classification', 'tax_form_version', 'updated_at'])
+            return Response(BasicInfoSerializer(updated).data, status=status.HTTP_200_OK if not created else status.HTTP_201_CREATED)
 
 
 class TaxFormUploadView(APIView):
@@ -140,11 +162,6 @@ class TaxFormUploadView(APIView):
                     'sniffing the bytes; the declared Content-Type is ignored.',
     )
     def post(self, request, format=None):
-        user_profile = get_object_or_404(UserProfile, user=request.user)
-        if not user_profile.can_edit():
-            return Response({
-                'message': f'Your application is {user_profile.application_status}. You cannot edit at this time. Please contact support.'},
-                status=status.HTTP_400_BAD_REQUEST)
         file = request.FILES.get('file')
         if file is None:
             return Response({'message': 'No file was uploaded'}, status=status.HTTP_400_BAD_REQUEST)
@@ -162,18 +179,28 @@ class TaxFormUploadView(APIView):
         except UploadTypeError as exc:
             return Response({'message': exc.detail}, status=status.HTTP_400_BAD_REQUEST)
 
-        if user_profile.is_us:
-            instance, _ = W9.objects.get_or_create(profile=user_profile)
-        elif user_profile.is_individual:
-            instance, _ = W8BEN.objects.get_or_create(profile=user_profile)
-        else:
-            instance, _ = W8BENE.objects.get_or_create(profile=user_profile)
-
-        instance.file = file
-        instance.save()
+        with transaction.atomic():
+            user_profile = UserProfile.objects.select_for_update().get(user=request.user)
+            if not user_profile.can_edit():
+                return Response({'message': f'Your application is {user_profile.application_status}. You cannot edit at this time. Please contact support.'}, status=status.HTTP_400_BAD_REQUEST)
+            stale = _tax_precondition_error(request, user_profile)
+            if stale:
+                return stale
+            kind = user_profile.required_tax_form_kind()
+            if not kind:
+                return Response({'message': 'Save your residency and filer type before uploading the required tax form.'}, status=status.HTTP_400_BAD_REQUEST)
+            model = {'W-9': W9, 'W-8BEN': W8BEN, 'W-8BEN-E': W8BENE}[kind]
+            instance, _ = model.objects.get_or_create(profile=user_profile)
+            instance.file = file
+            instance.save()
+            user_profile.tax_form_classification = kind
+            user_profile.tax_form_signature = ''
+            user_profile.tax_form_version += 1
+            user_profile.save(update_fields=['tax_form_classification', 'tax_form_signature', 'tax_form_version', 'updated_at'])
         return Response({
             'message': 'File uploaded successfully',
-            'file_url': instance.get_url()
+            'file_url': instance.get_url(),
+            'tax_form_version': user_profile.tax_form_version,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -220,6 +247,10 @@ class GetTaxFormFileView(APIView):
     def get(self, request, format=None):
         user_profile = get_object_or_404(UserProfile, user=request.user)
 
+        if (not user_profile.required_tax_form_kind()
+                or user_profile.tax_form_classification != user_profile.required_tax_form_kind()):
+            return Response({'file': None})
+
         try:
             if user_profile.is_us:
                 instance = W9.objects.get(profile=user_profile)
@@ -248,6 +279,9 @@ class TaxFormSignatureView(APIView):
     )
     def get(self, request, format=None):
         user_profile, created = UserProfile.objects.get_or_create(user=request.user)
+        kind = user_profile.required_tax_form_kind()
+        if not kind or user_profile.tax_form_classification != kind:
+            return Response({'tax_form_signature': ''})
         serializer = UserProfileSignatureSerializer(user_profile)
         return Response(serializer.data)
 
@@ -257,17 +291,30 @@ class TaxFormSignatureView(APIView):
         responses={200: UserProfileSignatureSerializer, 400: KYCMessageSerializer},
     )
     def post(self, request, format=None):
-        user_profile, created = UserProfile.objects.get_or_create(user=request.user)
-        if not user_profile.can_edit():
-            return Response({
-                'message': f'Your application is {user_profile.application_status}. You cannot edit at this time. Please contact support.'},
-                status=status.HTTP_400_BAD_REQUEST)
-
-        serializer = UserProfileSignatureSerializer(user_profile, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            user_profile, _ = UserProfile.objects.get_or_create(user=request.user)
+            user_profile = UserProfile.objects.select_for_update().get(pk=user_profile.pk)
+            if not user_profile.can_edit():
+                return Response({'message': f'Your application is {user_profile.application_status}. You cannot edit at this time. Please contact support.'}, status=status.HTTP_400_BAD_REQUEST)
+            stale = _tax_precondition_error(request, user_profile)
+            if stale:
+                return stale
+            serializer = UserProfileSignatureSerializer(user_profile, data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            kind = user_profile.required_tax_form_kind()
+            if not kind or user_profile.tax_form_classification != kind:
+                return Response({'message': 'Upload the tax form required by your current residency and filer type before signing.'}, status=status.HTTP_400_BAD_REQUEST)
+            model = {'W-9': W9, 'W-8BEN': W8BEN, 'W-8BEN-E': W8BENE}[kind]
+            try:
+                has_file = bool(model.objects.get(profile=user_profile).file)
+            except model.DoesNotExist:
+                has_file = False
+            if not has_file:
+                return Response({'message': 'Upload the tax form required by your current residency and filer type before signing.'}, status=status.HTTP_400_BAD_REQUEST)
+            user_profile.tax_form_signature = serializer.validated_data['tax_form_signature']
+            user_profile.save(update_fields=['tax_form_signature', 'updated_at'])
+            return Response({'tax_form_signature': user_profile.tax_form_signature}, status=status.HTTP_200_OK)
 
 
 class IdentityDocumentsView(APIView):
@@ -415,7 +462,7 @@ class ChangeApplicationStatusView(APIView):
 
     @extend_schema(
         operation_id='kyc_change_status',
-        request=None,
+        request=TaxFormPreconditionSerializer,
         responses={
             200: ApplicationStatusChangeSerializer,
             400: KYCErrorSerializer,
@@ -426,17 +473,26 @@ class ChangeApplicationStatusView(APIView):
                     'application answers 400 — only a reviewer moves those.',
     )
     def post(self, request, *args, **kwargs):
-        user_profile = get_object_or_404(UserProfile, user=request.user)
-
-        if user_profile.application_status == 'APPROVED':
-            user_profile.application_status = 'NEW'
-            user_profile.save()
-            return Response({'status': 'Application status changed to NEW'}, status=status.HTTP_200_OK)
-
-        if user_profile.application_status == 'NEW':
-            user_profile.application_status = 'PENDING'
-            user_profile.save()
-            return Response({'status': 'Application status changed to PENDING'}, status=status.HTTP_200_OK)
-
-        # If the application is neither APPROVED nor NEW
-        return Response({'error': 'Invalid application status transition'}, status=status.HTTP_400_BAD_REQUEST)
+        with transaction.atomic():
+            user_profile = get_object_or_404(UserProfile.objects.select_for_update(), user=request.user)
+            if user_profile.application_status == 'APPROVED':
+                user_profile.application_status = 'NEW'
+                user_profile.save(update_fields=['application_status', 'updated_at'])
+                return Response({'status': 'Application status changed to NEW'}, status=status.HTTP_200_OK)
+            if user_profile.application_status == 'NEW':
+                stale = _tax_precondition_error(request, user_profile)
+                if stale:
+                    return stale
+                kind = user_profile.required_tax_form_kind()
+                model = {'W-9': W9, 'W-8BEN': W8BEN, 'W-8BEN-E': W8BENE}.get(kind)
+                try:
+                    has_file = bool(model.objects.get(profile=user_profile).file) if model else False
+                except model.DoesNotExist:
+                    has_file = False
+                if (not kind or user_profile.tax_form_classification != kind
+                        or not user_profile.tax_form_signature or not has_file):
+                    return Response({'error': 'Complete and sign the tax form required by your current residency and filer type before submitting.'}, status=status.HTTP_400_BAD_REQUEST)
+                user_profile.application_status = 'PENDING'
+                user_profile.save(update_fields=['application_status', 'updated_at'])
+                return Response({'status': 'Application status changed to PENDING'}, status=status.HTTP_200_OK)
+            return Response({'error': 'Invalid application status transition'}, status=status.HTTP_400_BAD_REQUEST)
