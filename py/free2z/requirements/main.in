@@ -1,4 +1,4 @@
-anthropic==1.13.0
+anthropic==1.17.0
 apng==0.3.4
 # Remove the compromised emSign trust anchor (GHSA-6q48-6c7w-9gw2).
 certifi==2026.10.23
