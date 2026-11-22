@@ -66,7 +66,7 @@ daphne==4.2.3
 autobahn==26.11.1
 # Explicit patched prerelease: the five October 2026 Twisted advisories affect 26.4.0.
 # Keep this exact until a stable patched release is verified.
-twisted[tls]==26.10.0rc1
+twisted[tls]==26.10.0
 # Transitive dep of channels_redis + django_redis; previously unpinned, so the
 # deployed image floated to whatever redis-py was newest at build time. Pinned
 # to the version prod already runs (verified working against the WS round-trip
