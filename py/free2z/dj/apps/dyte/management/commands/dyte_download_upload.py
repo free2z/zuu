@@ -586,6 +586,7 @@ def terminalize_recording_delivery(recording_key, *, status_code=None):
 def enqueue_recording_recovery(recording_key, next_retry_at):
     """Put a durable, delayed recovery job behind the subscriber ACK."""
     from dj.apps.dyte.tasks import retry_recording_delivery
+    from dj.apps.jobs.transactional import defer_in_transaction
 
     queued_at = timezone.now()
     # The receipt marker and the Procrastinate row must commit together. A
@@ -602,9 +603,9 @@ def enqueue_recording_recovery(recording_key, next_retry_at):
         ).update(recovery_queued_at=queued_at)
         if claimed != 1:
             return False
-        retry_recording_delivery.configure(
+        defer_in_transaction(retry_recording_delivery.configure(
             schedule_at=next_retry_at,
-        ).defer(delivery_id=str(recording_key))
+        ), delivery_id=str(recording_key))
     return True
 
 
