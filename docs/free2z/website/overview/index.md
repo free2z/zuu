@@ -10,7 +10,7 @@ Prefer a quick exchange? [Converse](/features/converse) gives small thoughts and
 
 ## A little support goes a long way
 
-Share [Tuzis](/getting-started/tuzis) to help someone use Free2Z, subscribe for their membership benefits, or send [Zcash directly](/privacy/zcash) to their wallet. Qualifying delivered paid livestreams and approved SDK contributions can earn [USD compensation](/revenue-sharing/) from 2Z Inc.
+Share [Tuzis](/getting-started/tuzis) to help someone use Free2Z, subscribe for their membership benefits, or send [Zcash directly](/privacy/zcash) to their wallet. Pay-per-view shares the collected creator portion as 2Z credits. Approved SDK contributions can earn separate [USD compensation](/revenue-sharing/) from 2Z Inc.
 
 ## Build something useful
 

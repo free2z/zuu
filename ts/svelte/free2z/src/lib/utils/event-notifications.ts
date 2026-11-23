@@ -113,7 +113,7 @@ const EVENT_MESSAGES = {
   ),
   payPerViewRevenue: defineMessage(
     "notifications.events.payPerViewRevenue",
-    "{username} paid you {amount} 2Z for pay-per-view access.",
+    "You received {amount} 2Z credits from {username} for pay-per-view access.",
   ),
   payPerViewSpend: defineMessage(
     "notifications.events.payPerViewSpend",

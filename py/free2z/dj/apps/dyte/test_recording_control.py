@@ -130,19 +130,42 @@ def test_stop_and_poll_upload(room, mocker):
     assert call(room).data == {"recording_state": "UPLOADED"}
 
 
-def test_provider_only_accepts_explicit_empty_404(mocker):
-    response = mocker.Mock(ok=False, status_code=404)
-    response.json.return_value = {
-        "success": False,
-        "error": {"code": 404, "message": "No active recording for meeting x found"},
-    }
-    request = mocker.patch.object(rc.requests, "request", return_value=response)
+def test_provider_only_accepts_empty_recording_after_confirming_meeting(mocker):
+    from .client import ProviderNotFoundError, ProviderResponse
+    def gone():
+        return ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True,
+                                     provider_idle=True)
+
+    request = mocker.patch.object(rc.DyteClient, "request", side_effect=[
+        gone(),
+        ProviderResponse({'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}, 200),
+    ])
     assert rc.provider("GET", "recordings/active-recording/x", allow_empty=True) is None
-    assert request.call_args.kwargs["timeout"] == rc.PROVIDER_TIMEOUT
-    response.json.return_value = {"error": []}
+    assert request.call_args_list[0].kwargs['timeout'] == rc.PROVIDER_TIMEOUT
+    request.side_effect = [gone(), gone()]
     with pytest.raises(rc.ProviderUnavailable):
         rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
-    response.json.return_value = {"error": {"code": 404, "message": "Not found"}}
+    # An intermediary's HTML 404 (no provider envelope) is an unknown state,
+    # not "no active recording", even when the meeting itself exists.
+    request.side_effect = [
+        ProviderNotFoundError(status=404, provider_envelope=False),
+        ProviderResponse({'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}, 200),
+    ]
+    with pytest.raises(rc.ProviderUnavailable) as caught:
+        rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
+    assert not isinstance(caught.value, rc.ProviderRejected)
+    # A generic provider JSON 404 (not "No active recording") leaves the
+    # recording state unknown, even when the meeting itself exists.
+    request.side_effect = [
+        ProviderNotFoundError(status=404, provider_code=404, provider_envelope=True),
+        ProviderResponse({'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}, 200),
+    ]
+    with pytest.raises(rc.ProviderUnavailable):
+        rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
+    # A provider 404 whose own code disagrees is not proof either.
+    request.side_effect = [
+        ProviderNotFoundError(status=404, provider_code=7003, provider_envelope=True),
+    ]
     with pytest.raises(rc.ProviderUnavailable):
         rc.provider("GET", "recordings/active-recording/x", allow_empty=True)
 
@@ -291,9 +314,9 @@ def test_status_cache_has_no_row_lock_and_mutation_bypasses_and_invalidates_it(
 def test_provider_outage_opens_short_shared_circuit(mocker):
     cache.clear()
     request = mocker.patch.object(
-        rc.requests, "request", side_effect=requests.Timeout()
+        rc.DyteClient, "request", side_effect=rc.ProviderUnavailableError()
     )
-    with pytest.raises(requests.Timeout):
+    with pytest.raises(rc.ProviderUnavailable):
         rc.provider("GET", "recordings/active-recording/x")
     with pytest.raises(rc.ProviderUnavailable):
         rc.provider("GET", "recordings/active-recording/y")
@@ -526,4 +549,122 @@ def test_private_link_reports_terminal_recording_delivery_failure(private_room, 
     response = client.post(f'/api/dyte/{cm.creator.username}/private', {}, format='json')
     assert response.status_code == 409
     assert response.data['code'] == 'recording_delivery_failed'
+    create.assert_not_called()
+
+
+def test_private_link_recovers_confirmed_missing_provider_room(private_room, mocker):
+    """Exercise provider envelopes, the real rotation and delayed owner routing."""
+    from types import SimpleNamespace
+    from .client import _SESSION
+    from .models import RecordingDeliveryTarget
+
+    client, cm, old_recording_url = private_room
+    cm.live_now = False
+    cm.save(update_fields=['live_now'])
+    old_room, old_secret = cm.meeting_id, cm.secret
+    new_room = str(uuid.uuid4())
+
+    def answer(status, body):
+        return SimpleNamespace(status_code=status, json=lambda: body)
+
+    missing = answer(404, {'success': False, 'error': {
+        'code': 404, 'message': 'Meeting not found'}})
+    transport = mocker.patch.object(_SESSION, 'request', side_effect=[
+        missing, missing,
+        answer(200, {'success': True, 'data': []}),
+        answer(201, {'success': True, 'data': {'id': new_room}}),
+    ])
+    response = client.post(f'/api/dyte/{cm.creator.username}/private', {}, format='json')
+    assert response.status_code == 200
+    cm.refresh_from_db()
+    assert cm.meeting_id == new_room
+    assert cm.secret != old_secret
+    assert response.data == {'secret': cm.secret, 'e2ee': False}
+    assert client.get(old_recording_url).status_code == 404
+    target = RecordingDeliveryTarget.objects.get(provider_meeting_id=old_room)
+    assert (target.creator_id, target.creator_id_snapshot, target.creator_meeting_id,
+            target.meeting_type, target.is_public) == (
+                cm.creator_id, cm.creator_id, cm.pk, 'private', False)
+    assert [(c.args[0], c.args[1].split('/realtime/kit/')[1].split('/', 1)[1])
+            for c in transport.call_args_list] == [
+        ('GET', f'recordings/active-recording/{old_room}'),
+        ('GET', f'meetings/{old_room}'),
+        ('GET', 'meetings'), ('POST', 'meetings'),
+    ]
+
+
+@pytest.mark.parametrize('obligation', [
+    'pending', 'cached', 'delivery', 'session', 'live',
+    'start_id', 'private_lease_adopted_at', 'host_start_claim_at', 'last_seen_at',
+])
+def test_missing_private_room_keeps_known_recording_obligations(private_room, mocker, obligation):
+    from .models import RecordingDelivery
+    client, cm, _ = private_room
+    cm.live_now = obligation == 'live'
+    cm.provider_session_id = uuid.uuid4() if obligation == 'session' else None
+    if obligation == 'start_id':
+        cm.start_id = uuid.uuid4()
+    elif obligation in ('private_lease_adopted_at', 'host_start_claim_at', 'last_seen_at'):
+        setattr(cm, obligation, timezone.now())
+    cm.save()
+    old_room, old_secret = cm.meeting_id, cm.secret
+    if obligation == 'delivery':
+        RecordingDelivery.objects.create(idempotency_key=uuid.uuid4(), meeting_pk=cm.pk)
+    elif obligation in ('pending', 'cached'):
+        key = f'rtk-recording:{cm.meeting_id}' + (':pending' if obligation == 'pending' else '')
+        cache.set(key, str(uuid.uuid4()), 60)
+    mocker.patch.object(rc, 'provider', side_effect=rc.ProviderUnavailable())
+    request = mocker.patch.object(rc.DyteClient, 'request')
+    create = mocker.patch('dj.apps.dyte.views._create_meeting')
+    response = client.post(f'/api/dyte/{cm.creator.username}/private', {}, format='json')
+    assert response.status_code == 503
+    cm.refresh_from_db()
+    assert (cm.meeting_id, cm.secret) == (old_room, old_secret)
+    request.assert_not_called()
+    create.assert_not_called()
+
+
+@pytest.mark.parametrize('status,body', [
+    (200, {'success': True, 'data': {'id': '182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e'}}),
+    (404, {'success': False, 'error': {'code': 7003, 'message': 'Not found'}}),
+    (404, {'success': False, 'error': {'code': 404, 'message': 'No active session'}}),
+    (404, {}),
+    (401, {'success': False, 'error': {'code': 401}}),
+    (503, {'success': False, 'error': {'code': 503}}),
+])
+def test_private_rotation_refuses_unproven_missing_meeting(private_room, mocker, status, body):
+    from types import SimpleNamespace
+    from .client import _SESSION
+    client, cm, _ = private_room
+    cm.live_now = False
+    cm.save(update_fields=['live_now'])
+    mocker.patch.object(rc, 'provider', side_effect=rc.ProviderUnavailable())
+    transport = mocker.patch.object(_SESSION, 'request', return_value=SimpleNamespace(
+        status_code=status, json=lambda: body))
+    create = mocker.patch('dj.apps.dyte.views._create_meeting')
+    response = client.post(f'/api/dyte/{cm.creator.username}/private', {}, format='json')
+    assert response.status_code == 503
+    assert transport.call_count == 1
+    create.assert_not_called()
+
+
+@pytest.mark.parametrize('app_response', ['missing', 'invalid', 'timeout'])
+def test_private_rotation_requires_accessible_provider_application(private_room, mocker, app_response):
+    from types import SimpleNamespace
+    from .client import _SESSION
+    client, cm, _ = private_room
+    cm.live_now = False
+    cm.save(update_fields=['live_now'])
+    mocker.patch.object(rc, 'provider', side_effect=rc.ProviderUnavailable())
+    missing = SimpleNamespace(status_code=404, json=lambda: {
+        'success': False, 'error': {'code': 404, 'message': 'Meeting not found'}})
+    app = {
+        'missing': missing,
+        'invalid': SimpleNamespace(status_code=200, json=lambda: {'success': True, 'data': {}}),
+        'timeout': requests.ReadTimeout(),
+    }[app_response]
+    mocker.patch.object(_SESSION, 'request', side_effect=[missing, app])
+    create = mocker.patch('dj.apps.dyte.views._create_meeting')
+    response = client.post(f'/api/dyte/{cm.creator.username}/private', {}, format='json')
+    assert response.status_code == 503
     create.assert_not_called()
