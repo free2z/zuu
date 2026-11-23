@@ -24,8 +24,8 @@ You need at least **150 2Z credits** in your usage balance to start a livestream
 | Pay-per-view | Signed-in viewers with credits at the displayed price |
 | Private invitation | People with your invitation link |
 
-## Earn from qualifying PPV
+## Receive credits from pay-per-view
 
-Verified creators with accepted agreements and PPV service terms can earn USD owed by 2Z Inc. for qualifying delivered paid live services. Earnings appear separately from credits in Credits & Earnings and are paid in shielded Zcash. Starting a room or receiving a credit gift does not itself earn money.
+Pay-per-view adds the creator portion actually collected to your 2Z platform credit balance; the platform fee is separate. Receiving those credits does not require payout verification or a creator compensation agreement. Review your credit price per minute and the viewer balance requirement before starting.
 
-[Set up creator earnings](../revenue-sharing/index.md) before offering compensated services. Subscriber memberships use credits for access benefits.
+[Learn about credits and creator earnings](../revenue-sharing/index.md). Subscriber memberships use credits for access benefits.
