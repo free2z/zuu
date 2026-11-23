@@ -33,7 +33,7 @@ For any bonus offers displayed in Credits & Earnings, check the terms: the highe
 
 ## Creator earnings
 
-A verified creator can earn USD for qualifying delivered pay-per-view livestreams or SDK services under their accepted agreement and service terms. Credits & Earnings keeps those earnings separate from credits and shows the amount owed, reserved for payment, and available to request.
+Pay-per-view shares the collected creator portion as platform credits, without payout verification or a compensation agreement. A verified creator can earn separate USD for qualifying SDK services under accepted terms. Credits & Earnings keeps those earnings separate from credits and shows the amount owed, reserved for payment, and available to request.
 
 [Learn how creator earnings work](/revenue-sharing/).
 

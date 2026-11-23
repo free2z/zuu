@@ -78,7 +78,7 @@ def _run_count_probe_worker(shared_cache, first_started, release_first,
     import dj.apps.dyte.client as client_module
 
     client_module.cache = shared_cache
-    client = DyteClient("org")
+    client = DyteClient()
 
     def probe(_meeting_id):
         if result == 1:
@@ -99,7 +99,7 @@ def test_participant_count_is_cached_and_survives_a_probe_failure(mocker):
     probe = mocker.patch.object(
         DyteClient, "get_participants_count", return_value=4,
     )
-    client = DyteClient("org")
+    client = DyteClient()
 
     assert client.get_cached_participants_count(meeting_id) == 4
     assert client.get_cached_participants_count(meeting_id) == 4
@@ -119,7 +119,7 @@ def test_participant_count_cache_backend_errors_do_not_break_probe(mocker):
     mocker.patch("dj.apps.dyte.client.cache.get", side_effect=RuntimeError("cache down"))
     mocker.patch("dj.apps.dyte.client.cache.set", side_effect=RuntimeError("cache down"))
 
-    assert DyteClient("org").get_cached_participants_count(meeting_id) == 0
+    assert DyteClient().get_cached_participants_count(meeting_id) == 0
     probe.assert_called_once_with(meeting_id)
 
 
@@ -137,7 +137,7 @@ def test_concurrent_participant_count_misses_are_coalesced(mocker):
         return 2
 
     mocker.patch.object(DyteClient, "get_participants_count", side_effect=probe)
-    client = DyteClient("org")
+    client = DyteClient()
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(client.get_cached_participants_count, meeting_id)
         assert entered.wait(2)
@@ -290,10 +290,10 @@ def test_add_participant_uses_passed_meeting_without_owner_queries(
         meeting_type="broadcast", is_public=True, live_now=True,
     )
     response = Mock(status_code=200)
-    response.json.return_value = {"data": {"token": "token"}}
+    response.json.return_value = {"success": True, "data": {"id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e", "token": "token"}}
     post = mocker.patch("dj.apps.dyte.client._SESSION.post", return_value=response)
 
-    DyteClient("org").add_participant(viewer, cm.meeting_id, role="viewer", cm=cm)
+    DyteClient().add_participant(viewer, cm.meeting_id, role="viewer", cm=cm)
 
     assert post.call_count == 1
     assert post.call_args.kwargs["json"]["preset_name"] == "webinar-participant"

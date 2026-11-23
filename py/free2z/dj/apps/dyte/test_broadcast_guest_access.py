@@ -1,3 +1,4 @@
+import uuid
 from unittest.mock import Mock
 
 import pytest
@@ -26,12 +27,14 @@ def test_anonymous_viewer_can_join_a_live_broadcast(
         is_public=True,
         live_now=True,
     )
-    provider_response = Mock()
-    provider_response.json.return_value = {"data": {"token": "guest-token"}}
-    provider_response.text = "participant created"
+    def mint_guest(*args, **kwargs):
+        response = Mock()
+        response.json.return_value = {"data": {"token": "guest-token", "id": str(uuid.uuid4())}}
+        response.text = "participant created"
+        return response
     add_participant = mocker.patch(
         "dj.apps.dyte.views.DyteClient.add_participant",
-        return_value=provider_response,
+        side_effect=mint_guest,
     )
 
     response = api_client.post(
@@ -59,12 +62,14 @@ def test_guest_broadcast_join_has_a_tight_budget_isolated_from_polling(
         is_public=True,
         live_now=True,
     )
-    provider_response = Mock()
-    provider_response.json.return_value = {"data": {"token": "guest-token"}}
-    provider_response.text = "participant created"
+    def mint_guest(*args, **kwargs):
+        response = Mock()
+        response.json.return_value = {"data": {"token": "guest-token", "id": str(uuid.uuid4())}}
+        response.text = "participant created"
+        return response
     add_participant = mocker.patch(
         "dj.apps.dyte.views.DyteClient.add_participant",
-        return_value=provider_response,
+        side_effect=mint_guest,
     )
     mocker.patch(
         "dj.apps.dyte.views.DyteClient.get_participants_count",
@@ -166,3 +171,40 @@ def test_authenticated_host_cannot_create_an_unknown_public_meeting_type(
     assert response.status_code == 404
     assert not CreatorMeeting.objects.filter(creator=creator).exists()
     add_participant.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('expires_in', [1, -1])
+def test_subscriber_admission_uses_resolved_creator_identity(
+    api_client, creator_factory, mocker, expires_in,
+):
+    from datetime import timedelta
+    from django.utils import timezone
+    from dj.apps.g12f.models import Subscription
+
+    owner = creator_factory(username='SubscriberHost')
+    fan = creator_factory(username='subscriber-viewer')
+    CreatorMeeting.objects.create(
+        creator=owner, meeting_id='subscriber-identity-room',
+        meeting_type='subscribers-only', is_public=True, live_now=True,
+    )
+    Subscription.objects.create(
+        star=owner, fan=fan, expires=timezone.now() + timedelta(days=expires_in),
+    )
+    provider_response = Mock(status_code=200)
+    provider_response.json.return_value = {'data': {'token': 'subscriber-token', 'id': str(uuid.uuid4())}}
+    add_participant = mocker.patch(
+        'dj.apps.dyte.views.DyteClient.add_participant', return_value=provider_response,
+    )
+    api_client.force_authenticate(fan)
+    response = api_client.post(
+        '/api/dyte/subscriberhost/subscribers-only', {'role': 'viewer'}, format='json',
+    )
+    if expires_in > 0:
+        assert response.status_code == 200
+        assert response.data['auth_token'] == 'subscriber-token'
+        assert add_participant.call_args.kwargs['role'] == 'viewer'
+    else:
+        assert response.status_code == 402
+        assert response.data['code'] == 'subscription_required'
+        add_participant.assert_not_called()

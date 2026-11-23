@@ -7,7 +7,7 @@ from dj.apps.economy.models import CompensationSchedule, EconomicPolicy
 
 
 class Command(BaseCommand):
-    help = 'Validate current canonical PPV/SDK schedules. --apply publishes missing metadata only.'
+    help = 'Validate prospective canonical SDK schedule. --apply publishes missing metadata only.'
 
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true')
@@ -20,7 +20,7 @@ class Command(BaseCommand):
             EconomicPolicy.objects.select_for_update(nowait=True).get(id=True)
             now=services._db_now()
             missing=[]
-            for resource in contracts.SERVICE_SCHEDULES.values():
+            for resource in contracts.prospective_schedules():
                 row=CompensationSchedule.objects.filter(service=resource['service'],version=resource['version']).first()
                 expected=(resource['contract_version'],resource['rate_nusd_per_allocated_m2z'],resource['digest'])
                 if row is not None:
