@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Radio, Loader2, LogIn } from "lucide-react";
 import { toast } from "sonner";
@@ -14,8 +14,9 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { live } from "@/lib/api/free2z";
+import { live, ppvPrice } from "@/lib/api/free2z";
 import { ApiError } from "@/lib/api/http";
+import { releaseHostSeat } from "@/lib/api/host-seat";
 import { useSession } from "@/store/session";
 import {
   formatTuzis,
@@ -41,6 +42,8 @@ export function GoLiveDialog() {
   const [price, setPrice] = useState("100");
   const [starting, setStarting] = useState(false);
   const startInFlight = useRef(false);
+  const attempt = useRef(0);
+  useEffect(() => () => { attempt.current += 1; }, [user?.id, user?.username]);
   const preflight = useMediaPreflight({ active: open });
 
   const priceResult = validateTuzis(price, {
@@ -64,6 +67,7 @@ export function GoLiveDialog() {
     )
       return;
     startInFlight.current = true;
+    const currentAttempt = ++attempt.current;
     setStarting(true);
     try {
       const { ticket, inviteSecret } = await startAfterMediaConfirmation({
@@ -73,12 +77,16 @@ export function GoLiveDialog() {
           live.start(kind, {
             title: title.trim(),
             ...(kind === "ppv" && priceNum !== null
-              ? { pricePerMinute: priceNum.toFixed(2) }
+              ? { pricePerMinute: priceNum }
               : {}),
           }),
       });
+      if (attempt.current !== currentAttempt) {
+        if (ticket.hostSeat) releaseHostSeat(ticket.hostSeat);
+        return;
+      }
       const username = user?.username || "you";
-      toast.success("You're live", {
+      toast.success("Opening your stream", {
         description: title.trim(),
       });
       setOpen(false);
@@ -95,12 +103,13 @@ export function GoLiveDialog() {
               inviteSecret,
               kind,
               title: title.trim(),
-              price_tuzis: kind === "ppv" ? priceNum : 0,
+              price_tuzis: kind === "ppv" ? ppvPrice(`${priceNum}.00`) : 0,
             },
           },
         },
       );
     } catch (e) {
+      if (attempt.current !== currentAttempt) return;
       // Defense-in-depth: even though the control is auth-gated below, a session
       // can expire between load and submit. Intercept the auth failure with a
       // friendly redirect instead of surfacing the raw backend 401 text
@@ -123,7 +132,10 @@ export function GoLiveDialog() {
   }
 
   function handleOpenChange(nextOpen: boolean) {
-    if (!nextOpen) preflight.release();
+    if (!nextOpen) {
+      attempt.current += 1;
+      preflight.release();
+    }
     setOpen(nextOpen);
   }
 
@@ -212,7 +224,7 @@ export function GoLiveDialog() {
 
           {kind === "ppv" ? (
             <div className="space-y-2">
-              <Label htmlFor="go-live-price">Join price (2Z)</Label>
+              <Label htmlFor="go-live-price">Price per minute (2Z)</Label>
               <Input
                 id="go-live-price"
                 type="text"
@@ -224,17 +236,15 @@ export function GoLiveDialog() {
                 aria-describedby="go-live-price-error go-live-price-summary"
                 aria-invalid={!validPrice}
               />
-              <p
-                id="go-live-price-summary"
-                className="text-xs text-muted-foreground"
-              >
-                Viewers spend{" "}
+              <p id="go-live-price-summary" className="text-xs text-muted-foreground">
+                Viewers pay{" "}
                 <span className="font-medium text-warning bidi-number tabular-nums">
                   {priceNum !== null && priceNum > 0
                     ? formatTuzis(priceNum)
                     : "—"}
                 </span>{" "}
-                to join.
+                per minute. The initial 30-minute admission costs{" "}
+                {priceNum !== null && priceNum > 0 ? formatTuzis(ppvPrice(`${priceNum}.00`)) : "—"} 2Z, including the platform fee.
               </p>
               <p
                 id="go-live-price-error"

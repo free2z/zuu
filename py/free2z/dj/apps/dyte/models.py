@@ -1,6 +1,9 @@
 import uuid
 from django.db import models
 from django.utils import timezone
+from django.db.models.functions import Now
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import DateTimeRangeField, RangeOperators
 
 # Meeting type constants
 BROADCAST = 'broadcast'
@@ -27,6 +30,73 @@ MEETING_TYPES = tuple(value for value, _ in MEETING_TYPE_CHOICES)
 # matched ahead of `<type>` in urls.py, so `private` never reaches
 # DyteMeeting anyway.
 PUBLIC_MEETING_TYPES = (BROADCAST, PAY_PER_VIEW, SUBSCRIBERS_ONLY)
+
+
+class PpvCreditAdmission(models.Model):
+    """Immutable original offer for credit sharing, with no cash-payable link."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    host = models.ForeignKey('g12f.Creator', models.PROTECT, related_name='+')
+    viewer = models.ForeignKey('g12f.Creator', models.PROTECT, related_name='+')
+    viewer_account_epoch = models.PositiveBigIntegerField()
+    idempotency_key = models.UUIDField()
+    app_id = models.UUIDField()
+    meeting_id = models.CharField(max_length=64)
+    creator_meeting_id = models.BigIntegerField()
+    provider_session_id = models.UUIDField()
+    provider_session_started_at = models.DateTimeField()
+    host_session_id = models.UUIDField()
+    price_per_minute = models.DecimalField(max_digits=6, decimal_places=2)
+    pricing_version = models.PositiveSmallIntegerField(default=1)
+    admitted_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['viewer', 'idempotency_key'], name='dyte_ppv_credit_join_identity'),
+            models.CheckConstraint(condition=models.Q(price_per_minute__gt=0, pricing_version=1)
+                & ~models.Q(host=models.F('viewer')), name='dyte_ppv_credit_offer'),
+        ]
+
+
+class PpvCreditObservation(models.Model):
+    """Authenticated delivery evidence retained independently of credit issuance."""
+    provider_key = models.CharField(max_length=64, primary_key=True)
+    admission = models.ForeignKey(PpvCreditAdmission, models.PROTECT)
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(db_default=Now())
+    attempts = models.PositiveIntegerField(default=0)
+    next_retry_at = models.DateTimeField(default=timezone.now)
+    completed_at = models.DateTimeField(null=True)
+    review_required_at = models.DateTimeField(null=True)
+    last_error = models.CharField(max_length=64, blank=True, default='')
+
+    class Meta:
+        indexes = [models.Index(fields=['completed_at','next_retry_at'], name='dyte_credit_recovery_due')]
+
+
+class PpvCreditDelivery(models.Model):
+    """Original collected credits and ledger references for one provider interval."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    admission = models.ForeignKey(PpvCreditAdmission, models.PROTECT)
+    provider_key = models.CharField(max_length=240, unique=True)
+    cohort = models.CharField(max_length=240)
+    interval = DateTimeRangeField()
+    platform_collected_m2z = models.BigIntegerField()
+    creator_collected_m2z = models.BigIntegerField()
+    creator_credited_m2z = models.BigIntegerField()
+    creator_debt_repaid_m2z = models.BigIntegerField()
+    evidence = models.JSONField()
+    created_at = models.DateTimeField(db_default=Now())
+
+    class Meta:
+        constraints = [
+            ExclusionConstraint(name='dyte_ppv_credit_nonoverlap', expressions=[
+                ('cohort', RangeOperators.EQUAL), ('interval', RangeOperators.OVERLAPS)]),
+            models.CheckConstraint(condition=models.Q(platform_collected_m2z__gte=0,
+                creator_collected_m2z__gte=0, creator_credited_m2z__gte=0,
+                creator_debt_repaid_m2z__gte=0,
+                creator_collected_m2z=models.F('creator_credited_m2z') + models.F('creator_debt_repaid_m2z')),
+                name='dyte_ppv_credit_conservation'),
+        ]
 
 LIFECYCLE_OFFLINE = 'offline'
 LIFECYCLE_STARTING = 'starting'
@@ -57,7 +127,13 @@ class CreatorMeeting(models.Model):
     creator = models.ForeignKey(
         'g12f.Creator', on_delete=models.CASCADE, related_name="meetings"
     )
-    meeting_id = models.CharField(max_length=64, unique=True)
+    # Until the provider returns its generated room ID, this row has no
+    # provider identity. NULL keeps concurrent pending rooms distinct under
+    # the unique constraint; an empty string is a real, globally unique value
+    # and can block unrelated creators after a failed create.
+    meeting_id = models.CharField(
+        max_length=64, unique=True, null=True, blank=True, default=None,
+    )
     meeting_type = models.CharField(
         max_length=20, choices=MEETING_TYPE_CHOICES, default=SUBSCRIBERS_ONLY)
     is_public = models.BooleanField(default=True)
@@ -86,6 +162,26 @@ class CreatorMeeting(models.Model):
     start_id = models.UUIDField(null=True, blank=True, editable=False)
     provider_session_id = models.UUIDField(null=True, blank=True, editable=False)
     provider_session_started_at = models.DateTimeField(
+        null=True, blank=True, editable=False,
+    )
+    # Authenticated provider presence for the current start/session. An HTTP
+    # heartbeat proves tab ownership, not that its SDK remains in the room.
+    # Retain a departed peer's join/leave timestamps so a delayed duplicate
+    # join cannot reopen paid admission. Nullable for old-pod INSERTs; absence
+    # of provider evidence never establishes paid-admission readiness.
+    host_peer_id = models.UUIDField(null=True, blank=True, editable=False)
+    host_joined_at = models.DateTimeField(null=True, blank=True, editable=False)
+    host_left_at = models.DateTimeField(null=True, blank=True, editable=False)
+    # Written only when a signed host start is adopted. A prior application
+    # can replace host_participant_id without knowing these presence fields;
+    # that mismatch invalidates the old proof, including delayed callbacks.
+    host_presence_participant_id = models.CharField(
+        max_length=128, null=True, blank=True, editable=False,
+    )
+    # Older callbacks can advance the room session without clearing presence.
+    # Bind the proof to the exact provider session it actually observed.
+    host_presence_session_id = models.UUIDField(null=True, blank=True, editable=False)
+    host_presence_session_started_at = models.DateTimeField(
         null=True, blank=True, editable=False,
     )
     # Private room creation is a lease: the provider room can be attached
@@ -206,6 +302,29 @@ class CreatorMeeting(models.Model):
         self.secret = uuid.uuid4()
         self.save()
         return self.secret
+
+
+class ProviderParticipantBinding(models.Model):
+    """Immutable attribution recorded before a public participant token leaves."""
+
+    app_id = models.UUIDField()
+    meeting_id = models.CharField(max_length=64)
+    participant_id = models.CharField(max_length=128)
+    creator = models.ForeignKey('g12f.Creator', on_delete=models.PROTECT, related_name='+')
+    actor = models.ForeignKey('g12f.Creator', on_delete=models.PROTECT, related_name='+', null=True)
+    role = models.CharField(max_length=6, choices=[('host', 'Host'), ('viewer', 'Viewer')])
+    custom_participant_id = models.CharField(max_length=255)
+    start_claim = models.UUIDField(null=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['app_id', 'meeting_id', 'participant_id'], name='dyte_participant_binding_identity'),
+            models.CheckConstraint(condition=(
+                models.Q(role='host', actor=models.F('creator'), actor__isnull=False, start_claim__isnull=False)
+                | models.Q(role='viewer', start_claim__isnull=True)
+            ), name='dyte_participant_binding_role'),
+        ]
 
 
 class ProviderRoomCleanup(models.Model):

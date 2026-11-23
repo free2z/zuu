@@ -70,6 +70,16 @@ jobs:
               output.write(data)
           subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
           PY
+      - name: Explain safe workflow retry
+        if: github.run_attempt > 1
+        run: |
+          message="Workflow attempt ${{ github.run_attempt }} has attempt-bound image and task-registry artifacts. For mixed job results, open the original Actions run and choose Re-run jobs -> Re-run all jobs (not Re-run failed jobs). Do not select or rename artifacts across attempts."
+          echo "::warning::$message"
+          {
+            echo '## Safe workflow retry'
+            echo
+            echo "$message"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
         with:
           persist-credentials: false
@@ -180,6 +190,16 @@ jobs:
               output.write(data)
           subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
           PY
+      - name: Explain safe workflow retry
+        if: github.run_attempt > 1
+        run: |
+          message="Workflow attempt ${{ github.run_attempt }} has attempt-bound image and task-registry artifacts. For mixed job results, open the original Actions run and choose Re-run jobs -> Re-run all jobs (not Re-run failed jobs). Do not select or rename artifacts across attempts."
+          echo "::warning::$message"
+          {
+            echo '## Safe workflow retry'
+            echo
+            echo "$message"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
         with:
           persist-credentials: false
