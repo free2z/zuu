@@ -1,57 +1,37 @@
-# Free2Z MCP: use your account from Claude, Codex, or Grok
+# Free2Z MCP: your accounts, your assistant
 
-[Free2Z MCP](https://github.com/free2z/zuu/tree/main/ts/free2z/mcp) connects your
-AI assistant to your Free2Z account. Ask it to find pages, prepare a draft,
-update an article, organize uploads, or inspect your account. It discovers the
-available API operations, reads their requirements, and carries out the actions
-you request.
+Free2Z MCP lets an assistant work with the accounts you authorize: find pages, prepare drafts, edit your public profile, upload media and publish content when you ask. MCP is the Model Context Protocol, the interface assistants use to discover and call tools.
 
-MCP stands for Model Context Protocol, a standard for connecting AI assistants
-to tools. The Free2Z server runs on your computer and talks to Free2Z over HTTPS.
-It works with local MCP clients including Claude Code, Codex, and Grok Build.
-You can use the same account connection from whichever of these clients you
-prefer.
+On a Free2Z deployment with hosted MCP enabled, add its `/api/mcp` address to your client and authorize access in your browser. Free2Z hosts the server. The [setup guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md) covers deployment availability, client configuration and the capabilities verified with Codex, Claude Code and Grok Build. It also explains the required transport and authorization support for OpenClaw and other interfaces.
 
-## What to try
+One connection can use several accounts. Connect as `foobar`, ask to add `baz`, then sign in as `baz` in the browser and approve that specific delegation. Every action selects its account explicitly; switching the browser's login does not switch the assistant's account. You can grant fewer permissions to a linked account and remove its access independently.
 
-> Find my unpublished zPages and show me their titles and links.
+Try a draft:
 
-> Turn these project notes into a zPage draft. Keep it unpublished, read it back,
-> and give me the draft link.
+> Using Free2Z account baz, turn these project notes into a zPage draft. Keep it unpublished, read it back and give me the link.
 
-> Upload this diagram as private media and show me its ID and URL.
+Uploads use the same authorized connection. A client with file and HTTP tools can transfer an image and attach its media ID to a page; an interface without those tools can use existing media. Choose the audience explicitly: a featured image must be public, even when its page is private.
 
-> Read my article, update its title, and preserve the rest of its content.
+Draft creation leaves the page unpublished. Publishing is a separate action, and editing public content requires publication permission. Review your client's tool approvals and check [Connected apps](https://free2z.cash/account/apps) to see delegated accounts, recent activity or remove access.
 
-The tools cover the public Free2Z API: pages, profiles, comments, follows,
-subscriptions, translations, and more. Media uploads use your signed-in browser
-session. Public reads need no credential; account operations use a saved session
-or API token.
+Free2Z's normal balance requirements and upload limits apply to the selected account. The hosted tools focus on pages, public profiles and media. They do not hold wallet keys, transfer money or change account credentials. Browse the [source](https://github.com/free2z/zuu/tree/main/py/free2z) and [connection guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md), or try it with an unpublished draft.
 
-Your account's permissions and Free2Z's pricing rules apply. Publishing makes a
-page public. Paid operations use the account's balance. The server does not
-hold wallet keys or bypass access controls. Tell your assistant which actions
-you want it to take and use your client's tool approvals accordingly.
+## Event-kind controls
 
-## Get started
+The existing `zpage_first_published` and `comment_created` producers each have
+an independent enable switch and hourly, daily, and per-creator hourly limits.
+The worker checks the switch again immediately before moving a row to `posting`;
+turning a kind off suppresses queued work of that kind. The existing global
+hourly, daily, and per-creator caps remain an additional ceiling. Per-kind cap
+environment variables default to the corresponding resolved global cap, so
+existing deployments retain their configured capacity unless they set a
+per-kind override. A zero cap disables posting for that kind at that limit.
 
-You need Node.js 22 or later and a local MCP client:
+| Kind | Enable | Hourly | Daily | Per-creator hourly |
+|---|---|---|---|---|
+| First zPage publication | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_ENABLED` | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_HOURLY_CAP` | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_DAILY_CAP` | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_AUTHOR_HOURLY_CAP` |
+| New comment | `F2ZP2P_COMMENT_CREATED_ENABLED` | `F2ZP2P_COMMENT_CREATED_HOURLY_CAP` | `F2ZP2P_COMMENT_CREATED_DAILY_CAP` | `F2ZP2P_COMMENT_CREATED_AUTHOR_HOURLY_CAP` |
 
-```sh
-git clone https://github.com/free2z/zuu.git
-cd zuu/ts/free2z/mcp
-npm ci
-npm test
-node dist/cli.js --check
-```
-
-Follow the [setup guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md)
-to connect your account and register the server with Claude Code, Codex, or
-Grok Build. The guide includes credential storage, upload examples, pagination,
-and checks for concurrent edits.
-
-This is a local stdio server, not a hosted MCP URL for the chat websites.
-The source is open, the package is MIT licensed, and installation from source
-does not require an npm registry release.
-
-Try it with a draft. [Report a reproducible problem or propose an improvement](https://github.com/free2z/zuu/issues).
+The owner diagnostic canary (`force_live`) intentionally bypasses both kind
+switches and rate caps; it remains an explicitly privileged operator path.
+No account-welcome or generated-art producer is included in this controls change.

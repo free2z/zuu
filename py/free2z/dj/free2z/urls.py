@@ -1,4 +1,5 @@
 import os
+from dj.apps.mcpserver import downloads as mcp_downloads
 from django import http
 from django.urls import path, include, re_path, register_converter
 from django.conf.urls.static import static
@@ -25,6 +26,8 @@ from dj.apps.health import views as healthviews
 from dj.apps.uploads import views as uploadsviews
 from dj.apps.uploads import limits as uploadslimits
 from dj.apps.oidc import views as oidc_views
+from dj.apps.mcpserver import views as mcp_views
+from dj.apps.mcpserver import uploads as mcp_uploads
 from dj.apps.openai import views as oaiviews
 from dj.apps.storytime import views as storyviews
 from dj.apps.comments.reports import ContentReportCreate
@@ -196,6 +199,14 @@ def e404(request):
 
 
 urlpatterns = [
+    path('api/mcp', mcp_views.mcp_endpoint, name='mcp'),
+    path('api/mcp/', mcp_views.mcp_endpoint, name='mcp_slash'),
+    path('api/mcp/exports/<uuid:export_id>', mcp_downloads.download_export, name='mcp_export_binary'),
+    path('api/mcp/downloads/<int:upload_id>', mcp_downloads.download_binary, name='mcp_download_binary'),
+    path('api/mcp/uploads/authorize', mcp_uploads.authorize_upload, name='mcp_upload_authorize'),
+    path('api/mcp/uploads/<uuid:upload_id>', mcp_uploads.upload_binary, name='mcp_upload_binary'),
+    path('.well-known/oauth-protected-resource/api/mcp', mcp_views.protected_resource_metadata, name='mcp_protected_resource_metadata'),
+    path('.well-known/oauth-authorization-server', mcp_views.authorization_server_metadata, name='mcp_authorization_server_metadata'),
     # Dependency check for MONITORING, not for kubelet. It runs a SELECT 1;
     # a kubelet probe pointed here would fail on every replica at once the
     # moment Cloud SQL hiccups. The kubelet startupProbes use

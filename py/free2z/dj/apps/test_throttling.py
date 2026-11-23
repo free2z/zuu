@@ -1185,6 +1185,8 @@ ANON_SCOPE_INVENTORY = {
     # scopes, both fail-closed (credential endpoints), both isolated from
     # the sign-in and recovery buckets per.
     "dj.apps.oidc.views.AuthorizeView": {"anon-oidc-authorize"},
+    # Public DCR creates credential records: fail-closed, ten requests/hour/IP.
+    "dj.apps.oidc.mcp_views.MCPRegisterView": {"mcp-registration"},
     "dj.apps.oidc.views.TokenView": {"anon-oidc-token"},
     "dj.apps.oidc.views.RevokeView": {"anon-oidc-token"},
     "dj.apps.oidc.views.IntrospectView": {"anon-oidc-token"},

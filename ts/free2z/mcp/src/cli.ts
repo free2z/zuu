@@ -4,13 +4,16 @@ import { createServer } from "./server.js";
 import { loadConfig, safeConfig } from "./config.js";
 import { operations } from "./catalog.js";
 const args = process.argv.slice(2);
-if (args.length === 1 && args[0] === "--version") console.log("0.1.0");
+if (args.length === 1 && args[0] === "--version") console.log("0.2.0");
 else if (args.length === 1 && args[0] === "--help")
   console.log(`free2z-mcp [--help | --version | --check]
 Without arguments, serves Model Context Protocol over stdio.
 --check validates configuration and bundled catalog without network requests.
 FREE2Z_BASE_URL: HTTPS origin; default https://free2z.cash
 Configure exactly one credential source, or omit all for public reads:
+  FREE2Z_ACCOUNTS_FILE: private registry {"accounts":{"alias":{"username":"expected-user","session_file":"/absolute/session.json"}}}
+    Each read/execute requires account; registry and selected credentials reload per call.
+    token_file may replace session_file. Identity must match before the operation.
   FREE2Z_TOKEN: raw Knox token
   FREE2Z_TOKEN_FILE: private file containing raw Knox token
   FREE2Z_SESSION_FILE: private JSON {"sessionid":"...","csrftoken":"..."}

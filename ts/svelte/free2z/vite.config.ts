@@ -153,12 +153,22 @@ export default defineConfig({
   // these entries with SvelteKit's application route entries.
   optimizeDeps: {
     entries: ["tests/browser/*fixture.svelte"],
+    // Bare packages that the dependency scan does not discover must be listed
+    // here. Vite's import analysis still sees them the first time a module that
+    // imports them is transformed, then re-bundles and FULL-RELOADS every open
+    // page ("optimized dependencies changed. reloading"). `mermaid` is only a
+    // dynamic `import("mermaid")` inside MarkdownContent.svelte, which the scan
+    // misses; the first cold page that compiled it (the editor, /converse, the
+    // billing notification feed) reloaded under the test and lost its typed
+    // state, failing the first attempt of a spec in most browser shards.
+    // tests/vite-optimize-deps.test.mjs keeps this list complete.
     include: [
       "@lucide/svelte",
       "@lucide/svelte/icons/arrow-right",
       "bits-ui",
       "embla-carousel-svelte",
       "embla-carousel",
+      "mermaid",
     ],
   },
   build: {
@@ -189,6 +199,18 @@ export default defineConfig({
       allow: [fileURLToPath(new URL("./", import.meta.url))],
     },
     proxy: {
+      "/.well-known": {
+        target: devApiProxyTarget,
+        changeOrigin: false,
+        secure: false,
+      },
+      // MCP validates the canonical resource Host. Preserve the browser-facing
+      // development origin instead of replacing it with the backend port.
+      "/api/mcp": {
+        target: devApiProxyTarget,
+        changeOrigin: false,
+        secure: false,
+      },
       "/api": {
         target: devApiProxyTarget,
         changeOrigin: true,

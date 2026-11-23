@@ -1,21 +1,18 @@
-# Creator earnings
+# Creator credits and earnings
 
-Turn your livestreams and apps into real earnings. Share a performance, teach something useful, or build an application people love. For qualifying services you deliver, your earnings are **USD owed by 2Z Inc.**, paid to your authorized shielded Zcash address.
+Pay-per-view livestreams, subscriptions, and credit gifts provide **2Z platform credits**. You can spend or share these credits within Free2Z. Receiving them does not require payout verification or a creator compensation agreement, and the credit balance has no cash-out option.
 
-Apply, get approved, and accept the terms for your service before offering compensated work. Your payee and contribution must qualify for the service you want to deliver.
+For pay-per-view, viewers pay the displayed credit rate for their viewing time. The creator receives the creator portion actually collected; the platform fee is separate. Check the rate and required viewer balance in the stream controls.
 
-People use 2Zs to unlock a paid livestream or use a supported app service. For qualifying services you deliver as an approved creator, Free2Z records your agreed compensation in the separate USD earnings balance.
+Approved SDK application contributions can earn separate **USD compensation owed by 2Z Inc.**, paid to an authorized shielded Zcash address under accepted terms. The setup and payment instructions below apply to that compensation. Recorded USD obligations, including historical PPV earnings, remain payable under their accepted terms.
 
 ## What earns compensation?
 
-Two activities qualify under the creator agreement:
-
-- **Paid livestreams:** the qualifying pay-per-view access you deliver to viewers.
-- **SDK applications:** an approved, licensed app contribution that delivers a qualifying service through Free2Z, with its agreed customer-facing markup.
+An approved, licensed **SDK application contribution** can qualify when it delivers a service through Free2Z with its agreed customer-facing markup.
 
 Before offering a compensated service, complete payee verification and read and accept the creator agreement and the service’s terms in Credits & Earnings. These describe your contribution, delivery responsibilities, how compensation is calculated, and payment timing. Confirm that Credits & Earnings shows your account is ready for creator compensation, and complete the service’s approval requirements before offering it.
 
-Sharing 2Zs and subscriptions provide platform credits and membership benefits. They do not create USD earnings.
+Pay-per-view credit sharing, credit gifts, and subscriptions provide platform credits and access benefits. They do not create USD earnings.
 
 ## Credits and earnings in everyday terms
 

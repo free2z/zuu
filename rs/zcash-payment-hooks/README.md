@@ -52,8 +52,14 @@ Build from the repository root using its shared Rust toolchain:
 
 ```sh
 cargo test --locked --manifest-path rs/zcash-payment-hooks/Cargo.toml
+cargo test --locked --release --manifest-path rs/zcash-payment-hooks/Cargo.toml --test handoff streamed_handoff_covers_real_history_above_all_former_ceilings -- --exact
 cargo build --locked --release --manifest-path rs/zcash-payment-hooks/Cargo.toml
 ```
+
+The second command checks complete handoff coverage for a 13,000-receipt,
+52,000-event journal against the release build's memory and time limits. CI
+requires this resource acceptance case separately; debug tests omit it because
+unoptimized execution does not represent the daemon's throughput.
 
 Choose a private directory owned by the daemon user. Put your **UFVK**, never a
 seed or spending key, in `receiver.ufvk` with mode `0600`. Copy

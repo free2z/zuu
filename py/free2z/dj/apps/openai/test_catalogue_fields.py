@@ -32,7 +32,7 @@ from f2z.ai.providers import ANTHROPIC, KIMI, OPENAI, XAI
 
 pytestmark = pytest.mark.django_db
 
-NEW_COLUMNS = {"provider_model_id", "api_style", "ttfb_timeout_ms", "idle_timeout_ms", "safety_factor_bps",
+NEW_COLUMNS = {"price_checked_at", "price_valid_until", "provider_model_id", "api_style", "ttfb_timeout_ms", "idle_timeout_ms", "safety_factor_bps",
                "supports_tools", "supports_vision", "supports_reasoning",
                "supports_structured_output", "supports_strict_tools", "supports_forced_tool_choice",
                "supports_reasoning_effort", "reasoning_effort_levels", "tools_require_effort_none",
@@ -92,6 +92,8 @@ def test_an_old_pods_insert_still_succeeds_and_gets_the_defaults():
     # NULL is "not declared", which is what an old pod leaves behind.
     assert row.sampling_temperature is None
     assert row.sampling_top_p is None
+    assert row.price_checked_at is None
+    assert row.price_valid_until is None
     assert row.effective_api_style == "anthropic_messages"
     assert row.upstream_model_id == "old-pod-model"
 
@@ -250,7 +252,7 @@ def test_tools_declaration_mirrors_the_seed_and_never_strict_without_tools():
     assert {m for p, m, *_ in seed_ai_models.LINEUP
             if p == OPENAI and (OPENAI, m) not in set(migration.TOOL_MODELS)} == {
         "gpt-5.5", "gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra",
-        "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol"}
+        "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-6.1-terra"}
 
 
 def test_the_seed_command_declares_tools_on_create_only():
@@ -320,8 +322,17 @@ def test_reasoning_effort_declaration_mirrors_the_seed_and_the_vocabulary():
     from dj.apps.openai.models import REASONING_EFFORT_LEVELS
 
     migration = importlib.import_module(_0028)
-    assert {k: tuple(v) for k, v in migration.REASONING_EFFORT_LEVELS.items()} == {
+    additions = {
+        (OPENAI, "gpt-6.1-terra"): ("none", "low", "medium", "high", "xhigh", "max"),
+        (XAI, "grok-4.6"): ("low", "medium", "high", "xhigh"),
+        (XAI, "grok-4.7"): ("low", "medium", "high", "xhigh"),
+    }
+    historical = {k: tuple(v) for k, v in migration.REASONING_EFFORT_LEVELS.items()}
+    assert {**historical, **additions} == {
         k: tuple(v) for k, v in seed_ai_models.REASONING_EFFORT_LEVELS.items()}
+    latest = importlib.import_module("dj.apps.openai.migrations.0036_seed_lineup_v4")
+    for (_, name), levels in additions.items():
+        assert tuple(latest.CAPABILITIES[name]["reasoning_effort_levels"]) == levels
     lineup = {(p, m) for p, m, *_ in seed_ai_models.LINEUP}
     assert set(migration.REASONING_EFFORT_LEVELS) <= lineup
     assert {p for p, _ in migration.REASONING_EFFORT_LEVELS} == {OPENAI, XAI}

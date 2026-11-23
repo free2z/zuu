@@ -122,7 +122,7 @@ export async function execute(
     );
   if (op.sessionOnly && !config.session)
     throw new Error(
-      "This upload endpoint requires FREE2Z_SESSION_FILE; a Knox token cannot authenticate the legacy Django upload handler.",
+      "This upload endpoint requires FREE2Z_SESSION_FILE or a session_file account profile; a Knox token cannot authenticate the legacy Django upload handler.",
     );
   const params = op.spec.parameters ?? [];
   if (

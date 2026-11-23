@@ -103,7 +103,7 @@ def _legacy_recording_payload(cm):
 
 
 def _post(client, private_key, body, event_id, *, url=WEBHOOK_URL,
-          drain=True, **headers):
+          drain=True, participant_evidence='fixture', **headers):
     """POST one signed delivery, then run the outbox relay.
 
     Publication is no longer synchronous with the request: the handler
@@ -121,9 +121,28 @@ def _post(client, private_key, body, event_id, *, url=WEBHOOK_URL,
         'HTTP_DYTE_UUID': str(event_id),
     }
     request_headers.update(headers)
-    response = client.post(
-        url, data=body, content_type='application/json', **request_headers,
-    )
+    if participant_evidence == 'fixture' and url == WEBHOOK_URL:
+        # Existing lifecycle/ledger tests stub provider role reads. Dedicated
+        # identity tests pass their own evidence or use the real HTTP adapter.
+        from datetime import datetime
+        from dj.apps.dyte.models import ProviderParticipantBinding
+        data = json.loads(body)
+        participant = data.get('participant')
+        if participant is not None:
+            identity = participant.get('customParticipantId', participant.get('clientSpecificId'))
+            binding = ProviderParticipantBinding.objects.filter(
+                meeting_id=data['meeting']['id'], custom_participant_id=identity).order_by('-pk').first()
+            participant_evidence = {'user_id': binding.participant_id if binding else uuid.uuid4(),
+                'role': binding.role if binding else 'viewer',
+                'custom_participant_id': identity,
+                'joined_at': (datetime.fromisoformat(participant['joinedAt'].replace('Z', '+00:00'))
+                    if participant.get('joinedAt') else None)}
+    if isinstance(participant_evidence, dict):
+        with patch('dj.apps.dyte.participant_binding.DyteClient') as provider_identity:
+            provider_identity.return_value.get_session_participant.return_value = participant_evidence
+            response = client.post(url, data=body, content_type='application/json', **request_headers)
+    else:
+        response = client.post(url, data=body, content_type='application/json', **request_headers)
     if drain:
         from dj.apps.jobs import outbox
         outbox.drain()
@@ -622,6 +641,28 @@ def test_legacy_recording_duplicate_publishes_once(
 
     assert publish.call_count == 1
     assert WebhookDelivery.objects.get().endpoint == 'recording-legacy'
+
+
+@pytest.mark.django_db
+def test_legacy_recording_claim_and_outbox_roll_back_together(
+    api_client, creator_factory, keypair, mocker,
+):
+    from django.db import connection
+    from dj.apps.dyte import views
+    from dj.apps.jobs.models import OutboxMessage
+    cm = CreatorMeeting.objects.create(creator=creator_factory(), meeting_id=str(uuid.uuid4()))
+    original = views.publish_recording_ready
+    def fail_after_outbox(*args, **kwargs):
+        assert connection.in_atomic_block
+        original(*args, **kwargs)
+        raise RuntimeError('synthetic recording failure')
+    mocker.patch.object(views, 'publish_recording_ready', side_effect=fail_after_outbox)
+    event_id = uuid.uuid4()
+    with pytest.raises(RuntimeError, match='synthetic recording failure'):
+        _post(api_client, keypair[0], _legacy_recording_payload(cm), event_id,
+            url=LEGACY_URL, drain=False)
+    assert not WebhookDelivery.objects.filter(pk=event_id).exists()
+    assert not OutboxMessage.objects.exists()
 
 
 @pytest.mark.django_db

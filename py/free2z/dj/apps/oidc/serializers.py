@@ -17,6 +17,7 @@ class AuthorizationRequestSerializer(serializers.Serializer):
     consent GET and re-submitted by the consent POST."""
 
     response_type = serializers.CharField()
+    resource = serializers.CharField(required=False, trim_whitespace=False)
     client_id = serializers.CharField()
     redirect_uri = serializers.CharField()
     scope = serializers.CharField()
@@ -83,6 +84,7 @@ class SpendCapSerializer(serializers.Serializer):
 class ConsentPromptSerializer(serializers.Serializer):
     """``action: consent`` -- what the consent screen shows."""
 
+    signed_in_username = serializers.CharField()
     application = ConsentApplicationSerializer()
     scopes = serializers.ListField(
         child=serializers.CharField(),
@@ -188,6 +190,7 @@ class TokenRequestSerializer(serializers.Serializer):
     code = serializers.CharField(required=False)
     redirect_uri = serializers.CharField(required=False)
     code_verifier = serializers.CharField(required=False)
+    resource = serializers.CharField(required=False)
     refresh_token = serializers.CharField(required=False)
     scope = serializers.CharField(required=False)
 

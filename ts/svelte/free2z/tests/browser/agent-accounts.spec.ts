@@ -1,0 +1,511 @@
+import { expect, test, type Page, type Route } from "@playwright/test";
+
+const INTENT = "x".repeat(43);
+const CONNECTION = "11111111-1111-4111-8111-111111111111";
+const GRANT = "22222222-2222-4222-8222-222222222222";
+const APP = { name: "Example assistant", client_id: "example-assistant" };
+const scopes = ["mcp:read", "mcp:write", "mcp:publish"];
+
+function json(route: Route, status: number, value: unknown) {
+  return route.fulfill({
+    status,
+    contentType: "application/json",
+    body: JSON.stringify(value),
+  });
+}
+
+async function link(page: Page, username = "target-user") {
+  const writes: Record<string, unknown>[] = [];
+  await page.route("**/api/oauth/mcp/link/evaluate/", (route) => {
+    expect(route.request().method()).toBe("POST");
+    expect(route.request().postDataJSON()).toEqual({ intent: INTENT });
+    expect(new URL(route.request().url()).search).toBe("");
+    expect(route.request().headers().referer).toBeUndefined();
+    expect(new URL(page.url()).hash).toBe("");
+    expect(new URL(page.url()).search).toBe("");
+    return json(route, 200, {
+      expected_username: "target-user",
+      signed_in_username: username,
+      account_matches: username === "target-user",
+      application: APP,
+      connection: { id: CONNECTION, primary_username: "owner-user" },
+      scopes,
+      scope_descriptions: {},
+      expires_at: "2099-01-01T00:00:00Z",
+    });
+  });
+  await page.route("**/api/oauth/mcp/link/", (route) => {
+    const body = route.request().postDataJSON();
+    writes.push(body);
+    return json(route, 200, { linked: body.allow });
+  });
+  return writes;
+}
+
+test("link review uses a clean URL, exact account and explicit reduced permissions", async ({
+  page,
+}) => {
+  const writes = await link(page);
+  const response = await page.goto(`/account/agent-link#intent=${INTENT}`);
+  expect(response?.headers()["cache-control"]).toBe("no-store");
+  expect(response?.headers()["referrer-policy"]).toBe("no-referrer");
+  await expect(
+    page.getByRole("button", { name: "Allow access" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Allow the Example assistant connection owned by @owner-user to act as @target-user with these permissions.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Free2Z’s normal balance requirements and upload limits apply to the selected account.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("");
+  await expect(page.getByText("@target-user", { exact: true })).toHaveCount(2);
+  expect(writes).toEqual([]);
+  await page
+    .getByRole("checkbox", { name: "Publish or edit public pages and media" })
+    .uncheck();
+  await page.getByRole("button", { name: "Allow access" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Account connected", exact: true }),
+  ).toBeVisible();
+  expect(writes).toEqual([
+    { intent: INTENT, allow: true, scopes: ["mcp:read", "mcp:write"] },
+  ]);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("free2z:agent-link-intent:v1"),
+    ),
+  ).toBeNull();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("wrong account cannot approve and failed logout cannot navigate to sign-in", async ({
+  page,
+}) => {
+  const writes = await link(page, "different-user");
+  let logoutCalls = 0;
+  await page.route("**/api/auth/logout/", (route) => {
+    logoutCalls++;
+    return json(route, 403, {});
+  });
+  await page.goto(`/account/agent-link#intent=${INTENT}`);
+  await expect(
+    page.getByText("@different-user", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Allow access" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "Sign in as @target-user" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Could not sign out" }),
+  ).toBeVisible();
+  expect(logoutCalls).toBe(1);
+  expect(new URL(page.url()).pathname).toBe("/account/agent-link");
+  expect(writes).toEqual([]);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("free2z:agent-link-intent:v1"),
+    ),
+  ).toContain(INTENT);
+});
+
+test("successful account switch keeps the intent in its tab and out of login URL", async ({
+  page,
+}) => {
+  await link(page, "different-user");
+  const logoutPaths: string[] = [];
+  await page.route("**/api/auth/logout/", (route) => {
+    logoutPaths.push(new URL(route.request().url()).pathname);
+    return json(route, 200, {});
+  });
+  await page.goto(`/account/agent-link#intent=${INTENT}`);
+  await page.getByRole("button", { name: "Sign in as @target-user" }).click();
+  await page.waitForURL("**/login?**");
+  expect(logoutPaths).toEqual(["/api/auth/logout/"]);
+  expect(new URL(page.url()).searchParams.get("next")).toBe(
+    "/account/agent-link",
+  );
+  expect(page.url()).not.toContain(INTENT);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("free2z:agent-link-intent:v1"),
+    ),
+  ).toContain(INTENT);
+});
+
+test("declining clears the request without granting permissions", async ({
+  page,
+}) => {
+  const writes = await link(page);
+  await page.goto(`/account/agent-link#intent=${INTENT}`);
+  await page.getByRole("button", { name: "Decline", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "Connection declined" }),
+  ).toBeVisible();
+  expect(writes).toEqual([{ intent: INTENT, allow: false }]);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("free2z:agent-link-intent:v1"),
+    ),
+  ).toBeNull();
+});
+
+test("connected accounts require confirmation and revoke the selected grant only", async ({
+  page,
+}) => {
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "billing-fixture-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  await page.route("**/api/oauth/grants/", (route) => json(route, 200, []));
+  let revoked = false;
+  const paths: string[] = [];
+  await page.route("**/api/oauth/mcp/connections/", (route) =>
+    json(route, 200, {
+      connections: [
+        {
+          id: CONNECTION,
+          application: APP,
+          primary_username: "fixtureowner",
+          scopes,
+          revoked: false,
+          accounts: [],
+        },
+      ],
+      account_grants: revoked
+        ? []
+        : [
+            {
+              id: GRANT,
+              connection_id: CONNECTION,
+              application: APP,
+              primary_username: "owner-user",
+              username: "fixtureowner",
+              scopes,
+              revoked: false,
+              available: true,
+            },
+          ],
+      recent_actions: [
+        {
+          id: "activity-1",
+          operation: "create_draft",
+          status: 402,
+          created_at: "2026-11-07T04:00:00Z",
+          primary_username: "owner-user",
+          target_username: "fixtureowner",
+          application: APP.name,
+        },
+        {
+          id: "activity-2",
+          operation: "upload_file",
+          status: 201,
+          created_at: "2026-11-07T04:01:00Z",
+          primary_username: "owner-user",
+          target_username: "fixtureowner",
+          application: APP.name,
+        },
+        {
+          id: "activity-3",
+          operation: "future_action",
+          status: 500,
+          created_at: "2026-11-07T04:02:00Z",
+          primary_username: "owner-user",
+          target_username: "fixtureowner",
+          application: APP.name,
+        },
+        {
+          id: "activity-4",
+          operation: "get_page",
+          status: 200,
+          created_at: "2026-11-07T04:03:00Z",
+          primary_username: null,
+          target_username: null,
+          application: null,
+        },
+      ],
+    }),
+  );
+  await page.route(`**/api/oauth/mcp/grants/${GRANT}/`, (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    paths.push(new URL(route.request().url()).pathname);
+    revoked = true;
+    return route.fulfill({ status: 204, body: "" });
+  });
+  await page.goto("/account/apps");
+  await expect(page.getByTestId("connected-apps-empty")).toHaveText(
+    "No apps are connected directly to this account.",
+  );
+  await page.getByRole("button", { name: "Remove account access" }).click();
+  expect(paths).toEqual([]);
+  await page
+    .getByRole("region", { name: "Confirm access removal" })
+    .getByRole("button", { name: "Remove access", exact: true })
+    .click();
+  await expect(page.getByTestId("agent-account-grant")).toHaveCount(0);
+  await expect(page.getByTestId("agent-connection")).toHaveCount(1);
+  expect(paths).toEqual([`/api/oauth/mcp/grants/${GRANT}/`]);
+  const activity = page.getByTestId("agent-activity");
+  await expect(activity.filter({ hasText: "Create draft" })).toContainText(
+    "Not completed",
+  );
+  await expect(activity.filter({ hasText: "Upload file" })).toContainText(
+    "Completed",
+  );
+  await expect(activity.filter({ hasText: "Account action" })).toContainText(
+    "Could not confirm",
+  );
+  await expect(activity.filter({ hasText: "Create draft" })).toContainText(
+    "@fixtureowner",
+  );
+  await expect(activity.filter({ hasText: "Create draft" })).toContainText(
+    APP.name,
+  );
+  await expect(activity.filter({ hasText: "Read page" })).toContainText(
+    "Deleted account",
+  );
+  await expect(activity.filter({ hasText: "Read page" })).toContainText(
+    "Removed application",
+  );
+  await expect(page.getByText("@null", { exact: false })).toHaveCount(0);
+});
+
+test("initial consent can switch accounts without losing the MCP resource or PKCE request", async ({
+  page,
+}) => {
+  const request = {
+    response_type: "code",
+    client_id: APP.client_id,
+    redirect_uri: "https://assistant.example/callback",
+    scope: "mcp:read mcp:write",
+    resource: "https://free2z.cash/api/mcp",
+    state: "s".repeat(32),
+    code_challenge: "c".repeat(43),
+    code_challenge_method: "S256",
+  };
+  const decisions: unknown[] = [];
+  await page.route("**/api/oauth/authorize?**", (route) => {
+    const received = new URL(route.request().url()).searchParams;
+    expect(received.get("resource")).toBe(request.resource);
+    return json(route, 200, {
+      action: "consent",
+      request_id: "signed-request",
+      authorization_request: request,
+      consent: {
+        signed_in_username: "different-user",
+        application: {
+          ...APP,
+          developer: null,
+          logo_url: "",
+          privacy_url: "",
+          terms_url: "",
+          first_party: false,
+          child_directed: false,
+          markup_bps: 0,
+          markup_approval: "approved",
+        },
+        scopes: ["mcp:read", "mcp:write"],
+        scope_descriptions: {},
+        already_granted: [],
+        cap_required: false,
+        spend_cap: { spend_cap_2z: null, cap_period: "month" },
+        is_raise_step_up_required: false,
+      },
+    });
+  });
+  await page.route("**/api/oauth/authorize", (route) => {
+    decisions.push(route.request().postDataJSON());
+    return json(route, 400, {});
+  });
+  const logoutPaths: string[] = [];
+  await page.route("**/api/auth/logout/", (route) => {
+    logoutPaths.push(new URL(route.request().url()).pathname);
+    return json(route, 200, {});
+  });
+  await page.goto(`/oauth/authorize?${new URLSearchParams(request)}`);
+  await expect(
+    page.getByText("@different-user", { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Free2Z’s normal balance requirements and upload limits apply to the selected account.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Switch account", exact: true })
+    .click();
+  await page.waitForURL("**/login?**");
+  const returned = new URL(
+    new URL(page.url()).searchParams.get("next")!,
+    "https://free2z.cash",
+  );
+  expect(returned.searchParams.get("resource")).toBe(request.resource);
+  expect(returned.searchParams.get("code_challenge")).toBe(
+    request.code_challenge,
+  );
+  expect(returned.searchParams.get("state")).toBe(request.state);
+  expect(returned.searchParams.get("prompt")).toBe("consent");
+  expect(logoutPaths).toEqual(["/api/auth/logout/"]);
+  expect(decisions).toEqual([]);
+});
+
+test("an uncertain approval checks connected apps instead of retrying the write", async ({
+  page,
+}) => {
+  await link(page);
+  let writes = 0;
+  await page.route("**/api/oauth/mcp/link/", async (route) => {
+    writes++;
+    await page.route("**/api/oauth/mcp/link/evaluate/", (next) =>
+      json(next, 404, { detail: "Request unavailable" }),
+    );
+    await route.abort("failed");
+  });
+  await page.goto(`/account/agent-link#intent=${INTENT}`);
+  await page.getByRole("button", { name: "Allow access" }).click();
+  await expect(
+    page.getByRole("link", { name: "Open Connected apps" }),
+  ).toHaveAttribute("href", "/account/apps");
+  await expect(
+    page
+      .getByRole("alert")
+      .filter({ hasText: "connection could not be confirmed" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Allow access" })).toHaveCount(
+    0,
+  );
+  expect(writes).toBe(1);
+  expect(
+    await page.evaluate(() =>
+      sessionStorage.getItem("free2z:agent-link-intent:v1"),
+    ),
+  ).toBeNull();
+});
+
+test("connection owners remove one linked account and global revoke refreshes the panel", async ({
+  page,
+}) => {
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "billing-fixture-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  let linked = true;
+  let connected = true;
+  const deleted: string[] = [];
+  await page.route("**/api/oauth/grants/", (route) =>
+    json(route, 200, [
+      {
+        client_id: APP.client_id,
+        application_id: CONNECTION,
+        name: APP.name,
+        developer: null,
+        scope: scopes,
+        spend_cap_2z: null,
+        cap_period: "month",
+        markup_bps: 0,
+        generation: 1,
+        consented_at: "2026-11-07T04:00:00Z",
+      },
+    ]),
+  );
+  await page.route("**/api/oauth/mcp/connections/", (route) =>
+    json(route, 200, {
+      connections: connected
+        ? [
+            {
+              id: CONNECTION,
+              application: APP,
+              primary_username: "fixtureowner",
+              scopes,
+              revoked: false,
+              available: true,
+              accounts: [
+                {
+                  id: "primary-grant",
+                  username: "fixtureowner",
+                  scopes,
+                  revoked: false,
+                  available: true,
+                },
+                ...(linked
+                  ? [
+                      {
+                        id: GRANT,
+                        username: "target-user",
+                        scopes,
+                        revoked: false,
+                        available: true,
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          ]
+        : [],
+      account_grants: [],
+      recent_actions: [],
+    }),
+  );
+  await page.route(`**/api/oauth/mcp/grants/${GRANT}/`, (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    deleted.push(new URL(route.request().url()).pathname);
+    linked = false;
+    return route.fulfill({ status: 204, body: "" });
+  });
+  await page.route(`**/api/oauth/grants/${CONNECTION}/`, (route) => {
+    expect(route.request().method()).toBe("DELETE");
+    deleted.push(new URL(route.request().url()).pathname);
+    connected = false;
+    return route.fulfill({ status: 204, body: "" });
+  });
+  await page.goto("/account/apps");
+  const connection = page.getByTestId("agent-connection");
+  await expect(
+    connection.getByRole("button", { name: "Remove account access" }),
+  ).toHaveCount(1);
+  await connection
+    .getByRole("button", { name: "Remove account access" })
+    .click();
+  expect(deleted).toEqual([]);
+  await page
+    .getByRole("region", { name: "Confirm access removal" })
+    .getByRole("button", { name: "Remove access", exact: true })
+    .click();
+  await expect(connection).toHaveCount(1);
+  await expect(connection).not.toContainText("@target-user");
+  await expect(connection).toContainText("@fixtureowner");
+  expect(deleted).toEqual([`/api/oauth/mcp/grants/${GRANT}/`]);
+  await page.getByTestId("connected-app-revoke").click();
+  const confirmation = page.getByTestId("connected-app-revoke-dialog");
+  await expect(confirmation).toContainText(
+    "every agent connection authorized by this account",
+  );
+  await page.getByTestId("connected-app-revoke-confirm").click();
+  await expect(connection).toHaveCount(0);
+  await expect(
+    page.getByText("No agent connections for this account."),
+  ).toBeVisible();
+  expect(deleted).toEqual([
+    `/api/oauth/mcp/grants/${GRANT}/`,
+    `/api/oauth/grants/${CONNECTION}/`,
+  ]);
+});
