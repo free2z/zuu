@@ -17,6 +17,7 @@ workflow.
 | ZUULI | [`wallet/zuuli/`](wallet/zuuli/README.md), [readiness](wallet/zuuli/STATUS.md), [build infrastructure](docs/zuuli/build/ZUULI-LINUX-BUILD-IMAGE.md) |
 | Zuuallet | [`wallet/zuuallet/`](wallet/zuuallet/README.md), a separate wallet application |
 | Free2Z developer SDK and metered AI | [SDK contract and integration](docs/free2z/sdk/README.md), [gateway architecture](docs/free2z/ai-gateway/README.md), [`f2z-sdk`](rs/crates/f2z-sdk/Cargo.toml) |
+| Free2Z MCP | [Setup and usage](docs/free2z/mcp/README.md): local assistant access to the Free2Z API with explicit named accounts |
 | Free2Z messaging and key transparency | [Protocol documentation](docs/free2z/messaging/README.md), [Rust libraries](rs/README.md) |
 | Free2Z cross-app intent bridge | [Protocol and authority boundaries](docs/free2z/intent-bridge/PROTOCOL.md) |
 | Free2Z web clients | [React](ts/react/free2z/README.md), [Svelte](ts/svelte/free2z/README.md) |
@@ -25,7 +26,7 @@ workflow.
 | Reusable Tauri plugins | [`wallet/plugins/`](wallet/plugins/): named packages with independent consumers and lockfiles |
 | Zcash Payment Hooks | [`rs/zcash-payment-hooks/`](rs/zcash-payment-hooks/README.md): receive-only daemon, private journal, durable executable hooks |
 | Rust libraries and services | [`rs/`](rs/README.md): named `f2z-*` crates and their own workspace |
-| Zcash retrieval experiment | [`py/experiments/zcash-rag/`](py/experiments/zcash-rag/): experimental Python code, independent of the shipping apps |
+| Zcash retrieval experiment | [`py/experiments/zcash-rag/`](py/experiments/zcash-rag/): preserved legacy source and notebook; no supported installable environment or shipping consumer |
 | Upstream projects | [`z/`](z/); [`.gitmodules`](.gitmodules) records repository ownership and tracking branches |
 
 The app-suite architecture applies to those named applications. It does not

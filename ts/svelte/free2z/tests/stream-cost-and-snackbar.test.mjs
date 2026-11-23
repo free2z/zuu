@@ -442,3 +442,16 @@ test("#853: persistent page actions deliberately paint above toasts", () => {
   assert.match(actions, /max-height:\s*calc\(/);
   assert.match(actions, /z-index: 40/);
 });
+
+test("#1496: a dialog lifts the snackbar only when it covers the bottom anchor", () => {
+  const source = stripComments(read(TOASTER));
+
+  assert.match(source, /coversBottomAnchor \? "top-center" : position/);
+  assert.match(source, /next !== coversBottomAnchor/);
+  assert.match(source, /\[role="dialog"\], \[role="alertdialog"\]/);
+  assert.match(source, /getClientRects\(\)\.length === 0/);
+  assert.match(source, /--f2z-bottom-dock-height/);
+  assert.match(source, /96 \+ dock \+ 24/);
+  assert.match(source, /innerWidth - 356/);
+  assert.doesNotMatch(source, /modalOpen/);
+});

@@ -82,8 +82,21 @@ All CLI commands require `--config /absolute/config.toml` before the subcommand.
 | `verify-event EVENT_ID` | Read-only current event/journal/node evidence with a total 20-second deadline |
 | `verify-payment PAYMENT_ID` | Read-only canonical receipt proof; creates no lifecycle event |
 | `handoff-revocations` | Stopped-writer, bounded read-only preview of eligible unacknowledged revocations |
+| `handoff-revocations-stream` | Complete stopped-writer NDJSON inventory with header, ordered records and coverage footer |
+| `handoff-capabilities` | Versioned protocol response without reading private configuration or journal state |
 | `enqueue-missing` | Stopped-writer atomic handoff of missing eligible deliveries; preserves existing ACKs/retries |
 | `replay CONSUMER EVENT_ID` | Stopped-writer explicit redelivery of one valid event |
+
+Inventory CLI commands (`status`, `handoff-revocations`,
+`handoff-revocations-stream`, and `enqueue-missing`) limit SQLite-managed heap to
+32 MiB per process. Historical identifiers with large SQLite index keys can
+require a larger budget: pass `--inventory-sqlite-heap-mib N`, with `N` between
+32 and 512, before the command. This explicit override changes neither identities
+nor journal rows. Allocation failure refuses verification or rolls back enqueue;
+partial streams are not valid handoff proofs. The heap budget covers SQLite
+allocations, not total process memory, configuration parsing or Rust allocations.
+The long-running daemon does not set this process-global limit. Library callers
+must supply their own allocation policy and bound blocking output operations.
 
 `verify-address` exit zero means the proof was computed. Require
 `fully_covered: true`, the expected network/UFVK/address fingerprints, zero unknown

@@ -194,6 +194,17 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'the next tick is its retry; a duplicate run is harmless (the page '
         'is deduplicated per app per hour).',
     ),
+    'oidc.invoke_mcp_ai': TaskPolicy(
+        NEVER,
+        'Paid provider dispatch has no upstream idempotency guarantee. The '
+        'MCP invocation records running before dispatch and never resends; '
+        'polling recovers a committed receipt or reports an uncertain outcome, '
+        'and the ledger expires orphaned holds. Transient DB entry failures and '
+        'saved settlement intents retry (ten attempts, 30-second spacing); '
+        'the committed dispatch state prevents another provider call. '
+        'Automatic stalled-job reclaim remains disabled.',
+        health_alert_after_seconds=390,
+    ),
     'oidc.sweep_tokens': TaskPolicy(
         NEVER,
         'unbounded: oauth2_provider.models.clear_expired deletes expired '
@@ -392,10 +403,13 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'database-only: one capped query (100 rows) and one defer per row.',
     ),
     'dyte.recover_recording_deliveries': TaskPolicy(
-        300,
+        NEVER,
         'database-only: at most DYTE_RECORDING_RECOVERY_BATCH_SIZE defers '
-        'plus two bounded queries. It enqueues the download work rather '
-        'than doing it.',
+        'plus recording queries and 50 PPV credit retries, each with a '
+        'five-second database statement/lock deadline. Financial retries take '
+        'durable observation claims; requeue must not hide a stalled original '
+        'behind a successful duplicate. Subsequent periodic sweeps recover '
+        'pending observations; no provider calls.',
     ),
     'g12f.release_deleted_usernames': TaskPolicy(
         60,

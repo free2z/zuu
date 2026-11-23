@@ -156,46 +156,20 @@ const TRACKED = [
     id: "z/zcash/librustzcash",
     kind: "submodule",
     forkUrl: "https://github.com/free2z/librustzcash",
-    forkBranch: "fix/parameter-download-tls-trust",
-    // Security overlay on the exact reviewed shipping base; upstream #3010
-    // reviews only the RustCrypto deletion, not the parameter-download port.
-    forkRev: "473543ce227332b8afd82a9edbf655c4bc4d7c50",
-    prHeadBranch: "f2z/upstream-drop-stale-rustcrypto-rc-pins",
-    reviewedOverlay: {
-      base: "a2b8c95210046eb59ee71dd10fd2ad1e9329b238",
-      head: "473543ce227332b8afd82a9edbf655c4bc4d7c50",
-    },
-    exitInstructions: "Verify upstream carries both #3010's compatible RustCrypto pin removal and the maintained minreq 3 parameter-download path before dropping this fork. Re-run all incident-chain and native wallet checks; #3010 alone does not retire the TLS overlay.",
+    forkBranch: "f2z/parameter-download-tls-nu7",
+    // Upstream `main` plus one security overlay: the parameter-download TLS
+    // port. Upstream absorbed the former RustCrypto pin removal (#3010's
+    // content) on its own, so there is no longer a separate upstream PR head.
+    forkRev: "a83a5bb45fbc624561ac81673289a019d2e955b5",
+    exitInstructions: "Verify upstream carries a maintained parameter-download TLS client before dropping this fork. Re-run all incident-chain and native wallet checks.",
     upstreamRepo: "zcash/librustzcash",
     upstreamBranch: "main",
-    exitPr: 3010,
     driftLimit: DEFAULT_DRIFT_LIMIT,
     registerTokens: [
       "https://github.com/free2z/librustzcash",
-      "fix/parameter-download-tls-trust",
-      "473543ce227332b8afd82a9edbf655c4bc4d7c50",
+      "f2z/parameter-download-tls-nu7",
+      "a83a5bb45fbc624561ac81673289a019d2e955b5",
       "free2z/zuu#1235",
-      "f2z/upstream-drop-stale-rustcrypto-rc-pins",
-      "zcash/librustzcash#3010",
-    ],
-  },
-  {
-    id: "bip32",
-    kind: "patch",
-    manifest: "wallet/zuuli/src-tauri/Cargo.toml",
-    forkUrl: "https://github.com/free2z/crates",
-    forkRev: "131d490ef75ccd23111cc7f3df91e4a88fc971ae",
-    upstreamRepo: "iqlusioninc/crates",
-    upstreamBranch: "main",
-    /// Not a PR. This one retires on a registry event plus an upstream version
-    /// move, both of which `--upstream` checks by name.
-    exitCrate: { name: "bip32", stableAtLeast: "0.6.0" },
-    exitDependencyMove: { crate: "secp256k1", awayFrom: "0.29" },
-    driftLimit: DEFAULT_DRIFT_LIMIT,
-    registerTokens: [
-      "https://github.com/free2z/crates",
-      "131d490ef75ccd23111cc7f3df91e4a88fc971ae",
-      "0.6.0-pre.1",
     ],
   },
 ];
@@ -268,25 +242,27 @@ const HOLDS = [
   },
   {
     crate: "secp256k1",
-    held: "0.29",
-    source: { kind: "manifest", path: LIBRUSTZCASH_MANIFEST, table: "workspace.dependencies", requires: "0.29" },
+    held: "0.33",
+    source: { kind: "manifest", path: LIBRUSTZCASH_MANIFEST, table: "workspace.dependencies", requires: "0.33" },
     registerToken: "z/zcash/librustzcash",
   },
   {
     crate: "rand",
-    held: "0.8",
-    source: { kind: "manifest", path: LIBRUSTZCASH_MANIFEST, table: "workspace.dependencies", requires: "0.8" },
+    held: "0.10",
+    source: { kind: "manifest", path: LIBRUSTZCASH_MANIFEST, table: "workspace.dependencies", requires: "0.10" },
     registerToken: "z/zcash/librustzcash",
     /// The row that was wrong. It said "0.8, 0.9 and 0.10" after #855 had
     /// already collapsed the 0.9 island, and nothing re-read it.
     evidence: [
-      { kind: "copies", path: ZUULI_LOCK, versions: ["0.8.7", "0.10.2"], rowClaim: true },
+      { kind: "copies", path: ZUULI_LOCK, versions: ["0.8.7", "0.9.5", "0.10.2"], rowClaim: true },
       {
         kind: "copies",
         crate: "rand_core",
         path: ZUULI_LOCK,
-        versions: ["0.6.4", "0.10.1"],
+        versions: ["0.6.4", "0.9.5", "0.10.1"],
       },
+      /// The 0.9 line is secp256k1 0.33's, not ours or librustzcash's.
+      { kind: "edge", path: ZUULI_LOCK, from: { name: "secp256k1" }, on: "0.9" },
     ],
   },
   {
@@ -302,8 +278,8 @@ const HOLDS = [
     /// nothing re-read, found by the same rule that found `rand`'s.
     evidence: [
       { kind: "copies", path: ZUULI_LOCK, versions: ["0.10.9", "0.11.0"], sectionClaim: true },
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 14, sectionClaim: true },
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.11", count: 6, sectionClaim: true },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 13, sectionClaim: true },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.11", count: 7, sectionClaim: true },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "f2z-msg-identity" }, on: "0.10" },
       { kind: "edge", path: ZUULI_LOCK, from: { name: "zcash_primitives" }, on: "0.10" },
     ],
@@ -361,46 +337,42 @@ const HOLDS = [
   },
   {
     crate: "bip0039",
-    held: "0.12",
-    source: { kind: "manifest", path: LIBRUSTZCASH_MANIFEST, table: "workspace.dependencies", requires: "0.12" },
+    held: "0.14",
+    source: { kind: "manifest", path: LIBRUSTZCASH_MANIFEST, table: "workspace.dependencies", requires: "0.14" },
     registerToken: "z/zcash/librustzcash",
     /// The row's honest weakness: upstream declares `bip0039` only `optional`,
     /// so today `tauri-plugin-zcash` is the lock's ONLY consumer. If that count
     /// ever moves, upstream has turned a feature on and the row gets stronger —
     /// either way somebody re-reads it.
     evidence: [
-      { kind: "copies", path: ZUULI_LOCK, versions: ["0.12.0"] },
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.12", count: 1, rowClaim: true },
+      { kind: "copies", path: ZUULI_LOCK, versions: ["0.14.2"] },
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.14", count: 1, rowClaim: true },
     ],
   },
   {
-    /// The shipping wallet resolves registry zcash_note_encryption 0.4.2.
-    /// Its independently tracked upstream submodule has moved to 0.11, so
-    /// that manifest cannot establish the constraint in this shipping graph.
+    /// No longer forced by Zcash: zcash_note_encryption 0.5.1 (the version the
+    /// shipping wallet now resolves) moved to 0.11. Our two first-party users
+    /// stay on 0.10 *together* so the wallet keeps one copy for them; moving
+    /// both to 0.11 is a coordinated change of its own (the f2zmsg seal is
+    /// covered by the messaging KATs).
     crate: "chacha20poly1305",
     held: "0.10",
-    source: {
-      kind: "lockfile",
-      path: ZUULI_LOCK,
-      forcedBy: { name: "zcash_note_encryption", version: "0.4.2" },
-    },
-    registerToken: "zcash_note_encryption 0.4.2",
-    /// Re-measured for the fixed OpenMLS source bridge: the three wallet MLS
-    /// roots add the optional 0.11 line; Zcash-only roots still carry one copy.
+    source: { kind: "ours" },
+    registerToken: "Our own choice",
     evidence: [
       ...WALLET_LOCKS.map((lockPath) => ({
         kind: "copies",
         path: lockPath,
-        versions: ["0.10.1", ...(lockPath.includes("f2zmsg") || lockPath.includes("e2e2z") || lockPath === ZUULI_LOCK ? ["0.11.0"] : [])],
+        versions: ["0.10.1", "0.11.0"],
       })),
       {
         kind: "edge",
         path: ZUULI_LOCK,
         from: { name: "zcash_note_encryption" },
-        on: "0.10",
+        on: "0.11",
       },
-      // Ours twice plus zcash_note_encryption; optional HPKE/OpenMLS moved to 0.11.
-      { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 3, rowClaim: true },
+      // tauri-plugin-zcash and tauri-plugin-f2zmsg.
+      { kind: "consumers", path: ZUULI_LOCK, on: "0.10", count: 2, rowClaim: true },
     ],
   },
   {
@@ -433,14 +405,6 @@ const HOLDS = [
     held: "0.12",
     source: { kind: "ours" },
     registerToken: "Our own choice",
-  },
-  {
-    /// Section 2's, not section 3's: this requirement is the second half of the
-    /// `bip32` patch's exit condition, and `--upstream` watches it move.
-    crate: "bip32",
-    held: "=0.6.0-pre.1",
-    source: { kind: "manifest", path: LIBRUSTZCASH_MANIFEST, table: "workspace.dependencies", requires: "=0.6.0-pre.1" },
-    registerRow: false,
   },
 ];
 
@@ -1454,11 +1418,11 @@ function runSelfTest() {
       "the fork submodule quietly moves to another branch",
       withGitmodules(
         baseline.gitmodules.replace(
-          "branch = fix/parameter-download-tls-trust",
+          "branch = f2z/parameter-download-tls-nu7",
           "branch = f2z/some-other-branch",
         ),
       ),
-      "registered fork branch fix/parameter-download-tls-trust",
+      "registered fork branch f2z/parameter-download-tls-nu7",
     ],
     [
       "a second, unregistered fork appears in z/",
@@ -1478,29 +1442,29 @@ function runSelfTest() {
       "registered as a fork but absent from .gitmodules",
     ],
     [
-      "the bip32 patch is re-pinned to a moving branch",
+      "an OpenMLS bridge patch is re-pinned to a moving branch",
       withManifest(
         "wallet/zuuli/src-tauri/Cargo.toml",
         baseline.manifests["wallet/zuuli/src-tauri/Cargo.toml"].replace(
-          'rev = "131d490ef75ccd23111cc7f3df91e4a88fc971ae"',
-          'branch = "f2z/bip32-secp256k1-0.29"',
+          'rev = "6e96a4411ea2669f05ac22dd0e0424c1c93f5055"',
+          'branch = "f2z/strict-ed25519-small-order"',
         ),
       ),
       "must be pinned by rev, never by branch",
     ],
     [
-      "the bip32 patch rev drifts from the reviewed one",
+      "an OpenMLS bridge patch rev drifts from the reviewed one",
       withManifest(
         "wallet/zuuli/src-tauri/Cargo.toml",
         baseline.manifests["wallet/zuuli/src-tauri/Cargo.toml"].replace(
-          "131d490ef75ccd23111cc7f3df91e4a88fc971ae",
+          "6e96a4411ea2669f05ac22dd0e0424c1c93f5055",
           "0000000000000000000000000000000000000000",
         ),
       ),
-      "registered rev 131d490ef75ccd23111cc7f3df91e4a88fc971ae",
+      "registered rev 6e96a4411ea2669f05ac22dd0e0424c1c93f5055",
     ],
     [
-      "the bip32 patch is deleted while the register still claims it",
+      "the ZUULI patch section is deleted while the register still claims it",
       withManifest(
         "wallet/zuuli/src-tauri/Cargo.toml",
         baseline.manifests["wallet/zuuli/src-tauri/Cargo.toml"].replace(
@@ -1570,17 +1534,10 @@ function runSelfTest() {
     // `chacha20poly1305` is `zcash_note_encryption`'s requirement and
     // `getrandom` is `tauri`'s, and neither is read by librustzcash's manifest.
     [
-      "the shipping note-encryption version changes and needs a fresh hold review",
-      editSource(ZUULI_LOCK, 'name = "zcash_note_encryption"\nversion = "0.4.2"', 'name = "zcash_note_encryption"\nversion = "0.5.1"'),
-      "zcash_note_encryption 0.4.2",
-    ],
-    [
-      "the shipping note-encryption crate drops the held dependency",
-      editSource(
-        ZUULI_LOCK,
-        'name = "zcash_note_encryption"\nversion = "0.4.2"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "e1cb1b9170c94370e3d66c5cc0877661db743337588b64de7711239eed462198"\ndependencies = [\n "chacha20 0.9.1",\n "chacha20poly1305 0.10.1",',
-        'name = "zcash_note_encryption"\nversion = "0.4.2"\nsource = "registry+https://github.com/rust-lang/crates.io-index"\nchecksum = "e1cb1b9170c94370e3d66c5cc0877661db743337588b64de7711239eed462198"\ndependencies = [\n "chacha20 0.9.1",',
-      ),
+      // The chacha20poly1305 row says Zcash moved to 0.11 and left us; if the
+      // note-encryption crate resolves our line again, the row is stale.
+      "the shipping note-encryption crate moves back onto our chacha20poly1305 line",
+      editSource(ZUULI_LOCK, ' "chacha20 0.10.2",\n "chacha20poly1305 0.11.0",', ' "chacha20 0.10.2",\n "chacha20poly1305 0.10.1",'),
       "chacha20poly1305",
     ],
     [
@@ -1613,22 +1570,22 @@ function runSelfTest() {
     // librustzcash's manifest — the right source for who forces the hold, and
     // no source at all for what the graph contains.
     [
-      "the shipping lock regrows the rand island a row says is gone",
+      "the shipping lock grows a rand copy the row does not list",
       editSource(
         ZUULI_LOCK,
         '[[package]]\nname = "rand"\nversion = "0.10.2"',
-        '[[package]]\nname = "rand"\nversion = "0.9.2"\n\n[[package]]\nname = "rand"\nversion = "0.10.2"',
+        '[[package]]\nname = "rand"\nversion = "0.7.3"\n\n[[package]]\nname = "rand"\nversion = "0.10.2"',
       ),
-      "it now carries 0.8.7 and 0.9.2 and 0.10.2",
+      "it now carries 0.7.3 and 0.8.7 and 0.9.5 and 0.10.2",
     ],
     [
-      "bumping a hold adds the duplicate its row says it would",
+      "a lock loses one of the chacha20poly1305 copies its row measures",
       editSource(
         WALLET_LOCKS[0],
-        '[[package]]\nname = "chacha20poly1305"\nversion = "0.10.1"',
-        '[[package]]\nname = "chacha20poly1305"\nversion = "0.10.1"\n\n[[package]]\nname = "chacha20poly1305"\nversion = "0.11.0"',
+        '[[package]]\nname = "chacha20poly1305"\nversion = "0.11.0"',
+        '[[package]]\nname = "chacha20poly1305-renamed"\nversion = "0.11.0"',
       ),
-      "wallet/plugins/tauri-plugin-zcash/Cargo.lock carries chacha20poly1305 0.10.1",
+      "wallet/plugins/tauri-plugin-zcash/Cargo.lock carries chacha20poly1305 0.10.1 and 0.11.0",
     ],
     [
       "a package the row says shares our copy moves off it",
@@ -1645,7 +1602,7 @@ function runSelfTest() {
       // Counts are the most quietly-rotting kind of claim there is.
       "a consumer count the register states drifts",
       editSource(ZUULI_LOCK, ' "sha2 0.10.9",\n "zeroize",\n]', ' "zeroize",\n]'),
-      "package(s) resolve sha2 on 0.10 in wallet/zuuli/src-tauri/Cargo.lock, it is now 13",
+      "package(s) resolve sha2 on 0.10 in wallet/zuuli/src-tauri/Cargo.lock, it is now 12",
     ],
     [
       // Without `from.version`, an edge claim about a crate the graph carries
@@ -1671,19 +1628,19 @@ function runSelfTest() {
       "is not a date",
     ],
     [
-      "the register loses the exit condition for the librustzcash fork",
-      withRegister(baseline.register.replaceAll("zcash/librustzcash#3010", "the PR")),
-      "does not mention `zcash/librustzcash#3010`",
+      "the register loses the security tracking for the librustzcash fork",
+      withRegister(baseline.register.replaceAll("free2z/zuu#1235", "the issue")),
+      "does not mention `free2z/zuu#1235`",
     ],
     [
-      "the register forgets that #3010's head is a different branch",
+      "the register forgets which commit the librustzcash bridge builds",
       withRegister(
         baseline.register.replaceAll(
-          "f2z/upstream-drop-stale-rustcrypto-rc-pins",
-          "the other branch",
+          "a83a5bb45fbc624561ac81673289a019d2e955b5",
+          "the reviewed commit",
         ),
       ),
-      "does not mention `f2z/upstream-drop-stale-rustcrypto-rc-pins`",
+      "does not mention `a83a5bb45fbc624561ac81673289a019d2e955b5`",
     ],
     [
       "the register drops a deliberate hold from section 3",
@@ -1692,7 +1649,7 @@ function runSelfTest() {
     ],
     [
       "the register changes the version a hold is held at",
-      withRegister(baseline.register.replace("| `rand` | 0.8 |", "| `rand` | 0.9 |")),
+      withRegister(baseline.register.replace("| `rand` | 0.10 |", "| `rand` | 0.9 |")),
       "section 3 says `rand` is held at 0.9",
     ],
     [
@@ -1711,8 +1668,8 @@ function runSelfTest() {
       "a hold row stops naming the source that verifies it",
       withRegister(
         baseline.register.replace(
-          "zcash_note_encryption 0.4.2",
-          "a note-encryption crate",
+          "**Our own choice**, no longer forced by Zcash",
+          "**Ours**, no longer forced by Zcash",
         ),
       ),
       "the `chacha20poly1305` row does not name",
@@ -1729,21 +1686,21 @@ function runSelfTest() {
       // let this row go on being wrong through a green check.
       "a row's prose drifts from the measurement the check re-reads",
       withRegister(
-        baseline.register.replace("**0.8.7 and 0.10.2 only**", "**0.8, 0.9 and 0.10**"),
+        baseline.register.replace("**0.8.7, 0.9.5 and 0.10.2**", "**0.8 and 0.10 only**"),
       ),
-      'the `rand` row states a measurement this check re-reads, but does not say "0.8.7 and 0.10.2"',
+      'the `rand` row states a measurement this check re-reads, but does not say "0.8.7, 0.9.5 and 0.10.2"',
     ],
     [
       "a row's stated consumer count drifts from the measured one",
-      withRegister(baseline.register.replace("shared by 3 packages", "shared by 4 packages")),
-      'the `chacha20poly1305` row states a measurement this check re-reads, but does not say "3 packages"',
+      withRegister(baseline.register.replace("shared by 2 packages", "shared by 3 packages")),
+      'the `chacha20poly1305` row states a measurement this check re-reads, but does not say "2 packages"',
     ],
     [
       // The `sha2` correction's numbers live in a paragraph, not a cell, and a
       // paragraph rots exactly as quietly.
       "section 3's prose drifts from a measurement the check re-reads",
-      withRegister(baseline.register.replace("14 packages resolve", "Most packages resolve")),
-      'section 3 explains the `sha2` hold with a measurement this check re-reads, but no longer says "14 packages"',
+      withRegister(baseline.register.replace("13 packages resolve", "Most packages resolve")),
+      'section 3 explains the `sha2` hold with a measurement this check re-reads, but no longer says "13 packages"',
     ],
     [
       "the register drops the openmls_memory_storage cross-reference",
@@ -1918,79 +1875,18 @@ async function runUpstreamSelfTest() {
       "commits behind",
     ],
     [
-      "the branch we build and the branch upstream reviews diverge",
-      {
-        ...quiet(),
-        githubJson: async (route) => {
-          if (route.includes("/branches/")) {
-            return {
-              commit: {
-                sha: route.includes("upstream-drop") ? "c".repeat(40) : "b".repeat(40),
-              },
-            };
-          }
-          return quiet().githubJson(route);
-        },
-      },
-      baseline,
-      "have diverged",
-    ],
-    [
       "a .gitmodules branch no longer exists on its remote (the z3 failure mode)",
       { ...quiet(), remoteHasBranch: () => false },
       baseline,
       "does not exist on",
     ],
     [
-      "crates.io publishes the release the patch was waiting for",
-      { ...quiet(), cratesIo: async () => ({ crate: { max_stable_version: "0.6.0" } }) },
-      baseline,
-      "crates.io now publishes bip32 0.6.0",
-    ],
-    [
-      "librustzcash moves off the secp256k1 version the patch is held to",
-      quiet(),
-      {
-        ...baseline,
-        sources: {
-          ...baseline.sources,
-          [LIBRUSTZCASH_MANIFEST]: baseline.sources[
-            LIBRUSTZCASH_MANIFEST
-          ].replace(
-            'secp256k1 = { version = "0.29"',
-            'secp256k1 = { version = "0.31"',
-          ),
-        },
-      },
-      "moved secp256k1 to 0.31",
-    ],
-    [
       "the register goes unverified for too long",
-      { ...quiet(), today: new Date("2027-01-01T00:00:00Z") },
+      { ...quiet(), today: new Date("2027-06-01T00:00:00Z") },
       baseline,
       "last verified",
     ],
   ];
-
-  const overlayReplies = (head, base) => ({
-    ...quiet(),
-    githubJson: async (route) => {
-      if (route.startsWith("repos/free2z/librustzcash/branches/")) {
-        return { commit: { sha: route.includes("upstream-drop") ? base : head } };
-      }
-      return quiet().githubJson(route);
-    },
-  });
-  const approvedHead = "473543ce227332b8afd82a9edbf655c4bc4d7c50";
-  const approvedBase = "a2b8c95210046eb59ee71dd10fd2ad1e9329b238";
-  const approvedFindings = await upstreamFindings(baseline, overlayReplies(approvedHead, approvedBase));
-  if (approvedFindings.some((finding) => finding.headline.includes("have diverged"))) {
-    throw new Error("reviewed security overlay must pass its exact base/head pair");
-  }
-  cases.push(
-    ["the reviewed TLS overlay branch moves", overlayReplies("d".repeat(40), approvedBase), baseline, "have diverged"],
-    ["the reviewed upstream base branch moves", overlayReplies(approvedHead, "d".repeat(40)), baseline, "have diverged"],
-  );
 
   for (const [name, deps, snapshot, expected] of cases) {
     const findings = await upstreamFindings(snapshot, deps);

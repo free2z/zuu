@@ -366,6 +366,17 @@ export interface Agreement {
  * * `balance:read` - balance:read
  * * `purchase:create` - purchase:create
  * * `ai:invoke` - ai:invoke
+ * * `mcp:read` - mcp:read
+ * * `mcp:write` - mcp:write
+ * * `mcp:publish` - mcp:publish
+ * * `mcp:uploads` - mcp:uploads
+ * * `mcp:ai` - mcp:ai
+ * * `mcp:social` - mcp:social
+ * * `mcp:account` - mcp:account
+ * * `mcp:media` - mcp:media
+ * * `mcp:live` - mcp:live
+ * * `mcp:spend` - mcp:spend
+ * * `mcp:delete` - mcp:delete
  */
 export type AllowedScopesEnum = typeof AllowedScopesEnum[keyof typeof AllowedScopesEnum];
 
@@ -378,6 +389,17 @@ export const AllowedScopesEnum = {
   'balance:read': 'balance:read',
   'purchase:create': 'purchase:create',
   'ai:invoke': 'ai:invoke',
+  'mcp:read': 'mcp:read',
+  'mcp:write': 'mcp:write',
+  'mcp:publish': 'mcp:publish',
+  'mcp:uploads': 'mcp:uploads',
+  'mcp:ai': 'mcp:ai',
+  'mcp:social': 'mcp:social',
+  'mcp:account': 'mcp:account',
+  'mcp:media': 'mcp:media',
+  'mcp:live': 'mcp:live',
+  'mcp:spend': 'mcp:spend',
+  'mcp:delete': 'mcp:delete',
 } as const;
 
 /**
@@ -472,6 +494,7 @@ export interface AuthorityUnavailable {
  */
 export interface AuthorizationRequest {
   response_type: string;
+  resource?: string;
   client_id: string;
   redirect_uri: string;
   scope: string;
@@ -589,6 +612,7 @@ export type ConsentPromptScopeDescriptions = {[key: string]: string};
  * ``action: consent`` -- what the consent screen shows.
  */
 export interface ConsentPrompt {
+  signed_in_username: string;
   application: ConsentApplication;
   /** The requested scopes, in request order. */
   scopes: string[];
@@ -1539,6 +1563,17 @@ export interface ConflictDetail {
  * * `balance:read` - balance:read
  * * `purchase:create` - purchase:create
  * * `ai:invoke` - ai:invoke
+ * * `mcp:read` - mcp:read
+ * * `mcp:write` - mcp:write
+ * * `mcp:publish` - mcp:publish
+ * * `mcp:uploads` - mcp:uploads
+ * * `mcp:ai` - mcp:ai
+ * * `mcp:social` - mcp:social
+ * * `mcp:account` - mcp:account
+ * * `mcp:media` - mcp:media
+ * * `mcp:live` - mcp:live
+ * * `mcp:spend` - mcp:spend
+ * * `mcp:delete` - mcp:delete
  */
 export type ScopeEnum = typeof ScopeEnum[keyof typeof ScopeEnum];
 
@@ -1551,6 +1586,17 @@ export const ScopeEnum = {
   'balance:read': 'balance:read',
   'purchase:create': 'purchase:create',
   'ai:invoke': 'ai:invoke',
+  'mcp:read': 'mcp:read',
+  'mcp:write': 'mcp:write',
+  'mcp:publish': 'mcp:publish',
+  'mcp:uploads': 'mcp:uploads',
+  'mcp:ai': 'mcp:ai',
+  'mcp:social': 'mcp:social',
+  'mcp:account': 'mcp:account',
+  'mcp:media': 'mcp:media',
+  'mcp:live': 'mcp:live',
+  'mcp:spend': 'mcp:spend',
+  'mcp:delete': 'mcp:delete',
 } as const;
 
 /**
@@ -1838,8 +1884,11 @@ export const MeetingTypeEnum = {
 export interface CreatorMeeting {
   readonly id: number;
   readonly creator: CreatorDetail;
-  /** @maxLength 64 */
-  meeting_id: string;
+  /**
+     * @maxLength 64
+     * @nullable
+     */
+  meeting_id?: string | null;
   meeting_type?: MeetingTypeEnum;
   is_public?: boolean;
   live_now?: boolean;
@@ -2604,6 +2653,18 @@ export const GrantTypeEnum = {
 } as const;
 
 /**
+ * * `authorization_code` - authorization_code
+ * * `refresh_token` - refresh_token
+ */
+export type GrantTypesEnum = typeof GrantTypesEnum[keyof typeof GrantTypesEnum];
+
+
+export const GrantTypesEnum = {
+  authorization_code: 'authorization_code',
+  refresh_token: 'refresh_token',
+} as const;
+
+/**
  * * `bind` - bind
  * * `reset` - reset
  */
@@ -3149,6 +3210,152 @@ export const LevelEnum = {
   broad: 'broad',
   narrow: 'narrow',
 } as const;
+
+export interface MCPAccount {
+  id: string;
+  username: string;
+  scopes: string[];
+  revoked: boolean;
+  available: boolean;
+}
+
+export interface MCPApplication {
+  name: string;
+  client_id: string;
+}
+
+export interface MCPAccountGrant {
+  id: string;
+  username: string;
+  scopes: string[];
+  revoked: boolean;
+  available: boolean;
+  connection_id: string;
+  primary_username: string;
+  application: MCPApplication;
+}
+
+export interface MCPAction {
+  id: number;
+  operation: string;
+  status: number;
+  created_at: string;
+  /** @nullable */
+  primary_username: string | null;
+  /** @nullable */
+  target_username: string | null;
+  /** @nullable */
+  application: string | null;
+}
+
+/**
+ * * `none` - none
+ * * `client_secret_basic` - client_secret_basic
+ * * `client_secret_post` - client_secret_post
+ */
+export type TokenEndpointAuthMethodEnum = typeof TokenEndpointAuthMethodEnum[keyof typeof TokenEndpointAuthMethodEnum];
+
+
+export const TokenEndpointAuthMethodEnum = {
+  none: 'none',
+  client_secret_basic: 'client_secret_basic',
+  client_secret_post: 'client_secret_post',
+} as const;
+
+/**
+ * * `code` - code
+ */
+export type ResponseTypesEnum = typeof ResponseTypesEnum[keyof typeof ResponseTypesEnum];
+
+
+export const ResponseTypesEnum = {
+  code: 'code',
+} as const;
+
+export interface MCPClientRegistration {
+  /** @maxLength 100 */
+  client_name?: string;
+  /**
+     * @minItems 1
+     * @maxItems 10
+     * @items.maxLength 2048
+     */
+  redirect_uris: string[];
+  token_endpoint_auth_method?: TokenEndpointAuthMethodEnum;
+  grant_types?: GrantTypesEnum[];
+  response_types?: ResponseTypesEnum[];
+  scope?: string;
+}
+
+export interface MCPConnection {
+  id: string;
+  application: MCPApplication;
+  primary_username: string;
+  scopes: string[];
+  accounts: MCPAccount[];
+  revoked: boolean;
+  available: boolean;
+}
+
+export interface MCPConnections {
+  connections: MCPConnection[];
+  account_grants: MCPAccountGrant[];
+  recent_actions: MCPAction[];
+}
+
+export interface MCPIntent {
+  /**
+     * @minLength 43
+     * @maxLength 43
+     */
+  intent: string;
+}
+
+export interface MCPLinkConnection {
+  id: string;
+  primary_username: string;
+}
+
+export interface MCPLinkDecision {
+  /**
+     * @minLength 43
+     * @maxLength 43
+     */
+  intent: string;
+  allow: boolean;
+  scopes?: string[];
+}
+
+export type MCPLinkEvaluationScopeDescriptions = {[key: string]: string};
+
+export interface MCPLinkEvaluation {
+  expected_username: string;
+  signed_in_username: string;
+  account_matches: boolean;
+  application: MCPApplication;
+  connection: MCPLinkConnection;
+  scopes: string[];
+  scope_descriptions: MCPLinkEvaluationScopeDescriptions;
+  expires_at: string;
+}
+
+export interface MCPLinkResult {
+  linked: boolean;
+  account?: MCPAccount;
+}
+
+export interface MCPRegistrationResult {
+  client_id: string;
+  client_id_issued_at: number;
+  client_name: string;
+  redirect_uris: string[];
+  token_endpoint_auth_method: string;
+  grant_types: string[];
+  response_types: string[];
+  scope: string;
+  client_secret?: string;
+  client_secret_expires_at?: number;
+}
 
 /**
  * * `host` - host
@@ -4909,6 +5116,7 @@ export interface TokenRequest {
   code?: string;
   redirect_uri?: string;
   code_verifier?: string;
+  resource?: string;
   refresh_token?: string;
   scope?: string;
 }
@@ -6138,6 +6346,7 @@ export type OidcAuthorizeEvaluateParams = {
   nonce?: string;
   prompt?: string;
   redirect_uri: string;
+  resource?: string;
   response_mode?: string;
   response_type: string;
   scope: string;
@@ -6403,8 +6612,14 @@ export type TuzisSubscribePartialUpdateBody = {
 export type ZpageListParams = {
   /** Tag names, **repeated** (`?any_tags=a&any_tags=b`) rather than comma-joined. A zPage matches if it carries **any** of them (OR). Matching is case-insensitive and alias-resolved, exactly like `tags`. Combining the two ANDs the groups: `?tags=zcash&any_tags=t-shirts&any_tags=t shirts` means *zcash* AND (*t-shirts* OR *t shirts*). Repeated rather than comma-separated because a tag name may itself contain a comma, and this parameter's reason to exist — the `/tag/<slug>` hub — is precisely the set of spellings that collide on one slug. At most 50 names are read; the rest are ignored rather than rejected. */
   any_tags?: string[];
+  /** Inclusive creation lower bound as an ISO 8601 date or datetime. */
+  created_at__gte?: string;
+  /** Inclusive creation upper bound as an ISO 8601 date or datetime. */
+  created_at__lte?: string;
   /** Opaque continuation token returned in `next`; use only with `pagination=cursor`. */
   cursor?: string;
+  /** Homepage ordering; also requires a featured image. Explicit ordering and search retain native precedence. */
+  homeSort?: ZpageListHomeSort;
   /** A public tag-hub slug. The server resolves the complete canonical component and filters by it, so the bounded `names` display list cannot strand pages from a hub with more than 50 spellings. This is the list counterpart to `GET /api/tagging/hub/{slug}`. */
   hub_slug?: string;
   /** Which language variant to render. Any real BCP-47 language tag (`en`, `de`, `ja`, `pt-PT`); bare `pt` is accepted as `pt-BR`. A tag that is not a language at all is a 400. Omit to negotiate: the `Accept-Language` header is consulted next, and the article's source variant last. */
@@ -6419,9 +6634,25 @@ export type ZpageListParams = {
   page_size?: number;
   /** Opt into stable keyset pagination for infinite feeds. Omit this parameter to retain the default page-number contract. */
   pagination?: ZpageListPagination;
+  /** Search visible page text; use mine=true for owned drafts. */
+  search?: string;
   /** Comma-separated tag names. A zPage matches only if it carries **all** of them (AND, not OR). Matching is case-insensitive, so `zcash` and `ZCASh` select the same pages. Tags are a free-form vocabulary (`django-taggit`) — there is no fixed list to choose from; `GET /api/tagging/autocomplete` enumerates the ones in use. */
   tags?: string;
+  /** Use 0 to exclude unverified pages. */
+  unverified?: string;
+  /** Filter pages by the exact creator username; visibility checks still apply. */
+  username?: string;
 };
+
+export type ZpageListHomeSort = typeof ZpageListHomeSort[keyof typeof ZpageListHomeSort];
+
+
+export const ZpageListHomeSort = {
+  popular: 'popular',
+  random: 'random',
+  score: 'score',
+  updated: 'updated',
+} as const;
 
 export type ZpageListPagination = typeof ZpageListPagination[keyof typeof ZpageListPagination];
 
@@ -6516,4 +6747,16 @@ export const ZuuliCapabilitiesPlatform = {
   linux: 'linux',
   macos: 'macos',
 } as const;
+
+export type McpPostBody = {[key: string]: unknown};
+
+export type McpPost200 = {[key: string]: unknown};
+
+export type McpPostAliasBody = {[key: string]: unknown};
+
+export type McpPostAlias200 = {[key: string]: unknown};
+
+export type McpUploadPut200 = {[key: string]: unknown};
+
+export type McpUploadPut201 = {[key: string]: unknown};
 

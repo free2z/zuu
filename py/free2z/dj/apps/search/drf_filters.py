@@ -201,6 +201,12 @@ class VectorSearchFilter(filters.BaseFilterBackend):
         if query_vector is not None:
             return self._semantic(queryset, query_vector)
 
+        # Hosted MCP holds account/connection lifecycle locks through native
+        # view execution. Cached vectors are safe; a cold embedding request
+        # must not hold those shared locks during provider I/O.
+        if getattr(request, 'mcp_actor', None) is not None:
+            return self._full_text(queryset, query)
+
         # A fresh query is a paid provider call made while holding this
         # pod's worker. Admission bounds it per caller and fleet-wide; past
         # either budget the search is answered from full text, never a 429.

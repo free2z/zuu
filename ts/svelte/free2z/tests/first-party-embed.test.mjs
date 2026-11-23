@@ -412,6 +412,7 @@ const NOT_CONTENT_SHAPES = [
   "https://free2z.cash/edit/123",
   "https://free2z.cash/tag/zcash",
   "https://free2z.cash/api/zpage",
+  "https://free2z.cash/_internal_mcp_media/private-file?generation=123",
   "https://free2z.cash/uploadz/private",
   "https://free2z.cash/adminzzz/login",
   "https://free2z.cash/live/alice",
