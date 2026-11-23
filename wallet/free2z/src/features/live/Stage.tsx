@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import {
-  RealtimeKitProvider,
-  useRealtimeKitClient,
-} from "@cloudflare/realtimekit-react";
+import RealtimeKitClient from "@cloudflare/realtimekit";
+import { RealtimeKitProvider } from "@cloudflare/realtimekit-react";
 import { RtkMeeting } from "@cloudflare/realtimekit-react-ui";
 import { Button } from "@/components/ui/button";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 import type { DyteJoinTicket } from "@/lib/api/types";
+import { isCurrentHostSeat, releaseHostSeat, retainHostSeat } from "@/lib/api/host-seat";
 import {
   classifyLiveFailure,
   safeLiveDiagnostic,
@@ -17,6 +16,84 @@ import {
 import { MeetingRecordingNotice } from "./MeetingRecordingNotice";
 
 type StageStatus = "connecting" | "connected" | "failed" | "ended";
+
+/**
+ * Clients whose room is confirmed left, by us or by the provider. Stage is the
+ * single teardown owner (`RtkMeeting.leaveOnUnmount` is off), so a client is
+ * left once no matter how many paths reach it: superseded init, transport
+ * failure, unmount, or page teardown.
+ */
+const releasedClients = new WeakSet<object>();
+/** Clients whose leave() is in flight; a second request waits on it. */
+const releasingClients = new WeakSet<object>();
+/**
+ * Core holds each media toggle lock (`Self.toggleAudio`, `Self.toggleVideo`)
+ * for up to 3 s, and leave() runs disableAudio/disableVideo under them. Retries
+ * at +1 s, +3 s and +7 s guarantee at least one attempt after a lock taken at
+ * the moment of departure has expired.
+ */
+const LEAVE_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+function releaseClient(
+  client: RealtimeKitClient | null | undefined,
+  retry = 0,
+) {
+  if (!client || releasedClients.has(client) || releasingClients.has(client))
+    return;
+  releasingClients.add(client);
+  // leave() also stops local capture. A host is initialized with camera and
+  // microphone on, so a client nobody leaves keeps both devices captured.
+  // Only a leave that RESOLVED counts: Core serializes enable/disableAudio on
+  // one lock, so a leave racing a pending mic enable can reject before it has
+  // stopped the camera. A rejected leave is retried (bounded), and stays
+  // eligible for any later release request.
+  void Promise.resolve()
+    .then(() => client.leave())
+    .then(
+      () => {
+        releasingClients.delete(client);
+        releasedClients.add(client);
+      },
+      () => {
+        releasingClients.delete(client);
+        const delay = LEAVE_RETRY_DELAYS_MS[retry];
+        if (delay !== undefined) {
+          setTimeout(() => releaseClient(client, retry + 1), delay);
+        }
+      },
+    );
+}
+
+/**
+ * Core locks `Client.init` per auth token and REJECTS an overlapping call
+ * (`UnsupportedConcurrentMethodExecution`) rather than waiting; the lock
+ * releases itself after 3 s even if init never settles (a host's
+ * getUserMedia prompt can hang). So a new attempt waits for the previous
+ * attempt WITH THE SAME TOKEN, and for no longer than that lock can be held.
+ * Other tokens (another stream, a refreshed ticket) never wait.
+ */
+const INIT_LOCK_MS = 3_000;
+const pendingInits = new Map<string, Promise<void>>();
+
+function afterPendingInit(authToken: string): Promise<void> {
+  const previous = pendingInits.get(authToken);
+  if (!previous) return Promise.resolve();
+  return Promise.race([
+    previous,
+    new Promise<void>((resolve) => setTimeout(resolve, INIT_LOCK_MS + 100)),
+  ]);
+}
+
+function trackPendingInit(authToken: string, attempt: Promise<unknown>) {
+  const settled = attempt.then(
+    () => {},
+    () => {},
+  );
+  pendingInits.set(authToken, settled);
+  void settled.then(() => {
+    if (pendingInits.get(authToken) === settled) pendingInits.delete(authToken);
+  });
+}
 
 function FailureMessage({
   messageKey,
@@ -61,15 +138,19 @@ function FailureMessage({
  */
 export function Stage({
   ticket,
+  actorId,
+  ownerUsername,
   refreshTicket,
   onTicketRefreshed,
 }: {
   ticket: DyteJoinTicket;
+  actorId?: number;
+  ownerUsername?: string;
   refreshTicket?: (previous: DyteJoinTicket) => Promise<DyteJoinTicket>;
   onTicketRefreshed?: (fresh: DyteJoinTicket) => void;
 }) {
   const { t } = useTranslation();
-  const [meeting, initMeeting] = useRealtimeKitClient();
+  const [meeting, setMeeting] = useState<RealtimeKitClient | null>(null);
   const [status, setStatus] = useState<StageStatus>("connecting");
   const [failure, setFailure] = useState<LiveConnectionFailure | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -89,33 +170,100 @@ export function Stage({
     };
   }, []);
 
+  // Each attempt owns exactly one client at a time (a breakout handoff moves
+  // ownership to the replacement; see meetingChanged below). The hook form of
+  // this (`useRealtimeKitClient`) is not used: it resolves `undefined` while a
+  // previous init is still running, and it never leaves a client whose attempt
+  // was abandoned, so a superseded host init kept the camera and microphone.
+  const ownerRef = useRef<{ client?: RealtimeKitClient } | null>(null);
+  const intentRef = useRef({ actorId, ownerUsername });
+  intentRef.current = { actorId, ownerUsername };
+  const ownsTicket = () => !ticket.hostSeat || (
+    intentRef.current.actorId === ticket.hostSeat.actorId &&
+    intentRef.current.ownerUsername === ticket.hostSeat.username &&
+    isCurrentHostSeat(ticket.hostSeat)
+  );
+
+  useEffect(() => {
+    const seat = ticket.as === "host" ? ticket.hostSeat : undefined;
+    if (!seat) return;
+    const lost = () => {
+      releaseClient(ownerRef.current?.client);
+      ownerRef.current = null;
+      setMeeting(null);
+      setFailure(null);
+      setStatus("ended");
+    };
+    if (actorId !== seat.actorId || ownerUsername !== seat.username) {
+      releaseHostSeat(seat, actorId === seat.actorId);
+      lost();
+      return;
+    }
+    const detach = retainHostSeat(seat, lost);
+    const pageHide = () => releaseHostSeat(seat);
+    window.addEventListener("pagehide", pageHide);
+    return () => {
+      window.removeEventListener("pagehide", pageHide);
+      detach();
+    };
+  }, [ticket.hostSeat, ticket.as, actorId, ownerUsername]);
+
   useEffect(() => {
     let cancelled = false;
+    if (!ownsTicket()) {
+      setMeeting(null);
+      setFailure(null);
+      setStatus("ended");
+      return;
+    }
+    const owner: { client?: RealtimeKitClient } = {};
+    ownerRef.current = owner;
+    // A retry must never re-render <RtkMeeting> with the previous attempt's
+    // client: with the setup screen off, mounting it calls join() on that
+    // client again, rejoining a room the provider said needs a fresh init.
+    setMeeting(null);
     setStatus("connecting");
     setFailure(null);
 
-    initMeeting({
-      authToken: ticket.authToken,
-      defaults: {
-        // Hosts publish immediately; viewers join with mic/cam off.
-        audio: ticket.as === "host",
-        video: ticket.as === "host",
-      },
-    })
-      .then((client) => {
-        if (cancelled || client) return;
-        // A falsy resolution (no thrown error) still means we never got a
-        // connected client — surface it rather than rendering a blank stage.
-        const classified = classifyLiveFailure(
-          new Error("RealtimeKit returned no client"),
-          "sdk-init",
-        );
-        console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
-        setFailure(classified);
-        setStatus("failed");
+    const attempt = afterPendingInit(ticket.authToken).then(() =>
+        // An attempt cancelled while it waited (StrictMode replay, a newer
+        // ticket) never reaches Core at all.
+        cancelled || !ownsTicket()
+          ? undefined
+          : RealtimeKitClient.init({
+              authToken: ticket.authToken,
+              defaults: {
+                // Hosts publish immediately; viewers join with mic/cam off.
+                audio: ticket.as === "host",
+                video: ticket.as === "host",
+              },
+            }),
+      );
+    trackPendingInit(ticket.authToken, attempt);
+
+    attempt
+      .then((initialized) => {
+        if (cancelled || !ownsTicket()) {
+          releaseClient(initialized);
+          return;
+        }
+        if (!initialized) {
+          // A falsy resolution (no thrown error) still means we never got a
+          // client — surface it rather than rendering a blank stage.
+          const classified = classifyLiveFailure(
+            new Error("RealtimeKit returned no client"),
+            "sdk-init",
+          );
+          console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+          setFailure(classified);
+          setStatus("failed");
+          return;
+        }
+        owner.client = initialized;
+        setMeeting(initialized);
       })
       .catch((err: unknown) => {
-        if (cancelled) return;
+        if (cancelled || !ownsTicket()) return;
         const classified = classifyLiveFailure(err, "sdk-init");
         // Never log the raw SDK error: provider errors can echo credentials or
         // private endpoints. The allowlisted boundary/category is sufficient.
@@ -126,21 +274,45 @@ export function Stage({
 
     return () => {
       cancelled = true;
+      if (ownerRef.current === owner) ownerRef.current = null;
+      releaseClient(owner.client);
     };
-  }, [ticket.authToken, ticket.as, hostAttempt, initMeeting]);
+  }, [ticket.authToken, ticket.as, actorId, ownerUsername, hostAttempt]);
 
   useEffect(() => {
     if (!meeting) return;
+    const ownsMeeting = () => ownerRef.current?.client === meeting && ownsTicket();
+    let handoffPending = false;
+    const onChangingMeeting = () => { handoffPending = true; };
 
     const onJoined = () => {
+      if (!ownsMeeting()) return;
       setFailure(null);
       setStatus("connected");
     };
     const onLeft = ({ state }: { state: string }) => {
+      if (!ownsMeeting()) return;
+      if (state === "connected-meeting") handoffPending = true;
+      if (state === "left" || state === "ended" || state === "kicked") {
+        // The SDK already ran its own leave for these terminal states.
+        releasedClients.add(meeting);
+        if (ownerRef.current?.client === meeting && ticket.hostSeat) {
+          releaseHostSeat(ticket.hostSeat);
+          setFailure(null);
+          setStatus("ended");
+        }
+      }
       if (state === "ended") {
         setFailure(null);
         setStatus("ended");
       } else if (state === "failed") {
+        // Core emits "failed" when the socket or media node exhausted its
+        // reconnects and documents that a new init is required. It does not
+        // clean up local media on that path, so leave explicitly and drop the
+        // client: a retry starts from a fresh init, never from this one.
+        if (ownerRef.current?.client === meeting) ownerRef.current.client = undefined;
+        releaseClient(meeting);
+        setMeeting(null);
         const classified = classifyLiveFailure(
           new TypeError("room transport failed"),
           "room-session",
@@ -149,16 +321,59 @@ export function Stage({
         setFailure(classified);
         setStatus("failed");
       }
+      // "disconnected" is transient: Core reconnects and emits roomJoined
+      // again with `reconnected: true`. Keep the meeting mounted meanwhile.
+      // "connected-meeting" is a breakout handoff, handled below.
     };
+    // Breakout rooms: Core leaves this client ("connected-meeting") and hands
+    // over an already-joined replacement. Adopt it and move teardown ownership
+    // to it, as the hook did; the departed client is not ours to leave again.
+    const onMeetingChanged = (next: RealtimeKitClient) => {
+      const owner = ownerRef.current;
+      if (!next) return;
+      handoffPending = false;
+      if (!owner || !ownsMeeting()) {
+        if (ownerRef.current?.client !== next) releaseClient(next);
+        return;
+      }
+      owner.client = next;
+      // Unmount first so <RtkMeeting> remounts against the new client. The
+      // timer is not cleared by this effect's cleanup (setMeeting(null) runs
+      // it); the owner check is what discards a handoff after unmount/retry.
+      setMeeting(null);
+      setTimeout(() => {
+        if (ownerRef.current === owner && owner.client === next && ownsTicket()) setMeeting(next);
+      }, 100);
+    };
+    const onPageHide = () => releaseClient(meeting);
 
     meeting.self.on("roomJoined", onJoined);
     meeting.self.on("roomLeft", onLeft);
+    meeting.connectedMeetings?.on("meetingChanged", onMeetingChanged);
+    meeting.connectedMeetings?.on("changingMeeting", onChangingMeeting);
+    window.addEventListener("pagehide", onPageHide);
 
     return () => {
       meeting.self.off("roomJoined", onJoined);
       meeting.self.off("roomLeft", onLeft);
+      meeting.connectedMeetings?.removeListener(
+        "meetingChanged",
+        onMeetingChanged,
+      );
+      meeting.connectedMeetings?.removeListener("changingMeeting", onChangingMeeting);
+      if (handoffPending && meeting.connectedMeetings) {
+        // A cancelled Core switch may still produce an already-joined client.
+        // Its emitter owns this disposal callback, with no global keepalive.
+        const dispose = (next: RealtimeKitClient) => {
+          meeting.connectedMeetings?.removeListener("meetingChanged", dispose);
+          if (ownerRef.current?.client !== next) releaseClient(next);
+        };
+        meeting.connectedMeetings.on("meetingChanged", dispose);
+        releaseClient(meeting);
+      }
+      window.removeEventListener("pagehide", onPageHide);
     };
-  }, [meeting]);
+  }, [meeting, ticket.hostSeat]);
 
   async function retryWithFreshTicket() {
     if (
@@ -187,6 +402,7 @@ export function Stage({
 
   function reconnectHost() {
     if (ticket.as !== "host") return;
+    if (ticket.hostSeat && !isCurrentHostSeat(ticket.hostSeat)) return;
     // A host retry is deliberately local: reinitialize the SDK with the
     // existing host ticket. Never call the overloaded start/join route here;
     // doing so could mutate or duplicate the creator's live room.
@@ -270,7 +486,9 @@ export function Stage({
           meeting={meeting}
           mode="fill"
           showSetupScreen={false}
-          leaveOnUnmount
+          // Stage owns teardown (see releaseClient); a second owner here
+          // would leave the same client twice.
+          leaveOnUnmount={false}
           className="h-full w-full"
         />
         <MeetingRecordingNotice meeting={meeting} />
