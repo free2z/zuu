@@ -18,8 +18,8 @@ features:
   - title: A little credit goes a long way
     details: Buy, use, and share 2Zs for AI, live access, comments, votes, boosts, and memberships. A larger balance unlocks larger uploads.
     link: /getting-started/tuzis
-  - title: Earn for what you deliver
-    details: Qualifying paid livestreams and SDK services earn USD owed by 2Z Inc. Track earnings and request payment in shielded Zcash.
+  - title: Creator credits and earnings
+    details: Receive 2Z credits from pay-per-view and memberships. Qualifying SDK services can earn separate USD compensation.
     link: /revenue-sharing/
   - title: Support someone directly
     details: Send Zcash from your wallet to a creator’s support address. Check the destination and wallet fees before sending.
@@ -43,6 +43,6 @@ Your profile brings your work and your community together. Publish something wor
 
 **2Zs, also called Tuzis, are platform usage credits.** Buy them with the payment options in Credits & Earnings, spend them on Free2Z services, or share them with another user. Credits stay on the platform and have no cash-out option.
 
-**Creator earnings are recorded in USD.** 2Z Inc. owes these amounts for qualifying delivered pay-per-view livestreams and SDK services under a verified creator’s accepted agreement and service terms. Payment goes to the creator’s authorized shielded Zcash address.
+**Pay-per-view and memberships share 2Z platform credits.** Receiving credits does not require payout verification or a creator compensation agreement. Qualifying SDK services can earn separate USD compensation under accepted terms, paid to the creator’s authorized shielded Zcash address.
 
 [Meet Tuzis](/getting-started/tuzis) · [Understand creator earnings](/revenue-sharing/) · [Open a task guide](/guides/)

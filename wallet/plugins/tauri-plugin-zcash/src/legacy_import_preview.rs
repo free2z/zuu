@@ -686,6 +686,7 @@ mod tests {
             .expect("derive test key")
             .to_unified_full_viewing_key()
             .encode(&Network::MainNetwork)
+            .expect("encode test UFVK")
     }
 
     fn create_db(path: &Path, ufvks: &[String]) {
