@@ -42,8 +42,10 @@ test("confirmed logout prunes inserted replies and preserves paid recovery keys"
 
   render(<LogoutButton />);
   const epochBeforeLogout = getGlobalState("authEpoch");
+  const hostEpochBeforeLogout = getGlobalState("hostAuthEpoch");
   fireEvent.click(screen.getByRole("button", { name: "Logout" }));
   expect(getGlobalState("authEpoch")).toBeGreaterThan(epochBeforeLogout);
+  expect(getGlobalState("hostAuthEpoch")).toBeGreaterThan(hostEpochBeforeLogout);
 
   await waitFor(() =>
     expect(window.localStorage.getItem(insertedKey)).toBeNull()
