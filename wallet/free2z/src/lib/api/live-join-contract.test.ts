@@ -51,6 +51,7 @@ describe("authoritative public live join and refresh", () => {
     });
     expect(requestMock).toHaveBeenCalledWith("/api/dyte/alice/broadcast", {
       method: "POST",
+      body: { role: "viewer" },
     });
   });
 
@@ -71,7 +72,7 @@ describe("authoritative public live join and refresh", () => {
       live.refreshParticipant("alice", "broadcast", previous),
     ).resolves.toMatchObject({ authToken: fresh, meetingId: "selected-meeting" });
     expect(requestMock.mock.calls).toEqual([
-      ["/api/dyte/alice/broadcast", { method: "POST" }],
+      ["/api/dyte/alice/broadcast", { method: "POST", body: { role: "viewer" } }],
     ]);
     expect(requestMock.mock.calls.flat().join(" ")).not.toContain("/private");
   });
