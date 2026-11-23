@@ -124,16 +124,14 @@ export async function loadLivePage(
       event.cookies,
       url.pathname + url.search,
     );
-    if (type === "ppv") {
-      if (
-        typeof viewer.id !== "number" ||
-        !Number.isSafeInteger(viewer.id) ||
-        viewer.id <= 0
-      ) {
-        throw error(503, "errors.http.503.title", { code: 503 });
-      }
-      viewerActorId = viewer.id;
+    if (
+      typeof viewer.id !== "number" ||
+      !Number.isSafeInteger(viewer.id) ||
+      viewer.id <= 0
+    ) {
+      throw error(503, "errors.http.503.title", { code: 503 });
     }
+    viewerActorId = viewer.id;
   }
 
   return {
