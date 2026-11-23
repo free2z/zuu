@@ -19,9 +19,11 @@ A story, a live conversation, a useful app—pick your format and make it yours.
 
 2Zs pay for platform tools and access. Use them for AI assistance, live time, and boosts. Hold a larger balance to unlock larger uploads. Supporters can share credits with you or subscribe for membership benefits. These credits stay available for platform use; they have no cash-out option.
 
-## Earn for qualifying services
+## Receive credits and earn from eligible apps
 
-Turn a live performance or a useful app into real earnings. Qualifying delivered pay-per-view and SDK services earn USD owed by 2Z Inc., tracked separately from your credits in Credits & Earnings. Before offering compensated services, complete payee verification, accept the creator agreement and relevant service terms, and confirm Credits & Earnings shows you are ready for creator compensation.
+Pay-per-view livestreams add the collected creator portion to your 2Z credit balance. Credit gifts and subscriptions also provide platform credits. Receiving credits does not require payout verification or a creator compensation agreement.
+
+Qualifying SDK services can earn USD owed by 2Z Inc., tracked separately in Credits & Earnings. Before offering those compensated services, complete payee verification, accept the creator agreement and relevant service terms, and confirm your eligibility in Credits & Earnings.
 
 You can apply for verification without buying credits. Hosting a livestream has its own **150 2Z** balance requirement.
 
