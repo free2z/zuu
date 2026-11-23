@@ -23,6 +23,6 @@ Buy 2Zs with Zcash in Credits & Earnings. Use credits for AI, livestream service
 
 ## Earn for qualifying services
 
-Verified creators with accepted agreements and service terms can earn USD owed by 2Z Inc. for qualifying delivered PPV and SDK services. Credits & Earnings shows these earnings separately from credits, and payments are made in shielded Zcash. Subscriptions and credit gifts use credits; they do not create USD earnings.
+Pay-per-view, subscriptions, and credit gifts provide 2Z platform credits. Receiving credits does not require payout verification or a compensation agreement. Verified creators with accepted terms can earn separate USD compensation for qualifying SDK services. Credits & Earnings records those obligations and shielded Zcash payments.
 
-[Set up creator earnings](../revenue-sharing/index.md). You can apply for verification without a minimum credit balance; hosting a livestream has its own credit requirement.
+[Set up SDK creator earnings](../revenue-sharing/index.md). You can apply for verification without a minimum credit balance; hosting a livestream has its own credit requirement.

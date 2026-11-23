@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import { createServer } from "vite";
 
@@ -40,6 +41,32 @@ function event(overrides) {
     created_at: "2026-07-20 00:00:00",
     ...overrides,
   };
+}
+
+for (const localized of [false, true]) {
+  test(`PPV revenue describes received platform credits (${localized ? "catalog" : "fallback"})`, () => {
+    const catalog = JSON.parse(
+      readFileSync(
+        new URL("../src/lib/locales/en.json", import.meta.url),
+        "utf8",
+      ),
+    );
+    const catalogTranslate = (key, fallback, params) =>
+      translate(
+        key,
+        key.split(".").reduce((node, part) => node?.[part], catalog) ??
+          fallback,
+        params,
+      );
+    assert.equal(
+      formatEventNotification(
+        event({ type: "PAY_PER_VIEW_REVENUE" }),
+        localized ? catalogTranslate : translate,
+        "en",
+      ),
+      "You received 3 2Z credits from alice for pay-per-view access.",
+    );
+  });
 }
 
 // The backend writes two PAGE_VOTE rows per vote -- one to the voter, one to
