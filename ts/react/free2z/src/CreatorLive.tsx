@@ -4,6 +4,7 @@ import {
   RealtimeKitProvider,
 } from "@cloudflare/realtimekit-react";
 import axios from "axios";
+import RealtimeKitClient from "@cloudflare/realtimekit";
 import { useEffect, useRef, useState } from "react";
 import type { MeetingJoinRequestSchema } from "../../../svelte/free2z/src/lib/api/f2z.schemas";
 import { useParams } from "react-router-dom";
@@ -12,8 +13,9 @@ import DyteLeave from "./components/DyteLeave";
 import DyteCreator from "./components/DyteCreator";
 import SubscribeToCreator from "./components/SubscribeToCreator";
 import { PublicCreator } from "./CreatorDetail";
-import { useGlobalState } from "./state/global";
+import { getGlobalState, useGlobalState } from "./state/global";
 import { useStoreState } from "./state/persist";
+import { createHostSeat } from "./hostSeat";
 
 function paidJoinKey(
   owner: string,
@@ -51,10 +53,17 @@ export default function CreatorLive() {
   const [loading, setLoading] = useGlobalState("loading");
   const [loginModal, setLoginModal] = useGlobalState("loginModal");
   const [authStatus, _a] = useGlobalState("authStatus");
+  const [hostAuthEpoch] = useGlobalState("hostAuthEpoch");
   const navigate = useTransitionNavigate();
   const [meeting, initMeeting] = useRealtimeKitClient();
-  const viewerRef = useRef({ id: creator.id, username: creator.username });
-  viewerRef.current = { id: creator.id, username: creator.username };
+  const [hostMeeting, setHostMeeting] = useState<{ client: RealtimeKitClient; actor: object; run: object; intent: object }>();
+  const intentRef = useRef({ owner, type });
+  if (intentRef.current.owner !== owner || intentRef.current.type !== type) intentRef.current = { owner, type };
+  const viewerRef = useRef({ id: creator.id, username: creator.username, generation: 0 });
+  if (viewerRef.current.id !== creator.id || viewerRef.current.username !== creator.username)
+    viewerRef.current = { id: creator.id, username: creator.username, generation: viewerRef.current.generation + 1 };
+  const hostRun = useRef<{ key: string; run: ReturnType<typeof createHostSeat> }>();
+  const hostIntent = useRef<{ intent: object; epoch: number }>();
   const paidIntentRef = useRef<{
     id: number;
     username: string;
@@ -66,12 +75,15 @@ export default function CreatorLive() {
   }>();
   const [showPay, setShowPay] = useState(false);
   const [star, setStar] = useState({} as PublicCreator);
+  const [starOwner, setStarOwner] = useState<string>();
 
   useEffect(() => {
+    let cancelled = false;
+    setStar({} as PublicCreator);
     axios
       .get(`/api/creator/${owner}/`)
       .then((res) => {
-        setStar(res.data);
+        if (!cancelled) { setStar(res.data); setStarOwner(owner); }
       })
       .catch((res) => {
         setSnackbarState({
@@ -81,7 +93,8 @@ export default function CreatorLive() {
           open: true,
         });
       });
-  }, []);
+    return () => { cancelled = true; };
+  }, [owner]);
 
   useEffect(() => {
     // console.log("CreatorLive useEffect", authStatus, creator.username, owner, type)
@@ -95,7 +108,7 @@ export default function CreatorLive() {
     }
     setLoginModal(false);
 
-    if (!star.username) {
+    if (!star.username || starOwner !== owner) {
       return;
     }
 
@@ -105,7 +118,7 @@ export default function CreatorLive() {
       return;
     }
 
-    const is_owner = creator.username.toLowerCase() === owner?.toLowerCase();
+    const is_owner = Number.isSafeInteger(creator.id) && creator.id > 0 && creator.id === star.id;
     const originalPaidIntent =
       paidIntentRef.current?.owner === owner &&
       paidIntentRef.current?.type === type
@@ -133,6 +146,52 @@ export default function CreatorLive() {
     }
 
     const paidViewer = type === "ppv" && (!is_owner || !!originalPaidIntent);
+    if (is_owner && !paidViewer && type && type !== "private") {
+      const actor = viewerRef.current;
+      const intent = intentRef.current;
+      if (hostIntent.current?.intent === intent && hostIntent.current.epoch !== hostAuthEpoch) {
+        hostRun.current?.run.close();
+        setLoading(false);
+        return;
+      }
+      hostIntent.current = { intent, epoch: hostAuthEpoch };
+      const key = `${actor.generation}:${actor.id}:${star.id}:${owner}:${type}`;
+      if (hostRun.current?.key !== key || hostRun.current.run.closed) {
+        hostRun.current?.run.close();
+        const runIdentity = {};
+        hostRun.current = {
+          key,
+          run: createHostSeat({
+            username: star.username, actorId: actor.id, type, price: String(ppvPrice),
+            isCurrent: () => viewerRef.current === actor && getGlobalState("hostAuthEpoch") === hostAuthEpoch,
+            isIntentCurrent: () => intentRef.current === intent,
+            initialize: (authToken) => RealtimeKitClient.init({ authToken, defaults: { audio: true, video: true } }),
+            onReady: (client) => {
+              setHostMeeting({ client: client as RealtimeKitClient, actor, run: runIdentity, intent });
+              setLoading(false);
+            },
+            onClosed: () => setHostMeeting((current) => current?.run === runIdentity ? undefined : current),
+            onError: (error: any) => {
+              setLoading(false);
+              const response = error?.response ?? error;
+              const message = response?.data?.code === "already_live_elsewhere"
+                ? "Your broadcast is active in another tab or device. Return there or end it before starting here."
+                : "Could not start stream. Please try again.";
+              setSnackbarState({ message, severity: "error", duration: null, open: true });
+            },
+            onLost: (reason) => {
+              setLoading(false);
+              const message = reason === "authentication"
+                ? "Your sign-in session ended. Sign in again to restart your broadcast."
+                : "Your broadcast moved to another tab or device.";
+              setSnackbarState({ message, severity: "warning", duration: null, open: true });
+              navigate("/profile");
+            },
+          }),
+        };
+      }
+      return hostRun.current.run.retain();
+    }
     if (
       paidViewer &&
       (!paidIntentRef.current ||
@@ -157,10 +216,8 @@ export default function CreatorLive() {
     };
     let cancelled = false;
     let unregisterRoomJoined: (() => void) | undefined;
-    const instruction = {
-      ...(type === "ppv" && is_owner && !paidViewer
-        ? { price_per_minute: String(ppvPrice) }
-        : {}),
+    const instruction: MeetingJoinRequestSchema = {
+      role: "viewer",
       ...(paidViewer ? { expected_actor_id: originalViewer.id } : {}),
     };
     let body: MeetingJoinRequestSchema = instruction;
@@ -354,7 +411,7 @@ export default function CreatorLive() {
       unregisterRoomJoined?.();
       unregisterRoomJoined = undefined;
     };
-  }, [creator.id, creator.username, showPay, star.username, owner, type]);
+  }, [creator.id, creator.username, hostAuthEpoch, showPay, star.id, star.username, starOwner, owner, type]);
 
   // console.log(owner)
   if (!star) {
@@ -387,8 +444,8 @@ export default function CreatorLive() {
       <Helmet>
         <title>{`${star.username}'s Live Stream - Free2Z`}</title>
       </Helmet>
-      <RealtimeKitProvider value={meeting} fallback={<></>}>
-        <DyteLeave />
+      <RealtimeKitProvider value={hostMeeting?.actor === viewerRef.current && hostMeeting.intent === intentRef.current ? hostMeeting.client : meeting} fallback={<></>}>
+        {!hostMeeting && <DyteLeave />}
         <DyteCreator />
       </RealtimeKitProvider>
     </>

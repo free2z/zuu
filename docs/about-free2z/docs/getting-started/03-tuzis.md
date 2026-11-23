@@ -45,9 +45,9 @@ Starting a livestream requires at least **150 2Zs** in your usage balance. You d
 | Balance | What it is for |
 | --- | --- |
 | 2Z credits | Buying and sharing access to platform services |
-| USD earnings | Money owed by 2Z Inc. for qualifying delivered PPV or SDK services under accepted creator terms |
+| USD earnings | Money owed by 2Z Inc. for qualifying SDK services and retained obligations under accepted terms |
 
-**2Zs are not money and cannot be cashed out.** Buying, holding, sharing, or receiving credits does not earn USD. Subscriptions use credits for membership benefits.
+**2Zs are not money and cannot be cashed out.** Buying, holding, sharing, or receiving credits does not earn USD. Subscriptions and pay-per-view share credits for access benefits. Receiving these credits does not require payout verification or a compensation agreement.
 
 Verified creators can earn separately from qualifying delivered services, track those earnings in USD, and request payment in shielded Zcash. [Learn how creator earnings work](../revenue-sharing/index.md).
 

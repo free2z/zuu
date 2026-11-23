@@ -16,8 +16,8 @@
     {
       "scope": "economy/products.py compensation admissions",
       "disposition": "prepared",
-      "boundary": "Published exact schedule and actual immutable acceptance tuple, verified bound payee, active supplier, source/offer scope, subject actor and same-account/known legal-person checks precede admission. Captured original admission governs settlement.",
-      "verification": "Actual current canonical PPV/SDK schedules, missing consent and self-service tests. Archived membership schedule cannot qualify for new admission. Unknown purchaser aliases are not represented as universally verified people."
+      "boundary": "New compensated service admission is SDK-only. Published historical PPV resources and accepted agreements remain immutable; a dedicated SQL INSERT guard refuses fresh cash PPV admissions. Existing accepted SDK references remain valid without reacceptance.",
+      "verification": "PostgreSQL prospective PPV refusal, immutable historical cash settlement/replay and unchanged SDK source/consent tests; current catalog exposes SDK only."
     },
     {
       "scope": "g12f/models/creator.py Subscription.extend; g12f/tasks.py renew_subscription",
@@ -26,10 +26,10 @@
       "verification": "Real-PG policy1 utility-only/no-payable regression plus existing membership and renewal concurrency/retry suites."
     },
     {
-      "scope": "dyte/views.py public host/viewer admission; dyte/client.py",
+      "scope": "dyte/views.py; dyte/ppv_credits.py; dyte/credit_recovery.py; dyte/tasks.py; dyte/management/commands/ppv_credit_recovery.py; dyte/migrations/_ppv_credit_sql.py",
       "disposition": "prepared original admission and delivery",
-      "boundary": "v0 utility billing preserved including ea_ usernames. v1 captures original host/room/price/payee/agreement/schedule before token IO. Authenticated provider evidence produces nonoverlapping delivery children, company usage collection and exact USD debt; no supplier utility credit.",
-      "verification": "Real signed HTTP and PostgreSQL delivery/replay controls. Independent cross-admission exclusion and original identities persist across mutable room/profile changes."
+      "boundary": "Policy0 legacy utility billing retained. New policy1 PPV captures immutable credit admission before provider IO; canonical participant proof and signed callback claim precede atomic platform-first partial collection and exact creator credit/debt repayment. No new cash payable. Shared cohort locking and cross-table guards prevent overlap with original historical cash deliveries in either arrival order. Receipt, ledger legs and user activity commit together; old cash settlement remains intact. Reader protocol2 must precede pc_ minting. Authenticated canonical delivery evidence commits before financial attempts. Failed claims and every ledger/event/outbox leg roll back while durable observations retry independently of provider redelivery. Exhausted work remains visible with structured alerts and audited exact-observation replay; neither retries nor operators bypass caps or reserve funds. Deployment quiesces old admission writers before migration 0021 and resumes only compatible readers, workers and API processes.",
+      "verification": "Real PostgreSQL rounding, partial/frozen/held/debt/cap, idempotency, immutable attribution, signed HTTP proof failure/claim rollback and concurrent/cross-kind overlap cases. SQL ABI is revoked from PUBLIC and the SDK gateway role. Independent-connection signed HTTP cap refusal/readback, original-code loss negative control, callback/recovery races, exactly-once event creation, immutable observation proof, bounded retries/manual audit and recovery-branch isolation."
     },
     {
       "scope": "purchases/views.py; purchases/tasks.py expiry cleanup; ztripe/views.py checkout creation",
