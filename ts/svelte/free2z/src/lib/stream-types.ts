@@ -26,7 +26,7 @@ export type LivePageData = {
    * the viewer (so never asks the API for a meeting or a token).
    */
   gatedPreview: boolean;
-  /** Original authenticated viewer for PPV admission and automatic retries. */
+  /** Original authenticated viewer for protected stream entry and retries. */
   viewerActorId?: number;
 };
 

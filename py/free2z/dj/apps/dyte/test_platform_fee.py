@@ -97,12 +97,9 @@ def _left_after(cm, participant_id, seconds):
 
 
 def _post(client, private_key, body, delivery_id=None):
-    return client.post(
-        WEBHOOK_URL,
-        data=body,
-        content_type='application/json',
-        HTTP_DYTE_SIGNATURE=_sign(private_key, body),
-        HTTP_DYTE_UUID=str(delivery_id or uuid.uuid4()),
+    from dj.apps.dyte.test_webhook_idempotency import _post as post_with_provider_evidence
+    return post_with_provider_evidence(
+        client, private_key, body, delivery_id or uuid.uuid4(), drain=False,
     )
 
 
