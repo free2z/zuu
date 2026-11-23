@@ -247,6 +247,25 @@
       ]
     },
     {
+      "name": "rsqlite-vfs",
+      "version": "0.2.0",
+      "checksum": "353b74f9810d5b085b6c42c9d86a5f0fdb795553235cdd48753b32e3809d18a7",
+      "license": "MIT",
+      "repository": "https://github.com/Spxg/sqlite-wasm-rs",
+      "commit": "3d8318430bacd7d6a1aafdf5b5e54fb0fee8d451",
+      "basis": {
+        "kind": "crate-vcs-info",
+        "commit": "3d8318430bacd7d6a1aafdf5b5e54fb0fee8d451"
+      },
+      "files": [
+        {
+          "path": "rsqlite-vfs-0.2.0/LICENSE",
+          "upstream_url": "https://raw.githubusercontent.com/Spxg/sqlite-wasm-rs/3d8318430bacd7d6a1aafdf5b5e54fb0fee8d451/LICENSE",
+          "sha256": "e1c1975c3474cce31722836f101a40ffaf1cc784e4d2f38ce3e77b9712934e78"
+        }
+      ]
+    },
+    {
       "name": "tonic-prost-build",
       "version": "0.14.5",
       "checksum": "f3144df636917574672e93d0f56d7edec49f90305749c668df5101751bb8f95a",

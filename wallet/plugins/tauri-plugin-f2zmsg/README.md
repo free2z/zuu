@@ -229,9 +229,11 @@ So, per `AGENTS.md`'s "branch, PR, pin, resume", **two transient pins**:
   commit has both, so that branch is upstream `main` with the one requirement
   held back and nothing else.
 
-Both go away when `bip32 0.6.0` is published and the Zcash stack moves to
-secp256k1 0.31. `scripts/check-librustzcash-compat.mjs` and the `[patch]` block
-in `wallet/zuuli/src-tauri/Cargo.toml` each say so where a reader will find it.
+Both are now retired. Upstream librustzcash dropped the two `=` RC pins and
+moved to the released `bip32 0.6` and secp256k1 0.33 (zcash/librustzcash
+c1d750af45), so the `[patch.crates-io] bip32` is gone and the free2z/librustzcash
+fork carries only its unrelated parameter-download TLS overlay
+(docs/DEPENDENCIES.md §1).
 
 What that unblocked, all of it now present:
 

@@ -18,7 +18,7 @@ Buy 2Zs with Zcash and use them for platform services. Share credits, join membe
 
 ## Earnings you can follow
 
-Qualifying delivered PPV and SDK services can earn USD owed by 2Z Inc. for verified creators with accepted service terms. Credits & Earnings keeps those earnings separate from credits and shows the status of shielded Zcash payments. [Learn about creator earnings](../revenue-sharing/index.md).
+Pay-per-view shares the collected creator portion as 2Z platform credits. Qualifying SDK services can earn separate USD owed by 2Z Inc. for verified creators with accepted terms. Credits & Earnings keeps those earnings separate from credits and shows the status of shielded Zcash payments. [Learn about creator earnings](../revenue-sharing/index.md).
 
 ## Direct Zcash support
 
