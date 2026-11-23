@@ -403,10 +403,13 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'database-only: one capped query (100 rows) and one defer per row.',
     ),
     'dyte.recover_recording_deliveries': TaskPolicy(
-        300,
+        NEVER,
         'database-only: at most DYTE_RECORDING_RECOVERY_BATCH_SIZE defers '
-        'plus two bounded queries. It enqueues the download work rather '
-        'than doing it.',
+        'plus recording queries and 50 PPV credit retries, each with a '
+        'five-second database statement/lock deadline. Financial retries take '
+        'durable observation claims; requeue must not hide a stalled original '
+        'behind a successful duplicate. Subsequent periodic sweeps recover '
+        'pending observations; no provider calls.',
     ),
     'g12f.release_deleted_usernames': TaskPolicy(
         60,

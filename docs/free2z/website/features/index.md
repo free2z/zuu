@@ -20,7 +20,7 @@ Browse stories, follow a creator’s trail, and explore the topics that draw you
 
 ## Support that fits the moment
 
-Share 2Z credits, join a membership, boost a good page, or send Zcash straight to a creator’s wallet. Qualifying delivered pay-per-view and approved SDK contributions can earn separate USD compensation from 2Z Inc.
+Share 2Z credits, join a membership, boost a good page, or send Zcash straight to a creator’s wallet. Pay-per-view shares the collected creator portion as 2Z credits. Approved SDK contributions can earn separate USD compensation from 2Z Inc.
 
 [Meet Tuzis](/getting-started/tuzis) · [Explore creator earnings](/revenue-sharing/)
 
