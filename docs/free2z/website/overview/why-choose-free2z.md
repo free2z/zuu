@@ -10,7 +10,7 @@ Free2Z is ad-free. Small platform credit charges fund useful tools and help redu
 
 ## Support that does something
 
-Share Tuzis to help someone use the platform. Subscribe for membership benefits. Send Zcash directly to a creator’s wallet. Qualifying paid livestreams and SDK contributions can also earn real USD compensation from 2Z Inc.
+Share Tuzis to help someone use the platform. Subscribe for membership benefits. Send Zcash directly to a creator’s wallet. Pay-per-view shares the collected creator portion as 2Z platform credits. Qualifying SDK contributions can earn separate USD compensation from 2Z Inc.
 
 [Explore ways to support creators](/for-supporters/) or [learn about creator earnings](/revenue-sharing/).
 
