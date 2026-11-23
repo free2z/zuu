@@ -1481,8 +1481,12 @@ pub(crate) async fn unlock_wallet<R: Runtime>(
     drop(db_guard);
 
     // Compare encoded UFVKs
-    let derived_encoded = derived_ufvk.encode(&zcash.state.network);
-    let stored_encoded = stored_ufvk.encode(&zcash.state.network);
+    let derived_encoded = derived_ufvk
+        .encode(&zcash.state.network)
+        .map_err(|e| Error::KeyError(format!("failed to encode derived viewing key: {e}")))?;
+    let stored_encoded = stored_ufvk
+        .encode(&zcash.state.network)
+        .map_err(|e| Error::KeyError(format!("failed to encode stored viewing key: {e}")))?;
     if derived_encoded != stored_encoded {
         return Err(Error::KeyError(
             "recovery phrase does not match this wallet".into(),
@@ -1534,7 +1538,8 @@ pub(crate) async fn get_viewing_key<R: Runtime>(
         .ufvk()
         .ok_or(Error::KeyError("no unified full viewing key".into()))?;
 
-    Ok(ufvk.encode(&zcash.state.network))
+    ufvk.encode(&zcash.state.network)
+        .map_err(|e| Error::KeyError(format!("failed to encode viewing key: {e}")))
 }
 
 #[command]

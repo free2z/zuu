@@ -18,6 +18,6 @@ You can explore public pages and profiles without an account. [Create an account
 
 ## Earn from qualifying services
 
-Verified creators can earn money from 2Z Inc. for qualifying delivered pay-per-view livestream and SDK services under accepted agreements and service terms. Earnings are recorded in USD and paid in shielded Zcash. They are separate from your credits. [Set up creator earnings](../revenue-sharing/index.md).
+Pay-per-view shares the collected creator portion as 2Z platform credits, without payout verification or a compensation agreement. Verified creators can earn separate USD compensation for qualifying SDK services under accepted terms, paid in shielded Zcash. [Learn about credits and creator earnings](../revenue-sharing/index.md).
 
 Want to support someone directly? [Send Zcash to their displayed wallet address](../for-supporters/donating-with-zcash.md). That is a separate wallet-to-wallet transfer.

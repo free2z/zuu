@@ -16,9 +16,9 @@ Check your subscriptions, renewal prices, and access dates. Cancel renewal when 
 
 ## Creator earnings
 
-The earnings panel records USD owed by 2Z Inc. for qualifying delivered pay-per-view livestreams and SDK services. It shows the amount owed, reserved for payment requests, and available to request. Credits, gifts, and memberships are separate from these earnings.
+The earnings panel records USD owed by 2Z Inc. for qualifying SDK services and retained obligations under accepted terms, including historical PPV earnings. It shows the amount owed, reserved for payment requests, and available to request. Pay-per-view credit sharing, gifts, and memberships add platform credits rather than USD earnings.
 
-Complete payee verification and read and accept the creator agreement and service terms before offering compensated services. Credits & Earnings shows any remaining setup steps. If a balance is unavailable, wait for it to load before deciding what to request.
+Complete payee verification and read and accept the creator agreement and service terms before offering compensated SDK services. Credits & Earnings shows any remaining setup steps. If a balance is unavailable, wait for it to load before deciding what to request.
 
 ## Request a creator payment
 

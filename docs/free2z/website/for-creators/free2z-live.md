@@ -16,7 +16,7 @@ Hosting requires at least **150 2Z usage credits**. Check your credit balance be
 | --- | --- | --- |
 | Public broadcast | Public room link | Host pays the displayed platform usage cost |
 | Subscriber access | Current membership | Members use their subscription access |
-| Pay-per-view | Credits at the displayed price | Qualifying delivered access earns USD under your accepted creator agreement and service terms |
+| Pay-per-view | Credits at the displayed price | The creator receives the collected creator portion as 2Z platform credits; the platform fee is separate |
 | Private invitation | Secret invitation link | Access follows the room's displayed controls |
 
-Before offering compensated pay-per-view, complete payee verification, accept the creator agreement and service terms, and confirm Credits & Earnings shows you are ready for creator compensation. [Learn about creator earnings](/revenue-sharing/).
+Pay-per-view credits are added to your Free2Z credit balance. Receiving them does not require payout verification or a creator compensation agreement. Review the credit price per minute and viewer balance requirement before starting. [Learn about credits and creator earnings](/revenue-sharing/).
