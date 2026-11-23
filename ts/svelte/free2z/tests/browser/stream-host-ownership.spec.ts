@@ -133,6 +133,7 @@ async function stubProvider(
   terminalDuringInit?: "kicked" | "rejected",
   terminalSecondInit?: "kicked" | "rejected",
   heldSecondInit = false,
+  failFirstInit = false,
 ) {
   await page.evaluate(
     async ({
@@ -145,6 +146,7 @@ async function stubProvider(
       terminalDuringInit,
       terminalSecondInit,
       heldSecondInit,
+      failFirstInit,
     }) => {
       const text = await (await fetch("/src/lib/utils/rtk-manager.ts")).text();
       const path = text.match(
@@ -217,6 +219,8 @@ async function stubProvider(
       };
       SDK.init = async (options: any) => {
         window.hostTest.sdkCalls.push(options);
+        if (failFirstInit && window.hostTest.sdkCalls.length === 1)
+          throw new Error("synthetic SDK initialization failure");
         if (failSecondInit && window.hostTest.sdkCalls.length === 2)
           throw new Error("synthetic SDK initialization failure");
         if (held) {
@@ -243,9 +247,75 @@ async function stubProvider(
       terminalDuringInit,
       terminalSecondInit,
       heldSecondInit,
+      failFirstInit,
     },
   );
 }
+
+test("failed host SDK initialization releases its seat and a retry gets a fresh session", async ({
+  page,
+}) => {
+  await openDashboard(page);
+  await stubProvider(
+    page,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    undefined,
+    undefined,
+    false,
+    true,
+  );
+  const starts: any[] = [];
+  const releases: any[] = [];
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    starts.push(route.request().postDataJSON());
+    return route.fulfill({
+      json: { auth_token: `host-token-${starts.length}` },
+    });
+  });
+  await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+    if (route.request().method() === "GET")
+      return route.fulfill({
+        json: {
+          active: false,
+          host_session: null,
+          meeting_type: null,
+          ttl_seconds: 60,
+        },
+      });
+    const body = route.request().postDataJSON();
+    if (body?.action === "release") releases.push(body);
+    return route.fulfill({ json: {} });
+  });
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => starts.length).toBe(1);
+  await expect.poll(() => releases.length).toBe(1);
+  await expect(page.getByTestId("stream-start")).toBeEnabled();
+  await expect(
+    page.getByText("The stream started successfully. You are live!", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  expect(releases[0]).toMatchObject({
+    action: "release",
+    host_session: starts[0].host_session,
+  });
+  await expect(page.getByTestId("stream-start")).toBeEnabled();
+
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => starts.length).toBe(2);
+  expect(starts[1].host_session).not.toBe(starts[0].host_session);
+  await expect(
+    page.getByText("The stream started successfully. You are live!", {
+      exact: true,
+    }),
+  ).toBeVisible();
+});
 
 test("takeover during host retry SDK initialization abandons and cleans up the stale meeting", async ({
   page,
@@ -487,6 +557,84 @@ test("failed host room reinitializes with the same seat and keeps that seat", as
   expect(releases).toEqual([]);
   await expect(page.getByTestId("stream-seat-panel")).toHaveCount(0);
 });
+
+for (const status of [404, 503]) {
+  test(`host reconnect ${status} logs only safe metadata and retains no raw cause`, async ({
+    page,
+  }) => {
+    await openDashboard(page);
+    await stubProvider(page);
+    const messages: string[] = [];
+    page.on("console", (message) => messages.push(message.text()));
+    let starts = 0;
+    let releases = 0;
+    const sentinel = "credential-sentinel-must-never-be-logged";
+    await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+      starts++;
+      return starts === 1
+        ? route.fulfill({ json: { auth_token: "host-token" } })
+        : route.fulfill({ status, json: { error: sentinel } });
+    });
+    await page.route(`**/api/dyte/${USER}/host-session`, (route) => {
+      if (route.request().method() === "GET")
+        return route.fulfill({
+          json: {
+            active: false,
+            host_session: null,
+            meeting_type: null,
+            ttl_seconds: 60,
+          },
+        });
+      if (route.request().postDataJSON()?.action === "release") releases++;
+      return route.fulfill({ json: {} });
+    });
+    await page.getByTestId("stream-start").click();
+    await expect(
+      page.getByText("The stream started successfully. You are live!", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await page.evaluate(() => window.hostTest.endRoom("failed"));
+    await expect.poll(() => starts).toBe(2);
+    await expect.poll(() => releases).toBe(1);
+    const diagnostic = messages.find((message) =>
+      message.includes("Host stream startup failed"),
+    );
+    expect(diagnostic).toContain("stage: admission");
+    expect(diagnostic).toContain(`status: ${status}`);
+    expect(messages.join("\n")).not.toContain(sentinel);
+    expect(messages.join("\n")).not.toContain(
+      "Failed to reconnect host stream:",
+    );
+    expect(messages.join("\n")).not.toContain("API request failed:");
+
+    const rejection = await page.evaluate(
+      async ({ loader, username }) => {
+        const { StreamService } = await new Function(loader)();
+        try {
+          await StreamService.initStream(username, "broadcast", {
+            role: "host",
+          });
+        } catch (error) {
+          if (!(error instanceof Error)) throw error;
+          return {
+            name: error.name,
+            hasRawCause: Object.hasOwn(error, "cause"),
+          };
+        }
+        throw new Error("expected API rejection");
+      },
+      {
+        loader: devSourceModuleLoader("/src/lib/services/stream.ts"),
+        username: USER,
+      },
+    );
+    expect(rejection).toEqual({
+      name: "HostStreamStartError",
+      hasRawCause: false,
+    });
+  });
+}
 
 test("room failure during host retry initialization releases the seat without retrying forever", async ({
   page,
@@ -778,7 +926,12 @@ test("late public grant after A -> B -> A releases the original seat without joi
   );
   await page.getByTestId("stream-start").click();
   await expect(
-    page.getByText("Failed to start the stream.", { exact: true }).first(),
+    page
+      .getByText(
+        "Stream startup is temporarily unavailable. Please try again shortly.",
+        { exact: true },
+      )
+      .first(),
   ).toBeVisible();
   await expect(page.getByTestId("stream-start")).toBeEnabled();
 });
