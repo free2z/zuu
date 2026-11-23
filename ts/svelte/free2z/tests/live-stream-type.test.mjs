@@ -47,7 +47,7 @@ after(async () => {
 });
 
 /** A page event that records every upstream request the load makes. */
-function pageEvent({ type, cookie, authStatus = 200 } = {}) {
+function pageEvent({ type, cookie, authStatus = 200, authId = 7 } = {}) {
   const requests = [];
   const search = type === undefined ? "" : `?type=${encodeURIComponent(type)}`;
   return {
@@ -71,7 +71,7 @@ function pageEvent({ type, cookie, authStatus = 200 } = {}) {
       fetch: async (url) => {
         requests.push(String(url));
         if (String(url).includes("/api/auth/user/")) {
-          return new Response(JSON.stringify({ id: 7, username: "bob" }), {
+          return new Response(JSON.stringify({ id: authId, username: "bob" }), {
             status: authStatus,
             headers: { "content-type": "application/json" },
           });
@@ -184,6 +184,16 @@ test("a mixed-case public type is normalized, not rejected", async () => {
 });
 
 for (const type of ["subscribers-only", "ppv"]) {
+  for (const authId of [null, 0, "7"]) {
+    test(`${type} refuses an unbound viewer identity ${JSON.stringify(authId)}`, async () => {
+      const { event } = pageEvent({
+        type,
+        cookie: "sessionid=real-session",
+        authId,
+      });
+      assert.equal((await outcome(event)).status, 503);
+    });
+  }
   test(`${type} still redirects an anonymous visitor to log in`, async () => {
     const { event } = pageEvent({ type, authStatus: 401 });
 
@@ -203,7 +213,7 @@ for (const type of ["subscribers-only", "ppv"]) {
     const result = await outcome(event);
 
     assert.equal(result.data.type, type);
-    assert.equal(result.data.viewerActorId, type === "ppv" ? 7 : undefined);
+    assert.equal(result.data.viewerActorId, 7);
     assert.ok(requests.includes("https://api.free2z.test/api/auth/user/"));
   });
 
