@@ -19,14 +19,41 @@
   };
 
   let { position = "bottom-center", ...restProps }: SonnerProps = $props();
-  let modalOpen = $state(false);
+  // Sonner writes attributes when `position` changes, and this observer
+  // watches those attributes. Re-assigning an unchanged flag loops the toast
+  // between anchors.
+  let coversBottomAnchor = $state(false);
   onMount(() => {
-    const update = () => {
-      // Keep acknowledgements visible while leaving mobile consent controls
-      // at the bottom of a dialog reachable without first closing a snackbar.
-      modalOpen = [
+    const dialogCoversBottomAnchor = () => {
+      // Bottom-center slot: one toast row, Sonner's 24px offset, and the
+      // published dock. The toast itself is the center 356px. A centered
+      // receipt misses this rectangle; a full-height dialog or a bottom
+      // drawer that reaches the viewport bottom does not, so consent
+      // controls there stay reachable.
+      const raw = getComputedStyle(document.documentElement)
+        .getPropertyValue("--f2z-bottom-dock-height")
+        .trim();
+      const dockMatch = /^(\d+(?:\.\d+)?)px$/.exec(raw);
+      const dock = dockMatch ? Number(dockMatch[1]) : 0;
+      const bandTop = window.innerHeight - (96 + dock + 24);
+      const bandLeft = (window.innerWidth - 356) / 2;
+      const bandRight = bandLeft + 356;
+      return [
         ...document.querySelectorAll('[role="dialog"], [role="alertdialog"]'),
-      ].some((dialog) => dialog.getClientRects().length > 0);
+      ].some((dialog) => {
+        if (dialog.getClientRects().length === 0) return false;
+        const rect = dialog.getBoundingClientRect();
+        return (
+          rect.left < bandRight &&
+          rect.right > bandLeft &&
+          rect.top < window.innerHeight &&
+          rect.bottom > bandTop
+        );
+      });
+    };
+    const update = () => {
+      const next = dialogCoversBottomAnchor();
+      if (next !== coversBottomAnchor) coversBottomAnchor = next;
     };
     const observer = new MutationObserver(update);
     observer.observe(document.body, {
@@ -43,7 +70,7 @@
 <Sonner
   theme={mode.current}
   class="toaster group"
-  position={modalOpen ? "top-center" : position}
+  position={coversBottomAnchor ? "top-center" : position}
   {offset}
   {mobileOffset}
   closeButton

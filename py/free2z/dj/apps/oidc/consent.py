@@ -83,6 +83,9 @@ def consent_requirement(user, application, scopes, redirect_kind: str, prompt) -
     prompt = set(prompt or ())
     requested = set(scope_list(scopes))
     existing = live_authorization(user, application)
+    from .scopes import MCP_SCOPES
+    if requested.intersection(MCP_SCOPES):
+        return ConsentRequirement(True, REASON_INTERACTION, existing)
     if "consent" in prompt:
         return ConsentRequirement(True, REASON_PROMPT_CONSENT, existing)
     if is_interactive_only(redirect_kind) and requested & INTERACTIVE_ONLY_SCOPES:
@@ -395,8 +398,20 @@ def record_consent(
             ):
                 if recent_auth_time is None or now - recent_auth_time > CAP_RAISE_MAX_AGE:
                     raise StepUpRequired()
-            reduced = existing.is_live and not set(existing.scope_list) <= set(granted)
-            existing.scope = scope_string(granted)
+            # An MCP consent describes this connection. Existing connections
+            # keep their earlier consent, but neither this code nor its JWT
+            # receives their permissions: those retain the requested scopes.
+            # Ordinary and mixed OAuth grants retain global replacement rules.
+            from .scopes import MCP_SCOPES, SCOPE_OFFLINE_ACCESS
+            mcp_only = {*MCP_SCOPES, SCOPE_OFFLINE_ACCESS}
+            persisted = granted
+            if (
+                existing.is_live and set(granted).intersection(MCP_SCOPES)
+                and set(granted) <= mcp_only and set(existing.scope_list) <= mcp_only
+            ):
+                persisted = scope_list([*existing.scope_list, *granted])
+            reduced = existing.is_live and not set(existing.scope_list) <= set(persisted)
+            existing.scope = scope_string(persisted)
             existing.spend_cap_2z = spend_cap_2z
             existing.cap_period = cap_period
             existing.markup_bps = application.effective_markup_bps

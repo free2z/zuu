@@ -73,4 +73,4 @@ When you’re live, a **Live** indicator may show in the app.
 
 Use the leave / end controls in the live room. When the session ends, you’ll return to your creator tools.
 
-For compensated pay-per-view, complete payee verification, accept the creator agreement and service terms, and confirm Credits & Earnings shows you are ready for creator compensation before offering the room. Qualifying delivered access earns separate USD compensation. Subscriber rooms use membership access. [Learn about creator earnings](/revenue-sharing/).
+Pay-per-view adds the collected creator portion to your 2Z credit balance; the platform fee is separate. Receiving those credits does not require payout verification or a creator compensation agreement. Subscriber rooms use membership access. [Learn about credits and creator earnings](/revenue-sharing/).

@@ -143,6 +143,10 @@ POLICY: dict[str, tuple[str, str]] = {
     "oidc.RefreshToken.user": (REVOKE, "every family revoked"),
     "oidc.IDToken.user": (REVOKE, "deleted"),
     "oidc.DeviceGrant.user": (REVOKE, "deleted"),
+    "oidc.MCPConnection.primary_user": (DELETE, "connection and its delegated account grants deleted"),
+    "oidc.MCPAccountGrant.user": (DELETE, "delegated account access deleted"),
+    "oidc.MCPActionAudit.primary_user": (UNLINK, "primary account unlinked from content-free action audit"),
+    "oidc.MCPActionAudit.target_user": (UNLINK, "acting account unlinked from content-free action audit"),
     "oidc.F2ZApplication.user": (BLOCK, "an app people authorized blocks; an unused app is deleted"),
     # -- profile and social graph -------------------------------------------
     "handles.MessagingHandle.user": (UNLINK, "retired and unlinked; never re-issued"),
@@ -172,6 +176,10 @@ POLICY: dict[str, tuple[str, str]] = {
     "tagging.TagSuggestion.decided_by": (UNLINK, "unlinked, as a real delete's SET_NULL would"),
     "twitter.Announcement.subject_user": (UNLINK, "unlinked; unsent announcements suppressed, generated copy and images cleared"),
     "dyte.CreatorMeeting.creator": (RETAIN, "livestream room; every access and money path refuses an inactive creator"),
+    "dyte.PpvCreditAdmission.host": (RETAIN, "immutable original platform-credit recipient attribution"),
+    "dyte.PpvCreditAdmission.viewer": (RETAIN, "immutable original platform-credit payer attribution"),
+    "dyte.ProviderParticipantBinding.creator": (RETAIN, "immutable provider and settlement attribution; attached to the pseudonymized account"),
+    "dyte.ProviderParticipantBinding.actor": (RETAIN, "immutable admitted participant attribution; attached to the pseudonymized account"),
     "dyte.ProviderRoomCleanup.creator": (UNLINK, "unlinked, as a real delete's SET_NULL would; keeps creator_id_snapshot"),
     "dyte.RecordingDelivery.creator": (UNLINK, "unlinked so a pending recording retry terminalizes instead of re-uploading"),
     "dyte.RecordingDeliveryTarget.creator": (UNLINK, "unlinked, as a real delete's SET_NULL would; keeps creator_id_snapshot"),
@@ -628,11 +636,17 @@ def _delete_credentials(creator, report) -> None:
     from dj.apps.emails.models import Email
     from dj.apps.identity.models import AuthContext, RecoveryCode, WebAuthnCredential
     from dj.apps.otp.models import OTPSecret
+    from dj.apps.oidc.models import MCPAccountGrant, MCPConnection, MCPLinkIntent
     from dj.apps.social.models import SocialIdentity
     from dj.apps.twitter.models import TwitterProfile
     from dj.apps.zauth.models import ZcashIdentity
 
+    # An invitation names an exact username, not a user foreign key. Remove
+    # it before that name can eventually be released for another account.
+    MCPLinkIntent.objects.filter(expected_username=creator.username).delete()
     for model, column in (
+        (MCPConnection, "primary_user_id"),
+        (MCPAccountGrant, "user_id"),
         (Email, "user_id"),
         (OTPSecret, "user_id"),
         (WebAuthnCredential, "creator_id"),
@@ -842,7 +856,10 @@ def _unlink_records(creator, report) -> None:
     ProviderRoomCleanup.objects.filter(creator_id=pk).update(creator=None)
     PublicationExportJob.objects.filter(creator_id=pk).update(creator=None)
     TagSuggestion.objects.filter(decided_by_id=pk).update(decided_by=None)
-    from dj.apps.oidc.models import AiOutputReport, AudienceChange
+    from dj.apps.oidc.models import AiOutputReport, AudienceChange, MCPActionAudit
+
+    MCPActionAudit.objects.filter(primary_user_id=pk).update(primary_user=None)
+    MCPActionAudit.objects.filter(target_user_id=pk).update(target_user=None)
 
     # The audit row is evidence of what an app declared; only who is unlinked.
     AudienceChange.objects.filter(changed_by_id=pk).update(changed_by=None)

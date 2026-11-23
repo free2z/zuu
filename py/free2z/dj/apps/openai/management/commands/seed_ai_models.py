@@ -23,6 +23,8 @@ Three token columns, and they mean three different things:
   requests that reach for it earn a 400.
 """
 
+from datetime import date, datetime, timezone
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 from django.db.models import Q
@@ -53,11 +55,14 @@ GENERIC_SYSTEM_MESSAGE = (
 )
 
 DEFAULT_MARKUP = "1.5"
+NO_SAMPLING_MODELS = {"claude-sonnet-5-5", "claude-haiku-5-5"}
+PRICE_CHECKED_AT = date(2026, 11, 7)
+PRICE_VALID_UNTIL = {"gpt-5.6-sol": datetime(2026, 11, 21, tzinfo=timezone.utc)}
 
 # NOTE: this lineup is mirrored (frozen) in the data migrations
 # ``0016_seed_multiprovider_ai_models`` (the first lineup) and
-# ``0026_seed_lineup_v3`` (this one), so stage/prod get seeded on deploy.
-# ``test_lineup_v3_migration.py`` enforces that 0026's copy equals LINEUP;
+# ``0036_seed_lineup_v4`` (this one), so stage/prod get seeded on deploy.
+# ``test_lineup_v3_migration.py`` enforces that 0036's copy equals LINEUP;
 # changing a price or a window here means a NEW openai data migration (and a
 # NEW rate-card seed, see below), never an edit to an applied one.
 #
@@ -75,7 +80,7 @@ DEFAULT_MARKUP = "1.5"
 # ``ProviderModel``) names its upstream id. See ``AIModelQuerySet.discovered``.
 #
 # PRICES ARE THE PROVIDERS' OFFICIAL LIST PRICES, USD PER TOKEN, verified on
-# 2026-10-05 against:
+# 2026-11-07 against:
 #   OpenAI    https://developers.openai.com/api/docs/pricing.md and
 #             https://developers.openai.com/api/docs/models/<id>.md (per row)
 #   Anthropic https://platform.claude.com/docs/en/docs/about-claude/pricing
@@ -133,18 +138,14 @@ LINEUP = [
     # OpenAI, long-context TIERED (window capped at OPENAI_TIERED_CONTEXT_CAP).
     # Documented window 1,050,000 / max output 128,000 for every one of these.
     (OPENAI, "gpt-6.1-sol", "GPT-6.1 Sol", "0.000002", "0.00001", 236000, 16384, 128000, 150, True),
+    (OPENAI, "gpt-6.1-terra", "GPT-6.1 Terra", "0.000001", "0.000005", 236000, 16384, 128000, 148, True),
     (OPENAI, "gpt-6-astra", "GPT-6 Astra", "0.00001", "0.00005", 236000, 8192, 128000, 145, True),
     (OPENAI, "gpt-6-sol", "GPT-6 Sol", "0.000002", "0.00001", 236000, 16384, 128000, 140, True),
     (OPENAI, "gpt-6-luna", "GPT-6 Luna", "0.0000001", "0.0000005", 236000, 16384, 128000, 135, True),
     (OPENAI, "gpt-5.5", "GPT-5.5", "0.000005", "0.00003", 236000, 16384, 128000, 130, True),
     (OPENAI, "gpt-5.4", "GPT-5.4", "0.0000025", "0.000015", 236000, 16384, 128000, 125, True),
-    # gpt-5.6-sol is on a PROMO ($4 / $20 "at least through 2026-11-21") that
-    # the page calls a 20 % / 33 % reduction, i.e. from $5 / $30. Priced at the
-    # pre-promo rate on purpose: a card is immutable and nothing here can
-    # expire a price, so passing the promo through would turn into an
-    # undercharge the day it ends. Passing it through is a new card plus a
-    # follow-up card before 2026-11-21 -- an owner decision .
-    (OPENAI, "gpt-5.6-sol", "GPT-5.6 Sol", "0.000005", "0.00003", 236000, 16384, 128000, 95, True),
+    # Promotional standard price; expiry blocks use until reviewed again.
+    (OPENAI, "gpt-5.6-sol", "GPT-5.6 Sol", "0.000004", "0.00002", 236000, 16384, 128000, 95, True),
     (OPENAI, "gpt-5.6-terra", "GPT-5.6 Terra", "0.000002", "0.000012", 236000, 16384, 128000, 85, True),
     (OPENAI, "gpt-5.6-luna", "GPT-5.6 Luna", "0.0000002", "0.0000012", 236000, 16384, 128000, 40, True),
 
@@ -166,6 +167,17 @@ LINEUP = [
     (OPENAI, "o1", "o1", "0.000015", "0.00006", 200000, 8192, 100000, 32, True),
 
     # --- Anthropic ---
+    (ANTHROPIC, "claude-opus-4-7", "Claude Opus 4.7", "0.000005", "0.000025", 200000, 8192, 128000, 97, True),
+    (ANTHROPIC, "claude-opus-4-6", "Claude Opus 4.6", "0.000005", "0.000025", 200000, 8192, 128000, 96, True),
+    (ANTHROPIC, "claude-opus-4-5", "Claude Opus 4.5", "0.000005", "0.000025", 172000, 8192, 64000, 94, True),
+    (ANTHROPIC, "claude-sonnet-4-6", "Claude Sonnet 4.6", "0.000003", "0.000015", 200000, 8192, 128000, 89, True),
+    (ANTHROPIC, "claude-fable-5-1", "Claude Fable 5.1", "0.00001", "0.00005", 200000, 8192, 128000, 149, True),
+    (ANTHROPIC, "claude-opus-5-5", "Claude Opus 5.5", "0.000004", "0.00002", 200000, 8192, 128000, 147, True),
+    (ANTHROPIC, "claude-sonnet-5-5", "Claude Sonnet 5.5", "0.000002", "0.00001", 200000, 8192, 128000, 146, True),
+    (ANTHROPIC, "claude-haiku-5-5", "Claude Haiku 5.5", "0.0000001", "0.0000005", 86000, 8192, 64000, 134, True),
+    (ANTHROPIC, "claude-fable-5", "Claude Fable 5", "0.00001", "0.00005", 200000, 8192, 128000, 99, True),
+    (ANTHROPIC, "claude-opus-5", "Claude Opus 5", "0.000005", "0.000025", 200000, 8192, 128000, 98, True),
+
     # Sonnet 5: the $2 / $10 launch price "is now the standard price" (the
     # page's footnote 3); v1/v2 carried $3 / $15.
     (ANTHROPIC, "claude-opus-4-8", "Claude Opus 4.8", "0.000005", "0.000025", 200000, 8192, 32000, 100, True),
@@ -173,6 +185,12 @@ LINEUP = [
     (ANTHROPIC, "claude-haiku-4-5", "Claude Haiku 4.5", "0.000001", "0.000005", 200000, 8192, 64000, 50, True),
 
     # --- xAI ---
+    (XAI, "grok-4.20-0309-reasoning", "Grok 4.20 Reasoning", "0.00000125", "0.0000025", 172000, 8192, 8192, 69, True),
+    (XAI, "grok-4.20-0309-non-reasoning", "Grok 4.20 Non-Reasoning", "0.00000125", "0.0000025", 172000, 8192, 8192, 68, True),
+    (XAI, "grok-build-0.1", "Grok Build 0.1", "0.000001", "0.000002", 172000, 8192, 8192, 67, True),
+    (XAI, "grok-4.7", "Grok 4.7", "0.000002", "0.000006", 172000, 8192, 8192, 144, True),
+    (XAI, "grok-4.6", "Grok 4.6", "0.000002", "0.000006", 172000, 8192, 8192, 143, True),
+
     # Both rows are capped at XAI_TIERED_CONTEXT_CAP (see above; grok-4.5's
     # cap and price came from ``0023_grok45_xai_price``, grok-4.3's cap is
     # new: its $2.50 / $5.00 tier from 200K is 2x the short-context price).
@@ -294,6 +312,7 @@ NO_CHAT_COMPLETIONS_TOOLS = frozenset({
     (OPENAI, "gpt-6-luna"),
     (OPENAI, "gpt-6-sol"),
     (OPENAI, "gpt-6.1-sol"),
+    (OPENAI, "gpt-6.1-terra"),
 })
 TOOL_MODELS = STRUCTURED_OUTPUT_MODELS - NO_CHAT_COMPLETIONS_TOOLS
 STRICT_TOOL_MODELS = TOOL_MODELS
@@ -345,7 +364,20 @@ REASONING_EFFORT_LEVELS = {
     (OPENAI, "gpt-6-luna"): _XHIGH,
     (OPENAI, "gpt-6-astra"): _XHIGH,
     (OPENAI, "gpt-6.1-sol"): _XHIGH,
+    (OPENAI, "gpt-6.1-terra"): ("none", "low", "medium", "high", "xhigh", "max"),
+    (XAI, "grok-4.7"): _XHIGH,
+    (XAI, "grok-4.6"): _XHIGH,
     (XAI, "grok-4.5"): ("low", "medium", "high"),
+}
+
+# Reasoning is independent of the adapter's ability to select an effort.
+# In particular, interrupted gateway settlement must reserve hidden output
+# for Grok Build and Grok 4.20 Reasoning even though no effort is exposed.
+REASONING_MODELS = frozenset(REASONING_EFFORT_LEVELS) | {
+    (XAI, "grok-4.20-0309-reasoning"), (XAI, "grok-build-0.1"),
+    (ANTHROPIC, "claude-fable-5-1"), (ANTHROPIC, "claude-fable-5"),
+    (ANTHROPIC, "claude-opus-5-5"), (ANTHROPIC, "claude-opus-5"),
+    (ANTHROPIC, "claude-sonnet-5-5"), (ANTHROPIC, "claude-haiku-5-5"),
 }
 
 # Signed ``ttfb_timeout_ms`` / ``idle_timeout_ms`` for OpenAI's
@@ -370,7 +402,8 @@ OPENAI_SAFETY_FACTOR_BPS = 11_000
 
 
 def is_silent_reasoning(provider, model):
-    return provider == OPENAI and model.startswith(SILENT_REASONING_PREFIXES)
+    return (provider == OPENAI and model.startswith(SILENT_REASONING_PREFIXES)) or (
+        provider == ANTHROPIC and model.startswith(("claude-fable-", "claude-opus-5")))
 
 
 # Signed ``ttfb_timeout_ms`` for the 1M-window gpt-4.1 family
@@ -560,14 +593,16 @@ class Command(BaseCommand):
                 existing is not None and existing.provider_model_id not in ("", model))
             window = max_tokens if existing is None else min(existing.max_tokens, max_tokens)
             defaults = {
+                **({"price_checked_at": PRICE_CHECKED_AT, "price_valid_until": PRICE_VALID_UNTIL.get(model)} if not pinned_elsewhere else {}),
                 "display_name": display_name,
                 "system_message": GENERIC_SYSTEM_MESSAGE,
                 "max_tokens": window,
-                "max_output_tokens": min(max_output_tokens, window),
-                "max_response_tokens": min(max_response_tokens, window),
+                "max_output_tokens": min(max_output_tokens, window,
+                    existing.max_output_tokens if existing and existing.max_output_tokens > 0 else max_output_tokens),
+                "max_response_tokens": min(max_response_tokens, window,
+                    existing.max_response_tokens if existing and existing.max_response_tokens > 0 else max_response_tokens),
                 "order": order,
                 "is_ga": effective_is_ga,
-                "markup": DEFAULT_MARKUP,
             }
             if not pinned_elsewhere:
                 defaults["input_price"] = input_price
@@ -591,14 +626,17 @@ class Command(BaseCommand):
                 # path rather than adding to it, hence the explicit merge.
                 create_defaults={
                     **defaults,
-                    "is_enabled": permitted,
+                    "markup": DEFAULT_MARKUP,
+                    "is_enabled": permitted and (provider, model) != (OPENAI, "gpt-5.6-sol"),
+                    **({"sampling_temperature": False, "sampling_top_p": False}
+                       if model in NO_SAMPLING_MODELS else {}),
                     # Declared capability, written on CREATE only (0024's
                     # rule: an operator who pinned the row to another
                     # snapshot or turned it off keeps their decision).
                     "supports_structured_output": (provider, model) in STRUCTURED_OUTPUT_MODELS,
                     "supports_tools": (provider, model) in TOOL_MODELS,
                     "supports_strict_tools": (provider, model) in STRICT_TOOL_MODELS,
-                    "supports_reasoning": (provider, model) in REASONING_EFFORT_LEVELS,
+                    "supports_reasoning": (provider, model) in REASONING_MODELS,
                     "supports_reasoning_effort": (provider, model) in REASONING_EFFORT_LEVELS,
                     "tools_require_effort_none": (provider, model) in TOOLS_REQUIRE_EFFORT_NONE,
                     "reasoning_effort_levels": list(

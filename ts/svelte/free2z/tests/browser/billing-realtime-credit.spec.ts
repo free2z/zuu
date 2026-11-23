@@ -7487,6 +7487,9 @@ async function installOwnedExpiryPreflight(page: Page, original: any) {
           );
         } finally {
           Date.now = now;
+          // An ordinary guard can reuse an in-flight check without fetching.
+          // Do not let its marker leak onto a later independent refresh.
+          (window as any).expiryLookupPending = false;
         }
       };
     },
@@ -7529,12 +7532,34 @@ for (const component of Object.keys(
     };
     if (component === "vote")
       await page.route("**/api/auth/user/", competingAuth);
-    await page.evaluate(async (loader) => {
+    // Actionability is proven while the owner is still authenticated; the
+    // click itself is dispatched below in the same task as the held lookup.
+    await expect(button).toBeVisible();
+    await expect(button).toBeEnabled();
+    await button.evaluate(async (control, loader) => {
       const { authStore } = await new Function(loader)();
       (window as any).ownedExpiryDiagnostic =
         authStore.captureRequestOwnership();
+      // Establish the held authoritative lookup after the route is installed.
+      // The paid guard then exercises native in-flight reuse; layout/focus
+      // refreshes cannot win the race with an unmarked successful response.
+      (window as any).expiryLookupPending = true;
+      try {
+        void authStore.checkAuth({ force: true, fresh: true, silent: true });
+      } finally {
+        (window as any).expiryLookupPending = false;
+      }
+      // Click in this same task. The server models expiry as soon as the held
+      // lookup arrives, and the billing page schedules its own debounced
+      // account read (renewal summary -> account-balance-reconcile -> 100 ms
+      // -> fresh /api/auth/user/). A separate Playwright click is another CDP
+      // round trip: when that background read landed first it observed the
+      // expiry, signed the owner out and unmounted the private control before
+      // the click, so the click timed out on a detached element. Hiding the
+      // control from an anonymous viewer is correct; it is just not this
+      // scenario, which is a click that joins the held lookup.
+      (control as HTMLElement).click();
     }, AUTH_STORE_LOADER);
-    await button.click();
     await expect.poll(() => Boolean(authRoute.held())).toBe(true);
     if (component === "vote") {
       await page.evaluate(async (loader) => {

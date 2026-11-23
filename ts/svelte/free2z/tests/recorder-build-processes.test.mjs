@@ -145,6 +145,68 @@ for (const parentIgnoresTerm of [true, false]) {
   );
 }
 
+for (const exitCode of [0, 7]) {
+  test(
+    `leader exit ${exitCode} reaps descendants before waiting for inherited pipes`,
+    {
+      timeout: 10_000,
+      skip: process.platform === "win32" && "requires POSIX process groups",
+    },
+    async (t) => {
+      const directory = await mkdtemp(join(tmpdir(), "recorder-leader-exit-"));
+      const marker = join(directory, "ready.json");
+      const processes = recorderBuildProcesses(t.signal, () => {});
+      const script = `
+        const { spawn } = require('node:child_process');
+        const { writeFileSync, renameSync } = require('node:fs');
+        const descendant = spawn(process.execPath, ['-e',
+          "process.send('ready'); setInterval(() => {}, 1000)"
+        ], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });
+        descendant.once('message', () => {
+          writeFileSync(process.argv[1] + '.tmp', JSON.stringify([process.pid, descendant.pid]));
+          renameSync(process.argv[1] + '.tmp', process.argv[1]);
+          process.stderr.write('leader diagnostic tail\\n', () => process.exit(${exitCode}));
+        });
+      `;
+      const result = processes
+        .run(["-e", script, marker], "leader exit fixture")
+        .then(
+          () => null,
+          (error) => error,
+        );
+      let pids;
+      let timer;
+      try {
+        pids = await readReady(marker);
+        const failure = await Promise.race([
+          result,
+          new Promise((_, reject) => {
+            timer = setTimeout(
+              () =>
+                reject(
+                  new Error("leader exited but inherited pipes stayed open"),
+                ),
+              1500,
+            );
+          }),
+        ]);
+        if (exitCode === 0) assert.equal(failure, null);
+        else {
+          assert.equal(failure.code, exitCode);
+          assert.match(failure.message, /leader diagnostic tail/);
+          assert.doesNotMatch(failure.message, /Aborted/);
+        }
+        await stopped(pids);
+      } finally {
+        clearTimeout(timer);
+        await processes.close();
+        await killFixture(pids);
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  );
+}
+
 for (const interruption of ["SIGINT", "SIGTERM", "exit"]) {
   test(
     `runner ${interruption} terminates detached owned builds`,

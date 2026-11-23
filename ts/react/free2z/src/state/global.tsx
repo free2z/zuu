@@ -60,19 +60,31 @@ const globalState = createGlobalState({
   loginModal: false,
   authStatus: null as boolean | null,
   authEpoch: 0,
+  hostAuthEpoch: 0,
   unreadCount: null as number | null,
 });
 export const { useGlobalState, getGlobalState, setGlobalState } = globalState;
 
 // Run synchronously when auth changes, including transitions batched into one render.
-export function retireAuthSession() {
+export function retireAuthSession({ hostIdentityChanged = true } = {}) {
   setGlobalState("authEpoch", (epoch) => epoch + 1);
+  if (hostIdentityChanged) {
+    setGlobalState("hostAuthEpoch", (epoch) => epoch + 1);
+  }
 }
-let lastCreatorId = getGlobalState("creator").id;
+let lastCreator = getGlobalState("creator");
 globalState.subscribe("creator", (creator) => {
-  if (creator.id !== lastCreatorId) {
-    lastCreatorId = creator.id;
+  if (
+    creator.id !== lastCreator.id ||
+    creator.username !== lastCreator.username
+  ) {
+    lastCreator = creator;
     retireAuthSession();
   }
 });
-globalState.subscribe("authStatus", () => retireAuthSession());
+let lastAuthStatus = getGlobalState("authStatus");
+globalState.subscribe("authStatus", (status) => {
+  const hostIdentityChanged = status !== lastAuthStatus;
+  lastAuthStatus = status;
+  retireAuthSession({ hostIdentityChanged });
+});

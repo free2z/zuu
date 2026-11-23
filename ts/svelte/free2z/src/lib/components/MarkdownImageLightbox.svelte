@@ -53,7 +53,7 @@
       showCloseButton={false}
       data-testid="markdown-image-lightbox"
       aria-describedby={undefined}
-      class="markdown-image-lightbox fixed inset-0 z-[100] h-[100dvh] w-screen max-w-none gap-0 overflow-hidden rounded-none border-0 bg-transparent p-0 shadow-none"
+      class="markdown-image-lightbox fixed inset-0 z-[100] h-[100dvh] w-screen max-w-none translate-x-0 translate-y-0 gap-0 overflow-hidden rounded-none border-0 bg-transparent p-0 shadow-none"
       onCloseAutoFocus={preventDefaultFocus}
     >
       <Dialog.Title class="sr-only">{dialogName()}</Dialog.Title>
@@ -101,6 +101,8 @@
   :global([data-testid="markdown-image-lightbox"]) {
     top: 0 !important;
     left: 0 !important;
+    /* Not the fix: lightningcss drops `translate` when `transform: none` is
+       in the same rule. `translate-x-0 translate-y-0` on Dialog.Content is. */
     translate: none !important;
     transform: none !important;
     width: 100vw !important;

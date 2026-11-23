@@ -166,7 +166,8 @@ fn actual_worker_delivers_recorded_revoke_after_replacement_fetch_failure() -> R
     let output = dir.path().join("hook-events");
     let ufvk = UnifiedSpendingKey::from_seed(&MAIN_NETWORK, &[1; 32], AccountId::ZERO)?
         .to_unified_full_viewing_key()
-        .encode(&MAIN_NETWORK);
+        .encode(&MAIN_NETWORK)
+        .unwrap();
     let c = Config {
         network: "main".into(),
         rpc_url: node.url.clone(),
@@ -217,11 +218,15 @@ fn actual_worker_delivers_recorded_revoke_after_replacement_fetch_failure() -> R
             "consumers":[{"id":"hook","argv":c.consumers[0].argv,"timeout_seconds":2}]
         }))?,
     )?;
+    let diagnostics = dir.path().join("daemon-stderr");
     let mut daemon = Daemon(
         Command::new(env!("CARGO_BIN_EXE_zcash-paymentd"))
             .args(["--config", config.to_str().unwrap(), "run"])
+            // Exercise concurrent scanner/consumer tasks without making the six-second
+            // delivery contract depend on the host's runtime thread count at startup.
+            .env("TOKIO_WORKER_THREADS", "2")
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(std::fs::File::create(&diagnostics)?))
             .spawn()?,
     );
     let deadline = Instant::now() + Duration::from_secs(6);
@@ -237,7 +242,9 @@ fn actual_worker_delivers_recorded_revoke_after_replacement_fetch_failure() -> R
         }
         assert!(
             Instant::now() < deadline,
-            "recorded revoke was withheld by scanner failure/positive head"
+            "recorded revoke was withheld by scanner failure/positive head; unavailable blocks={}; daemon stderr={}",
+            node.unavailable_blocks.load(Ordering::SeqCst),
+            std::fs::read_to_string(&diagnostics).unwrap_or_default()
         );
         thread::sleep(Duration::from_millis(20));
     };

@@ -281,3 +281,129 @@ for (const viewport of VIEWPORTS) {
     });
   }
 }
+
+test("centered dialog keeps the snackbar down until it covers the anchor", async ({
+  page,
+}) => {
+  const viewport = { width: 800, height: 700 };
+  await page.setViewportSize(viewport);
+  const clientAuthCheck = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/auth/user/" &&
+      response.request().resourceType() === "fetch",
+  );
+  await page.route("**/api/**", async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (!pathname.startsWith("/api/")) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: pathname === "/api/auth/user/" ? 401 : 200,
+      contentType: "application/json",
+      body: JSON.stringify({ count: 0, results: [] }),
+    });
+  });
+  await page.goto("/toaster-fixture-user/toaster-fixture");
+  await clientAuthCheck;
+
+  await triggerToast(page);
+
+  // Sonner slides for ~400ms. A toast still at the top also has a small
+  // bottom, so the sample has to be in the bottom anchor row itself.
+  async function expectSettledAtBottom() {
+    await expect
+      .poll(() =>
+        page.evaluate((tolerance) => {
+          const toastElement = document.querySelector<HTMLElement>(
+            "[data-sonner-toast]",
+          );
+          const toasterElement = document.querySelector<HTMLElement>(
+            "[data-sonner-toaster]",
+          );
+          if (!toastElement || !toasterElement) return false;
+          const raw = getComputedStyle(document.documentElement)
+            .getPropertyValue("--f2z-bottom-dock-height")
+            .trim();
+          const dockMatch = /^(\d+(?:\.\d+)?)px$/.exec(raw);
+          const dock = dockMatch ? Number(dockMatch[1]) : 0;
+          const offset = 24 + dock;
+          const bottom = toastElement.getBoundingClientRect().bottom;
+          const height = window.innerHeight;
+          return (
+            toasterElement.getAttribute("data-y-position") === "bottom" &&
+            bottom <= height - offset + tolerance &&
+            bottom >= height - offset - 96
+          );
+        }, GEOMETRY_TOLERANCE),
+      )
+      .toBe(true);
+  }
+
+  await expectSettledAtBottom();
+
+  await page.evaluate(async () => {
+    const dialog = document.createElement("div");
+    dialog.dataset.testid = "centered-receipt-dialog";
+    dialog.setAttribute("role", "dialog");
+    dialog.style.cssText =
+      "position:fixed;z-index:50;top:15vh;height:30vh;left:10vw;right:10vw;";
+    document.body.append(dialog);
+    await new Promise((resolve) => {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => resolve(undefined)),
+      );
+    });
+  });
+
+  expect(
+    await page
+      .getByTestId("centered-receipt-dialog")
+      .evaluate((element) => element.getBoundingClientRect().bottom),
+  ).toBeLessThan(viewport.height * 0.5);
+  await expectSettledAtBottom();
+
+  await page.evaluate(async () => {
+    const dialog = document.querySelector<HTMLElement>(
+      '[data-testid="centered-receipt-dialog"]',
+    );
+    if (!dialog) throw new Error("Expected the centered dialog");
+    dialog.style.cssText = "position:fixed;z-index:50;inset:10vh 10vw 0;";
+    await new Promise((resolve) => {
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => resolve(undefined)),
+      );
+    });
+  });
+
+  expect(
+    await page
+      .getByTestId("centered-receipt-dialog")
+      .evaluate((element) => element.getBoundingClientRect().bottom),
+  ).toBeGreaterThan(viewport.height * 0.95);
+  await expect
+    .poll(() =>
+      page.evaluate((tolerance) => {
+        const toastElement = document.querySelector<HTMLElement>(
+          "[data-sonner-toast]",
+        );
+        const toasterElement = document.querySelector<HTMLElement>(
+          "[data-sonner-toaster]",
+        );
+        if (!toastElement || !toasterElement) return false;
+        const rect = toastElement.getBoundingClientRect();
+        return (
+          toasterElement.getAttribute("data-y-position") === "top" &&
+          rect.top >= 0 &&
+          rect.top <= 24 + tolerance &&
+          rect.bottom < window.innerHeight * 0.5
+        );
+      }, GEOMETRY_TOLERANCE),
+    )
+    .toBe(true);
+
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="centered-receipt-dialog"]')?.remove();
+  });
+  await expectSettledAtBottom();
+});
