@@ -19,7 +19,7 @@ A scrolling list of activity, such as:
 | Comment / reply | Someone commented or replied |
 | Page vote / update | Activity on a page |
 | Bought 2Zs | You topped up credits |
-| Live usage activity | Credits spent on livestream time and access; check Credits & Earnings for separate USD earnings |
+| Live usage activity | Credits spent on livestream time and access, or received as the creator's pay-per-view share |
 | Platform fee | Fees related to activity |
 
 Each row can show who was involved, an amount, and how long ago it happened.

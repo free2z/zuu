@@ -10,6 +10,7 @@ use zcash_client_backend::data_api::{
 use zcash_client_backend::fees::DustOutputPolicy;
 use zcash_client_backend::fees::zip317::SingleOutputChangeStrategy;
 use zcash_client_backend::proposal::Proposal;
+use zcash_client_backend::util::SystemClock;
 use zcash_client_backend::wallet::OvkPolicy;
 use zcash_primitives::transaction::{TxVersion, fees::zip317::FeeRule as Zip317FeeRule};
 use zcash_proofs::prover::LocalTxProver;
@@ -187,6 +188,10 @@ where
     create_proposed_transactions::<_, _, std::convert::Infallible, _, std::convert::Infallible, _>(
         db,
         params,
+        // Wall-clock time; librustzcash checks it against recipient address
+        // expiry-time metadata.
+        &SystemClock,
+        &mut super::super::os_rng(),
         prover,
         prover,
         spending_keys,
@@ -214,7 +219,7 @@ mod tests {
     use zcash_client_backend::decrypt_transaction;
     use zcash_client_backend::wallet::WalletTransparentOutput;
     use zcash_client_sqlite::testing::{BlockCache, db::TestDbFactory};
-    use zcash_primitives::transaction::builder::DEFAULT_TX_EXPIRY_DELTA;
+    use zcash_primitives::transaction::builder::default_tx_expiry_delta;
     use zcash_protocol::PoolType;
     use zcash_protocol::memo::Memo;
     use zcash_protocol::value::Zatoshis;
@@ -344,7 +349,11 @@ mod tests {
             .expect("the created transaction is persisted");
         assert_eq!(
             tx.expiry_height(),
-            recovery_height + DEFAULT_TX_EXPIRY_DELTA,
+            recovery_height
+                + default_tx_expiry_delta(consensus::BranchId::for_height(
+                    &network,
+                    recovery_height
+                )),
             "the created transaction must retain the builder-derived expiry height",
         );
 

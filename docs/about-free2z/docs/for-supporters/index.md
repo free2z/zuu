@@ -16,4 +16,4 @@ Find an interesting page, a live conversation, or a creator you want to follow. 
 
 Comments, votes, boosts, and paid access use the credits shown for each action. [Buy credits with Zcash](../getting-started/03-tuzis.md) in Credits & Earnings when you need more.
 
-Sharing credits and subscribing provide utility credits and membership benefits. They do not create USD earnings. Qualifying delivered PPV and SDK services are the separate [creator earnings program](../revenue-sharing/index.md).
+Credit gifts, subscriptions, and pay-per-view share platform credits and provide access benefits. They do not create USD earnings. Qualifying SDK services are covered by the separate [creator earnings program](../revenue-sharing/index.md).

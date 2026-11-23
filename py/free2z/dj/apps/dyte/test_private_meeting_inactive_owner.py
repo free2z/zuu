@@ -31,6 +31,10 @@ JOIN_URL = '/api/dyte/{username}/private/{secret}'
 
 
 class _FakeResponse:
+    # A real requests.Response always carries its status; room-create
+    # validation requires a 2xx before adopting the returned id.
+    status_code = 200
+
     def __init__(self, payload):
         self._payload = payload
 

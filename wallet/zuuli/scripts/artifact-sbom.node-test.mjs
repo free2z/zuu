@@ -1253,8 +1253,8 @@ test("the runtime SBOM binder accepts only exact reviewed Git identities", () =>
     // Exercise the production collector through its existing subprocess seam.
     // Source classification must finish before embedded evidence is consulted.
     const collect = (source) => {
-      const name = source.includes("/openmls?") ? "openmls_libcrux_crypto" : "bip32";
-      const version = name === "bip32" ? "0.6.0-pre.1" : "0.4.0";
+      const name = "openmls_libcrux_crypto";
+      const version = "0.4.0";
       return collectLinuxCargoRuntime({
         root: temporary,
         cargoLock: lock,

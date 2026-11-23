@@ -20,12 +20,17 @@
 > something an app can open. Read the rest of this page as the contract
 > those existing clients rely on.
 
-An app lets a user buy 2Z without ever handling a payment itself. The app
-creates a **purchase intent** on the account API, opens the surface the
-rail returns (a hosted checkout page, the platform's store sheet, or a
-Zcash payment URI), and polls the intent until it is `credited`. The
-platform does the verifying and the crediting; the app never sees a card
-number, a store account or a Zcash key.
+The legacy purchase contract describes how a purchase intent and payment
+surface work for Free2Z's own clients and existing third-party SDK 0.x clients.
+It is not guidance for a new app-facing purchase flow: new integrations send
+users to their Free2Z billing page instead. An existing client may open the
+surface returned for its supported rail (the legacy third-party contract
+documents hosted card checkout). This specification describes store-sheet and
+Zcash URI rails as first-party eligibility; it does not assert that those rails
+are currently available at runtime.
+The platform does the verifying and crediting; an app never sees a card number,
+a store account or a Zcash key. See the deprecation and removal plan in
+[INTEGRATION.md](../INTEGRATION.md).
 
 **Third-party apps don't sell 2Z** (see the notice above). An SDK 0.3.0
 client may still create a **card** intent; Zcash is paid on Free2Z's

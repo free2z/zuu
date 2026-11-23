@@ -549,6 +549,40 @@ def _defer_inactive_fan_retry(sub, now, *, locked: bool):
     )
 
 
+def _continue_after_receiving_cap_refusal(sub, now):
+    """Consume one due cycle without money after the transfer rolled back.
+
+    Only the exact SQL refusal handler calls this, holding the subscription
+    and both actor locks in the outer renewal transaction. This is not a
+    historical recovery entrypoint: all ordinary renewal guards must pass.
+    """
+    from dj.apps.g12f.models import Subscription, SubscriptionContinuation
+    from dj.apps.g12f.models.creator import SUBSCRIPTION_PERIOD
+    from dj.apps.g12f.signals import _defer_committed_renewal
+
+    # A savepoint rollback restores the database, not Python model instances.
+    sub.refresh_from_db()
+    old_expiry = sub.expires
+    new_expiry = old_expiry + SUBSCRIPTION_PERIOD
+    SubscriptionContinuation.objects.create(
+        subscription=sub, period_start=old_expiry, period_end=new_expiry,
+        recorded_at=now, refused_price=sub.star.member_price,
+        recurring_ceiling=sub.max_price,
+    )
+    # Bypass save/signals deliberately: the entitlement and audit commit
+    # together, then exactly the existing committed-row scheduler re-arms.
+    # last_charged_at and recurring consent retain their actual values.
+    Subscription.objects.filter(pk=sub.pk).update(expires=new_expiry)
+    sub.expires = new_expiry
+    transaction.on_commit(
+        lambda: _defer_committed_renewal(sub.pk), robust=True,
+    )
+    logger.info(
+        "renew_subscription: sub %s continued without charge through %s "
+        "after usage_daily_funding_limit", sub.pk, new_expiry,
+    )
+
+
 @app.task(
     name="g12f.renew_subscription", queue="billing",
     retry=RENEWAL_RETRY_STRATEGY,
@@ -621,6 +655,9 @@ def renew_subscription(subscription_id: int):
        post_save signal then schedules the NEXT renew_subscription at
        new_expires - RENEWAL_LEAD via transaction.on_commit
        (self-perpetuating chain; single enqueue point in signals.py).
+       An exact receiving funding-cap refusal rolls back that savepoint and
+       instead records a zero-charge ordinary term. Its explicit committed-row
+       scheduling preserves the same chain and existing recurring consent.
 
     Policy decision recorded for: deactivated fan — recurring
     charges STOP. A banned account cannot log in to cancel, so
@@ -788,8 +825,7 @@ def renew_subscription(subscription_id: int):
                     or getattr(diagnostic, 'message_primary', None)
                     != 'usage_daily_funding_limit'):
                 raise
-            _defer_renewal_retry(
-                sub, now, reason='utility sharing unavailable: usage_daily_funding_limit')
+            _continue_after_receiving_cap_refusal(sub, now)
         except EconomicRefusal as exc:
             _defer_renewal_retry(sub, now, reason=f'utility sharing unavailable: {exc}')
 
