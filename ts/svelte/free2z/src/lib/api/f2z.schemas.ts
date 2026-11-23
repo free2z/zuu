@@ -1932,8 +1932,11 @@ export const MeetingTypeEnum = {
 export interface CreatorMeeting {
   readonly id: number;
   readonly creator: CreatorDetail;
-  /** @maxLength 64 */
-  meeting_id: string;
+  /**
+     * @maxLength 64
+     * @nullable
+     */
+  meeting_id?: string | null;
   meeting_type?: MeetingTypeEnum;
   is_public?: boolean;
   live_now?: boolean;
