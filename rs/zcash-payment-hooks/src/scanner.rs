@@ -92,3 +92,24 @@ pub async fn scan(chain: &dyn Chain, journal: &mut Journal, c: &Config) -> Resul
     )?;
     Ok(changes)
 }
+
+/// Never render arbitrary source errors: HTTP errors can contain authenticated URLs,
+/// and node responses and wallet paths are not safe operational log fields.
+pub fn failure_summary(error: &anyhow::Error) -> String {
+    if let Some(consensus) = error.downcast_ref::<crate::chain::UnsupportedConsensus>() {
+        consensus.to_string()
+    } else {
+        "inspect node retention, freshness, connectivity and configuration".to_owned()
+    }
+}
+
+#[cfg(test)]
+mod diagnostics_tests {
+    #[test]
+    fn arbitrary_error_text_is_not_logged() {
+        let error = anyhow::anyhow!("http://rpc-user:secret@localhost:8232/private-wallet");
+        let summary = super::failure_summary(&error);
+        assert!(!summary.contains("secret"));
+        assert!(!summary.contains("private-wallet"));
+    }
+}

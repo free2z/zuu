@@ -1,4 +1,4 @@
-import { build } from "esbuild";
+import { build, stop } from "esbuild";
 import { gzipSync, brotliCompressSync } from "node:zlib";
 import { createHash } from "node:crypto";
 import {
@@ -127,5 +127,10 @@ if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  await buildRecorder(process.argv[2]);
+  try {
+    await buildRecorder(process.argv[2]);
+  } finally {
+    // Only the CLI owns this service; importing callers may share it.
+    await stop();
+  }
 }

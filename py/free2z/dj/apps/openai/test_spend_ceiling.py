@@ -67,8 +67,10 @@ SEEDED_PRICED_GA = [
 ]
 # Admission applies only to models the seed command makes available. Retired
 # rows keep their historical prices but cannot purchase another generation.
+# The staged promotion also stays unavailable until guarded activation.
 SEEDED_AVAILABLE = [
-    row for row in SEEDED_PRICED_GA if not model_is_retired(row[0], row[1])
+    row for row in SEEDED_PRICED_GA
+    if not model_is_retired(row[0], row[1]) and row[:2] != ("openai", "gpt-5.6-sol")
 ]
 
 # The 2Z a request costs at most when the prompt is EMPTY and the requester
@@ -246,6 +248,7 @@ def test_admission_lineup_matches_seeded_availability():
     assert priced - available == {
         ("openai", "gpt-4.1-nano"), ("openai", "o1"),
         ("openai", "o3-mini"), ("openai", "o4-mini"),
+        ("openai", "gpt-5.6-sol"),
     }
 
 
@@ -285,11 +288,21 @@ def test_full_context_thresholds_are_what_the_pr_claims(creator_factory):
     # Admission prices every input token at the model's highest cache rate,
     # including Anthropic's documented 1-hour write tier.
     expected = {
+        # v4 additions: reviewed rates, cache-write ceiling and service limits.
+        "gpt-6.1-terra": 54,
+        "claude-fable-5-1": 637, "claude-fable-5": 637,
+        "claude-opus-5-5": 255, "claude-opus-5": 319,
+        "claude-sonnet-5-5": 128, "claude-haiku-5-5": 3,
+        "claude-opus-4-7": 319, "claude-opus-4-6": 319,
+        "claude-opus-4-5": 277, "claude-sonnet-4-6": 192,
+        "grok-4.7": 57, "grok-4.6": 57,
+        "grok-4.20-0309-reasoning": 34, "grok-4.20-0309-non-reasoning": 34,
+        "grok-build-0.1": 28,
         "gpt-4o": 58,
         "gpt-6.1-sol": 107, "gpt-6-astra": 489,
         "gpt-6-sol": 107, "gpt-6-luna": 6,
         "gpt-5.5": 239, "gpt-5.4": 120,
-        "gpt-5.6-sol": 280, "gpt-5.6-terra": 112, "gpt-5.6-luna": 12,
+        "gpt-5.6-sol": 214, "gpt-5.6-terra": 112, "gpt-5.6-luna": 12,
         "gpt-5.4-mini": 55, "gpt-5.4-nano": 15, "gpt-5.2": 136, "gpt-5.1": 97,
         "gpt-5": 97, "gpt-5-mini": 20, "gpt-5-nano": 4,
         # gpt-4.1: 128000 window since openai 0030 (gateway fence cap); was 322.
@@ -813,10 +826,20 @@ def test_what_it_costs_to_demand_the_maximum_is_what_the_pr_claims():
     to move this table in the same commit.
     """
     expected = {
+        # v4 output ceilings, priced at 100 2Z/USD and 1.5 markup.
+        "gpt-6.1-terra": 96,
+        "claude-fable-5-1": 960, "claude-fable-5": 960,
+        "claude-opus-5-5": 384, "claude-opus-5": 480,
+        "claude-sonnet-5-5": 192, "claude-haiku-5-5": 5,
+        "claude-opus-4-7": 480, "claude-opus-4-6": 480,
+        "claude-opus-4-5": 240, "claude-sonnet-4-6": 288,
+        "grok-4.7": 8, "grok-4.6": 8,
+        "grok-4.20-0309-reasoning": 4, "grok-4.20-0309-non-reasoning": 4,
+        "grok-build-0.1": 3,
         "gpt-4o": 25,
         "gpt-6.1-sol": 192, "gpt-6-astra": 960, "gpt-6-sol": 192, "gpt-6-luna": 10,
         "gpt-5.5": 576, "gpt-5.4": 288,
-        "gpt-5.6-sol": 576, "gpt-5.6-terra": 231, "gpt-5.6-luna": 24,
+        "gpt-5.6-sol": 384, "gpt-5.6-terra": 231, "gpt-5.6-luna": 24,
         "gpt-5.4-mini": 87, "gpt-5.4-nano": 24, "gpt-5.2": 269, "gpt-5.1": 192,
         "gpt-5": 192, "gpt-5-mini": 39, "gpt-5-nano": 8,
         # gpt-4.1: 16384 ceiling since openai 0030 (gateway fence cap); was 40.

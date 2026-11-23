@@ -45,6 +45,7 @@ fn key() -> String {
         .unwrap()
         .to_unified_full_viewing_key()
         .encode(&MAIN_NETWORK)
+        .unwrap()
 }
 // Fields consumed from released v1.6.0 GetBlockchainInfoResponse:
 // https://github.com/zakura-core/zakura/blob/v1.6.0/crates/zakura-rpc/src/methods.rs
@@ -215,6 +216,48 @@ async fn released_zakura_headers_gate_future_tip_and_reject_missing_or_malformed
         let c = config(&d, url);
         private(c.rpc_cookie_file.as_ref().unwrap(), "user:pass")?;
         assert_eq!(Zakura::new(&c, &key())?.tip().await.is_ok(), valid);
+        worker.join().unwrap();
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn nu7_tip_is_accepted_and_future_upgrade_diagnostic_is_safe() -> Result<()> {
+    const NU7_HEIGHT: u32 = 3_543_405;
+    for (branch, accepted) in [
+        ("77190ad9", true),
+        ("ffffffff", false),
+        ("http://private:secret@node", false),
+    ] {
+        let d = TempDir::new()?;
+        let (url, _, worker) = server(
+            move |r| match r["method"].as_str().unwrap() {
+                "getblockchaininfo" => {
+                    json!({"chain":"main","blocks":NU7_HEIGHT,"estimatedheight":NU7_HEIGHT,"headers":NU7_HEIGHT,"consensus":{"chaintip":branch}})
+                }
+                "getblockhash" => json!("11".repeat(32)),
+                "getblockheader" => {
+                    json!({"hash":"11".repeat(32),"height":NU7_HEIGHT,"time":now()})
+                }
+                method => panic!("unexpected {method}"),
+            },
+            3,
+        );
+        let c = config(&d, url);
+        private(c.rpc_cookie_file.as_ref().unwrap(), "user:pass")?;
+        let result = Zakura::new(&c, &key())?.tip().await;
+        if accepted {
+            assert_eq!(result?.height, NU7_HEIGHT);
+        } else {
+            let summary = zcash_paymentd::scanner::failure_summary(&result.unwrap_err());
+            assert!(summary.contains("height=3543405 expected=77190ad9"));
+            assert!(summary.contains(if branch == "ffffffff" {
+                "observed=ffffffff"
+            } else {
+                "observed=missing-or-malformed"
+            }));
+            assert!(!summary.contains("secret"));
+        }
         worker.join().unwrap();
     }
     Ok(())

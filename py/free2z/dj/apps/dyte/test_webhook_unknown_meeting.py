@@ -70,6 +70,8 @@ def webhook_boundaries(mocker, keypair):
 
 
 class _FakeResponse:
+    status_code = 200
+
     def __init__(self, payload):
         self._payload = payload
 
@@ -84,7 +86,7 @@ def provider(mocker):
     client.create_meeting.side_effect = lambda title: _FakeResponse(
         {'data': {'id': str(uuid.uuid4())}})
     client.add_participant.return_value = _FakeResponse(
-        {'data': {'token': 'auth-token'}})
+        {'data': {'token': 'auth-token', 'id': str(uuid.uuid4())}})
     mocker.patch('dj.apps.dyte.views.DyteClient', return_value=client)
     return client
 
@@ -184,7 +186,7 @@ def broadcast(creator_factory):
 # --------------------------------------------------------------------------
 
 def test_a_host_restart_orphans_the_old_room_and_its_leaves_are_counted(
-    api_client, keypair, provider, broadcast, caplog,
+    api_client, keypair, provider, broadcast, caplog, settings,
 ):
     """A host restart on an aged row replaces room A; A's guest leave follows.
 
@@ -194,6 +196,7 @@ def test_a_host_restart_orphans_the_old_room_and_its_leaves_are_counted(
     ids an operator needs, instead of a bare 404. The old room's
     `meeting.ended` must not take the NEW room off the live list.
     """
+    settings.DYTE_HOST_EVICTION_JOBS_ENABLED = True
     private_key, _ = keypair
     caplog.set_level(logging.INFO, logger='dj.apps.dyte.views')
     CreatorMeeting.objects.filter(pk=broadcast.pk).update(
@@ -252,7 +255,7 @@ def test_late_meeting_ended_from_previous_session_keeps_room_live(
     ended = _post(
         api_client, private_key,
         _lifecycle('meeting.ended', broadcast.meeting_id, 'Big_dre',
-                   session_id=session_a),
+                   session_id=session_a, started_at='2026-09-07T17:53:51Z'),
     )
 
     assert started.status_code == 200
@@ -266,7 +269,7 @@ def test_late_meeting_ended_from_previous_session_keeps_room_live(
     ('2026-09-07T17:53:52Z', '2026-09-07T17:53:51Z'),
     ('2026-09-07T17:53:52Z', '2026-09-07T17:53:52Z'),
 ])
-def test_late_or_tied_meeting_started_cannot_replace_current_session(
+def test_late_start_is_ignored_and_tied_distinct_start_closes_ambiguous_session(
     api_client, keypair, broadcast, current_started_at, incoming_started_at,
 ):
     private_key, _ = keypair
@@ -288,8 +291,12 @@ def test_late_or_tied_meeting_started_cannot_replace_current_session(
 
     assert response.status_code == 200
     broadcast.refresh_from_db()
-    assert broadcast.live_now is True
-    assert broadcast.provider_session_id == current_session
+    if current_started_at == incoming_started_at:
+        assert broadcast.live_now is False
+        assert broadcast.provider_session_id is None
+    else:
+        assert broadcast.live_now is True
+        assert broadcast.provider_session_id == current_session
     assert broadcast.provider_session_started_at.isoformat().startswith(
         '2026-09-07T17:53:52'
     )
@@ -375,23 +382,27 @@ def test_replacing_room_resets_recorded_provider_session(
     assert broadcast.provider_session_started_at is None
 
 
-def test_end_with_unknown_recorded_session_preserves_fresh_seat(
+def test_end_with_unknown_recorded_session_closes_room_but_preserves_fresh_seat(
     api_client, keypair, broadcast,
 ):
     private_key, _ = keypair
+    seat, ended_session = uuid.uuid4(), uuid.uuid4()
     CreatorMeeting.objects.filter(pk=broadcast.pk).update(
-        live_now=True, provider_session_id=None, host_session_id=uuid.uuid4(),
+        live_now=True, provider_session_id=None, host_session_id=seat,
         host_session_seen_at=timezone.now(),
     )
     api_client.force_authenticate(user=None)
     response = _post(
         api_client, private_key,
         _lifecycle('meeting.ended', broadcast.meeting_id, 'Big_dre',
-                   session_id=uuid.uuid4()),
+                   session_id=ended_session),
     )
     assert response.status_code == 200
     broadcast.refresh_from_db()
-    assert broadcast.live_now is True
+    assert broadcast.live_now is False
+    assert broadcast.lifecycle_state == 'offline'
+    assert broadcast.provider_session_id == ended_session
+    assert broadcast.host_session_id == seat
 
 
 # --------------------------------------------------------------------------
@@ -429,9 +440,11 @@ def test_a_guest_leave_for_an_unknown_room_is_acknowledged_and_counted(
 
 
 def test_a_retry_of_an_applied_leave_after_rotation_is_not_counted(
-    api_client, keypair, caplog, broadcast,
+    api_client, keypair, caplog, broadcast, mocker,
 ):
     """Applied, response lost, room rotated, provider retries: not a loss."""
+    mocker.patch('dj.apps.dyte.participant_binding.DyteClient.get_session_participant',
+        return_value={'user_id': uuid.uuid4(), 'role': 'viewer', 'custom_participant_id': 'Guest 3'})
     private_key, _ = keypair
     caplog.set_level(logging.INFO, logger='dj.apps.dyte.views')
     room_a = broadcast.meeting_id

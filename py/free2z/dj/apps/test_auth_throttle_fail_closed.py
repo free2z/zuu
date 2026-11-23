@@ -40,6 +40,7 @@ from rest_framework.throttling import SimpleRateThrottle
 from rest_framework.views import APIView
 
 from dj.apps.otp.views import BruteRateThrottle
+from dj.apps.oidc.mcp_views import MCPRegistrationThrottle
 from dj.free2z import throttling
 from dj.free2z.throttling import (
     AUTH_THROTTLE_CACHE_ALIAS,
@@ -72,6 +73,7 @@ AUTH_SCOPES = {
     # the token endpoint takes codes, refresh tokens and client secrets.
     "anon-oidc-authorize",
     "anon-oidc-token",
+    "mcp-registration",   # anonymous dynamic client credential registration
 }
 
 AUTH_THROTTLE_CLASSES = [
@@ -83,6 +85,7 @@ AUTH_THROTTLE_CLASSES = [
     OAuthCompletionAnonRateThrottle,
     throttling.OIDCAuthorizeAnonRateThrottle,
     throttling.OIDCTokenAnonRateThrottle,
+    MCPRegistrationThrottle,
     BruteRateThrottle,
 ]
 
@@ -92,6 +95,7 @@ AUTH_ENDPOINTS = [
     ("post", "/api/auth/login/"),
     ("post", "/api/auth/login"),
     ("post", "/api/start/"),
+    ("post", "/api/oauth/register"),
     ("post", "/api/emails/reset-password"),
     ("post", "/api/emails/do-reset-password"),
     ("post", "/api/otp/login/"),
