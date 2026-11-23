@@ -2,19 +2,19 @@
 sidebar_position: 0
 ---
 
-# Apply to earn from the services you deliver
+# Creator credits and earnings
 
-Host a paid live experience or build an application people use. Apply and get approved to earn money from 2Z Inc. for qualifying delivered **pay-per-view livestream and SDK services** under accepted agreements and service terms.
+Pay-per-view livestreams, subscriptions, and credit gifts provide **2Z platform credits**. Spend or share them within Free2Z. Receiving credits does not require payout verification or a creator compensation agreement, and the credit balance has no cash-out option.
 
-People use 2Zs to unlock a paid livestream or use a supported app service. For qualifying services you deliver as an approved creator, Free2Z records your agreed compensation in the separate USD earnings balance.
+For pay-per-view, viewers pay the displayed credit rate for their viewing time. The creator receives the creator portion actually collected; the platform fee is separate. Check the rate and viewer balance requirement before starting a room.
 
-Your earnings are tracked in **USD** and paid in **shielded Zcash**. Your 2Z credits stay separate.
+Approved SDK application contributions can earn separate **USD compensation owed by 2Z Inc.**, paid in **shielded Zcash** under accepted terms. The setup and payment instructions below apply to that compensation. Recorded USD obligations, including historical PPV earnings, remain payable under their accepted terms.
 
 ## Set up creator earnings
 
 1. Sign in and open the creator verification application from your dashboard. You can apply with zero 2Z credits.
 2. Complete the requested identity information and follow the review instructions. The team reviews your application and confirms approval. Verification identifies the person or organization that receives payment.
-3. Once approved, in **Credits & Earnings**, read the compensation agreement and the service terms for PPV and SDK activities. Check the verified payee displayed beside them.
+3. Once approved, in **Credits & Earnings**, read the compensation agreement and the service terms for SDK activities. Check the verified payee displayed beside them.
 4. Accept the terms explicitly if you want to participate. A verification or tax-form signature does not accept the compensation agreement.
 5. Check Credits & Earnings to confirm that your account is eligible for compensated services before offering them. Follow the applicable delivery and pricing terms.
 
@@ -24,16 +24,15 @@ Payment review can require tax information. If you need help completing verifica
 
 | Activity | How it works |
 | --- | --- |
-| Qualifying paid livestream PPV | Deliver the live service under the accepted PPV terms; compensation follows the recorded service allocation |
 | Qualifying SDK application service | Deliver the application's service under the accepted SDK terms; compensation follows the recorded service allocation |
 
-Purchasing, holding, sharing, or receiving credits does not earn USD. Subscriptions and memberships provide credit-based benefits; they are not USD earnings. Starting a stream or registering an application alone does not earn money.
+Purchasing, holding, sharing, or receiving credits does not earn USD. Pay-per-view, subscriptions, and memberships provide credit-based benefits. Registering an application alone does not earn money.
 
 ## Credits and earnings stay separate
 
 When you buy or receive 100 2Zs, you have credits to use on Free2Z. Sharing them gives another user credits; it does not create USD earnings.
 
-For qualifying delivered PPV or SDK services, Credits & Earnings records the USD earnings owed under your accepted service terms. If it shows $10 available, you can request payment of that USD amount in shielded Zcash. The payment does not use up your credits.
+For qualifying SDK services, Credits & Earnings records the USD earnings owed under your accepted service terms. If it shows $10 available, you can request payment of that USD amount in shielded Zcash. The payment does not use up your credits.
 
 ## Follow your earnings
 
@@ -42,7 +41,7 @@ Open **Credits & Earnings** to see:
 - **Owed:** your recorded USD earnings.
 - **Held:** amounts reserved for payment requests.
 - **Available:** the amount available for a payment request.
-- **Recent activity:** recorded PPV and SDK earnings.
+- **Recent activity:** recorded SDK earnings and historical earnings under accepted terms.
 - **Payment history:** the status and details of your requests.
 
 Credits & Earnings displays small positive earnings. If your account needs setup or a feature is unavailable, follow the displayed guidance rather than treating that message as a balance.

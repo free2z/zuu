@@ -38,7 +38,11 @@
   import MeetingRecordingNotice from "./MeetingRecordingNotice.svelte";
   import RtkAudioHealth from "./RtkAudioHealth.svelte";
   import InsufficientFunds from "$lib/components/InsufficientFunds.svelte";
-  import { createCreatorRetrieve } from "$lib/api/creator/creator";
+  import {
+    createCreatorRetrieve,
+    creatorRetrieve,
+  } from "$lib/api/creator/creator";
+  import type { CreatorDetail } from "$lib/api/f2z.schemas";
   import { toast, captureAccountToast } from "$lib/toast.js";
   import { goto } from "$app/navigation";
   import { authStore } from "$lib/stores/auth";
@@ -60,7 +64,9 @@
 
   export let username: string;
   export let expectedActorId: number | undefined = undefined;
+  export let expectedCreatorId: number | undefined = undefined;
   const originalViewerActorId = expectedActorId;
+  const originalCreatorId = expectedCreatorId;
   // Only the three PUBLIC types: `/live/{username}` never renders a private
   // room (that lives at `/{username}/private/{secret}`), and its load function
   // 404s any other `?type=` before this component is built.
@@ -83,6 +89,12 @@
   let warningCode: string | null = null;
   let warning: string | null = null;
   let isPaymentRequired = false;
+  let offlineSubscriber: {
+    creator: CreatorDetail;
+    actorId: number;
+    member: boolean;
+    ownsRequest: () => boolean;
+  } | null = null;
   let insufficientFunds: InsufficientFundsDetails | null = null;
   let cleanup: (() => void | Promise<void>) | null = null;
   let destroyed = false;
@@ -316,6 +328,101 @@
     ? creator?.id !== undefined &&
       $authStore.creator.star_ids.includes(creator.id)
     : Boolean($authStore.creator?.stars?.includes(username));
+  $: offlineSubscriberCurrent = Boolean(
+    offlineSubscriber &&
+    offlineSubscriber.ownsRequest() &&
+    $authStore.status === "authenticated" &&
+    $authStore.creator?.id === offlineSubscriber.actorId &&
+    expectedActorId === originalViewerActorId &&
+    expectedCreatorId === offlineSubscriber.creator.id,
+  );
+  $: if (offlineSubscriber && !offlineSubscriberCurrent) {
+    showSubscribe = false;
+    errorSource = new LocalizedError({
+      key: "economy.signInAgain",
+      fallback: "Sign in again before continuing.",
+    });
+  }
+  $: canSubscribeOffline =
+    offlineSubscriberCurrent &&
+    offlineSubscriber &&
+    !offlineSubscriber.member &&
+    offlineSubscriber.actorId !== offlineSubscriber.creator.id &&
+    membershipFor($authStore.creator, offlineSubscriber.creator) === false;
+  $: subscriptionCreator = offlineSubscriber?.creator ?? creator;
+
+  function membershipFor(
+    user: typeof $authStore.creator,
+    owner: CreatorDetail,
+  ): boolean | null {
+    if (!user) return null;
+    if (user.star_ids !== undefined) {
+      return Array.isArray(user.star_ids) &&
+        user.star_ids.every(Number.isSafeInteger)
+        ? user.star_ids.includes(owner.id)
+        : null;
+    }
+    return Array.isArray(user.stars) &&
+      user.stars.every((name) => typeof name === "string")
+      ? user.stars.includes(owner.username)
+      : null;
+  }
+
+  async function verifyOfflineSubscriber(signal: AbortSignal) {
+    const unavailable = () =>
+      new LocalizedError({
+        key: "stream.errors.verificationUnavailable",
+        fallback: "We couldn't verify your account just now. Please retry.",
+      });
+    if (
+      !Number.isSafeInteger(originalViewerActorId) ||
+      !originalViewerActorId ||
+      !Number.isSafeInteger(originalCreatorId) ||
+      !originalCreatorId
+    )
+      throw unavailable();
+    // A cached membership or failed auth read cannot authorize this prompt.
+    const authenticated = await authStore.checkAuth({
+      fresh: true,
+      force: true,
+      silent: true,
+    });
+    signal.throwIfAborted();
+    if (authenticated !== true) throw unavailable();
+    if ($authStore.creator?.id !== originalViewerActorId) {
+      throw new LocalizedError({
+        key: "economy.signInAgain",
+        fallback: "Sign in again before continuing.",
+      });
+    }
+    const ownsRequest = authStore.captureRequestOwnership();
+    const owner = await creatorRetrieve(
+      username,
+      { cache: "no-store" },
+      signal,
+    );
+    signal.throwIfAborted();
+    if (
+      !ownsRequest() ||
+      expectedActorId !== originalViewerActorId ||
+      expectedCreatorId !== originalCreatorId ||
+      owner.id !== originalCreatorId ||
+      $authStore.creator?.id !== originalViewerActorId
+    )
+      throw unavailable();
+    const member = membershipFor($authStore.creator, owner);
+    if (member === null) throw unavailable();
+    offlineSubscriber = {
+      creator: owner,
+      actorId: originalViewerActorId,
+      member,
+      ownsRequest,
+    };
+    errorSource = new LocalizedError({
+      key: "stream.errors.creatorNotLive",
+      fallback: "This creator is not currently live.",
+    });
+  }
 
   function handleOnline() {
     liveStreamStore.setOffline(false);
@@ -412,6 +519,7 @@
     warningSource = null;
     warningCode = null;
     isPaymentRequired = false;
+    offlineSubscriber = null;
     insufficientFunds = null;
 
     try {
@@ -534,6 +642,23 @@
       isPaymentRequired = err instanceof PaymentRequiredError;
       insufficientFunds =
         err instanceof PaymentRequiredError ? err.funds : null;
+      if (
+        streamType === "subscribers-only" &&
+        err instanceof LocalizedError &&
+        err.code === "stream.errors.creatorNotFound"
+      ) {
+        try {
+          await verifyOfflineSubscriber(signal);
+        } catch (verificationError) {
+          if (signal.aborted) return;
+          errorSource =
+            verificationError instanceof LocalizedError
+              ? verificationError
+              : err;
+        }
+        loading = false;
+        return;
+      }
       if (err instanceof LocalizedError && err.code === "economy.signInAgain") {
         clearTimeout(retryTimeout);
         loading = false;
@@ -763,14 +888,17 @@
       <div
         class="mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-red-500/20 text-red-500"
       >
-        {#if isPaymentRequired}
+        {#if isPaymentRequired || offlineSubscriberCurrent}
           <Lock class="h-8 w-8" />
         {:else}
           <AlertCircle class="h-8 w-8" />
         {/if}
       </div>
       <h3 class="text-xl font-bold">
-        {$t("stream.unableToJoin", "Unable to Join")}
+        {streamType === "subscribers-only" &&
+        (isPaymentRequired || offlineSubscriberCurrent)
+          ? $t("live.gatedPreviewSubscribersOnly", "Subscribers-only stream")
+          : $t("stream.unableToJoin", "Unable to Join")}
       </h3>
       <p class="text-gray-300">{error}</p>
 
@@ -780,7 +908,7 @@
         </div>
       {/if}
 
-      {#if streamType === "subscribers-only" && isPaymentRequired}
+      {#if streamType === "subscribers-only" && (isPaymentRequired || canSubscribeOffline)}
         <Button
           class="mt-4 rounded-full bg-blue-600 px-6 py-2 font-medium text-white hover:bg-blue-700"
           onclick={openSubscribe}
@@ -885,17 +1013,15 @@
   {/if}
 </div>
 
-{#if creator}
+{#if subscriptionCreator}
   <SubscribeToCreator
-    {creator}
+    creator={subscriptionCreator}
     bind:open={showSubscribe}
     onOpenChange={(open) => {
       showSubscribe = open;
-      if (!open) {
-        // Optional: retry joining if they closed the modal (assuming they might have subscribed)
-        // But better to let them click "Try Again" or handle it in onSuccess if we added it.
-        // For now, manual retry is fine.
-      }
+    }}
+    onSuccess={() => {
+      void joinStream();
     }}
   />
 
