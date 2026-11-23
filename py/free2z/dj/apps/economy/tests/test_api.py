@@ -40,7 +40,7 @@ def test_public_actual_document_and_schedules_no_personal_data(api_client):
     result = api_client.get('/api/economy/agreement/')
     assert result.status_code == 200
     assert result.data['text'] == contracts.CREATOR_CONTRACT_TEXT
-    assert len(result.data['schedules']) == 2
+    assert [item['service'] for item in result.data['schedules']] == ['sdk_application']
     assert all(item['digest'] == contracts.text_digest(item['text']) for item in result.data['schedules'])
     assert result['Cache-Control'] == 'no-store'
 
@@ -456,3 +456,21 @@ def test_zec_capacity_read_uses_actual_verified_purchaser_group(api_client,actor
 @pytest.mark.django_db
 def test_policy_zero_has_no_supported_zec_capacity_preview(api_client,actor):
     assert api_client.get('/api/economy/funding-resolutions/').data['zec_funding_capacity'] is None
+
+
+@pytest.mark.django_db
+def test_sdk_acceptance_replays_historical_superset_without_rewriting_it(api_client, actor):
+    account = bind(actor)
+    refs = [{'service': item['service'], 'version': item['version'], 'digest': item['digest']}
+        for item in contracts.SERVICE_SCHEDULES.values()]
+    agreement = services.accept_agreement(creator_id=actor.pk, legal_payee_id=account.pk,
+        contract_digest=contracts.CREATOR_CONTRACT_DIGEST, acceptance_evidence={
+            'document_reference': 'historical-accepted-document', 'actor_authentication': 'original-login',
+            'authority_reference': 'original-self', 'schedules': refs})
+    original = agreement.acceptance_evidence
+    response = api_client.post('/api/economy/agreement/accept/', consent(actor.pk), format='json')
+    assert response.status_code == 200, response.data
+    assert CompensationAgreement.objects.count() == 1
+    agreement.refresh_from_db()
+    assert agreement.acceptance_evidence == original
+    assert response.data['accepted_at'] == agreement.accepted_at
