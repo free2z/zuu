@@ -9,6 +9,6 @@ Free2Z brings publishing, conversation, livestreams, and AI-powered building tog
 | A live performance or community meetup | [Livestreams](/features/live) |
 | An AI-powered application | [SDK preview](/for-creators/sdk-applications) |
 | A little support for someone you love | [Use and share 2Zs](/for-supporters/) |
-| Paid livestream or app services | [Creator earnings](/revenue-sharing/) |
+| Credits from paid livestreams and earnings from eligible apps | [Creator credits and earnings](/revenue-sharing/) |
 
 [Open Free2Z](https://free2z.com) and try something small.

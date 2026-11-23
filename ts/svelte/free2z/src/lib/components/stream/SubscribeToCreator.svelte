@@ -32,6 +32,7 @@
   export let creator: CreatorDetail;
   export let open = false;
   export let onOpenChange: (open: boolean) => void = () => {};
+  export let onSuccess: () => void = () => {};
   let isSubmitting = false;
   let isUnconfirmed = false;
   let isIntentConflict = false;
@@ -204,7 +205,10 @@
               username: creator.username,
             }),
       );
-      if (!storageCleanupFailed) onOpenChange(false);
+      if (!storageCleanupFailed) {
+        onOpenChange(false);
+        onSuccess();
+      }
       // Reconcile membership and refresh the balance without the auth cache.
       void authStore.checkAuth({ force: true, silent: true });
     } catch (e: any) {
@@ -373,6 +377,7 @@
       }
       let abandonedAny = false;
       let resolvedAny = false;
+      let recoveredActiveMembership = false;
       for (const key of keys) {
         if (!recoveryIsCurrent()) return;
         const result = await tuzisSubscribeRecoveryCreate(recoveryCreatorId, {
@@ -409,6 +414,9 @@
               ),
             );
           }
+          recoveredActiveMembership = refreshedUser.star_ids
+            ? refreshedUser.star_ids.includes(recoveryCreatorId)
+            : Boolean(refreshedUser.stars?.includes(recoveryCreatorUsername));
           // A resolved receipt may describe a membership that has expired.
           // The refresh reconciles that state; the derived subscription flag
           // decides whether a fresh purchase is allowed.
@@ -473,6 +481,10 @@
                   "The previous attempt was reconciled.",
                 ),
         );
+        if (resolvedAny && recoveredActiveMembership && recoveryIsCurrent()) {
+          onOpenChange(false);
+          onSuccess();
+        }
       } else {
         isUnconfirmed = true;
         operationNotice.error(
