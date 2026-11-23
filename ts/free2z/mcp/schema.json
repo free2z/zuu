@@ -17821,6 +17821,7 @@
           },
           "meeting_id": {
             "type": "string",
+            "nullable": true,
             "maxLength": 64
           },
           "meeting_type": {
@@ -17872,7 +17873,6 @@
         "required": [
           "creator",
           "id",
-          "meeting_id",
           "participant_count",
           "participant_count_as_of"
         ]

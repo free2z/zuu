@@ -31,11 +31,8 @@ class CreatorMeetingSerializer(serializers.ModelSerializer):
     def _snapshot(self, obj):
         snapshots = self.context.setdefault('participant_snapshots', {})
         if obj.meeting_id not in snapshots:
-            from django.conf import settings
             from .client import DyteClient
-            snapshots[obj.meeting_id] = DyteClient(
-                settings.DYTE_ORG,
-            ).get_cached_participant_snapshot(
+            snapshots[obj.meeting_id] = DyteClient().get_cached_participant_snapshot(
                 obj.meeting_id, obj.provider_session_id,
             )
         return snapshots[obj.meeting_id]
@@ -83,11 +80,8 @@ class PublicMeetingListSerializer(serializers.ModelSerializer):
     def _snapshot(self, obj):
         snapshots = self.context.setdefault('participant_snapshots', {})
         if obj.meeting_id not in snapshots:
-            from django.conf import settings
             from .client import DyteClient
-            snapshots[obj.meeting_id] = DyteClient(
-                settings.DYTE_ORG,
-            ).get_cached_participant_snapshot(
+            snapshots[obj.meeting_id] = DyteClient().get_cached_participant_snapshot(
                 obj.meeting_id, obj.provider_session_id,
             )
         return snapshots[obj.meeting_id]

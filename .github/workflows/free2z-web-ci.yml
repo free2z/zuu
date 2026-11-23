@@ -484,7 +484,7 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run test:build-dependencies
       - name: Test classic rollback compatibility routes
-        run: npm test -- --watchAll=false --runTestsByPath src/components/AIzPageDialog.test.tsx src/components/LogoutButton.test.tsx src/classicRouteCompatibility.test.ts src/PageDetail.test.tsx src/RootSplitter.test.tsx src/CreatorDetail.test.tsx src/components/SubscribeToCreator.test.tsx src/components/MySubscriptionRow.test.tsx src/eventContentUrl.test.ts src/retiredMemoProtocols.test.ts src/AI2.test.tsx src/components/AITextarea.test.tsx
+        run: npm test -- --watchAll=false --runTestsByPath src/components/AIzPageDialog.test.tsx src/components/LogoutButton.test.tsx src/components/Moderation.test.tsx src/classicRouteCompatibility.test.ts src/PageDetail.test.tsx src/RootSplitter.test.tsx src/CreatorDetail.test.tsx src/components/SubscribeToCreator.test.tsx src/components/MySubscriptionRow.test.tsx src/eventContentUrl.test.ts src/retiredMemoProtocols.test.ts src/AI2.test.tsx src/components/AITextarea.test.tsx src/CreatorLive.host.test.tsx src/CreatorLive.refresh.test.tsx src/CreatorLive.actor.test.tsx
       - name: Build classic React app for Chromium tests
         run: NODE_OPTIONS="$NODE_OPTIONS --max-old-space-size=4096" npm run build
         env:
@@ -626,19 +626,6 @@ jobs:
         run: python ../../scripts/free2z/check-pytest-durations.py .test_durations
       - name: pytest-split 0.11.0 duration allocation contract
         run: python ../../scripts/free2z/test-pytest-split-durations.py
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
-        if: matrix.group == 1
-        with:
-          node-version: 24.22.2
-          cache: npm
-          cache-dependency-path: ts/svelte/free2z/package-lock.json
-      - name: Install renderer dependencies for the translation oracle
-        if: matrix.group == 1
-        run: npm ci
-        working-directory: ts/svelte/free2z
-      - name: Render Markdown and check payment-address bypasses
-        if: matrix.group == 1
-        run: '"$GITHUB_WORKSPACE/scripts/free2z/check-translation-url-oracle.py"'
       - name: Django system checks
         run: python dj/free2z/manage.py check
       - name: Migration deletion and assertion quality guards
@@ -721,6 +708,68 @@ jobs:
           CI_POSTGRES_CONTAINER_ID: ${{ steps.ci-services.outputs.postgres_id }}
           CI_REDIS_CONTAINER_ID: ${{ steps.ci-services.outputs.redis_id }}
         run: python3 scripts/free2z/ci-services.py cleanup
+    needs: changes
+    if: needs.changes.outputs.application == 'true'
+  translation-oracle:
+    # The rendered-Markdown payment-address oracle. It needs the production
+    # Python lock (Django validators) and the SvelteKit renderer, but no
+    # database, so it runs beside the backend shards instead of in front of
+    # shard 1's pytest. The gate requires it like every other selected job.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Select verified CI trust before clients
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          CI_TRUST_CONTAINER: ${{ job.container.id != '' && '1' || '0' }}
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then ci_python=python; else ci_python=python3; fi
+          "$ci_python" -I - <<'PY'
+          import hashlib, os, pathlib, subprocess, sys, urllib.request
+          url = 'https://raw.githubusercontent.com/corpora-inc/encorpora/086efd078bf7179df466449f194d716916e11305/.github/scripts/ci_trust.py'
+          opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+          with opener.open(url, timeout=30) as response:
+              if response.url != url: raise SystemExit('Unexpected CI helper redirect')
+              data = response.read(50001)
+          if len(data) > 50000 or hashlib.sha256(data).hexdigest() != 'ba1fe4e0b829fdb18dd619751479fbafdd791ecc51b834f3399cb972d8ddf167':
+              raise SystemExit('CI helper checksum mismatch')
+          mode = os.environ['CI_TRUST_CONTAINER']
+          if mode not in ('0', '1'): raise SystemExit('Unclassified CI container context')
+          path = pathlib.Path(os.environ['RUNNER_TEMP']) / 'corpora-ci-trust-bootstrap.py'
+          with os.fdopen(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), 'wb') as output:
+              output.write(data)
+          subprocess.run([sys.executable, '-I', str(path), '--source-commit', '086efd078bf7179df466449f194d716916e11305'] + (['--clients-only'] if mode == '1' else []), check=True)
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # reviewed immutable repository pin
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            py/free2z/requirements/main.in
+            py/free2z/requirements/main.txt
+      - name: Install libpq headers (psycopg2 builds from source)
+        timeout-minutes: 6
+        run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" libpq-dev
+      - name: Install production requirements
+        working-directory: py/free2z
+        run: |
+          python -m pip install --disable-pip-version-check --require-hashes -r requirements/main.txt
+          "$GITHUB_WORKSPACE/scripts/free2z/check-python-requirements-installed.py" --lock requirements/main.txt
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
+        with:
+          node-version: 24.22.2
+          cache: npm
+          cache-dependency-path: ts/svelte/free2z/package-lock.json
+      - name: Install renderer dependencies for the translation oracle
+        run: npm ci
+        working-directory: ts/svelte/free2z
+      - name: Render Markdown and check payment-address bypasses
+        timeout-minutes: 10
+        run: '"$GITHUB_WORKSPACE/scripts/free2z/check-translation-url-oracle.py"'
     needs: changes
     if: needs.changes.outputs.application == 'true'
   native-payment-bridge:
@@ -819,6 +868,7 @@ jobs:
       - react
       - lint-python
       - backend
+      - translation-oracle
       - native-payment-bridge
       - images
     runs-on: ubuntu-24.04
