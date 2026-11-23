@@ -78,6 +78,7 @@ test("paid viewer assertion uses the original displayed actor after fresh authen
     "/api/dyte/stream-owner/live-status",
   );
   expect(mocked.post.mock.calls[0][1]).toEqual({
+    role: "viewer",
     expected_actor_id: 100,
     admission_idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}$/),
   });
@@ -232,6 +233,7 @@ test("backend actor_changed after the fresh identity check explains the refusal 
   );
   expect(mocked.post).toHaveBeenCalledTimes(1);
   expect(mocked.post.mock.calls[0][1]).toEqual({
+    role: "viewer",
     expected_actor_id: 100,
     admission_idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}$/),
   });
