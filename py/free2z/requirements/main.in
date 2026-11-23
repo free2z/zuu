@@ -138,7 +138,7 @@ jsonlines==4.0.0
 # bin/gen-language-names.py and committed as f2z/language_names.py instead.
 langcodes==3.5.1
 markdown2==2.5.5
-openai==3.38.0
+openai==3.56.0
 pdfrw==0.4
 pgvector==0.5.1
 procrastinate[django]==3.10.0

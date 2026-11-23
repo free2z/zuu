@@ -1348,9 +1348,9 @@ oauthlib==4.0.1 \
     #   -r main.in
     #   django-oauth-toolkit
     #   requests-oauthlib
-openai==3.38.0 \
-    --hash=sha256:bcd9f9157706ae75c45799aa1580f989c4eeba57de778f2edae3782ce7446bb8 \
-    --hash=sha256:d5d71ce6bc6a724d32df268cfd17910f56af1f4afe9056e4e7361105c2d92a2a
+openai==3.56.0 \
+    --hash=sha256:24043ea80048ed1cd6c263c4fc4192406d05c418e87e89310eecbf55a9021c32 \
+    --hash=sha256:c99192c0a08f572042e50a74c42e325f70a44308fbb0c0c8f3aeb1ba0d52a567
     # via -r main.in
 opentelemetry-api==1.45.2 \
     --hash=sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34 \
