@@ -8,7 +8,7 @@
 import { useMock } from "../platform";
 import { mockBlockedNames } from "./moderation";
 import { MOCK_OTP } from "../env";
-import { usdToTuzis } from "../format";
+import { usdToTuzis, MAX_PPV_PRICE_TUZIS } from "../format";
 import { normalizeArticleTags, sanitizeArticleTags } from "../article-tags";
 import { normalizePrivateSecret } from "../private-live";
 import {
@@ -26,10 +26,12 @@ import {
   ApiError,
   basicLogin,
   getToken,
+  getTokenSnapshot,
   mediaUrl,
   request,
   setToken,
 } from "./http";
+import { registerHostSeat, releaseHostSeat, isCurrentHostSeat } from "./host-seat";
 import {
   DonationContractError,
   IDEMPOTENT_DONATION_ROUTE,
@@ -708,7 +710,7 @@ function typeFromStreamKind(value: StreamKind): DyteMeetingType {
 }
 
 /** PPV entry cost the backend enforces: ceil(price_per_minute*30) + 15 fee. */
-function ppvPrice(pricePerMinute: unknown): number {
+export function ppvPrice(pricePerMinute: unknown): number {
   // CreatorMeeting.price_per_minute is Decimal(6, 2). Parse its wire form into
   // hundredths so values such as 8.30 do not become 8.300000000000001 in JS
   // and incorrectly round the 30-minute charge up by one.
@@ -859,6 +861,7 @@ export const auth = {
       return { ...mockUser };
     }
     const u = await request<{
+      id?: number;
       username: string;
       email?: string;
       full_name?: string;
@@ -874,6 +877,7 @@ export const auth = {
       banner_image?: RawImage | null;
     }>("/api/auth/user/", { cache: "no-store", authToken, signal });
     return {
+      id: u.id,
       username: u.username,
       email: u.email,
       free2zaddr: u.username,
@@ -1899,8 +1903,11 @@ export const live = {
   },
 
   /** Creator starts/ensures their stream and receives its host ticket. */
-  async start(kind: StreamKind): Promise<LiveStartResult> {
+  async start(kind: StreamKind, pricePerMinute?: number): Promise<LiveStartResult> {
     const meetingType = typeFromStreamKind(kind);
+    if (kind === "ppv" && (!Number.isSafeInteger(pricePerMinute) || !pricePerMinute ||
+      pricePerMinute < 1 || pricePerMinute > MAX_PPV_PRICE_TUZIS))
+      throw new LivestreamPriceContractError();
     if (useMock()) {
       await delay(500);
       return {
@@ -1913,8 +1920,9 @@ export const live = {
         ...(kind === "private" ? { inviteSecret: MOCK_ROOM_SECRET } : {}),
       };
     }
-    const me = await auth.me();
+    const originalAuth = getTokenSnapshot();
     if (kind === "private") {
+      const me = await auth.me(originalAuth.token ?? undefined);
       const created = await request<unknown>(
         `/api/dyte/${encodeURIComponent(me.username)}/private`,
         { method: "POST" },
@@ -1929,18 +1937,33 @@ export const live = {
       const ticket = await live.join(me.username, "private", secret, "host");
       return { ticket, inviteSecret: secret };
     }
-    const r = await request<unknown>(
-      `/api/dyte/${me.username}/${meetingType}`,
-      { method: "POST" },
-    );
-    // A new public meeting changed discovery; private rooms never touch it.
-    listingCache = null;
-    return {
-      ticket: parseJoinTicketResponse(r, {
-        as: "host",
-        responseMeetingIdRequired: true,
-      }),
-    };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    let hostSeat: ReturnType<typeof registerHostSeat> | undefined;
+    try {
+      const me = await auth.me(originalAuth.token ?? undefined, controller.signal);
+      if (!Number.isSafeInteger(me.id) || !me.id || !originalAuth.token)
+        throw new Error("Sign in again before starting a stream.");
+      hostSeat = registerHostSeat(me.username, me.id, originalAuth);
+      if (!isCurrentHostSeat(hostSeat)) throw new Error("Your account changed. Start the stream again.");
+      const r = await request<{ host_session?: string }>(
+        `/api/dyte/${encodeURIComponent(me.username)}/${meetingType}`,
+        { method: "POST", authToken: originalAuth.token, signal: controller.signal,
+          body: { role: "host", host_session: hostSeat.session, expected_actor_id: me.id,
+            ...(kind === "ppv" ? { price_per_minute: `${pricePerMinute}.00` } : {}) } },
+      );
+      if (!isCurrentHostSeat(hostSeat) || r.host_session !== hostSeat.session)
+        throw new Error("The broadcaster session could not be confirmed. Start the stream again.");
+      listingCache = null;
+      return { ticket: { ...parseJoinTicketResponse(r, {
+        as: "host", responseMeetingIdRequired: true,
+      }), hostSeat } };
+    } catch (error) {
+      if (hostSeat) releaseHostSeat(hostSeat);
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
   },
 
   /**
@@ -1990,6 +2013,7 @@ export const live = {
     try {
       const r = await request<unknown>(path, {
         method: "POST",
+        ...(kind !== "private" ? { body: { role: "viewer" } } : {}),
       });
       return parseJoinTicketResponse(r, {
         as,

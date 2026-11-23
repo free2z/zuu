@@ -17,4 +17,4 @@ Find a creator or page you want to read, watch, or support. Usage credits pay fo
 
 [Understand usage credits](/getting-started/tuzis) before buying. [Learn about direct Zcash support](/for-supporters/donating-zcash) before sending.
 
-Share credits to help someone keep creating. For company-paid compensation from qualifying livestreams or SDK services, read [Creator earnings](/revenue-sharing/).
+Share credits to help someone keep creating. Pay-per-view also shares the collected creator portion as 2Z credits. For company-paid compensation from qualifying SDK services, read [Creator earnings](/revenue-sharing/).
