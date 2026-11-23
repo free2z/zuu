@@ -389,6 +389,8 @@ export interface Livestream {
 
 /** Everything the client needs to actually join a Dyte meeting. */
 export interface DyteJoinTicket {
+  /** Present only for an explicitly provisioned public broadcaster. */
+  hostSeat?: import("./host-seat").HostSeat;
   authToken: string;
   meetingId: string;
   /** Provider tenant binding. Never render or include in diagnostics. */

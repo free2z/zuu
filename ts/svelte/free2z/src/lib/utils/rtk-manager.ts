@@ -238,7 +238,15 @@ export async function initRtkMeeting(options: RtkInitOptions): Promise<{
       }
     }
     if (signal?.aborted) throw error;
-    console.error("Failed to initialize RealtimeKit meeting:", error);
+    if (isHost) {
+      console.warn("Host meeting setup failed", {
+        stage: "meeting_setup",
+        code: "sdk_init_failed",
+        status: null,
+      });
+    } else {
+      console.error("Failed to initialize RealtimeKit meeting:", error);
+    }
 
     const err = error as { message?: string; name?: string; code?: string };
     let descriptor = RTK_MESSAGES.connectFailed;
