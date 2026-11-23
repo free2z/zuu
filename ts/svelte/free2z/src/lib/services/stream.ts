@@ -115,7 +115,7 @@ export type HostStartFailureCode =
   | "eligibility_changed"
   | "invalid_request"
   | "host_retirement_temporarily_unavailable"
-  | "livestream_compensation_integration_unavailable"
+  | "livestream_credit_integration_unavailable"
   | "admission_unavailable"
   | "provider_unavailable"
   | "admission_rejected"
@@ -192,13 +192,10 @@ function hostStartApiFailure(error: ApiError, type: PublicStreamType) {
       error.status,
     );
   }
-  if (
-    type === "ppv" &&
-    code === "livestream_compensation_integration_unavailable"
-  ) {
+  if (type === "ppv" && code === "livestream_credit_integration_unavailable") {
     return new HostStreamStartError(
       STREAM_MESSAGES.hostUnavailable,
-      "livestream_compensation_integration_unavailable",
+      "livestream_credit_integration_unavailable",
       error.status,
     );
   }

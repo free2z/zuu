@@ -10,7 +10,10 @@ task does not use this command, and a caller-supplied SQLSTATE is not proof.
 The default is a dry run. The command locks and revalidates the current rows
 in one repeatable transaction, rolls back, and prints one JSON receipt.
 `can_apply` is true only when every row is eligible. A dry run exits 0 when
-the receipt was produced, including when `can_apply` is false.
+the receipt was produced, including when `can_apply` is false. The later
+subscription-transfer check counts only transfers from the fan to the
+membership's creator; the fan's payments for other creators' memberships do
+not block a row.
 
 `--apply` writes only when the environment variable
 `MEMBERSHIP_RECOVERY_APPLY` is exactly `1` and `--decision-id` equals the

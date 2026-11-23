@@ -20,7 +20,10 @@ from .client import (
     DyteClient, ProviderAuthError, ProviderError, ProviderNotFoundError,
     ProviderRejectedError, ProviderUnavailableError,
 )
-from .models import CreatorMeeting, PUBLIC_MEETING_TYPES, PRIVATE
+from .models import (
+    CreatorMeeting, LIFECYCLE_OFFLINE, PUBLIC_MEETING_TYPES, PRIVATE,
+    RecordingDelivery,
+)
 
 ACTIVE = {"INVOKED", "RECORDING", "PAUSED"}
 PUBLIC_RECORDING_TTL = 120
@@ -139,6 +142,64 @@ def recording_status(cm):
         )
         return result
     return None
+
+
+def private_rotation_recording_status(cm):
+    """Allow replacement of an unused legacy room absent from the provider.
+
+    The caller holds the private meeting row lock. An application migration
+    can leave a stored room unreachable, so its recording endpoint cannot
+    answer idle. Recovery is limited to inactive rooms without any session,
+    start lease, recording admission, or unfinished delivery. A provider
+    meeting 404 must also be backed by a successful application-scoped read.
+    The caller preserves the old recording delivery target before rotation.
+    """
+    try:
+        return recording_status(cm)
+    except ProviderUnavailable:
+        key = f"rtk-recording:{cm.meeting_id}"
+        if (
+            cm.meeting_type != PRIVATE or cm.is_public or cm.live_now
+            or cm.lifecycle_state != LIFECYCLE_OFFLINE
+            or cm.provider_session_id is not None
+            or cm.provider_session_started_at is not None
+            or cm.host_session_id is not None or cm.host_start_claim is not None
+            or cm.host_session_seen_at is not None or cm.host_start_claim_at is not None
+            or cm.host_participant_id or cm.host_evictions or cm.start_id is not None
+            or cm.private_lease_id is not None
+            or cm.private_lease_created_at is not None or cm.private_lease_adopted_at is not None
+            or cm.last_seen_at is not None or cm.handshake_managed
+            or cm.provider_room_cleanup_claimed
+            or cache.get(PROVIDER_CIRCUIT)
+            or cache.get(f"{key}:pending") or cache.get(key)
+            or RecordingDelivery.objects.filter(
+                meeting_pk=cm.pk, completed_at__isnull=True,
+            ).exists()
+        ):
+            raise
+        client = DyteClient()
+        try:
+            client.request('GET', f'meetings/{cm.meeting_id}', timeout=PROVIDER_TIMEOUT)
+        except ProviderNotFoundError as exc:
+            # A generic JSON/HTML 404, a routing error, and "no active
+            # session" cannot establish that the meeting itself is absent.
+            if not (exc.provider_not_found and exc.provider_code == 404
+                    and not exc.provider_idle):
+                raise ProviderUnavailable() from None
+        except ProviderError:
+            raise ProviderUnavailable() from None
+        else:
+            raise ProviderUnavailable() from None
+        try:
+            app = client.request(
+                'GET', 'meetings', params={'page_no': 1, 'per_page': 1},
+                timeout=PROVIDER_TIMEOUT,
+            ).json()['data']
+        except ProviderError:
+            raise ProviderUnavailable() from None
+        if not isinstance(app, list):
+            raise ProviderUnavailable()
+        return None
 
 
 def reconcile_recording(cm):
