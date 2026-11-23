@@ -1,9 +1,7 @@
 # Supply-chain policy for every Rust crate under wallet/.
 #
-# One config for all three crates (wallet/plugins/tauri-plugin-zcash,
-# wallet/zuuli/src-tauri, wallet/zuuallet/src-tauri) so they cannot drift into
-# disagreeing about what is acceptable. `scripts/check-rust-deny.sh` runs
-# cargo-deny against each lockfile with `--config wallet/deny.toml`.
+# One config for the wallet manifests discovered by `scripts/check-rust-deny.sh`,
+# which runs cargo-deny against each graph with `--config wallet/deny.toml`.
 #
 # HOW TO READ THE `ignore` LIST BELOW
 #
@@ -44,13 +42,24 @@ yanked = "warn"
 
 ignore = [
   # ---------------------------------------------------------------------------
-  # Vulnerabilities. Each of these is transitive; none is a crate we depend on
-  # directly. The advisories that a plain `cargo update` could reach — the
-  # rustls-webpki 0.103 line, time, crossbeam-epoch and rand 0.8 — were cleared
-  # by the tier-1 sweep in #351 and their entries are gone from this list. What
-  # remains needs an intermediate crate to move first, so `cargo update` cannot
-  # reach it from the committed lockfiles.
+  # The only vulnerability exception is bundled SQLite, RUSTSEC-2026-0459,
+  # tracked in #1531. It stays ignored until zcash_client_sqlite can move to
+  # rusqlite >= 0.41.
   # ---------------------------------------------------------------------------
+
+  # Bundled SQLite < 3.54.0 (libsqlite3-sys 0.35.0 via rusqlite 0.37.0). The fix
+  # is libsqlite3-sys >= 0.39 (rusqlite >= 0.41), but the intermediate crate has
+  # to move first: upstream zcash_client_sqlite requires rusqlite 0.37, and
+  # libsqlite3-sys `links = "sqlite3"` forbids a second copy in any graph that
+  # links tauri-plugin-zcash. Affected roots (free2z/zuu#1531):
+  # wallet/e2e2z/src-tauri, wallet/plugins/tauri-plugin-f2zmsg,
+  # wallet/plugins/tauri-plugin-zcash, wallet/zuuallet/src-tauri and
+  # wallet/zuuli/src-tauri. Exploiting it requires the app to open its database
+  # next to an attacker-crafted -wal file with a mismatched page size, i.e. an
+  # attacker who already has local write access to the app's data directory.
+  # Remove this entry when upstream zcash_client_sqlite allows rusqlite >= 0.41 /
+  # libsqlite3-sys >= 0.39.
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.35.0 bundles SQLite < 3.54.0 via rusqlite 0.37.0 in wallet/e2e2z/src-tauri, wallet/plugins/tauri-plugin-f2zmsg, wallet/plugins/tauri-plugin-zcash, wallet/zuuallet/src-tauri and wallet/zuuli/src-tauri; needs an intermediate crate to move first: upstream zcash_client_sqlite pins rusqlite 0.37 and libsqlite3-sys links = sqlite3 allows one copy. Exploit needs the app to open its DB beside an attacker-crafted WAL with a mismatched page size, i.e. local write access to the app's data directory. Remove when upstream zcash_client_sqlite allows rusqlite >=0.41 / libsqlite3-sys >=0.39. free2z/zuu#1531" },
 
   # ---------------------------------------------------------------------------
   # Unmaintained. None of these has a fixed version to move to — the advisory is
@@ -59,19 +68,6 @@ ignore = [
   # They are listed one by one anyway: `unmaintained = "warn"` would also hide
   # the next unmaintained crate to appear, and that is the signal worth keeping.
   # ---------------------------------------------------------------------------
-
-  # gtk-rs GTK3 bindings, all reached through tauri -> gtk 0.18. Tauri v2 still
-  # targets GTK3 on Linux; the migration is upstream's.
-  { id = "RUSTSEC-2024-0411", reason = "gdkwayland-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux, no successor to move to" },
-  { id = "RUSTSEC-2024-0412", reason = "gdk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0413", reason = "atk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0414", reason = "gdkx11-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0415", reason = "gtk 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0416", reason = "atk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0417", reason = "gdkx11 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0418", reason = "gdk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0419", reason = "gtk3-macros 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
-  { id = "RUSTSEC-2024-0420", reason = "gtk-sys 0.18.2: GTK3 bindings unmaintained; required by tauri v2 on Linux" },
 
   # Standalone D-Bus crates merged into zbus 6; informational maintenance notices.
   # Tauri currently resolves zbus 5. Follow-up #1237; recheck by 2026-11-20.
@@ -83,7 +79,6 @@ ignore = [
   # None of this ships in a release binary.
   { id = "RUSTSEC-2024-0370", reason = "proc-macro-error 1.0.4: unmaintained; build-time proc-macro dependency, no code in the shipped binary" },
   { id = "RUSTSEC-2026-0173", reason = "proc-macro-error2 2.0.1: unmaintained; build-time proc-macro dependency, no code in the shipped binary" },
-  { id = "RUSTSEC-2025-0057", reason = "fxhash 0.2.1: unmaintained; transitive through the Tauri/servo CSS stack" },
   { id = "RUSTSEC-2025-0075", reason = "unic-char-range 0.9.0: unmaintained; build-time Unicode tables" },
   { id = "RUSTSEC-2025-0080", reason = "unic-common 0.9.0: unmaintained; build-time Unicode tables" },
   { id = "RUSTSEC-2025-0081", reason = "unic-char-property 0.9.0: unmaintained; build-time Unicode tables" },
@@ -168,7 +163,7 @@ name = "openmls_rust_crypto"
 name = "openmls_basic_credential"
 
 # =============================================================================
-# Sources. Registry packages plus the two registered source bridges; the
+# Sources. Registry packages plus the registered OpenMLS source bridge; the
 # in-source Zcash dependencies are path dependencies into z/, not git ones. This
 # makes that a rule instead of a coincidence, so a `git = "..."` dependency on a
 # personal fork cannot be introduced without amending this file.
@@ -177,22 +172,6 @@ name = "openmls_basic_credential"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# TRANSIENT bip32 bridge (alongside the registered OpenMLS bridge below).
-#
-# `wallet/zuuli/src-tauri` carries a rev-pinned `[patch.crates-io]` for `bip32`,
-# because the only published 0.6 release exact-pins three 2024-era RustCrypto
-# pre-releases (`sha2 =0.11.0-pre.4`, `hmac =0.13.0-pre.4`,
-# `ripemd =0.2.0-pre.4`) and librustzcash pins that release with `=`, which
-# makes the wallet unlinkable with anything on the released RustCrypto lines —
-# `tauri-plugin-f2zmsg` included. free2z/crates `f2z/bip32-secp256k1-0.29` is
-# iqlusioninc/crates `main` (which already moved bip32 to the released lines)
-# with `secp256k1-ffi` held at 0.29, because the same upstream branch bumped it
-# to 0.31 and `zcash_script 0.4.5` cannot take that.
-#
-# The allowance is the *repository*, and the lock pins an exact `rev`, so this
-# does not admit an arbitrary git dependency — it admits one reviewed commit of
-# one fork we control. Remove the entry with the patch, when `bip32 0.6.0` is
-# published and the Zcash stack moves to secp256k1 0.31.
 # Fixed unreleased OpenMLS provider / PR2265 compatibility and PR2266 strictness bridge; exact packages/revision are
 # enforced by the dependency register and four-lock crypto identity check.
-allow-git = ["https://github.com/free2z/crates", "https://github.com/0bkevin/openmls"]
+allow-git = ["https://github.com/0bkevin/openmls"]

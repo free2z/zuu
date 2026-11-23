@@ -147,9 +147,26 @@ RESTART_WINDOW_SECONDS = int(
     os.environ.get('NODE_HEALTH_RESTART_WINDOW_SECONDS', '900'))
 RESTART_THRESHOLD = int(os.environ.get('NODE_HEALTH_RESTART_THRESHOLD', '3'))
 
-#Seconds per block, for turning a block distance into a human deadline.
-#Zcash's post-Blossom target spacing.
-BLOCK_SECONDS = 75
+# Mainnet NU7 activation is included at this height. Target spacing is 75s
+# before it and 25s from this height onward.
+MAINNET_NU7_ACTIVATION_HEIGHT = 3_543_405
+PRE_NU7_BLOCK_SECONDS = 75
+POST_NU7_BLOCK_SECONDS = 25
+
+
+def _support_seconds_remaining(tip_height, halt_height):
+    """Estimate elapsed time through the authoritative halt block."""
+    first_remaining_height = tip_height + 1
+    if first_remaining_height > halt_height:
+        return 0
+    pre_activation_blocks = max(
+        0, min(halt_height, MAINNET_NU7_ACTIVATION_HEIGHT - 1)
+        - first_remaining_height + 1)
+    post_activation_blocks = max(
+        0, halt_height - max(first_remaining_height,
+                             MAINNET_NU7_ACTIVATION_HEIGHT) + 1)
+    return (pre_activation_blocks * PRE_NU7_BLOCK_SECONDS
+            + post_activation_blocks * POST_NU7_BLOCK_SECONDS)
 
 #Days of notice on the authoritative `getdeprecationinfo` path.
 #
@@ -1049,7 +1066,9 @@ def evaluate(sample, previous_state, table, floor_policy=None):
     # halts at its height with the pre-warning still quiet.
     if sample.deprecation_height is not None and sample.tip_height is not None:
         blocks_left = sample.deprecation_height - sample.tip_height
-        days_left = int(blocks_left * BLOCK_SECONDS // 86400)
+        seconds_left = _support_seconds_remaining(
+            sample.tip_height, sample.deprecation_height)
+        days_left = seconds_left // 86400
         if days_left <= DEPRECATION_WARN_DAYS:
             if blocks_left < 0:
                 head = f'halt height passed {abs(blocks_left)} blocks ago'
@@ -1059,7 +1078,8 @@ def evaluate(sample, previous_state, table, floor_policy=None):
                 f'{SUPPORT_EXPIRING_SIGNAL} - {head}: the node reports it '
                 f'halts at height {sample.deprecation_height}, '
                 f'{blocks_left} blocks from the current tip '
-                f'{sample.tip_height} (~{BLOCK_SECONDS}s/block), warn at '
+                f'{sample.tip_height} (~{seconds_left}s remaining at target '
+                f'spacing), warn at '
                 f'{DEPRECATION_WARN_DAYS} days')
     elif sample.deprecation_unreadable:
         # The node HAS a halt height and we cannot read it. Falling through to
