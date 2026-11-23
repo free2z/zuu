@@ -166,7 +166,7 @@ viewer counts](https://developers.cloudflare.com/stream/getting-analytics/live-v
   support do our current player matrix achieve? The docs do not provide a
   universal HLS glass-to-glass figure.
 - Which RealtimeKit LIVESTREAM SDK/browser APIs are stable in our locked
-  `@cloudflare/realtimekit@2.0.3` version, how does it change meeting modes, and
+  `@cloudflare/realtimekit@2.0.4` version, how does it change meeting modes, and
   can the current app keep host controls/recording without admitting viewers
   as participants?
 - How should PPV charge for seconds when HLS prefetches/buffers segments, when

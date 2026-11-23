@@ -13,8 +13,8 @@ Teach a workshop, perform, talk through an idea, or spend time with your communi
 
 Hosting requires a balance of at least **150 2Zs**. Test your camera and microphone, choose the room type, review its price and access settings, and share the right link. Public broadcasts have platform usage costs for the host; pay-per-view shows viewers your per-minute credit price.
 
-## Earn for what you deliver
+## Receive credits for pay-per-view
 
-Qualifying delivered pay-per-view access earns USD owed by 2Z Inc. Complete payee verification, accept the creator agreement and service terms, and confirm Credits & Earnings shows you are ready for creator compensation before offering compensated rooms. Your earnings and payment requests appear separately from usage credits in Credits & Earnings.
+Pay-per-view adds the collected creator portion to your 2Z platform credit balance. The platform fee is separate. Receiving these credits does not require payout verification or a creator compensation agreement. Review the credit price per minute and the viewer balance requirement before starting.
 
-[Go live](/guides/live/go-live) · [Watch a livestream](/guides/live/watch-live) · [Get ready to earn](/revenue-sharing/)
+[Go live](/guides/live/go-live) · [Watch a livestream](/guides/live/watch-live) · [Understand credits and earnings](/revenue-sharing/)

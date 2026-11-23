@@ -12481,6 +12481,7 @@ components:
           readOnly: true
         meeting_id:
           type: string
+          nullable: true
           maxLength: 64
         meeting_type:
           allOf:
@@ -12513,7 +12514,6 @@ components:
       required:
       - creator
       - id
-      - meeting_id
     CreatorPasswordChange:
       type: object
       properties:

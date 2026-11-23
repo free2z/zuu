@@ -20,7 +20,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / "scripts/free2z/install-ubuntu-ci-packages.sh"
 workflow = (ROOT / ".github/workflows/free2z-web-ci.yml").read_text()
-for job, package in (("backend", "libpq-dev"), ("ui-tests", "libxml2-utils")):
+for job, package in (("backend", "libpq-dev"), ("translation-oracle", "libpq-dev"), ("ui-tests", "libxml2-utils")):
     block = re.search(rf"^  {job}:\n(.*?)(?=^  [a-z][a-z-]*:|\Z)", workflow, re.M | re.S)
     assert block and f'run: sudo "$GITHUB_WORKSPACE/scripts/free2z/install-ubuntu-ci-packages.sh" {package}' in block[1]
     assert "sudo apt-get" not in block[1]
