@@ -1,3 +1,4 @@
+from .historical_ppv import prepare_historical_ppv_admission
 import uuid
 from datetime import timedelta
 from decimal import Decimal
@@ -51,13 +52,17 @@ def make_contract(creator):
     """Use the installed real PPV source/contract boundary, not nominal stubs."""
     from .test_integration import service_terms
     from dj.apps.dyte.models import CreatorMeeting,WebhookDelivery
-    from dj.apps.economy import products
     payee,agreement,schedule=service_terms(creator,'livestream_ppv')
     viewer=Creator.objects.create(username='delivery_'+uuid.uuid4().hex,tuzis=0)
+    provider_session = uuid.uuid4()
+    provider_started_at = timezone.now()
     meeting=CreatorMeeting.objects.create(creator=creator,meeting_id=str(uuid.uuid4()),meeting_type='ppv',
-        is_public=True,live_now=True,lifecycle_state='live',provider_session_id=uuid.uuid4(),
-        host_session_id=uuid.uuid4(),price_per_minute='100.00')
-    admission=products.prepare_livestream_admission(host_id=creator.pk,viewer_id=viewer.pk,
+        is_public=True,live_now=True,lifecycle_state='live',provider_session_id=provider_session, provider_session_started_at=provider_started_at,
+        host_session_id=uuid.uuid4(), host_session_seen_at=timezone.now(),
+        host_peer_id=uuid.uuid4(), host_joined_at=timezone.now(),
+        host_participant_id='synthetic-current-host', host_presence_participant_id='synthetic-current-host',
+        host_presence_session_id=provider_session, host_presence_session_started_at=provider_started_at,price_per_minute='100.00')
+    admission=prepare_historical_ppv_admission(host_id=creator.pk,viewer_id=viewer.pk,
         meeting_id=meeting.meeting_id,price_per_minute='100.00',
         idempotency_key=str(uuid.uuid4()),viewer_account_epoch=viewer.kt_account_epoch)
     key=uuid.uuid4().hex*2

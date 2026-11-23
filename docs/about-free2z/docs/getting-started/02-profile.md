@@ -10,4 +10,4 @@ Your profile brings your published pages, biography, and membership offer togeth
 
 You can add your own Zcash address for [direct wallet support](../for-supporters/donating-with-zcash.md). Check that the address belongs to a wallet you control. It serves a different purpose from the shielded address you submit for company earnings payments.
 
-Memberships use and share credits for access benefits. [Creator USD earnings](../revenue-sharing/index.md) come from qualifying PPV and SDK services.
+Memberships and pay-per-view use and share 2Z platform credits for access. Receiving credits does not require payout verification or a compensation agreement. Qualifying SDK services can provide separate [creator USD earnings](../revenue-sharing/index.md).
