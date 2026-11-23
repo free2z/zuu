@@ -1,6 +1,6 @@
 export type StreamVideoQuality = "1080p" | "720p" | "480p" | "360p";
 
-/** Media constraints supported by @cloudflare/realtimekit 2.0.3. */
+/** Media constraints supported by @cloudflare/realtimekit 2.x (pinned in package.json). */
 export function getStreamVideoConstraints(quality: string) {
   const resolution = (() => {
     switch (quality as StreamVideoQuality) {
@@ -24,7 +24,7 @@ export function getStreamVideoConstraints(quality: string) {
   };
 }
 
-/** Camera and screen-share caps understood by the pinned Web SDK (2.0.3). */
+/** Camera and screen-share caps understood by the pinned Web SDK (2.x). */
 export function getHostStreamMediaOptions(quality: string) {
   return {
     defaults: {
