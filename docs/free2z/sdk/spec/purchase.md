@@ -21,10 +21,20 @@
 > something an app can open. Read the rest of this page as the contract
 > those existing clients rely on.
 
-Free2Z's own purchase surfaces create an intent, open the rail's checkout or
-payment UI and poll until crediting. Existing SDK clients may still use the
-card API below. New third-party apps open the account billing page instead;
-they present no purchase UI. See the [legacy SDK migration/removal plan](../REFERENCE.md#legacy-purchase-compatibility-and-removal).
+The legacy purchase contract describes how a purchase intent and payment
+surface work for Free2Z's own clients and existing third-party SDK 0.x clients.
+It is not guidance for a new app-facing purchase flow: new integrations send
+users to their Free2Z billing page and present no purchase UI. Free2Z's own
+purchase surfaces create an intent, open the rail's checkout or payment UI and
+poll until crediting. Existing SDK clients may still use the card API below.
+An existing client may open the surface returned for its supported rail (the
+legacy third-party contract documents hosted card checkout). This specification
+describes store-sheet and Zcash URI rails as first-party eligibility; it does
+not assert that those rails are currently available at runtime.
+The platform does the verifying and crediting; an app never sees a card number,
+a store account or a Zcash key. See the deprecation and removal plan in
+[INTEGRATION.md](../INTEGRATION.md) and the
+[legacy SDK migration/removal plan](../REFERENCE.md#legacy-purchase-compatibility-and-removal).
 
 **Third-party apps don't sell 2Z** (see the notice above). An SDK 0.3.0
 client may still create a **card** intent; Zcash is paid on Free2Z's
