@@ -25,7 +25,7 @@ after(async () => {
   await vite?.close();
 });
 
-test("host capture uses the RealtimeKit 2.0.3 camera and screenshare caps", () => {
+test("host capture uses the RealtimeKit 2.x camera and screenshare caps", () => {
   const options = getHostStreamMediaOptions("480p");
   assert.deepEqual(options.defaults.mediaConfiguration, {
     video: {
