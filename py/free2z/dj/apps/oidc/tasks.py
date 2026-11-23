@@ -27,7 +27,9 @@ from __future__ import annotations
 import logging
 
 from django.conf import settings
+from django.db import DatabaseError
 from procrastinate.contrib.django import app
+from procrastinate import RetryStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,8 @@ def sweep_tokens(timestamp: int = 0):
     from dj.apps.identity.models import AuthContext
 
     clear_expired()
+    from dj.apps.mcpserver.ai import purge_content
+    purge_content()
     # Login now produces AuthContexts. Reuse this existing hourly
     # task: bounded batches keep naturally expired credentials from leaving
     # rows forever, without monopolizing a worker during a large backlog.
@@ -73,3 +77,28 @@ def reevaluate_ai_report_surges(timestamp: int = 0):
 
     evaluated = reevaluate_surges()
     logger.info("oidc: AI output report surge re-evaluated for %s app(s)", evaluated)
+
+
+class MCPSettlementPending(RuntimeError):
+    """Retry the saved settlement intent, never provider generation."""
+
+
+class MCPSettlementRetry(RetryStrategy):
+    def get_retry_decision(self, *, exception, job):
+        decision = super().get_retry_decision(exception=exception, job=job)
+        if decision is not None:
+            decision.priority = 100  # Settle held usage before starting fresh generations.
+        return decision
+
+
+@app.task(name="oidc.invoke_mcp_ai", queue="mcp-ai", retry=MCPSettlementRetry(
+    max_attempts=10, wait=30, retry_exceptions=(MCPSettlementPending, DatabaseError),
+))
+def invoke_mcp_ai(request_id: str):
+    """Queue arguments contain only an opaque invocation ID, never a prompt."""
+    from dj.apps.mcpserver.ai import invoke
+    state = invoke(request_id)
+    if state == "settle_pending":
+        raise MCPSettlementPending("The authorized AI settlement will be retried without another provider call.")
+    if state in {"unknown", "running"}:
+        raise RuntimeError("MCP AI outcome requires reconciliation; inspect its retained receipt.")

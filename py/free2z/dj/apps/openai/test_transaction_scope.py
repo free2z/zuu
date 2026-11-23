@@ -590,12 +590,28 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
 
     identities = {identity for identity, _ in opted_out}
     assert identities == {
+        # Prepared MCP uploads validate admission before transfer, spool outside
+        # a transaction, then recheck authorization and save the file/receipt
+        # together. The admission endpoint only reads inside a short lock.
+        "dj.apps.mcpserver.uploads.authorize_upload",
+        "dj.apps.mcpserver.uploads.upload_binary",
+        # Capability downloads commit live authority checks and their audit in
+        # authorized_actor's short transaction. Cloud metadata lookup and
+        # X-Accel offload response construction happen only after that commit.
+        "dj.apps.mcpserver.downloads.download_binary",
+        "dj.apps.mcpserver.downloads.download_export",
         # Paid comment routes claim their retry receipt before their
         # debit/create transaction, so duplicates can return promptly.
         "dj.apps.comments.views.CommentListCreateAPIView",
         "dj.apps.comments.views.CommentViewSet",
         "dj.apps.comments.views.ParentCommentListCreateAPIView",
         "dj.apps.comments.views.WrappedAPIView",
+        # Signed room observations commit and release the meeting lock before
+        # viewer settlement acquires actor locks. A failed settlement cannot
+        # roll back the observed session and reopen stale paid admission.
+        # Delivery receipts and settlement retain their own atomic blocks;
+        # dyte/test_webhook_session_observation.py proves commit and rollback.
+        "dj.apps.dyte.views.WrappedAPIView",
         # The page vote function opts out while it claims the idempotency key
         # before entering its own score/debit transaction.
         "dj.apps.g12f.views.zpage.WrappedAPIView",
@@ -705,7 +721,7 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
     assert ("dj.apps.ztripe.views.stripe_webhook",
             "api/stripe/webhook/") in opted_out
 
-    # These are the two route-level function opt-outs. Both must remain
+    # These are the route-level function opt-outs. Each must remain
     # visible even though their callbacks expose the same generic wrapper
     # class name within their respective modules.
     assert {
@@ -719,6 +735,17 @@ def test_every_view_opted_out_of_request_atomicity_is_inventoried():
         (
             "dj.apps.g12f.views.zpage.WrappedAPIView",
             "api/zpage/<str:free2zaddr>/vote/",
+        ),
+        (
+            "dj.apps.dyte.views.WrappedAPIView",
+            "api/dyte/webhook",
+        ),
+        # The legacy callback's identity probe must avoid opening a DB
+        # transaction. Its POST owns claim + recording outbox atomically in
+        # _process_legacy_recording_event; signature reads occur outside it.
+        (
+            "dj.apps.dyte.views.WrappedAPIView",
+            "api/dyte/webhook-recording-status-update/",
         ),
     }
 

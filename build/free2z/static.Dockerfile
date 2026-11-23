@@ -43,12 +43,14 @@ RUN apt-get update \
     && apt-get install -y build-essential libpcre2-dev zlib1g-dev libssl-dev wget git libpcre2-8-0 ca-certificates \
     && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20250419+deb13u1
 
-# Fetch nginx-vod-module by immutable commit and download the official upstream
-# NGINX source tarball. Verify the tarball before extracting it; its detached
-# signature was checked against the official nginx.org PGP key before pinning
-# this SHA-256.
+# kaltura/nginx-vod-module no longer answers on GitHub as of 2026-11-08.
+# https://github.com/dio-az/nginx-vod-module.git only carries the already-pinned
+# commit object; any other SHA must still fail the rev-parse equality test.
+# Also download the official upstream NGINX source tarball. Verify the tarball
+# before extracting it; its detached signature was checked against the official
+# nginx.org PGP key before pinning this SHA-256.
 RUN git init /nginx-vod-module \
-    && git -C /nginx-vod-module fetch --depth 1 https://github.com/kaltura/nginx-vod-module.git ${NGINX_VOD_MODULE_COMMIT} \
+    && git -C /nginx-vod-module fetch --depth 1 https://github.com/dio-az/nginx-vod-module.git ${NGINX_VOD_MODULE_COMMIT} \
     && git -C /nginx-vod-module checkout --detach ${NGINX_VOD_MODULE_COMMIT} \
     && test "$(git -C /nginx-vod-module rev-parse HEAD)" = "${NGINX_VOD_MODULE_COMMIT}" \
     && wget https://nginx.org/download/nginx-${NGINX_SOURCE_VERSION}.tar.gz \

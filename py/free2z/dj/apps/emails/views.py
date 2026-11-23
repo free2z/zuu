@@ -1580,7 +1580,7 @@ class EmailStatusView(APIView):
 
         with transaction.atomic():
             try:
-                locked_user = Creator.objects.select_for_update().only('pk').get(
+                locked_user = Creator.objects.select_for_update(no_key=True).only('pk').get(
                     pk=user.pk
                 )
                 email_instance = Email.objects.select_for_update().get(
@@ -1621,7 +1621,7 @@ class ToggleEmailPublicView(APIView):
 
         with transaction.atomic():
             try:
-                locked_user = Creator.objects.select_for_update().only('pk').get(
+                locked_user = Creator.objects.select_for_update(no_key=True).only('pk').get(
                     pk=user.pk
                 )
                 email_instance = Email.objects.select_for_update().get(
@@ -1653,7 +1653,7 @@ class ToggleEmailNotificationsView(APIView):
 
         with transaction.atomic():
             try:
-                locked_user = Creator.objects.select_for_update().only('pk').get(
+                locked_user = Creator.objects.select_for_update(no_key=True).only('pk').get(
                     pk=user.pk
                 )
                 email_instance = Email.objects.select_for_update().get(
