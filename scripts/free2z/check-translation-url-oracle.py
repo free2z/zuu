@@ -6,6 +6,7 @@ import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 from html import unescape
 from html.parser import HTMLParser
 
@@ -41,32 +42,38 @@ KNOWN_RENDERED = {
 
 RENDER_JS = r"""
 const { createServer } = await import(process.cwd() + "/node_modules/vite/dist/node/index.js");
+const { createInterface } = await import("node:readline");
 const server = await createServer({
   root: process.cwd(), appType: "custom", logLevel: "silent",
   server: { middlewareMode: true },
 });
 try {
   const md = await server.ssrLoadModule("/src/lib/utils/markdown.ts");
-  let input = "";
-  process.stdin.setEncoding("utf8");
-  for await (const chunk of process.stdin) input += chunk;
-  const out = JSON.parse(input).map((text) => {
-    const html = md.processMarkdown(text);
-    const urls = [
-      ...[...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map((m) => m[1]),
-      ...[...html.matchAll(/<(?:img|iframe|video|audio|source)\b[^>]*\bsrc="([^"]*)"/g)].map((m) => m[1]),
-    ];
-    const hosts = [];
-    for (const raw of urls) {
-      const href = raw.replaceAll("&amp;", "&");
-      try {
-        const u = new URL(href, "https://free2z.invalid/");
-        hosts.push(u.protocol === "mailto:" ? "mailto:" + u.pathname : u.host);
-      } catch { hosts.push("<unparseable:" + href + ">"); }
-    }
-    return { html, urls, hosts };
-  });
-  console.log("__ORACLE__" + JSON.stringify(out));
+  // One request per stdin line (a JSON array of Markdown sources), one
+  // __ORACLE__ response line per request. Starting Vite and loading the
+  // renderer costs seconds; rendering costs milliseconds, so the module is
+  // loaded once and reused for every batch the checker sends.
+  const lines = createInterface({ input: process.stdin, crlfDelay: Infinity });
+  for await (const line of lines) {
+    if (!line.trim()) continue;
+    const out = JSON.parse(line).map((text) => {
+      const html = md.processMarkdown(text);
+      const urls = [
+        ...[...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map((m) => m[1]),
+        ...[...html.matchAll(/<(?:img|iframe|video|audio|source)\b[^>]*\bsrc="([^"]*)"/g)].map((m) => m[1]),
+      ];
+      const hosts = [];
+      for (const raw of urls) {
+        const href = raw.replaceAll("&amp;", "&");
+        try {
+          const u = new URL(href, "https://free2z.invalid/");
+          hosts.push(u.protocol === "mailto:" ? "mailto:" + u.pathname : u.host);
+        } catch { hosts.push("<unparseable:" + href + ">"); }
+      }
+      return { html, urls, hosts };
+    });
+    console.log("__ORACLE__" + JSON.stringify(out));
+  }
 } finally {
   await server.close();
 }
@@ -81,20 +88,67 @@ def load_safety():
     return module
 
 
-def render(texts):
-    proc = subprocess.run(
-        ["node", "--input-type=module", "-e", RENDER_JS],
-        input=json.dumps(texts), capture_output=True, text=True, cwd=UI,
+_renderer = None
+
+
+def _render_failed(proc, stderr):
+    global _renderer
+    _renderer = None
+    try:
+        proc.kill()
+    except OSError:
+        pass
+    proc.wait()
+    stderr.seek(0)
+    sys.stderr.write(stderr.read()[-4000:])
+    sys.stderr.write(
+        "\ncould not render: needs node >= 24 and `npm ci` in "
+        f"{UI.relative_to(ROOT)}\n"
     )
-    lines = [l for l in proc.stdout.split("\n") if l.startswith("__ORACLE__")]
-    if proc.returncode != 0 or not lines:
-        sys.stderr.write(proc.stderr[-4000:])
-        sys.stderr.write(
-            "\ncould not render: needs node >= 24 and `npm ci` in "
-            f"{UI.relative_to(ROOT)}\n"
+    sys.exit(2)
+
+
+def close_renderer():
+    """End the renderer; a non-zero exit fails the check as it always has."""
+    global _renderer
+    if _renderer is None:
+        return
+    proc, stderr = _renderer
+    _renderer = None
+    proc.stdin.close()
+    try:
+        returncode = proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        returncode = None
+    if returncode != 0:
+        _render_failed(proc, stderr)
+    stderr.close()
+
+
+def render(texts):
+    """Render through one long-lived Vite SSR process (startup dominates)."""
+    global _renderer
+    if _renderer is None:
+        stderr = tempfile.TemporaryFile(mode="w+", encoding="utf-8")
+        proc = subprocess.Popen(
+            ["node", "--input-type=module", "-e", RENDER_JS],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr,
+            text=True, encoding="utf-8", cwd=UI,
         )
-        sys.exit(2)
-    return json.loads(lines[-1][len("__ORACLE__"):])
+        _renderer = (proc, stderr)
+    proc, stderr = _renderer
+    try:
+        proc.stdin.write(json.dumps(texts) + "\n")
+        proc.stdin.flush()
+    except (BrokenPipeError, OSError):
+        _render_failed(proc, stderr)
+    for line in proc.stdout:
+        if line.startswith("__ORACLE__"):
+            out = json.loads(line[len("__ORACLE__"):])
+            if len(out) != len(texts):
+                _render_failed(proc, stderr)
+            return out
+    _render_failed(proc, stderr)
 
 
 class VisiblePaymentText(HTMLParser):
@@ -1604,4 +1658,8 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        status = main()
+    finally:
+        close_renderer()
+    sys.exit(status)

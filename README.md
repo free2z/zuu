@@ -26,7 +26,7 @@ workflow.
 | Reusable Tauri plugins | [`wallet/plugins/`](wallet/plugins/): named packages with independent consumers and lockfiles |
 | Zcash Payment Hooks | [`rs/zcash-payment-hooks/`](rs/zcash-payment-hooks/README.md): receive-only daemon, private journal, durable executable hooks |
 | Rust libraries and services | [`rs/`](rs/README.md): named `f2z-*` crates and their own workspace |
-| Zcash retrieval experiment | [`py/experiments/zcash-rag/`](py/experiments/zcash-rag/): experimental Python code, independent of the shipping apps |
+| Zcash retrieval experiment | [`py/experiments/zcash-rag/`](py/experiments/zcash-rag/): preserved legacy source and notebook; no supported installable environment or shipping consumer |
 | Upstream projects | [`z/`](z/); [`.gitmodules`](.gitmodules) records repository ownership and tracking branches |
 
 The app-suite architecture applies to those named applications. It does not
