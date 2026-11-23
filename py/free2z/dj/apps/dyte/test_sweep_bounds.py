@@ -138,8 +138,6 @@ def _call_with_watchdog(fn, watchdog_seconds):
 @override_settings(
     DYTE_CONNECT_TIMEOUT_SECONDS=2.0,
     DYTE_READ_TIMEOUT_SECONDS=1.0,
-    DYTE_ORG="test-org",
-    DYTE_KEY="test-key",
 )
 def test_get_participants_count_gives_up_on_a_socket_that_never_answers(
     blackhole,
@@ -150,12 +148,15 @@ def test_get_participants_count_gives_up_on_a_socket_that_never_answers(
     as a CONFIRMED empty room and clears live_now on it, so a timeout must
     never be able to masquerade as "nobody is here".
     """
-    client = DyteClient("test-org")
-    with override_settings(RTK_API_BASE_URL=blackhole):
-        returned, box = _call_with_watchdog(
-            lambda: client.get_participants_count("some-meeting-id"),
-            watchdog_seconds=15,
-        )
+    class LoopbackTransport:
+        def request(self, method, url, **kwargs):
+            return requests.request(method, blackhole, **kwargs)
+
+    client = DyteClient(transport=LoopbackTransport())
+    returned, box = _call_with_watchdog(
+        lambda: client.get_participants_count("some-meeting-id"),
+        watchdog_seconds=15,
+    )
 
     assert returned, (
         "get_participants_count never returned: the outbound requests.get "

@@ -24,4 +24,4 @@ A subscription uses usage credits for access to the creator's services under its
 
 The **Zcash** tab sends direct support from your own wallet to the displayed profile or page address. This is distinct from a company payment of recorded USD earnings. Check the destination and wallet fees before sending.
 
-[Learn about creator earnings](/revenue-sharing/) for qualifying paid livestream and SDK services.
+[Learn about creator earnings](/revenue-sharing/) for qualifying SDK services. Pay-per-view shares the collected creator portion as platform credits.

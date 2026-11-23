@@ -15,3 +15,23 @@ Uploads use the same authorized connection. A client with file and HTTP tools ca
 Draft creation leaves the page unpublished. Publishing is a separate action, and editing public content requires publication permission. Review your client's tool approvals and check [Connected apps](https://free2z.cash/account/apps) to see delegated accounts, recent activity or remove access.
 
 Free2Z's normal balance requirements and upload limits apply to the selected account. The hosted tools focus on pages, public profiles and media. They do not hold wallet keys, transfer money or change account credentials. Browse the [source](https://github.com/free2z/zuu/tree/main/py/free2z) and [connection guide](https://github.com/free2z/zuu/blob/main/docs/free2z/mcp/README.md), or try it with an unpublished draft.
+
+## Event-kind controls
+
+The existing `zpage_first_published` and `comment_created` producers each have
+an independent enable switch and hourly, daily, and per-creator hourly limits.
+The worker checks the switch again immediately before moving a row to `posting`;
+turning a kind off suppresses queued work of that kind. The existing global
+hourly, daily, and per-creator caps remain an additional ceiling. Per-kind cap
+environment variables default to the corresponding resolved global cap, so
+existing deployments retain their configured capacity unless they set a
+per-kind override. A zero cap disables posting for that kind at that limit.
+
+| Kind | Enable | Hourly | Daily | Per-creator hourly |
+|---|---|---|---|---|
+| First zPage publication | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_ENABLED` | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_HOURLY_CAP` | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_DAILY_CAP` | `F2ZP2P_ZPAGE_FIRST_PUBLISHED_AUTHOR_HOURLY_CAP` |
+| New comment | `F2ZP2P_COMMENT_CREATED_ENABLED` | `F2ZP2P_COMMENT_CREATED_HOURLY_CAP` | `F2ZP2P_COMMENT_CREATED_DAILY_CAP` | `F2ZP2P_COMMENT_CREATED_AUTHOR_HOURLY_CAP` |
+
+The owner diagnostic canary (`force_live`) intentionally bypasses both kind
+switches and rate caps; it remains an explicitly privileged operator path.
+No account-welcome or generated-art producer is included in this controls change.

@@ -119,8 +119,8 @@
   // is mounted `afterNavigate` lets every body on it request.
   onNavigate(({ from, to }) => {
     if (
-      from?.url.pathname !== to?.url.pathname ||
-      from?.url.search !== to?.url.search
+      from?.url?.pathname !== to?.url?.pathname ||
+      from?.url?.search !== to?.url?.search
     ) {
       firstPartyCards.suspend();
     }
