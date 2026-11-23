@@ -52,4 +52,4 @@ Explore the publishing, memberships, livestreams, and application tools you can 
 
 [Buy 2Zs with Zcash](../getting-started/03-tuzis.md) for platform tools and experiences. You can share credits, comment, vote, boost pages, and unlock larger uploads by holding credits.
 
-Apply and get approved to [earn as a creator](../revenue-sharing/index.md) from qualifying delivered PPV or SDK services under accepted terms. Those earnings are recorded in USD and paid in shielded Zcash, separately from credits.
+Pay-per-view shares the collected creator portion as 2Z platform credits. Apply and get approved to [earn as a creator](../revenue-sharing/index.md) from qualifying SDK services under accepted terms. Those earnings are recorded in USD and paid in shielded Zcash, separately from credits.

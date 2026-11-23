@@ -298,6 +298,8 @@ export function Room() {
             {ticket ? (
               <Stage
                 ticket={ticket}
+                actorId={user?.id}
+                ownerUsername={username}
                 {...(ticket.as === "participant"
                   ? {
                       refreshTicket: (previous: DyteJoinTicket) =>

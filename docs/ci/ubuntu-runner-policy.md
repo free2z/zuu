@@ -107,7 +107,7 @@ it must never be replaced with an x64 label as a label cleanup.
 | `f2z-images.yml` | `f2z_image_policy`, `f2z_image_pull_request`, `f2z_image_publish` |
 | `free2z-host-release.yml` | `policy`, `build`, `publish` |
 | `free2z-release.yml` | `prepare`, `android-build`, `android-sign-upload`, `android-finalize` |
-| `free2z-web-ci.yml` | `ui`, `ui-tests`, `docs`, `ui-browser`, `api-client`, `dependency-security`, `dependency-security-static`, `react`, `lint-python`, `backend`, `native-payment-bridge`, `gate`, `images`, `changes` |
+| `free2z-web-ci.yml` | `ui`, `ui-tests`, `docs`, `ui-browser`, `api-client`, `dependency-security`, `dependency-security-static`, `react`, `lint-python`, `backend`, `translation-oracle`, `native-payment-bridge`, `gate`, `images`, `changes` |
 | `free2z-web-host-dispatch.yml` | `dispatch` |
 | `free2z-web-release.yml` | `publish`, `release` |
 | `zuuli-linux-image.yml` | `validate`, `pull-request-build`, `publish` |
