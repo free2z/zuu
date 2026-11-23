@@ -30,7 +30,7 @@ from django.conf import settings
 from django.urls import reverse
 from django.utils import timezone
 
-from dj.apps.dyte.client import DyteClient
+from dj.apps.dyte.client import DyteClient, ProviderError, ProviderInvalidResponse
 from dj.apps.dyte.models import CreatorMeeting
 from dj.apps.dyte.tasks import sweep_live_meetings
 
@@ -335,13 +335,14 @@ def test_client_treats_404_as_zero_participants(mocker):
     """
     mocker.patch(
         "dj.apps.dyte.client._SESSION.get",
-        return_value=_FakeResponse(404, {
-            "success": False,
-            "error": {"code": 404, "message": "No active session found"},
-        }),
+        side_effect=lambda url, **kwargs: (
+            _FakeResponse(404, {"success": False}) if url.endswith('/active-session')
+            else _FakeResponse(200, {"success": True, "data": {
+                "id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e"}})
+        ),
     )
 
-    assert DyteClient("org").get_participants_count("m-404") == 0
+    assert DyteClient().get_participants_count("m-404") == 0
 
 
 def test_client_returns_live_participants_on_200(mocker):
@@ -352,7 +353,7 @@ def test_client_returns_live_participants_on_200(mocker):
         }),
     )
 
-    assert DyteClient("org").get_participants_count("m-200") == 4
+    assert DyteClient().get_participants_count("m-200") == 4
 
 
 def test_client_preserves_confirmed_zero_on_200(mocker):
@@ -363,7 +364,7 @@ def test_client_preserves_confirmed_zero_on_200(mocker):
         }),
     )
 
-    assert DyteClient("org").get_participants_count("m-zero") == 0
+    assert DyteClient().get_participants_count("m-zero") == 0
 
 
 @pytest.mark.parametrize("payload", [{}, {"data": {}}, {"data": {"live_participants": None}}])
@@ -373,8 +374,8 @@ def test_client_does_not_treat_malformed_count_as_confirmed_zero(mocker, payload
         return_value=_FakeResponse(200, payload),
     )
 
-    with pytest.raises(ValueError):
-        DyteClient("org").get_participants_count("m-malformed")
+    with pytest.raises(ProviderInvalidResponse):
+        DyteClient().get_participants_count("m-malformed")
 
 
 @pytest.mark.parametrize("status_code", [401, 403, 500, 502])
@@ -385,8 +386,8 @@ def test_client_raises_on_real_failures(mocker, status_code):
         return_value=_FakeResponse(status_code, {"success": False}),
     )
 
-    with pytest.raises(requests.HTTPError):
-        DyteClient("org").get_participants_count("m-boom")
+    with pytest.raises(ProviderError):
+        DyteClient().get_participants_count("m-boom")
 
 
 @pytest.mark.django_db
@@ -400,10 +401,11 @@ def test_sweep_clears_live_now_on_provider_404(mocker, creator_factory):
     )
     mocker.patch(
         "dj.apps.dyte.client._SESSION.get",
-        return_value=_FakeResponse(404, {
-            "success": False,
-            "error": {"code": 404, "message": "No active session found"},
-        }),
+        side_effect=lambda url, **kwargs: (
+            _FakeResponse(404, {"success": False}) if url.endswith('/active-session')
+            else _FakeResponse(200, {"success": True, "data": {
+                "id": "182bd5e5-6e1a-4fe4-a799-aa6d9a6ab26e"}})
+        ),
     )
 
     sweep_live_meetings(0)

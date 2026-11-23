@@ -83,6 +83,25 @@ class CIContract(unittest.TestCase):
                 target.write_text(target.read_text().replace(before, after))
                 with self.assertRaises(ValueError):
                     policy.validate_producer_build_inputs(root)
+    def test_mixed_attempt_retry_guidance_preserves_producer_binding(self):
+        guidance = 'Re-run jobs -> Re-run all jobs (not Re-run failed jobs)'
+        publish = self.release['jobs']['publish']['steps']
+        release = self.release['jobs']['release']['steps']
+        for steps in (publish, release):
+            bootstrap = steps[0]
+            self.assertEqual(bootstrap.get('name'), 'Select verified CI trust before clients')
+            retry = steps[1]
+            self.assertEqual(retry.get('name'), 'Explain safe workflow retry')
+            self.assertEqual(retry.get('if'), 'github.run_attempt > 1')
+            self.assertIn('::warning::', retry.get('run', ''))
+            self.assertIn('GITHUB_STEP_SUMMARY', retry['run'])
+            self.assertIn(guidance, retry.get('run', ''))
+            self.assertIn('Do not select or rename artifacts across attempts', retry['run'])
+        image_download = next(s for s in publish if s.get('with', {}).get('name', '').startswith('free2z-image-'))
+        registry_download = next(s for s in release if s.get('with', {}).get('name', '').startswith('free2z-task-registry-'))
+        self.assertIn('free2z-image-${{ matrix.kind }}-${{ github.sha }}-${{ github.run_attempt }}', image_download['with']['name'])
+        self.assertIn('free2z-task-registry-${{ github.sha }}-${{ github.run_attempt }}', registry_download['with']['name'])
+        self.assertIn('--run-attempt "$GITHUB_RUN_ATTEMPT"', next(s['run'] for s in release if 'release-manifest.py create' in s.get('run', '')))
 
     def test_omitted_shard_fails(self):
         for job,key in [('backend','group'),('ui-browser','shard')]:
@@ -198,12 +217,29 @@ class CIContract(unittest.TestCase):
         step['continue-on-error'] = True
         with self.assertRaises(ValueError): self.check()
 
+    def test_translation_oracle_stays_required_and_unconditional(self):
+        def oracle(): return next(s for s in self.ci['jobs']['translation-oracle']['steps'] if 'check-translation-url-oracle.py' in s.get('run', ''))
+        self.ci['jobs']['gate']['needs'].remove('translation-oracle')
+        with self.assertRaises(ValueError): self.check()
+        self.setUp(); self.ci['jobs']['translation-oracle']['steps'].remove(oracle())
+        with self.assertRaises(ValueError): self.check()
+        for key, value in (('if', 'false'), ('continue-on-error', True)):
+            self.setUp(); oracle()[key] = value
+            with self.assertRaises(ValueError): self.check()
+        self.setUp(); self.ci['jobs']['translation-oracle']['if'] = "needs.changes.outputs.application == 'false'"
+        with self.assertRaises(ValueError): self.check()
+        self.setUp(); self.ci['jobs']['backend']['steps'].append(dict(oracle()))
+        with self.assertRaises(ValueError): self.check()
+        self.setUp(); steps = self.ci['jobs']['translation-oracle']['steps']
+        steps.remove(next(s for s in steps if s.get('run') == 'npm ci'))
+        with self.assertRaises(ValueError): self.check()
+
     def test_native_bridge_cannot_silently_skip(self):
         self.ci['jobs']['native-payment-bridge']['env'].pop('PAYMENTD_NATIVE_BRIDGE_TEST')
         with self.assertRaises(ValueError): self.check()
 
     def test_python_drift_fails_both_directions(self):
-        for job in ['backend','dependency-security']:
+        for job in ['backend','translation-oracle','dependency-security']:
             for mode in ['delete','bump']:
                 self.setUp();steps=self.ci['jobs'][job]['steps'];step=next(s for s in steps if s.get('uses','').startswith('actions/setup-python@'))
                 if mode=='delete':steps.remove(step)

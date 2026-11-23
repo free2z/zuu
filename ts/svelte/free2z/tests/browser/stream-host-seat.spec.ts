@@ -66,14 +66,227 @@ async function captureStarts(
   return bodies;
 }
 
-async function openDashboard(page: Page) {
+async function openDashboard(page: Page, language = "en") {
   const hydratedAuth = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/auth/user/",
   );
-  await page.goto(`${STREAM_URL}?lang=en`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${STREAM_URL}?lang=${language}`, { waitUntil: "domcontentloaded" });
   expect((await hydratedAuth).status()).toBe(200);
   await expect(page.getByTestId("stream-audience-grid")).toBeVisible();
 }
+
+for (const [language, expected] of [
+  [
+    "en",
+    "Your account no longer meets the requirements to start a stream. Refresh your balance and try again.",
+  ],
+  [
+    "es",
+    "Tu cuenta ya no cumple los requisitos para iniciar una transmisión. Actualiza tu saldo e inténtalo de nuevo.",
+  ],
+]) {
+  test(`host eligibility changes are shown safely in ${language}`, async ({
+    page,
+  }) => {
+    await seatStatus(page, { active: false });
+    const starts: Record<string, unknown>[] = [];
+    await page.route(`**/api/dyte/${USER}/subscribers-only`, (route) => {
+      if (route.request().method() !== "POST") return route.fallback();
+      starts.push(route.request().postDataJSON() ?? {});
+      return route.fulfill({
+        status: 400,
+        contentType: "text/plain",
+        body: "You need at least 150 to go live!",
+      });
+    });
+
+    await openDashboard(page, language);
+    await page.locator('label[for="stream-audience-subscribers-only"]').click();
+    await page.getByTestId("stream-start").click();
+
+    await expect.poll(() => starts.length).toBe(1);
+    expect(starts[0]).toMatchObject({ role: "host" });
+    await expect(page.getByText(expected, { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("You need at least 150 to go live!"),
+    ).toHaveCount(0);
+    await expect(page.getByText("Failed to start the stream.")).toHaveCount(0);
+    await expect(page.locator("rtk-meeting")).toHaveCount(0);
+  });
+}
+
+test("known host maintenance failures are actionable and safe to retry", async ({
+  page,
+}) => {
+  await seatStatus(page, { active: false });
+  const starts: Record<string, unknown>[] = [];
+  const warnings: string[] = [];
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning") warnings.push(message.text());
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.route(`**/api/dyte/${USER}/broadcast`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    starts.push(route.request().postDataJSON() ?? {});
+    return route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "provider_unavailable",
+        retryable: true,
+        failure: {
+          stage: "create_room",
+          code: "transport_error",
+          provider_status: 503,
+          request_id: "f63f2b7e2a1e4bb0a092de91c8ac7bd4",
+        },
+        error: "provider detail and credentials must not be exposed",
+      }),
+    });
+  });
+
+  await openDashboard(page);
+  await page.getByTestId("stream-start").click();
+  await expect(
+    page.getByText(
+      "The live-stream provider is unavailable right now. Please try again in a few minutes.",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(page.getByTestId("stream-start")).toBeEnabled();
+  await page.getByTestId("stream-start").click();
+  await expect.poll(() => starts.length).toBe(2);
+  expect(starts[0].host_session).toBe(starts[1].host_session);
+  await expect.poll(() => warnings.length).toBeGreaterThanOrEqual(2);
+  expect(warnings.join("\n")).toContain(
+    "code: provider_unavailable, status: 503, request_id: f63f2b7e2a1e4bb0a092de91c8ac7bd4",
+  );
+  expect(warnings.join("\n")).not.toContain("credentials");
+  expect(errors.join("\n")).not.toContain("API request failed");
+  await expect(
+    page.getByText("provider detail and credentials must not be exposed"),
+  ).toHaveCount(0);
+  await expect(page.locator("rtk-meeting")).toHaveCount(0);
+});
+
+// Production, November 2026: RealtimeKit refused room creation (HTTP 401)
+// and every audience type ended in the same generic "could not start" text.
+// A structured provider failure must say so for every type, localized.
+for (const type of ["broadcast", "ppv", "subscribers-only", "private"]) {
+  test(`a provider outage is named for ${type} starts in Spanish`, async ({
+    page,
+  }) => {
+    await seatStatus(page, { active: false });
+    const starts = await captureStarts(page, type, {
+      status: 503,
+      body: {
+        code: "provider_unavailable",
+        retryable: true,
+        failure: {
+          stage: type === "private" ? "create_private_room" : "create_room",
+          code: "invalid_response",
+          provider_status: 401,
+          request_id: "0123456789abcdef0123456789abcdef",
+        },
+        error: "Basic auth failed for org must not be shown",
+      },
+    });
+
+    await openDashboard(page, "es");
+    await page.locator(`label[for="stream-audience-${type}"]`).click();
+    await page.getByTestId("stream-start").click();
+
+    await expect.poll(() => starts.length).toBe(1);
+    await expect(
+      page
+        .getByText(
+          "El proveedor de transmisiones en vivo no está disponible en este momento. Inténtalo de nuevo en unos minutos.",
+          { exact: true },
+        )
+        .first(),
+    ).toBeVisible();
+    await expect(page.getByText(/Basic auth failed/)).toHaveCount(0);
+    await expect(page.getByTestId("stream-start")).toBeEnabled();
+    await expect(page.locator("rtk-meeting")).toHaveCount(0);
+  });
+}
+
+test("an unknown backend 500 does not assume a provider failure", async ({
+  page,
+}) => {
+  await seatStatus(page, { active: false });
+  const warnings: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "warning") warnings.push(message.text());
+  });
+  await page.route(`**/api/dyte/${USER}/subscribers-only`, (route) =>
+    route.fulfill({
+      status: 500,
+      contentType: "text/html",
+      body: "<h1>raw-unknown-backend-exception</h1>",
+    }),
+  );
+  await openDashboard(page);
+  await page.locator('label[for="stream-audience-subscribers-only"]').click();
+  await page.getByTestId("stream-start").click();
+  await expect(
+    page
+      .getByText(
+        "Stream startup is temporarily unavailable. Please try again shortly.",
+        { exact: true },
+      )
+      .first(),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      warnings.some(
+        (message) =>
+          message.includes("code: admission_unavailable") &&
+          message.includes("status: 500"),
+      ),
+    )
+    .toBe(true);
+  expect(warnings.join("\n")).not.toContain("provider_unavailable");
+  expect(warnings.join("\n")).not.toContain("raw-unknown-backend-exception");
+  await expect(page.getByText("raw-unknown-backend-exception")).toHaveCount(0);
+  await expect(page.locator("rtk-meeting")).toHaveCount(0);
+});
+
+test("an unrelated 400 is treated as invalid settings, not lost eligibility", async ({
+  page,
+}) => {
+  await seatStatus(page, { active: false });
+  let posted: Record<string, unknown> | null = null;
+  await page.route(`**/api/dyte/${USER}/ppv`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posted = route.request().postDataJSON() ?? {};
+    return route.fulfill({
+      status: 400,
+      contentType: "application/json",
+      body: JSON.stringify({
+        code: "invalid_price",
+        error: "Price must be positive",
+      }),
+    });
+  });
+
+  await openDashboard(page);
+  await page.locator('label[for="stream-audience-ppv"]').click();
+  await page.getByTestId("stream-start").click();
+
+  await expect.poll(() => posted).not.toBeNull();
+  expect(posted).toMatchObject({ role: "host", price_per_minute: "1" });
+  await expect(
+    page.getByText("Check the stream settings and try again.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(page.getByText(/no longer meets the requirements/i)).toHaveCount(
+    0,
+  );
+  await expect(page.getByText("Price must be positive")).toHaveCount(0);
+});
 
 test.beforeEach(async ({ page }) => {
   await authenticate(page);
@@ -189,14 +402,14 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
 }) => {
   const OWNER = "livefixture";
   // Sign the browser in as the stream's own creator: a real session for the
-  // cookie, with the username swapped to the page's creator.
+  // cookie, with the identity set to the page's creator.
   await authenticate(page, "profile-fixture-session");
   await page.route("**/api/auth/user/", async (route) => {
     const response = await route.fetch();
     const user = await response.json();
     await route.fulfill({
       response,
-      body: JSON.stringify({ ...user, username: OWNER }),
+      body: JSON.stringify({ ...user, id: 8811, username: OWNER }),
     });
   });
   const joins: Record<string, unknown>[] = [];
@@ -232,11 +445,10 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
 test("public recovery observes disconnected state without an error and connected cancels stale retry", async ({
   page,
 }) => {
-  test.setTimeout(90_000);
-  // Freeze browser timers before hydration so the one-second admission
-  // retry cannot race source-module loading on a cold development server.
-  await page.clock.install({ time: new Date("2026-11-13T00:00:00Z") });
-  await page.clock.pauseAt(new Date("2026-11-13T00:00:01Z"));
+  // Hold application timers before navigation: slow hydration must not let
+  // the first retry fire before the test observes and cancels it.
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
   const owner = "recoveryfixture";
   let joins = 0;
   await page.route(`**/api/dyte/${owner}/broadcast`, (route) => {
@@ -256,7 +468,10 @@ test("public recovery observes disconnected state without an error and connected
       await page.waitForTimeout(1_000);
     }
   }
-  await expect.poll(() => joins, { timeout: 20000 }).toBe(1);
+  await expect(
+    page.getByText("Retry attempt 1", { exact: true }),
+  ).toBeVisible();
+  expect(joins).toBe(1);
 
   const store = async (status: "connected" | "disconnected") =>
     page.evaluate(
@@ -268,11 +483,83 @@ test("public recovery observes disconnected state without an error and connected
       { next: status, loader: LIVE_STREAM_STORE_LOADER },
     );
 
+  // Browser timers are paused, but a fired callback can still be awaiting
+  // CSRF or the network hop. Observe absence over real test-runner time.
+  const expectJoinCountHeld = async (expected: number, message: string) => {
+    const deadline = Date.now() + 500;
+    do {
+      expect(joins, message).toBe(expected);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } while (Date.now() < deadline);
+    expect(joins, message).toBe(expected);
+  };
+
   await store("connected");
+  await expect(page.getByText("Retry attempt 1", { exact: true })).toHaveCount(
+    0,
+  );
+  // The scheduled retry has a maximum 1.25 s delay. A connection must cancel it.
   await page.clock.runFor(2_000);
-  expect(joins).toBe(1);
+  await expectJoinCountHeld(
+    1,
+    "connected state must cancel the scheduled join",
+  );
 
   await store("disconnected");
-  await page.clock.runFor(22_000);
+  await expect(
+    page.getByRole("status").getByText("Reconnecting to the stream..."),
+  ).toBeVisible();
+  // A disconnect with no error waits the full 20 s grace, then retries once.
+  await page.clock.runFor(19_999);
+  await expectJoinCountHeld(
+    1,
+    "disconnected state must honor the grace period",
+  );
+  await page.clock.runFor(1_300);
   await expect.poll(() => joins).toBe(2);
 });
+
+for (const code of [
+  "livestream_credit_integration_unavailable",
+  "compensation_onboarding_required",
+  "compensation_schedule_acceptance_required",
+]) {
+  test(`PPV startup refusal ${code} does not send credit recipients to payout setup`, async ({
+    page,
+  }) => {
+    await authenticate(page);
+    await seatStatus(page, { active: false });
+    const starts = await captureStarts(page, "ppv", {
+      status: 409,
+      body: { code, error: "Internal supplier details must not be displayed" },
+    });
+    await openDashboard(page);
+    await page.locator('label[for="stream-audience-ppv"]').click();
+    await page.getByTestId("stream-start").click();
+    await expect.poll(() => starts.length).toBe(1);
+    await expect(page.getByTestId("stream-start")).toBeEnabled();
+    await expect(
+      page
+        .getByRole("main")
+        .getByText(
+          code === "livestream_credit_integration_unavailable"
+            ? "⚠️ Stream startup is temporarily unavailable. Please try again shortly."
+            : "⚠️ Failed to join stream.",
+          { exact: true },
+        ),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Identity intake", exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("link", {
+        name: "Review compensation in Billing",
+        exact: true,
+      }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("Internal supplier details must not be displayed"),
+    ).toHaveCount(0);
+    await expect(page.locator("rtk-meeting")).toHaveCount(0);
+  });
+}
