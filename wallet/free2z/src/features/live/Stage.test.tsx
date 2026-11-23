@@ -1,22 +1,92 @@
-import { act, useState } from "react";
+import { act, StrictMode, useState } from "react";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TestI18nProvider } from "@/i18n/test-provider";
 import es from "@/i18n/locales/es.json";
 import type { DyteJoinTicket } from "@/lib/api/types";
+import { ApiError, getTokenSnapshot, request, setToken } from "@/lib/api/http";
+import { registerHostSeat, releaseHostSeat, isCurrentHostSeat } from "@/lib/api/host-seat";
+
+vi.mock("@/lib/api/http", async (original) => ({ ...await original<typeof import("@/lib/api/http")>(), request: vi.fn() }));
 
 const controls = vi.hoisted(() => ({
   initMeeting: vi.fn(),
+  rendered: [] as unknown[],
 }));
 
+vi.mock("@cloudflare/realtimekit", () => ({
+  default: { init: controls.initMeeting },
+}));
 vi.mock("@cloudflare/realtimekit-react", () => ({
   RealtimeKitProvider: ({ children }: { children: unknown }) => children,
-  useRealtimeKitClient: () => [null, controls.initMeeting],
 }));
 vi.mock("@cloudflare/realtimekit-react-ui", () => ({
-  RtkMeeting: () => null,
+  RtkMeeting: ({ meeting }: { meeting: unknown }) => {
+    controls.rendered.push(meeting);
+    return null;
+  },
 }));
+
+type Listener = (payload?: unknown) => void;
+
+const lastRendered = () => controls.rendered[controls.rendered.length - 1];
+
+/** An event-emitter double with Core's on/off/removeListener surface. */
+function emitter() {
+  const listeners = new Map<string, Set<Listener>>();
+  return {
+    on(event: string, fn: Listener) {
+      if (!listeners.has(event)) listeners.set(event, new Set());
+      listeners.get(event)!.add(fn);
+    },
+    off(event: string, fn: Listener) {
+      listeners.get(event)?.delete(fn);
+    },
+    removeListener(event: string, fn: Listener) {
+      listeners.get(event)?.delete(fn);
+    },
+    emit(event: string, payload?: unknown) {
+      listeners.get(event)?.forEach((fn) => fn(payload));
+    },
+  };
+}
+
+/** A Core client double: `self` and `connectedMeetings` emitters, counted `leave()`. */
+function fakeClient() {
+  const self = emitter();
+  const connectedMeetings = emitter();
+  return {
+    leave: vi.fn().mockResolvedValue(undefined),
+    self,
+    connectedMeetings,
+    emit: self.emit,
+  };
+}
+
+/**
+ * Core's `init` lock: an overlapping call for the same token is REJECTED
+ * (`UnsupportedConcurrentMethodExecution`), not queued.
+ */
+function lockedInit(clients: ReturnType<typeof fakeClient>[]) {
+  const inFlight = new Set<string>();
+  return vi.fn(async ({ authToken }: { authToken: string }) => {
+    if (inFlight.has(authToken)) {
+      const error = new Error("Unsupported concurrent calls on method: init.");
+      error.name = "UnsupportedConcurrentMethodExecution";
+      throw error;
+    }
+    inFlight.add(authToken);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const next = clients.shift();
+      if (!next) throw new Error("no client left");
+      return next;
+    } finally {
+      inFlight.delete(authToken);
+    }
+  });
+}
 
 import { Stage } from "./Stage";
 
@@ -93,24 +163,174 @@ async function flush() {
 }
 
 beforeEach(async () => {
+  vi.mocked(request).mockReset().mockResolvedValue({});
   controls.initMeeting.mockReset();
+  controls.rendered.length = 0;
   await installDom(true);
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
   if (root) await act(async () => root.unmount());
+  setToken(null);
+  vi.useRealTimers();
   restoreGlobals?.();
 });
 
 describe("RealtimeKit stage retry lifecycle", () => {
+  function leasedTicket(): DyteJoinTicket {
+    setToken("synthetic-host-owner");
+    return { ...hostTicket, hostSeat: registerHostSeat("Alice", 41, getTokenSnapshot()) };
+  }
+
+  it("keeps the public host lease through failed-media cleanup and local retry beyond sixty seconds", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket();
+    const first = fakeClient(); const second = fakeClient();
+    first.leave.mockImplementation(async () => { first.emit("roomLeft", { state: "left" }); });
+    controls.initMeeting.mockResolvedValueOnce(first).mockResolvedValueOnce(second);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => first.emit("roomLeft", { state: "failed" }));
+    await flush();
+    expect(isCurrentHostSeat(ticket.hostSeat!)).toBe(true);
+    await act(async () => container.querySelector("button")?.dispatchEvent(new window.Event("click", { bubbles: true })));
+    await flush();
+    expect(controls.initMeeting.mock.calls.map(([options]) => options.authToken)).toEqual([ticket.authToken, ticket.authToken]);
+    await act(async () => vi.advanceTimersByTimeAsync(75_000));
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "heartbeat")).toHaveLength(6);
+    expect(lastRendered()).toBe(second);
+    await act(async () => root.unmount());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "release")).toHaveLength(1);
+    expect(second.leave).toHaveBeenCalledOnce();
+  });
+
+  it("evicts the exact native host after supersession and disposes a late SDK init", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient();
+    let resolve!: (value: ReturnType<typeof fakeClient>) => void;
+    controls.initMeeting.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(409, "taken", { code: "host_session_superseded" }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    await act(async () => resolve(client)); await flush();
+    expect(client.leave).toHaveBeenCalledOnce();
+    expect(container.textContent).toContain("ended");
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["history", "actor"])("refuses a %s-mismatched host ticket before media initialization", async (reason) => {
+    const ticket = leasedTicket();
+    if (reason === "history") releaseHostSeat(ticket.hostSeat!, false);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={reason === "actor" ? 42 : 41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    expect(controls.initMeeting).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("ended");
+    expect(request).not.toHaveBeenCalled();
+  });
+
+  it.each([[401, false], [403, false], [401, true], [403, true]])("ends denied native host credentials %i (initialization pending: %s)", async (status, pending) => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient();
+    let resolve!: (value: ReturnType<typeof fakeClient>) => void;
+    if (pending) controls.initMeeting.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    else controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(Number(status), "credentials refused"));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    if (pending) { await act(async () => resolve(client)); await flush(); }
+    expect(container.textContent).toContain("ended");
+    expect(isCurrentHostSeat(ticket.hostSeat!)).toBe(false);
+    expect(client.leave).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(request).mock.calls.filter(([, options]) => (options?.body as any)?.action === "release")).toHaveLength(0);
+  });
+
+  it("keeps a superseded host ended when pending initialization later rejects", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket();
+    let reject!: (error: Error) => void;
+    controls.initMeeting.mockImplementationOnce(() => new Promise((_done, fail) => { reject = fail; }));
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    vi.mocked(request).mockRejectedValueOnce(new ApiError(409, "taken", { code: "host_session_superseded" }));
+    await act(async () => vi.advanceTimersByTimeAsync(15_000));
+    expect(container.textContent).toContain("ended");
+    await act(async () => reject(new Error("network disconnected")));
+    await flush();
+    expect(container.textContent).toContain("ended");
+    expect(container.textContent).not.toContain("Reconnect");
+    expect(isCurrentHostSeat(ticket.hostSeat!)).toBe(false);
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(controls.initMeeting).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(["failed", "joined", "handoff"])("ignores old SDK %s callbacks after synchronous ownership loss", async (event) => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient(); const next = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => {
+      setToken("synthetic-new-owner");
+      if (event === "failed") client.emit("roomLeft", { state: "failed" });
+      else if (event === "joined") client.emit("roomJoined");
+      else client.connectedMeetings.emit("meetingChanged", next);
+    });
+    expect(container.textContent).toContain("ended");
+    expect(container.textContent).not.toContain("Reconnect");
+    expect(client.leave).toHaveBeenCalledOnce();
+    if (event === "handoff") expect(next.leave).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["unmount", "authentication"])("disposes a pending handoff after %s and passive cleanup", async (reason) => {
+    const ticket = leasedTicket(); const client = fakeClient(); const next = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => {
+      client.connectedMeetings.emit("changingMeeting", "synthetic-room");
+      client.emit("roomLeft", { state: "connected-meeting" });
+    });
+    if (reason === "unmount") await act(async () => root.unmount());
+    else await act(async () => setToken("synthetic-new-owner"));
+    await flush();
+    expect(client.leave).toHaveBeenCalledOnce();
+    await act(async () => client.connectedMeetings.emit("meetingChanged", next));
+    await flush();
+    expect(next.leave).toHaveBeenCalledOnce();
+  });
+
+  it("leaving the host route stops renewal and retires a late initialized client", async () => {
+    vi.useFakeTimers();
+    const ticket = leasedTicket(); const client = fakeClient();
+    let resolve!: (value: ReturnType<typeof fakeClient>) => void;
+    controls.initMeeting.mockImplementationOnce(() => new Promise((done) => { resolve = done; }));
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Alice" /></TestI18nProvider>));
+    await flush();
+    await act(async () => root.render(<TestI18nProvider><Stage ticket={ticket} actorId={41} ownerUsername="Bob" /></TestI18nProvider>));
+    await act(async () => resolve(client)); await flush();
+    expect(client.leave).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(75_000);
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "heartbeat")).toHaveLength(1);
+    expect(vi.mocked(request).mock.calls.filter(([, o]) => (o?.body as any)?.action === "release")).toHaveLength(1);
+    expect(container.textContent).toContain("ended");
+  });
   it("discards raw provider errors and retries only with a fresh authoritative ticket", async () => {
     const rawSecret = "eyJ.private-identity.signature";
     controls.initMeeting
       .mockRejectedValueOnce(
         new Error(`[ERR0004] rejected ${rawSecret} at https://private.invalid/join`),
       )
-      .mockResolvedValueOnce({});
+      .mockResolvedValueOnce(fakeClient());
     const refresh = vi.fn().mockResolvedValue(freshTicket);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
@@ -211,7 +431,7 @@ describe("RealtimeKit stage retry lifecycle", () => {
   it("reconnects a host locally without refreshing or replacing the live room", async () => {
     controls.initMeeting
       .mockRejectedValueOnce(new Error("ERR0004 host connection rejected"))
-      .mockResolvedValueOnce({});
+      .mockResolvedValueOnce(fakeClient());
     const refresh = vi.fn().mockResolvedValue(freshTicket);
     const replaceTicket = vi.fn();
     vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -264,5 +484,323 @@ describe("RealtimeKit stage retry lifecycle", () => {
     expect(
       controls.initMeeting.mock.calls.map(([options]) => options.authToken),
     ).toEqual(["existing-host-token", "existing-host-token"]);
+  });
+
+  it("leaves a client whose init resolves after the stage is gone", async () => {
+    let resolveInit!: (client: ReturnType<typeof fakeClient>) => void;
+    controls.initMeeting.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveInit = resolve;
+      }),
+    );
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={hostTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    await act(async () => root.unmount());
+
+    const late = fakeClient();
+    await act(async () => resolveInit(late));
+    await flush();
+
+    // The host was initialized with camera and microphone on; an abandoned
+    // client that is never left keeps both captured.
+    expect(late.leave).toHaveBeenCalledOnce();
+    expect(controls.rendered).not.toContain(late);
+  });
+
+  it("does not report StrictMode's effect replay as a connection failure", async () => {
+    const client = fakeClient();
+    controls.initMeeting.mockImplementation(lockedInit([client]));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await act(async () =>
+      root.render(
+        <StrictMode>
+          <TestI18nProvider>
+            <Stage ticket={hostTicket} />
+          </TestI18nProvider>
+        </StrictMode>,
+      ),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    });
+    await flush();
+
+    // The replayed (cancelled) attempt never reaches Core, so Core's per-token
+    // init lock is never contended and the surviving attempt connects.
+    expect(warn).not.toHaveBeenCalled();
+    expect(container.querySelector("button")).toBeNull();
+    expect(controls.initMeeting).toHaveBeenCalledOnce();
+    expect(lastRendered()).toBe(client);
+    expect(client.leave).not.toHaveBeenCalled();
+  });
+
+  it("waits for an in-flight init with the same token, but never for another token", async () => {
+    let resolveFirst!: (client: ReturnType<typeof fakeClient>) => void;
+    const order: string[] = [];
+    const first = fakeClient();
+    const other = fakeClient();
+    const again = fakeClient();
+    controls.initMeeting
+      .mockImplementationOnce(({ authToken }: { authToken: string }) => {
+        order.push(`start:${authToken}`);
+        return new Promise((resolve) => {
+          resolveFirst = resolve;
+        });
+      })
+      .mockImplementationOnce(async ({ authToken }: { authToken: string }) => {
+        order.push(`start:${authToken}`);
+        return other;
+      })
+      .mockImplementationOnce(async ({ authToken }: { authToken: string }) => {
+        order.push(`start:${authToken}`);
+        return again;
+      });
+
+    function Harness({ ticket }: { ticket: DyteJoinTicket }) {
+      return (
+        <TestI18nProvider>
+          <Stage ticket={ticket} />
+        </TestI18nProvider>
+      );
+    }
+    await act(async () => root.render(<Harness ticket={firstTicket} />));
+    await flush();
+    // A different token is a different Core lock: no waiting.
+    await act(async () => root.render(<Harness ticket={freshTicket} />));
+    await flush();
+    expect(order).toEqual([
+      "start:first-private-token",
+      "start:fresh-private-token",
+    ]);
+    // Back to the first token while its init is still running: wait for it.
+    await act(async () => root.render(<Harness ticket={firstTicket} />));
+    await flush();
+    expect(order).toHaveLength(2);
+
+    await act(async () => resolveFirst(first));
+    await flush();
+    await flush();
+    expect(order).toEqual([
+      "start:first-private-token",
+      "start:fresh-private-token",
+      "start:first-private-token",
+    ]);
+    expect(first.leave).toHaveBeenCalledOnce();
+    expect(other.leave).toHaveBeenCalledOnce();
+    expect(lastRendered()).toBe(again);
+  });
+
+  it("does not let a never-settling init block the same token past Core's lock", async () => {
+    vi.useFakeTimers();
+    try {
+      const recovered = fakeClient();
+      controls.initMeeting
+        .mockImplementationOnce(() => new Promise(() => {}))
+        .mockResolvedValueOnce(recovered);
+      function Harness({ attempt }: { attempt: number }) {
+        return (
+          <TestI18nProvider>
+            <Stage key={attempt} ticket={hostTicket} />
+          </TestI18nProvider>
+        );
+      }
+      await act(async () => root.render(<Harness attempt={1} />));
+      await flush();
+      // A remount (navigate away and back) with the hung init still pending.
+      await act(async () => root.render(<Harness attempt={2} />));
+      await flush();
+      expect(controls.initMeeting).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_100);
+      });
+      expect(controls.initMeeting).toHaveBeenCalledTimes(2);
+      await flush();
+      expect(lastRendered()).toBe(recovered);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps retrying a rejected leave until Core's 3s media lock has expired", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient();
+      const lockError = new Error("Unsupported concurrent calls on method: meeting.self.disableAudio.");
+      client.leave
+        .mockRejectedValueOnce(lockError)
+        .mockRejectedValueOnce(lockError)
+        .mockRejectedValueOnce(lockError)
+        .mockResolvedValueOnce(undefined);
+      controls.initMeeting.mockResolvedValueOnce(client);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await act(async () =>
+        root.render(
+          <TestI18nProvider>
+            <Stage ticket={hostTicket} />
+          </TestI18nProvider>,
+        ),
+      );
+      await flush();
+      // Departure while a mic toggle holds the lock: the room UI goes away.
+      await act(async () => root.unmount());
+      await flush();
+      expect(client.leave).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_999);
+      });
+      // Still inside the lock window: not given up yet.
+      expect(client.leave).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(4_100);
+      });
+      // An attempt after the lock expired (t >= 3 s) succeeds; then it stops.
+      expect(client.leave).toHaveBeenCalledTimes(4);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(30_000);
+      });
+      expect(client.leave).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not leave a confirmed-left client again", async () => {
+    vi.useFakeTimers();
+    try {
+      const client = fakeClient();
+      client.leave
+        .mockRejectedValueOnce(new Error("disableAudio lock held"))
+        .mockResolvedValueOnce(undefined);
+      controls.initMeeting.mockResolvedValueOnce(client);
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await act(async () =>
+        root.render(
+          <TestI18nProvider>
+            <Stage ticket={hostTicket} />
+          </TestI18nProvider>,
+        ),
+      );
+      await flush();
+      await act(async () => client.emit("roomLeft", { state: "failed" }));
+      await flush();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000);
+      });
+      expect(client.leave).toHaveBeenCalledTimes(2);
+      await act(async () => root.unmount());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(client.leave).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("adopts a breakout replacement client and moves teardown to it", async () => {
+    const parent = fakeClient();
+    const breakout = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(parent);
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={firstTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    expect(lastRendered()).toBe(parent);
+
+    await act(async () =>
+      parent.emit("roomLeft", { state: "connected-meeting" }),
+    );
+    await act(async () =>
+      parent.connectedMeetings.emit("meetingChanged", breakout),
+    );
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(lastRendered()).toBe(breakout);
+    expect(container.querySelector("button")).toBeNull();
+
+    await act(async () => root.unmount());
+    await flush();
+    // Core already left the parent for the handoff; the replacement is ours.
+    expect(breakout.leave).toHaveBeenCalledOnce();
+    expect(parent.leave).not.toHaveBeenCalled();
+  });
+
+  it("leaves a failed room once and never remounts it on host reconnect", async () => {
+    const failed = fakeClient();
+    const fresh = fakeClient();
+    controls.initMeeting
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValueOnce(fresh);
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={hostTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    expect(lastRendered()).toBe(failed);
+
+    await act(async () => failed.emit("roomJoined"));
+    await act(async () => failed.emit("roomLeft", { state: "disconnected" }));
+    // Transient: Core reconnects by itself; the room stays mounted.
+    expect(failed.leave).not.toHaveBeenCalled();
+    expect(container.querySelector("button")).toBeNull();
+
+    await act(async () => failed.emit("roomLeft", { state: "failed" }));
+    await flush();
+    expect(failed.leave).toHaveBeenCalledOnce();
+    const renderedBeforeRetry = controls.rendered.length;
+
+    const button = container.querySelector("button");
+    expect(button?.textContent).toBe("Reconnect");
+    await act(async () => {
+      button?.dispatchEvent(new window.Event("click", { bubbles: true }));
+    });
+    await flush();
+
+    // Mounting <RtkMeeting> with the setup screen off calls join(); the failed
+    // client must never be handed to it again.
+    expect(controls.rendered.slice(renderedBeforeRetry)).not.toContain(failed);
+    expect(lastRendered()).toBe(fresh);
+    expect(failed.leave).toHaveBeenCalledOnce();
+
+    await act(async () => root.unmount());
+    await flush();
+    expect(fresh.leave).toHaveBeenCalledOnce();
+  });
+
+  it("does not leave again after the provider ended the room", async () => {
+    const client = fakeClient();
+    controls.initMeeting.mockResolvedValueOnce(client);
+    await act(async () =>
+      root.render(
+        <TestI18nProvider>
+          <Stage ticket={firstTicket} />
+        </TestI18nProvider>,
+      ),
+    );
+    await flush();
+    await act(async () => client.emit("roomLeft", { state: "ended" }));
+    expect(container.textContent).toContain("ended");
+    await act(async () => root.unmount());
+    await flush();
+    expect(client.leave).not.toHaveBeenCalled();
   });
 });
