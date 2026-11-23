@@ -87,6 +87,7 @@ class WalletFixture:
             conn.commit()
         finally:
             conn.close()
+        Path(self.path).chmod(0o600)
 
     def add_note(self, *, txid_display, pool, index, zats, memo,
                  account_id=1, spent=False, raw=b"enhanced full transaction"):

@@ -25,6 +25,7 @@ class RecoveryTests(unittest.TestCase):
             db.execute('INSERT INTO transactions VALUES(1,?,NULL,100)', (bytes(32),))
             db.execute('INSERT INTO orchard_received_notes VALUES(1,100000,NULL)')
             # No queue at all: the original enhancement request was consumed.
+        Path(self.wallet).chmod(0o600)
 
     def test_notfound_then_restart_hydration_and_duplicate(self):
         calls = []
@@ -65,6 +66,28 @@ class RecoveryTests(unittest.TestCase):
         self.config['state_path'] = self.wallet
         with self.assertRaises(ValueError):
             recover(self.wallet, **self.config)
+
+    def test_wallet_recovery_requires_private_database_directory_and_files(self):
+        Path(self.wallet).chmod(0o644)
+        with self.assertRaisesRegex(ValueError, 'private regular files'):
+            recover(self.wallet, **self.config)
+        Path(self.wallet).chmod(0o600)
+        Path(self.tmp.name).chmod(0o755)
+        with self.assertRaisesRegex(ValueError, 'directory must be owned and private'):
+            recover(self.wallet, **self.config)
+
+    def test_wallet_recovery_rejects_replaceable_path_ancestor(self):
+        writable_parent = Path(self.tmp.name) / 'writable-parent'
+        writable_parent.mkdir(mode=0o700)
+        writable_parent.chmod(0o777)
+        private_child = writable_parent / 'wallets'
+        private_child.mkdir(mode=0o700)
+        wallet = private_child / 'wallet.sqlite'
+        wallet.write_bytes(Path(self.wallet).read_bytes())
+        wallet.chmod(0o600)
+        config = {**self.config, 'state_path': str(Path(self.tmp.name) / 'other-state')}
+        with self.assertRaisesRegex(ValueError, 'wallet path contains a directory writable'):
+            recover(str(wallet), **config)
 
     def test_genuine_no_memo_never_requests_recovery(self):
         with sqlite3.connect(self.wallet) as db:

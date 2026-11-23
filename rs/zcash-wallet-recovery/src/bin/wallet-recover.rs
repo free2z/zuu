@@ -46,8 +46,9 @@ async fn run(a: Args) -> Result<()> {
     };
     let height = BlockHeight::from_u32(a.height);
     // No migration, rewind, reset, queue SQL, or status mutation on NotFound.
-    let mut db = zcash_paymentd::wallet_recovery::open_recovery_wallet(&a.wallet_db, params)?;
-    zcash_paymentd::wallet_recovery::validate_received(&db, &hash, height)?;
+    let mut db =
+        zcash_wallet_recovery::wallet_recovery::open_recovery_wallet(&a.wallet_db, params)?;
+    zcash_wallet_recovery::wallet_recovery::validate_received(&db, &hash, height)?;
     let endpoint = tonic::transport::Endpoint::from_shared(a.server)?
         .connect_timeout(Duration::from_secs(5))
         .timeout(Duration::from_secs(10))
@@ -61,8 +62,9 @@ async fn run(a: Args) -> Result<()> {
         })
         .await
         .map(|r| r.into_inner());
-    let hydrated =
-        zcash_paymentd::wallet_recovery::apply_response(&mut db, params, &hash, height, response)?;
+    let hydrated = zcash_wallet_recovery::wallet_recovery::apply_response(
+        &mut db, params, &hash, height, response,
+    )?;
     println!("{}", if hydrated { "hydrated" } else { "unavailable" });
     Ok(())
 }

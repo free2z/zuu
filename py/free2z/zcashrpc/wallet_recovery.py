@@ -88,6 +88,58 @@ def _private_regular(info):
         raise ValueError('sidecar requires a private owned regular file with one link')
 
 
+def _check_wallet_path_ancestors(parent):
+    current_path = Path(parent.anchor)
+    current = current_path.stat()
+    euid = os.geteuid()
+    for component in parent.parts[1:]:
+        next_path = current_path / component
+        following = next_path.stat()
+        if not stat.S_ISDIR(following.st_mode):
+            raise ValueError('wallet path contains a non-directory component')
+        mode = stat.S_IMODE(current.st_mode)
+        trusted_owner = current.st_uid in (0, euid)
+        writable_by_untrusted = bool(mode & 0o022) or (
+            not trusted_owner and bool(mode & 0o200))
+        if writable_by_untrusted and not (
+                mode & stat.S_ISVTX and trusted_owner
+                and following.st_uid in (0, euid)):
+            raise ValueError('wallet path contains a directory writable by less-trusted users')
+        current_path = next_path
+        current = following
+
+
+def _private_wallet(path):
+    """Pin recovery to a wallet that less-trusted OS users cannot write.
+
+    The isolated wallet-library graph still uses upstream rusqlite 0.37. Its
+    SQLite WAL advisory is only reachable when a less-trusted user can write
+    the wallet and sibling WAL, so the recovery boundary requires a non-
+    replaceable owned 0700 directory and owned 0600 single-link database/
+    companions.
+    """
+    supplied = Path(path)
+    if supplied.is_symlink():
+        raise ValueError('wallet symlink is not allowed')
+    wallet = supplied.resolve(strict=True)
+    directory = wallet.parent.stat()
+    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.geteuid()
+            or stat.S_IMODE(directory.st_mode) != 0o700):
+        raise ValueError('wallet directory must be owned and private (0700)')
+    _check_wallet_path_ancestors(wallet.parent)
+    for candidate in (wallet, *(Path(str(wallet) + suffix) for suffix in ('-wal', '-shm', '-journal'))):
+        try:
+            info = candidate.lstat()
+        except FileNotFoundError:
+            if candidate == wallet:
+                raise
+            continue
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1):
+            raise ValueError('wallet database and companions must be owned private regular files with one link')
+    return wallet
+
+
 def _check_schema(conn):
     if (conn.execute('PRAGMA application_id').fetchone()[0] != APPLICATION_ID
             or conn.execute('PRAGMA user_version').fetchone()[0] != 1):
@@ -107,7 +159,7 @@ def _sidecar(state_path, wallet_db, network, deadline):
     are trusted; flock serializes cooperating recovery invocations.
     """
     absolute = Path(os.path.abspath(state_path))
-    wallet = Path(wallet_db).resolve(strict=True)
+    wallet = _private_wallet(wallet_db)
     forbidden = [Path(str(wallet) + suffix) for suffix in ('', '-wal', '-shm', '-journal')]
     if absolute in forbidden:
         raise ValueError('sidecar aliases wallet or wallet companion')
@@ -188,6 +240,7 @@ def recover(wallet_db, *, binary, server, network, state_path, now=None):
     now = int(time.time()) if now is None else now
     if network not in ('main', 'test'):
         raise ValueError('unsupported wallet network')
+    wallet_db = os.fspath(_private_wallet(wallet_db))
     uri = Path(wallet_db).resolve().as_uri() + '?mode=ro'
     with closing(sqlite3.connect(uri, uri=True, timeout=1)) as wallet:
         wallet.execute('PRAGMA query_only=ON')

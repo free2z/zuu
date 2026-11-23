@@ -2,14 +2,14 @@
 #
 # Separate from wallet/deny.toml on purpose. "Which advisories we accept" is a
 # judgement about a *particular dependency graph*, and this one is not the
-# wallet's: no Tauri, no GTK, no librustzcash, no SQLite. Sharing a policy
+# wallet's: no Tauri, no GTK, no librustzcash. Sharing a policy
 # between two graphs that have nothing in common would mean every entry is
 # either irrelevant to one of them or hiding something in the other.
 #
 # `scripts/check-rust-deny.sh --root rs` enforces this file.
 #
 # =============================================================================
-# THE `ignore` LIST IS EMPTY, AND IT STAYS THAT WAY UNTIL SOMEONE MEASURES ONE.
+# EVERY `ignore` ENTRY IS MEASURED AGAINST THIS GRAPH, NEVER COPIED IN.
 # =============================================================================
 #
 # wallet/deny.toml's list is the *measured* backlog from the day the wallet gate
@@ -107,7 +107,22 @@ yanked = "warn"
 # not about libcrux, and it will be true again the next time someone tries this.
 ignore = [
   # ---------------------------------------------------------------------------
-  # BUILD-TIME ONLY, and the only entry left. `proc-macro-error2` is
+  # Bundled SQLite < 3.54.0 in the rs workspace and the isolated wallet recovery
+  # graph (libsqlite3-sys 0.35.0 via rusqlite 0.37.0). The workspace needs .37
+  # for its wallet-linked SQLite singleton. The companion recovery executable
+  # needs .37 because current upstream zcash_client_sqlite 0.23.0 still declares
+  # it. That executable refuses a wallet unless its directory is owner-only
+  # (0700), no less-trusted user can replace it through a writable ancestor,
+  # and the database/WAL/SHM/journal are owner-only single-link files (0600).
+  # A less-trusted OS user therefore cannot supply the crafted DB/WAL pair in
+  # RUSTSEC-2026-0459. The payment daemon stays on rusqlite .42 / SQLite >=3.54.
+  # Remove this entry when both the rs workspace can move and upstream
+  # zcash_client_sqlite permits rusqlite >=0.41 / libsqlite3-sys >=0.39.
+  # free2z/zuu#1531.
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.35.0 bundles SQLite < 3.54.0 via rusqlite 0.37.0 in the rs workspace and isolated wallet-recovery graph; upstream zcash_client_sqlite 0.23.0 still requires rusqlite 0.37. The recovery executable requires an owner-only (0700) wallet directory with no less-trusted writable ancestor and owner-only (0600), single-link database/WAL/SHM/journal files, preventing a less-trusted OS user from supplying the crafted DB/WAL pair. The payment daemon remains on rusqlite 0.42 / SQLite >=3.54. Remove when both the rs workspace and upstream zcash_client_sqlite can use libsqlite3-sys >=0.39. free2z/zuu#1531" },
+
+  # ---------------------------------------------------------------------------
+  # BUILD-TIME ONLY. `proc-macro-error2` is
   # unmaintained (a fork of an already unmaintained crate). It reaches this
   # graph as a proc-macro dependency of `hax-lib-macros`, which libcrux uses for
   # its formal-verification annotations. It runs on the build host and no code

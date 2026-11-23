@@ -19,7 +19,12 @@ test "$(rustc --version | cut -d ' ' -f 2)" = "$rust_version"
 cargo test --locked --manifest-path /src/rs/zcash-payment-hooks/Cargo.toml
 cargo build --locked --release --manifest-path /src/rs/zcash-payment-hooks/Cargo.toml
 cp /work/target/release/zcash-paymentd /work/zcash-paymentd
+cargo test --locked --manifest-path /src/rs/zcash-wallet-recovery/Cargo.toml
+cargo build --locked --release --manifest-path /src/rs/zcash-wallet-recovery/Cargo.toml
+cp /work/target/release/wallet-recover /work/wallet-recover
 cargo metadata --locked --format-version=1 --manifest-path /src/rs/zcash-payment-hooks/Cargo.toml > /work/cargo-metadata.json
+cargo metadata --locked --format-version=1 --manifest-path /src/rs/zcash-wallet-recovery/Cargo.toml > /work/recovery-cargo-metadata.json
 python -I /src/scripts/free2z/host_runtime/licenses.py \
   --repository /src --metadata /work/cargo-metadata.json \
+  --metadata /work/recovery-cargo-metadata.json \
   --cargo-home "$CARGO_HOME" --output /work/licenses

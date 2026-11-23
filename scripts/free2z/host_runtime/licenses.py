@@ -92,18 +92,38 @@ def archive_licenses(path, name, checksum):
 
 
 def collect(repository, metadata, cargo_home, destination):
-    locked = {(p['name'], p['version'], p.get('source')): p.get('checksum')
-              for p in tomllib.loads((repository / 'rs/zcash-payment-hooks/Cargo.lock').read_text())['package']}
+    if isinstance(metadata, dict):
+        metadata = [metadata]
+    locked = {}
+    for lock_path in (repository / 'rs/zcash-payment-hooks/Cargo.lock',
+                      repository / 'rs/zcash-wallet-recovery/Cargo.lock'):
+        if not lock_path.is_file():
+            continue
+        for package in tomllib.loads(lock_path.read_text())['package']:
+            key = (package['name'], package['version'], package.get('source'))
+            checksum = package.get('checksum')
+            if key in locked and locked[key] != checksum:
+                raise ValueError('Cargo locks disagree about a shared crate identity')
+            locked[key] = checksum
     supplements_dir = repository / 'build/free2z/host-licenses'
     supplements = load_supplements(supplements_dir, locked)
     destination.mkdir()
-    packages, seen = [], set()
-    for package in metadata['packages']:
-        key = (package['name'], package['version'], package['source'])
+    packages, seen = [], {}
+    all_packages = {}
+    for document in metadata:
+        for package in document['packages']:
+            key = (package['name'], package['version'], package['source'])
+            prior = all_packages.get(key)
+            if prior and prior.get('license') != package.get('license'):
+                raise ValueError('Cargo metadata disagrees about a shared crate license')
+            all_packages[key] = package
+    for key, package in all_packages.items():
         name = relative(package['name'] + '-' + package['version'])
-        if '/' in name or key in seen or key not in locked:
+        if '/' in name or key not in locked:
             raise ValueError('crate metadata differs from locked package inventory')
-        seen.add(key)
+        if key in seen:
+            continue
+        seen[key] = package
         row = supplements.get(key)
         if package['source'] == REGISTRY:
             archives = list((cargo_home / 'registry/cache').glob('*/' + name + '.crate'))
@@ -115,7 +135,9 @@ def collect(repository, metadata, cargo_home, destination):
                 raise ValueError('crate manifest differs from Cargo metadata')
         elif package['source'] is None:
             source = Path(package['manifest_path']).parent
-            if source.resolve() != repository.resolve() / 'rs/zcash-payment-hooks':
+            local_roots = {repository.resolve() / 'rs/zcash-payment-hooks',
+                           repository.resolve() / 'rs/zcash-wallet-recovery'}
+            if source.resolve() not in local_roots:
                 raise ValueError('unexpected first-party crate path')
             files = {path.name: path.read_bytes() for path in source.iterdir()
                      if path.is_file() and not path.is_symlink() and path.name.lower().startswith(PREFIXES)}
@@ -172,8 +194,9 @@ def collect(repository, metadata, cargo_home, destination):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--repository', required=True, type=Path)
-    parser.add_argument('--metadata', required=True, type=Path)
+    parser.add_argument('--metadata', required=True, action='append', type=Path)
     parser.add_argument('--cargo-home', required=True, type=Path)
     parser.add_argument('--output', required=True, type=Path)
     args = parser.parse_args()
-    collect(args.repository, json.loads(args.metadata.read_text()), args.cargo_home, args.output)
+    collect(args.repository, [json.loads(path.read_text()) for path in args.metadata],
+            args.cargo_home, args.output)

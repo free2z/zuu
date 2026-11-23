@@ -42,7 +42,7 @@ const POW_POLICY_COMMAND = "node scripts/free2z/check-pow-policy.mjs";
 const REQUIRED_LIBRUSTZCASH_LOCKFILE_COUNT = 3;
 const REQUIRED_LIBRUSTZCASH_PACKAGE_COUNT = 11;
 const REQUIRED_LIBRUSTZCASH_SCOPE_DIGEST =
-  "4b4115dff3d451ca9f4576881fb80e3b7b1c33b465e69968048e18b9bf0325ab";
+  "4b0e2bba4757703c090e0e956a101ce99e8d1c2e50dcc98225f2a388f38b7df7";
 const GATE_VERDICT_COMMAND =
   "node scripts/check-github-actions-pins.mjs --verify-gate-results";
 const WASM_POLICY_SELF_TEST_COMMAND =
@@ -52,6 +52,7 @@ const FRONTEND_CHECKOUT_REFERENCE = GATE_CHECKOUT_REFERENCE;
 const RUST_REQUIRED_JOB_IDS = new Set([
   "rust_fmt", "rust_deny", "rust_clippy", "rust_native_clippy", "rust_native_tests",
   "rust_plugin", "rust_msg_plugin", "rust_android_32", "rust_app", "rust_crypto_targets",
+  "sdk_native", "sdk_mobile",
 ]);
 // This package job intentionally runs on every PR, independently of the wallet
 // selectors. Its success must never be mistaken for an illegitimate selected skip.
@@ -253,6 +254,8 @@ const RUST_ROOT_CONTRACTS = [
         name: "payment_hooks",
         probeRoot: "rs/zcash-payment-hooks",
         additionalProbePaths: [
+          "rs/zcash-wallet-recovery/Cargo.toml",
+          "rs/zcash-wallet-recovery/src/wallet_recovery.rs",
           "docs/zcash-payment-hooks/CONTRACT.md",
           "scripts/check-rust-deny.sh",
           "rs/deny.toml",
@@ -285,6 +288,7 @@ const RUST_ROOT_CONTRACTS = [
     mixedProbePaths: [
       ["rs/zcash-payment-hooks/src/lib.rs", { rs: "false", payment_hooks: "true" }],
       ["rs/zcash-payment-hooks/tests/lifecycle.rs", { rs: "false", payment_hooks: "true" }],
+      ["rs/zcash-wallet-recovery/src/wallet_recovery.rs", { rs: "false", payment_hooks: "true" }],
       ["docs/zcash-payment-hooks/CONTRACT.md", { rs: "false", payment_hooks: "true" }],
       ["rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "false" }],
       ["rs/zcash-payment-hooks/src/lib.rs\0rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "true" }],
@@ -4179,6 +4183,17 @@ function runRustRootWorkflowMutationTests(repoRoot) {
       `${ownerPrefix} selector must actively select`,
     );
     if (contract.root === "wallet") {
+      for (const job of ["sdk_native", "sdk_mobile"]) {
+        assertWorkflowFailure(
+          contract,
+          source,
+          `wallet/ ${job} cannot follow the frontend selector`,
+          (value) => mutateJob(value, job,
+            "if: needs.changes.outputs.rust == 'true'",
+            "if: needs.changes.outputs.zuuli == 'true'"),
+          `Rust job ${job} must use its exact Rust selector`,
+        );
+      }
       const selectorPatternMutations = [
         [
           "wallet Rust source selector",
@@ -7306,8 +7321,29 @@ jobs:
       name: "frontend source succeeds with native jobs skipped",
       policyOutcome: "success",
       needs: { changes: { result: "success", outputs: { zuuli: "true", rust: "false", zuuallet_schema: "false", surfaces: "true" } },
-        frontend: { result: "success" }, surfaces: { result: "success" } },
+        frontend: { result: "success" }, surfaces: { result: "success" },
+        sdk_native: { result: "skipped" }, sdk_mobile: { result: "skipped" } },
     },
+    ...["sdk_native", "sdk_mobile"].flatMap((job) => [
+      ...["skipped", "failure", "cancelled"].map((result) => ({
+        name: `selected SDK job ${job} cannot report ${result}`,
+        policyOutcome: "success",
+        needle: `required job ${job} must be success, got ${result}`,
+        needs: {
+          changes: { result: "success", outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" } },
+          [job]: { result },
+        },
+      })),
+      {
+        name: `selected SDK job ${job} cannot disappear`,
+        policyOutcome: "success",
+        omitJob: job,
+        needle: `selected Rust job ${job} is missing`,
+        needs: {
+          changes: { result: "success", outputs: { zuuli: "true", rust: "true", zuuallet_schema: "false", surfaces: "true" } },
+        },
+      },
+    ]),
     {
       name: "selected Rust job cannot report skipped",
       policyOutcome: "success",
