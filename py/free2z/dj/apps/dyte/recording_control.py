@@ -9,7 +9,6 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema
-from requests.auth import HTTPBasicAuth
 from rest_framework import serializers
 from rest_framework.exceptions import NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -17,7 +16,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from dj.free2z.throttling import POLLING_THROTTLES
-from .models import CreatorMeeting, PUBLIC_MEETING_TYPES, PRIVATE
+from .client import (
+    DyteClient, ProviderAuthError, ProviderError, ProviderNotFoundError,
+    ProviderRejectedError, ProviderUnavailableError,
+)
+from .models import (
+    CreatorMeeting, LIFECYCLE_OFFLINE, PUBLIC_MEETING_TYPES, PRIVATE,
+    RecordingDelivery,
+)
 
 ACTIVE = {"INVOKED", "RECORDING", "PAUSED"}
 PUBLIC_RECORDING_TTL = 120
@@ -66,42 +72,43 @@ class ProviderRejected(ProviderUnavailable):
 def provider(method, path, *, payload=None, allow_empty=False):
     if cache.get(PROVIDER_CIRCUIT):
         raise ProviderUnavailable()
+    client = DyteClient()
     try:
-        response = requests.request(
-            method,
-            f"{settings.RTK_API_BASE_URL}/v2/{path}",
-            auth=HTTPBasicAuth(settings.DYTE_ORG, settings.DYTE_KEY),
-            json=payload,
-            timeout=PROVIDER_TIMEOUT,
-        )
-    except requests.RequestException:
-        cache.set(PROVIDER_CIRCUIT, True, 10)
-        raise
-    if response.status_code >= 500:
-        cache.set(PROVIDER_CIRCUIT, True, 10)
-    try:
-        body = response.json()
-    except ValueError as exc:
-        raise ProviderUnavailable() from exc
-    if allow_empty and response.status_code == 404:
-        error = body.get("error", {}) if isinstance(body, dict) else {}
-        if (
-            isinstance(error, dict)
-            and error.get("code") == 404
-            and str(error.get("message", "")).startswith(
-                "No active recording for meeting "
-            )
-        ):
+        response = client.request(method, path, payload=payload, timeout=PROVIDER_TIMEOUT, allow_ack=method == 'PUT')
+        return response.json()['data']
+    except ProviderNotFoundError as exc:
+        # Only the provider's own 404 is an answer. An intermediary's routing
+        # page is an unknown state, never "no active recording" (that would
+        # hide the Stop control) and never a definite rejection.
+        if not exc.provider_not_found:
+            raise ProviderUnavailable() from None
+        if allow_empty and path.startswith('recordings/active-recording/'):
+            if not exc.provider_idle:
+                # Only the provider's explicit "No active recording" answer
+                # means idle; any other 404 leaves the state unknown.
+                raise ProviderUnavailable() from None
+            # An idle 404 counts as "no recording" only once the meeting is
+            # confirmed to exist -- under the same short deadline and the
+            # same circuit breaker as every other recording-control call.
+            try:
+                client._meeting(client.request(
+                    'GET', f"meetings/{path.rsplit('/', 1)[-1]}",
+                    timeout=PROVIDER_TIMEOUT))
+            except ProviderError as exc:
+                if isinstance(exc, ProviderUnavailableError):
+                    cache.set(PROVIDER_CIRCUIT, True, 10)
+                raise ProviderUnavailable() from None
             return None
-    if (
-        response.status_code in {400, 401, 403, 404, 422}
-        and isinstance(body, dict)
-        and body.get("success") is False
-    ):
-        raise ProviderRejected()
-    if not response.ok or not isinstance(body, dict) or body.get("success") is not True:
-        raise ProviderUnavailable()
-    return body.get("data")
+        raise ProviderRejected() from None
+    except (ProviderRejectedError, ProviderAuthError):
+        # A definitive refusal (4xx, including 401/403 credentials): nothing
+        # started, so callers must release their pending marker rather than
+        # hold it for a recording that does not exist.
+        raise ProviderRejected() from None
+    except ProviderError as exc:
+        if isinstance(exc, ProviderUnavailableError):
+            cache.set(PROVIDER_CIRCUIT, True, 10)
+        raise ProviderUnavailable() from None
 
 
 def checked_recording(data, meeting_id):
@@ -135,6 +142,64 @@ def recording_status(cm):
         )
         return result
     return None
+
+
+def private_rotation_recording_status(cm):
+    """Allow replacement of an unused legacy room absent from the provider.
+
+    The caller holds the private meeting row lock. An application migration
+    can leave a stored room unreachable, so its recording endpoint cannot
+    answer idle. Recovery is limited to inactive rooms without any session,
+    start lease, recording admission, or unfinished delivery. A provider
+    meeting 404 must also be backed by a successful application-scoped read.
+    The caller preserves the old recording delivery target before rotation.
+    """
+    try:
+        return recording_status(cm)
+    except ProviderUnavailable:
+        key = f"rtk-recording:{cm.meeting_id}"
+        if (
+            cm.meeting_type != PRIVATE or cm.is_public or cm.live_now
+            or cm.lifecycle_state != LIFECYCLE_OFFLINE
+            or cm.provider_session_id is not None
+            or cm.provider_session_started_at is not None
+            or cm.host_session_id is not None or cm.host_start_claim is not None
+            or cm.host_session_seen_at is not None or cm.host_start_claim_at is not None
+            or cm.host_participant_id or cm.host_evictions or cm.start_id is not None
+            or cm.private_lease_id is not None
+            or cm.private_lease_created_at is not None or cm.private_lease_adopted_at is not None
+            or cm.last_seen_at is not None or cm.handshake_managed
+            or cm.provider_room_cleanup_claimed
+            or cache.get(PROVIDER_CIRCUIT)
+            or cache.get(f"{key}:pending") or cache.get(key)
+            or RecordingDelivery.objects.filter(
+                meeting_pk=cm.pk, completed_at__isnull=True,
+            ).exists()
+        ):
+            raise
+        client = DyteClient()
+        try:
+            client.request('GET', f'meetings/{cm.meeting_id}', timeout=PROVIDER_TIMEOUT)
+        except ProviderNotFoundError as exc:
+            # A generic JSON/HTML 404, a routing error, and "no active
+            # session" cannot establish that the meeting itself is absent.
+            if not (exc.provider_not_found and exc.provider_code == 404
+                    and not exc.provider_idle):
+                raise ProviderUnavailable() from None
+        except ProviderError:
+            raise ProviderUnavailable() from None
+        else:
+            raise ProviderUnavailable() from None
+        try:
+            app = client.request(
+                'GET', 'meetings', params={'page_no': 1, 'per_page': 1},
+                timeout=PROVIDER_TIMEOUT,
+            ).json()['data']
+        except ProviderError:
+            raise ProviderUnavailable() from None
+        if not isinstance(app, list):
+            raise ProviderUnavailable()
+        return None
 
 
 def reconcile_recording(cm):

@@ -11,17 +11,17 @@ const SUBMODULE_PATH = "z/zcash/librustzcash";
 // This is an independently reviewed identity decision. Never derive it from
 // the index or working tree: doing so would make a stale pin self-approving.
 //
-// TRANSIENT FORK. The reviewed a2b8c95210 shipping source removes two stale
-// RustCrypto workspace pins. The security overlay moves zcash_proofs parameter
-// downloads to minreq 3 and adapts its lazy response reader, retaining real
-// loopback tests. No Zcash package version, spend code, wallet schema, or protected
-// send adapter changes. EXPECTED_PACKAGES and REVIEWED_SCOPE_DIGEST are unchanged.
+// TRANSIENT FORK. Upstream librustzcash `main` at b0e6e347eb (which carries
+// mainnet NU7 activation without any `zcash_unstable` cfg, and has itself
+// dropped the stale RustCrypto pins our earlier delta removed) plus one
+// security overlay: zcash_proofs parameter downloads move to minreq 3 on the
+// maintained rustls 0.23 line, with loopback tests for the lazy reader.
 //
-// Retire both deltas only when upstream carries the compatible pin removal and
-// the maintained parameter-download TLS path; verify all incident chains and
-// shipping native builds before dropping the bridge. See docs/DEPENDENCIES.md.
+// Retire the overlay only when upstream carries a maintained parameter-download
+// TLS path; verify all incident chains and shipping native builds before
+// dropping the bridge. See docs/DEPENDENCIES.md.
 const EXPECTED_LIBRUSTZCASH_SHA =
-  "473543ce227332b8afd82a9edbf655c4bc4d7c50";
+  "a83a5bb45fbc624561ac81673289a019d2e955b5";
 const SEND_SOURCE =
   "wallet/plugins/tauri-plugin-zcash/src/wallet/send.rs";
 const NATIVE_SEND_POLICY_SOURCE =
@@ -37,17 +37,17 @@ const LOCKFILES = [
 // They are deliberately literals rather than values read from one lockfile and
 // compared with the others; all three locks drifting together must still fail.
 const EXPECTED_PACKAGES = new Map([
-  ["orchard", "0.15.3"],
-  ["pczt", "0.9.3"],
-  ["zcash_client_backend", "0.24.0"],
-  ["zcash_client_sqlite", "0.22.0"],
-  ["zcash_keys", "0.16.1"],
-  ["zcash_pool_migration", "0.1.0"],
-  ["zcash_primitives", "0.30.1"],
-  ["zcash_proofs", "0.30.0"],
-  ["zcash_protocol", "0.10.5"],
-  ["zcash_transparent", "0.10.0"],
-  ["zip321", "0.9.0"],
+  ["orchard", "0.16.0"],
+  ["pczt", "0.10.0"],
+  ["zcash_client_backend", "0.25.0"],
+  ["zcash_client_sqlite", "0.23.0"],
+  ["zcash_keys", "0.17.0"],
+  ["zcash_pool_migration", "0.2.0"],
+  ["zcash_primitives", "0.31.1"],
+  ["zcash_proofs", "0.31.0"],
+  ["zcash_protocol", "0.11.0"],
+  ["zcash_transparent", "0.11.1"],
+  ["zip321", "0.10.0"],
 ]);
 // These independent literals make the guarded inventory fail closed. The
 // digest is deliberately not derived into its expected value at runtime: a
@@ -56,7 +56,7 @@ const EXPECTED_PACKAGES = new Map([
 const REVIEWED_LOCKFILE_COUNT = 3;
 const REVIEWED_PACKAGE_COUNT = 11;
 const REVIEWED_SCOPE_DIGEST =
-  "4b4115dff3d451ca9f4576881fb80e3b7b1c33b465e69968048e18b9bf0325ab";
+  "4b0e2bba4757703c090e0e956a101ce99e8d1c2e50dcc98225f2a388f38b7df7";
 
 export function reviewedCompatibilityScope() {
   return {
@@ -1038,8 +1038,8 @@ function runSelfTest() {
       mutated(
         snapshot,
         lockfile,
-        'name = "orchard"\nversion = "0.15.3"',
-        'name = "orchard"\nversion = "0.15.4"',
+        'name = "orchard"\nversion = "0.16.0"',
+        'name = "orchard"\nversion = "0.16.1"',
         `all locks drift together (${lockfile})`,
       ),
     baseline,
@@ -1060,8 +1060,8 @@ function runSelfTest() {
   const missingPackage = mutated(
     baseline,
     LOCKFILES[0],
-    'name = "orchard"\nversion = "0.15.3"',
-    'name = "orchard-missing"\nversion = "0.15.3"',
+    'name = "orchard"\nversion = "0.16.0"',
+    'name = "orchard-missing"\nversion = "0.16.0"',
     "representative package missing",
   );
   const duplicatePackage = {
@@ -1070,7 +1070,7 @@ function runSelfTest() {
       ...baseline.files,
       [LOCKFILES[0]]:
         `${baseline.files[LOCKFILES[0]].trimEnd()}\n\n` +
-        '[[package]]\nname = "orchard"\nversion = "0.15.3"\n',
+        '[[package]]\nname = "orchard"\nversion = "0.16.0"\n',
     },
   };
   const scopeMutants = [
@@ -1917,7 +1917,7 @@ function runSelfTest() {
     [
       "all locks drift together",
       allLocksDrift,
-      "orchard must occur once at reviewed version 0.15.3",
+      "orchard must occur once at reviewed version 0.16.0",
     ],
     [
       "representative package missing",
