@@ -248,3 +248,12 @@ def published_schedule(service, version=None):
     if version is None:
         return SERVICE_SCHEDULES.get(service)
     return _SCHEDULE_VERSIONS.get((service, version))
+
+
+# Cash schedule resources remain immutable for historical receipts. New PPV
+# admissions share platform credits and do not offer a cash-compensation schedule.
+PROSPECTIVE_COMPENSATION_SERVICES = ('sdk_application',)
+
+
+def prospective_schedules():
+    return tuple(SERVICE_SCHEDULES[service] for service in PROSPECTIVE_COMPENSATION_SERVICES)

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery } from "react-query";
 import axios from "axios";
-import { retireAuthSession, useGlobalState } from "./global";
+import { getGlobalState, retireAuthSession, useGlobalState } from "./global";
 import { retireResolvedSubscribeIdempotencyKeys } from "../subscribeIdempotency";
 
 function fetchUserData() {
@@ -14,15 +14,37 @@ export default function GlobalCreator() {
   const [creator, setCreator] = useGlobalState("creator");
   const [authStatus, setAuthStatus] = useGlobalState("authStatus");
 
-  const { data, error } = useQuery("creatorData", fetchUserData, {
+  const { data, error, isError } = useQuery("creatorData", fetchUserData, {
     // no retry so we get the error on the first try
     retry: 0,
-    // An authoritative identity refresh can represent a new cookie
-    // session even if it resolves to the same account id.
-    onSuccess: retireAuthSession,
+    // Refresh private caches on every authoritative response. Host ownership
+    // survives ordinary balance/profile updates; changed identities are fenced
+    // synchronously, before the effect below adopts their data.
+    onSuccess: (data) => {
+      const current = getGlobalState("creator");
+      retireAuthSession({
+        hostIdentityChanged:
+          data.id !== current.id || data.username !== current.username,
+      });
+    },
   });
 
   useEffect(() => {
+    if (isError) {
+      // The application's Axios interceptor rejects a response directly, and
+      // rejects undefined on a network failure. Query status is authoritative.
+      const response =
+        (error as { response?: unknown } | undefined)?.response ?? error;
+      const status = (response as { status?: number } | undefined)?.status;
+      if (status !== 401 && status !== 403 && data) {
+        // An unavailable profile read is not a logout. Invalidate private
+        // caches without replacing the current identity with retained data.
+        retireAuthSession({ hostIdentityChanged: false });
+      } else {
+        setAuthStatus(false);
+      }
+      return;
+    }
     if (data) {
       // console.log("GLOBAL authstatus true")
       setAuthStatus(true);
@@ -46,14 +68,10 @@ export default function GlobalCreator() {
         data.username
       );
     }
-    if (error) {
-      // console.log("GLOBAL authstatus false", error)
-      setAuthStatus(false);
-    }
     // console.log("GLOBAL CREATOR USEEFFECT")
     // console.log("data", data)
     // console.log("error", error)
-  }, [data, error]);
+  }, [data, error, isError]);
 
   return null;
 }
