@@ -4,7 +4,7 @@ use std::{path::PathBuf, time::Duration};
 use zcash_paymentd::{
     chain::Zakura,
     config::{Config, private_file},
-    delivery::{Automation, ExecAutomation},
+    delivery::{Automation, ExecAutomation, failure_reason},
     journal::{Journal, StateLock},
     now, scanner,
 };
@@ -287,7 +287,17 @@ async fn run(c: Config) -> Result<()> {
                 if let Some(d) = queue.next_for_automation(&consumer.id, now())? {
                     match hook.handle(&d.event).await {
                         Ok(()) => queue.acknowledge(&consumer.id, &d.event.event_id)?,
-                        Err(_) => queue.failed(&consumer.id, &d, "hook failed or timed out")?,
+                        Err(error) => {
+                            // Fixed vocabulary only (timed out after Ns / exited with
+                            // status N / killed by signal N): no event or child data.
+                            let reason = failure_reason(&error);
+                            eprintln!(
+                                "paymentd: consumer {} delivery attempt {} failed: {reason}",
+                                consumer.id,
+                                d.attempts + 1
+                            );
+                            queue.failed(&consumer.id, &d, &reason)?
+                        }
                     }
                 }
                 tokio::time::sleep(Duration::from_secs(1)).await;

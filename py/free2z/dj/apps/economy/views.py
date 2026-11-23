@@ -68,7 +68,7 @@ def capabilities():
 
 
 def schedule_references():
-    return [{'service': item['service'], 'version': item['version'], 'digest': item['digest']} for item in contracts.SERVICE_SCHEDULES.values()]
+    return [{'service': item['service'], 'version': item['version'], 'digest': item['digest']} for item in contracts.prospective_schedules()]
 
 
 def agreement_for(account, *, current=False):
@@ -89,7 +89,8 @@ def has_current_schedule(agreement):
         return False
     accepted = agreement.acceptance_evidence.get('schedules', [])
     now = services._db_now()
-    for schedule in CompensationSchedule.objects.filter(contract_version=agreement.contract_version, effective_at__lte=now):
+    for schedule in CompensationSchedule.objects.filter(service__in=contracts.PROSPECTIVE_COMPENSATION_SERVICES,
+            contract_version=agreement.contract_version, effective_at__lte=now):
         published = contracts.published_schedule(schedule.service)
         if (published and (schedule.ends_at is None or schedule.ends_at > now)
                 and schedule.version == published['version'] and schedule.published_digest == published['digest']
@@ -184,7 +185,7 @@ class AgreementView(APIView):
     def get(self, request):
         return Response({'version': contracts.CREATOR_CONTRACT_VERSION, 'digest': contracts.CREATOR_CONTRACT_DIGEST,
             'text': contracts.CREATOR_CONTRACT_TEXT, 'schedules': [dict({key: item[key] for key in ('service', 'version', 'digest', 'text')}, currency='USD', usd_per_allocated_m2z='0.000010000')
-                for item in contracts.SERVICE_SCHEDULES.values()]}, headers={'Cache-Control': 'no-store'})
+                for item in contracts.prospective_schedules()]}, headers={'Cache-Control': 'no-store'})
 
 
 class AcceptAgreementView(SelfView):
@@ -209,13 +210,18 @@ class AcceptAgreementView(SelfView):
             if account is None or account.legal_payee_id is None:
                 return error('earnings_onboarding_required', 'Complete identity intake at /kyc and contact support for verified legal-payee binding.')
             prior = agreement_for(account, current=True)
-            if prior and prior.contract_version == data['version'] and prior.acceptance_evidence.get('schedules') != schedule_references():
-                return error('agreement_schedule_conflict', 'Existing acceptance cannot be replaced with unseen schedules.')
-            agreement = services.accept_agreement(creator_id=actor.pk, legal_payee_id=account.legal_payee_id,
-                contract_version=data['version'], contract_digest=data['digest'], acceptance_evidence={
-                    'document_reference': f"{data['version']}:{data['digest']}", 'actor_authentication': self.authentication_evidence(request, actor),
-                    'authority_reference': f'authenticated-self:{actor.pk}:bound-payee:{account.legal_payee_id}',
-                    'schedules': schedule_references(), 'activation_required': True, 'prospective_policy_version': 1, 'acknowledged': True})
+            if (prior and (prior.contract_version, prior.contract_digest) ==
+                    (contracts.CREATOR_CONTRACT_VERSION, contracts.CREATOR_CONTRACT_DIGEST)
+                    and all(ref in prior.acceptance_evidence.get('schedules', []) for ref in schedule_references())):
+                # A historical acceptance may contain additional retired
+                # schedules. Replay it unchanged; no SDK reacceptance is due.
+                agreement = prior
+            else:
+                agreement = services.accept_agreement(creator_id=actor.pk, legal_payee_id=account.legal_payee_id,
+                    contract_version=data['version'], contract_digest=data['digest'], acceptance_evidence={
+                        'document_reference': f"{data['version']}:{data['digest']}", 'actor_authentication': self.authentication_evidence(request, actor),
+                        'authority_reference': f'authenticated-self:{actor.pk}:bound-payee:{account.legal_payee_id}',
+                        'schedules': schedule_references(), 'activation_required': True, 'prospective_policy_version': 1, 'acknowledged': True})
         return Response({'version': agreement.contract_version, 'digest': agreement.contract_digest,
             'accepted_at': agreement.accepted_at, 'agreement_accepted': True})
 
