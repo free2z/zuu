@@ -5,6 +5,7 @@ from .models import (
     ProviderRoomCleanup,
     RecordingDelivery,
     WebhookDelivery,
+    PpvCreditObservation,
 )
 
 
@@ -40,6 +41,15 @@ class WebhookDeliveryAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(PpvCreditObservation)
+class PpvCreditObservationAdmin(WebhookDeliveryAdmin):
+    list_display = ('provider_key','attempts','next_retry_at','completed_at','review_required_at','last_error')
+    list_filter = ('completed_at','review_required_at','last_error')
+    search_fields = ('provider_key',)
+    ordering = ('-created_at',)
+    readonly_fields = tuple(field.name for field in PpvCreditObservation._meta.fields)
 
 
 @admin.register(ProviderRoomCleanup)

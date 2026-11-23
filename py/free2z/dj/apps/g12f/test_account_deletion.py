@@ -186,6 +186,36 @@ def test_a_burner_account_deletes_completely_and_every_credential_dies(
     assert Creator.objects.get(pk=other.pk).is_active
 
 
+@pytest.mark.parametrize('relation', ['creator', 'actor'])
+def test_account_deletion_retains_immutable_provider_attribution(
+    burner, recent_login, creator_factory, relation,
+):
+    from dj.apps.dyte.models import ProviderParticipantBinding
+    other = creator_factory(username='provider-counterparty')
+    binding = ProviderParticipantBinding.objects.create(
+        app_id=uuid.uuid4(), meeting_id=str(uuid.uuid4()), participant_id=str(uuid.uuid4()),
+        creator=burner if relation == 'creator' else other,
+        actor=burner if relation == 'actor' else other,
+        role='viewer', custom_participant_id='captured-provider-identity')
+    original = ProviderParticipantBinding.objects.filter(pk=binding.pk).values().get()
+    _, raw_token = AuthToken.objects.create(user=burner)
+    browser = APIClient()
+    recent_login(browser, burner)
+    assert _delete(browser, burner.username).status_code == 202
+    burner.refresh_from_db()
+    assert not burner.is_active and burner.deleted_at is not None
+    assert (burner.full_name, burner.description, burner.email) == ('', '', '')
+    assert not AuthToken.objects.filter(user_id=burner.pk).exists()
+    assert not ZcashIdentity.objects.filter(creator_id=burner.pk).exists()
+    assert ProviderParticipantBinding.objects.filter(pk=binding.pk).values().get() == original
+    assert browser.get('/api/auth/user/').status_code in (401, 403)
+    token_client = APIClient()
+    token_client.credentials(HTTP_AUTHORIZATION=f'Token {raw_token}')
+    assert token_client.get('/api/auth/user/').status_code in (401, 403)
+    other.refresh_from_db()
+    assert other.is_active
+
+
 def test_a_stale_sign_in_changes_nothing(burner, recent_login):
     """A real sign-in, six minutes old: past the five-minute step-up window."""
     client = APIClient()
