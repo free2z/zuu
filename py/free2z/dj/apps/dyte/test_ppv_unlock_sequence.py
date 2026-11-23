@@ -62,7 +62,7 @@ class _FakeResponse:
 def dyte_client(mocker):
     client = mocker.MagicMock()
     client.add_participant.return_value = _FakeResponse(
-        {"data": {"token": "auth-token"}})
+        {"data": {"token": "auth-token", "id": str(uuid.uuid4())}})
     mocker.patch("dj.apps.dyte.views.DyteClient", return_value=client)
     return client
 
