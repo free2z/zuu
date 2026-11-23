@@ -10,7 +10,8 @@ import {
   LivestreamKindContractError,
   LivestreamPriceContractError,
 } from "./free2z";
-import { request } from "./http";
+import { request, setToken } from "./http";
+import { releaseHostSeat } from "./host-seat";
 import type { StreamKind } from "./types";
 
 const requestMock = vi.mocked(request);
@@ -90,14 +91,17 @@ describe("PPV livestream HTTP contract", () => {
 
   it("uses the ppv wire enum for the existing host-start endpoint", async () => {
     const hostToken = fakeAuthToken({ participantId: "host-ticket" });
+    setToken("synthetic-owner");
     requestMock
-      .mockResolvedValueOnce({ username: "alice", tuzis: "500" })
-      .mockResolvedValueOnce({
+      .mockResolvedValueOnce({ id: 81, username: "alice", tuzis: "500" })
+      .mockImplementationOnce(async (_path, options) => ({
+        host_session: (options?.body as { host_session: string }).host_session,
         meeting_id: "authoritative-meeting",
         auth_token: hostToken,
-      });
+      }));
 
-    await expect(live.start("ppv")).resolves.toMatchObject({
+    const result = await live.start("ppv", 100);
+    expect(result).toMatchObject({
       ticket: {
         authToken: hostToken,
         meetingId: "authoritative-meeting",
@@ -108,6 +112,9 @@ describe("PPV livestream HTTP contract", () => {
       "/api/auth/user/",
       "/api/dyte/alice/ppv",
     ]);
+    expect(requestMock.mock.calls[1][1]?.body).toEqual({ role: "host", host_session: result.ticket.hostSeat!.session, expected_actor_id: 81, price_per_minute: "100.00" });
+    releaseHostSeat(result.ticket.hostSeat!, false);
+    setToken(null);
   });
 
   it.each([
