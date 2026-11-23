@@ -1275,3 +1275,28 @@ fn own_superseded_positive_is_explicitly_cancelled_and_remine_waits_for_revoke()
     assert_ne!(remine.event.event_id, stale.event.event_id);
     Ok(())
 }
+
+#[test]
+fn status_surfaces_the_classified_hook_failure_on_the_head() -> Result<()> {
+    use zcash_paymentd::delivery::{HookFailure, failure_reason};
+    let dir = TempDir::new()?;
+    let c = config(&dir);
+    let _lock = StateLock::acquire(&c.state_dir)?;
+    let mut j = Journal::open(&c, "test-viewing-key")?;
+    j.append(&block(3_500_001, "b", "a", vec![payment("ironwood", 0)]))?;
+    let head = j.next("first", i64::MAX)?.unwrap();
+    let reason = failure_reason(&anyhow::Error::from(HookFailure::TimedOut(120)));
+    j.failed("first", &head, &reason)?;
+    let status = j.status(&c)?;
+    let first = status["consumers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|consumer| consumer["id"] == "first")
+        .unwrap();
+    assert_eq!(first["failed"], 1);
+    assert_eq!(first["head"]["attempts"], 1);
+    assert_eq!(first["head"]["last_error"], "hook timed out after 120s");
+    assert_eq!(status["failed_deliveries"], 1);
+    Ok(())
+}
