@@ -1840,6 +1840,7 @@ const server = createServer(async (request, response) => {
   ) {
     response.end(
       JSON.stringify({
+        id: 8811,
         username: LIVE_FIXTURE_USER,
         full_name: "Live Fixture Creator",
         description: "A creator who streams on Free2Z.",

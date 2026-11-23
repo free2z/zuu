@@ -3,6 +3,7 @@ recorder-app.spec.ts
 rtk-viewer-startup.spec.ts
 stream-host-seat.spec.ts
 stream-ppv-prompt.spec.ts
+subscriber-stream-continuation.spec.ts
 tag-filter.spec.ts
 tag-hub-ssr.spec.ts
 toaster-bottom-dock.spec.ts

@@ -451,11 +451,11 @@ def test_signature_failure_triggers_a_key_refresh_and_retries(
         return mocker.Mock(
             status_code=200,
             raise_for_status=mocker.Mock(),
-            json=mocker.Mock(return_value={"data": {"publicKey": pem}}),
+            json=mocker.Mock(return_value={"success": True, "data": {"publicKey": pem}}),
         )
 
     get = mocker.patch(
-        "dj.apps.dyte.views.requests.get", return_value=_resp(stale))
+        "dj.apps.dyte.client._SESSION.get", return_value=_resp(stale))
     clock = {"t": 1000.0}
     mocker.patch("dj.apps.dyte.views.time.monotonic",
                  side_effect=lambda: clock["t"])
@@ -503,11 +503,11 @@ def test_forged_signature_still_rejected_after_a_refresh(
         format=_ser.PublicFormat.SubjectPublicKeyInfo,
     ).decode()
     mocker.patch(
-        "dj.apps.dyte.views.requests.get",
+        "dj.apps.dyte.client._SESSION.get",
         return_value=mocker.Mock(
             status_code=200,
             raise_for_status=mocker.Mock(),
-            json=mocker.Mock(return_value={"data": {"publicKey": pem}}),
+            json=mocker.Mock(return_value={"success": True, "data": {"publicKey": pem}}),
         ),
     )
     cm = _creator_meeting(creator_factory)
