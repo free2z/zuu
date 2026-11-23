@@ -636,7 +636,7 @@ def subscription_schedule_renewal(sender, instance, created, **kwargs):
     """
     Single enqueue point for subscription renewals ( phase 3).
 
-    Every mutation of a Subscription goes through save() — creation and
+    Ordinary mutations of a Subscription go through save() — creation and
     manual renew (CreatorSubscribeView.post -> extend()), cancellation
     (DELETE sets max_price=0), cap changes (PATCH), admin edits, the
     daily backstop sweep, and renew_subscription's own extend(). So a
@@ -644,6 +644,9 @@ def subscription_schedule_renewal(sender, instance, created, **kwargs):
     whenever a renewable sub is saved, schedule g12f.renew_subscription
     at expires - RENEWAL_LEAD — the exact moment the legacy hourly
     sweep's 24h window would have opened.
+
+    A receiving-cap zero-charge continuation updates expiry without save()
+    and invokes the same committed-row scheduler explicitly after commit.
 
     max_price == 0 is how cancellation is modeled (see
     CreatorSubscribeView.delete): a cancel save schedules nothing, and
