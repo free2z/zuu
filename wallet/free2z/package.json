@@ -19,9 +19,9 @@
     "test:android-purchase-assets": "TAURI_ENV_PLATFORM=android npm run build && FREE2Z_PW_ANDROID_ASSETS=1 playwright test tests/android-purchase-assets.pw.ts"
   },
   "dependencies": {
-    "@cloudflare/realtimekit": "1.5.1",
-    "@cloudflare/realtimekit-react": "1.5.1",
-    "@cloudflare/realtimekit-react-ui": "1.2.0",
+    "@cloudflare/realtimekit": "2.0.4",
+    "@cloudflare/realtimekit-react": "2.0.4",
+    "@cloudflare/realtimekit-react-ui": "2.0.3",
     "@fontsource-variable/ibm-plex-sans": "^5.3.0",
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@free2z/wallet-shared": "file:../shared",

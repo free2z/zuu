@@ -149,6 +149,8 @@ interface RequestOpts {
   /** Authenticate this request without publishing a process-wide session. */
   authToken?: string;
   signal?: AbortSignal;
+  /** Preserve a browser request during document unload. */
+  keepalive?: boolean;
 }
 
 function buildUrl(path: string, query?: RequestOpts["query"]): string {
@@ -203,6 +205,7 @@ export async function request<T>(
           : JSON.stringify(opts.body),
     signal: opts.signal,
     cache: opts.cache,
+    keepalive: opts.keepalive,
   });
 
   const text = await res.text();
