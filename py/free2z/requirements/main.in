@@ -1,4 +1,4 @@
-anthropic==1.13.0
+anthropic==1.17.0
 apng==0.3.4
 # Remove the compromised emSign trust anchor (GHSA-6q48-6c7w-9gw2).
 certifi==2026.10.23
@@ -66,7 +66,7 @@ daphne==4.2.3
 autobahn==26.11.1
 # Explicit patched prerelease: the five October 2026 Twisted advisories affect 26.4.0.
 # Keep this exact until a stable patched release is verified.
-twisted[tls]==26.10.0rc1
+twisted[tls]==26.10.0
 # Transitive dep of channels_redis + django_redis; previously unpinned, so the
 # deployed image floated to whatever redis-py was newest at build time. Pinned
 # to the version prod already runs (verified working against the WS round-trip
@@ -138,7 +138,7 @@ jsonlines==4.0.0
 # bin/gen-language-names.py and committed as f2z/language_names.py instead.
 langcodes==3.5.1
 markdown2==2.5.5
-openai==3.38.0
+openai==3.56.0
 pdfrw==0.4
 pgvector==0.5.1
 procrastinate[django]==3.10.0

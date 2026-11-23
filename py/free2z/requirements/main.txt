@@ -9,9 +9,9 @@ annotated-types==0.8.0 \
     --hash=sha256:13b2beaad985e05e2d6407ee4c4f35590b11f8d693a258a561055cac8f64cab7 \
     --hash=sha256:f072f4d804ea359e4eaf198b1af7a8b0943881a87f31bb764f8bf219bb9419e0
     # via pydantic
-anthropic==1.13.0 \
-    --hash=sha256:157bd74dbf6a595cf9e5fcac557c791fd297924dc48261f57470c2ed6f4e6671 \
-    --hash=sha256:ad11d9bb9adafdfea26113943bcde9973e2a439ebeeda6c89ff3e3d85bb2f5c1
+anthropic==1.17.0 \
+    --hash=sha256:ccb98b85e1a14f81cf1e2ba348393f341f342bad9e07e014f96c9b69f853aaa7 \
+    --hash=sha256:dcf77a74dde89a9fd12405fca798b012725a107f7c9488454234a74e275c2163
     # via -r main.in
 anyio==4.15.1 \
     --hash=sha256:6152fdbbf9a77fdec97731721bebf7c4c44f7c29b424b0065826173efc7ed101 \
@@ -1348,14 +1348,15 @@ oauthlib==4.0.1 \
     #   -r main.in
     #   django-oauth-toolkit
     #   requests-oauthlib
-openai==3.38.0 \
-    --hash=sha256:bcd9f9157706ae75c45799aa1580f989c4eeba57de778f2edae3782ce7446bb8 \
-    --hash=sha256:d5d71ce6bc6a724d32df268cfd17910f56af1f4afe9056e4e7361105c2d92a2a
+openai==3.56.0 \
+    --hash=sha256:24043ea80048ed1cd6c263c4fc4192406d05c418e87e89310eecbf55a9021c32 \
+    --hash=sha256:c99192c0a08f572042e50a74c42e325f70a44308fbb0c0c8f3aeb1ba0d52a567
     # via -r main.in
 opentelemetry-api==1.45.2 \
     --hash=sha256:2cbd737377e710ee740d261c94e93fa0f08e6d037c18f17513cc0a2d94479a34 \
     --hash=sha256:d7b0008e21e5fd61cbe7a7f34ca3b6905a78ab677d9bc395e299359c75cda6b4
     # via
+    #   anthropic
     #   google-api-core
     #   google-cloud-pubsub
     #   mcp
@@ -2304,9 +2305,9 @@ truststore==0.10.4 \
     # via
     #   httpcore2
     #   httpx2
-twisted[tls]==26.10.0rc1 \
-    --hash=sha256:9a8689a7ab8180b16917aa585cc4d8dafcef620162b17b8aab3719b485b321e8 \
-    --hash=sha256:a2201fed4dd4919b0fe732aa2c4ac95e4dff3ba04cfc10b1383e7aac29005e27
+twisted[tls]==26.10.0 \
+    --hash=sha256:3732f42af218925a0fe78d6668db55853f7fb532245a89a2669babe7d3000fa8 \
+    --hash=sha256:5f0355403e507fc23ceea85e9dbb4bc59335aabde41dd324e8b8cea180dd38de
     # via
     #   -r main.in
     #   daphne
