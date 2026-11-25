@@ -4,7 +4,7 @@
   "runtimeEvidence": "linux-chromium-fixture-render-not-physical-android-device",
   "sourceSha": "084ebef256b90ab65cd75fe722a1bca4b49bb602",
   "sourceDigest": "82e5e08178f81df7b364628a73ffc4d2232de5246cb07270a6d19398f3077b6e",
-  "contractDigest": "b63a50947f2a2481443e729c7218ffb8232c21ac0129160c1ce30f72ff16bada",
+  "contractDigest": "693ab1445eddc319c97e7afded77b6b12600fdae98fa2f4d573ad5638596d8e2",
   "fixtureProfile": "store-v1",
   "locale": "en-US",
   "fixedTime": "2026-09-07T12:00:00.000Z",
