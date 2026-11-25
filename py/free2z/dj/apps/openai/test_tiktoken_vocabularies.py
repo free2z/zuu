@@ -1,8 +1,7 @@
 """Every model we sell must resolve to a vocabulary baked into the image.
 
-`docker/py3base/Dockerfile` warms the encodings in
-`utils.warm_tiktoken_cache.REQUIRED_ENCODINGS`, and `bin/check-build-image-
-hygiene.py` keeps that warming step wired in. Neither of them can notice the
+`build/free2z/backend.Dockerfile` warms the encodings in
+`utils.warm_tiktoken_cache.REQUIRED_ENCODINGS`. It cannot notice the
 thing most likely to go wrong: somebody adds a model to `seed_ai_models.LINEUP`
 whose name tiktoken maps to an encoding nobody warmed. That is a one-line
 catalogue change with no Dockerfile diff, and its cost is a worker lane wedged
@@ -48,7 +47,7 @@ def test_every_catalogue_model_uses_a_baked_in_vocabulary(model):
         return
 
     assert encoding in REQUIRED_ENCODINGS, (
-        f"{model} resolves to {encoding}, which py3base does not bake in. "
+        f"{model} resolves to {encoding}, which the backend image does not bake in. "
         f"Add it to utils.warm_tiktoken_cache.REQUIRED_ENCODINGS, or the first "
         f"request for this model on a fresh pod downloads the vocabulary with "
         f"no timeout and can wedge the worker lane (#1918)."
