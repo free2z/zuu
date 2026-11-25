@@ -94,6 +94,11 @@ DETECTION_JOB_BUDGET_SECONDS = 10.0
 PUBLISH_RETRY = RetryStrategy(max_attempts=3, linear_wait=30)
 RENEWAL_RETRY_STRATEGY = RetryStrategy(max_attempts=3, linear_wait=60)
 
+# Stable primary-key batches keep creator-page reindex work bounded. This task
+# is registered in this release; account-deletion keep does not enqueue it
+# until the follow-up release.
+CREATOR_PAGE_REINDEX_BATCH_SIZE = 100
+
 # Renewal economics ( phase 3) — these mirror the legacy hourly
 # renew_subs sweep EXACTLY; do not change them without changing the
 # billing contract:
@@ -382,6 +387,46 @@ def notify_published_zpage(context, zpage_id: int):
         return
 
     enqueue_page_update(page, broadcast_id=f"job:{context.job.id}")
+
+
+@app.task(
+    name="g12f.reindex_creator_pages", queue="search",
+)
+def reindex_creator_pages(creator_id: int, account_epoch: int, after_pk: int = 0):
+    """Reindex one bounded page batch, then transactionally defer its successor.
+
+    The epoch fences jobs from an earlier keep after a subsequent deletion or
+    keep. Keyset pagination makes retries/restarts safe: a batch only queues
+    idempotent page indexing jobs, and its cursor advances in the same DB
+    transaction as the continuation job.
+    """
+    from django.db import transaction
+    from dj.apps.g12f.models import Creator, zPage
+    from dj.apps.g12f.signals import reindex_published_zpage
+    from dj.apps.jobs.transactional import defer_in_transaction
+
+    with transaction.atomic():
+        creator = Creator.objects.select_for_update().filter(
+            pk=creator_id, is_active=True, deletion_requested_at__isnull=True,
+            kt_account_epoch=account_epoch,
+        ).first()
+        if creator is None:
+            return
+        pages = list(zPage.objects.published_and_active().filter(
+            creator_id=creator_id, pk__gt=after_pk,
+        ).order_by("pk").only("pk")[:CREATOR_PAGE_REINDEX_BATCH_SIZE])
+        for page in pages:
+            # Recheck visibility immediately before queuing the index job.
+            visible = zPage.objects.published_and_active().filter(
+                pk=page.pk, creator_id=creator_id,
+            ).first()
+            if visible is not None:
+                reindex_published_zpage(visible)
+        if len(pages) == CREATOR_PAGE_REINDEX_BATCH_SIZE:
+            defer_in_transaction(
+                reindex_creator_pages.configure(), creator_id=creator_id,
+                account_epoch=account_epoch, after_pk=pages[-1].pk,
+            )
 
 
 @app.task(
