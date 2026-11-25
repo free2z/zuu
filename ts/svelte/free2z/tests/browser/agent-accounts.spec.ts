@@ -509,3 +509,119 @@ test("connection owners remove one linked account and global revoke refreshes th
     `/api/oauth/grants/${CONNECTION}/`,
   ]);
 });
+
+async function ownConnection(page: Page, available = true) {
+  await page.context().addCookies([
+    {
+      name: "sessionid",
+      value: "billing-fixture-session",
+      domain: "127.0.0.1",
+      path: "/",
+    },
+  ]);
+  await page.route("**/api/oauth/grants/", (route) => json(route, 200, []));
+  await page.route("**/api/oauth/mcp/connections/", (route) =>
+    json(route, 200, {
+      connections: [
+        {
+          id: CONNECTION,
+          application: APP,
+          primary_username: "fixtureowner",
+          scopes,
+          revoked: false,
+          available,
+          accounts: [],
+        },
+      ],
+      account_grants: [],
+    }),
+  );
+}
+
+test("settings creates an exact-account consent link with reduced permissions", async ({
+  page,
+}) => {
+  await ownConnection(page);
+  const writes: unknown[] = [];
+  await page.route(
+    `**/api/oauth/mcp/connections/${CONNECTION}/link/`,
+    (route) => {
+      expect(route.request().method()).toBe("POST");
+      expect(route.request().headers().referer).toBeUndefined();
+      writes.push(route.request().postDataJSON());
+      return json(route, 201, {
+        url: `https://free2z.cash/account/agent-link#intent=${INTENT}`,
+      });
+    },
+  );
+  await link(page);
+  await page.goto("/fixtureowner/dashboard/settings");
+  await page.getByRole("link", { name: "Connected apps", exact: true }).click();
+  await page.getByRole("button", { name: "Add account", exact: true }).click();
+  const form = page.getByRole("form", { name: "Add account", exact: true });
+  await expect(
+    form.getByRole("button", { name: "Create consent link" }),
+  ).toBeDisabled();
+  await expect(
+    form.getByRole("checkbox", {
+      name: "Publish or edit public pages and media",
+    }),
+  ).not.toBeChecked();
+  await form.getByLabel("Exact account username").fill("target-user");
+  await form
+    .getByRole("checkbox", {
+      name: "Create/edit drafts and update your public profile",
+    })
+    .uncheck();
+  expect(writes).toEqual([]);
+  await form.getByRole("button", { name: "Create consent link" }).click();
+  await expect(
+    form.getByRole("link", { name: "Continue to account consent" }),
+  ).toHaveAttribute("href", `/account/agent-link#intent=${INTENT}`);
+  expect(writes).toEqual([
+    { expected_username: "target-user", scopes: ["mcp:read"] },
+  ]);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await form.getByRole("link", { name: "Continue to account consent" }).click();
+  await expect(
+    page.getByRole("button", { name: "Allow access" }),
+  ).toBeVisible();
+  expect(new URL(page.url()).hash).toBe("");
+});
+
+test("settings link failures stay visible without automatic retries and unavailable connections cannot add", async ({
+  page,
+}) => {
+  await ownConnection(page);
+  let calls = 0;
+  await page.route(
+    `**/api/oauth/mcp/connections/${CONNECTION}/link/`,
+    (route) => {
+      calls++;
+      return json(route, 403, { detail: "unavailable" });
+    },
+  );
+  await page.goto("/account/apps");
+  await page.getByRole("button", { name: "Add account", exact: true }).click();
+  const form = page.getByRole("form", { name: "Add account", exact: true });
+  await form.getByLabel("Exact account username").fill("target-user");
+  await form.getByRole("button", { name: "Create consent link" }).click();
+  await expect(form.getByRole("alert")).toContainText(
+    "No access is granted until the named account approves",
+  );
+  await expect(form.getByRole("link")).toHaveCount(0);
+  expect(calls).toBe(1);
+  await ownConnection(page, false);
+  await page.reload();
+  await expect(page.getByTestId("agent-connection")).toContainText(
+    "Unavailable",
+    { timeout: 30000 },
+  );
+  await expect(
+    page.getByRole("button", { name: "Add account", exact: true }),
+  ).toHaveCount(0);
+});
