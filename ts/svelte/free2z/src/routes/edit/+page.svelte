@@ -152,6 +152,7 @@
     receiptJobs,
     summarizeJobs,
     summarizeTray,
+    translationFailureReason,
     trayRows,
     type ServerTranslationJob,
     type TranslationJobEntry,
@@ -5901,11 +5902,16 @@
 
       if (state === "refunded") {
         operationNotice.error(
-          $t(
-            "editor.translateAiRefunded",
-            "The {language} translation could not be completed, so all {price} 2Z were credited back to your balance.",
-            { language: label, price: job.price },
-          ),
+          [
+            translationFailureReason(job.error, $t),
+            $t(
+              "editor.translateAiRefunded",
+              "The {language} translation could not be completed, so all {price} 2Z were credited back to your balance.",
+              { language: label, price: job.price },
+            ),
+          ]
+            .filter(Boolean)
+            .join(" "),
         );
         return;
       }
@@ -6527,6 +6533,10 @@
                   },
                 )}
               {:else if visibleTranslationProgress.job.status === "refunded"}
+                {translationFailureReason(
+                  visibleTranslationProgress.job.error,
+                  $t,
+                )}
                 {$t(
                   "editor.translationRefunded",
                   "The {language} translation failed. All {price} 2Z are back in your balance.",
