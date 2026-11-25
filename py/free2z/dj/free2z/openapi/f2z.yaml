@@ -12641,6 +12641,14 @@ components:
           - $ref: '#/components/schemas/TwitterProfileSummary'
           nullable: true
           readOnly: true
+        zcash_identity_linked:
+          type: boolean
+          readOnly: true
+        social_identities:
+          type: array
+          items:
+            type: string
+          readOnly: true
         avatar_image:
           allOf:
           - $ref: '#/components/schemas/FeaturedImage'
@@ -12666,6 +12674,7 @@ components:
       - fans_count
       - id
       - is_verified
+      - social_identities
       - star_ids
       - stars
       - total
@@ -12673,6 +12682,7 @@ components:
       - twitter
       - username
       - welcome_grant
+      - zcash_identity_linked
       - zpages
     CreatorProfileUpdate:
       type: object
@@ -12770,6 +12780,14 @@ components:
           - $ref: '#/components/schemas/TwitterProfileSummary'
           nullable: true
           readOnly: true
+        zcash_identity_linked:
+          type: boolean
+          readOnly: true
+        social_identities:
+          type: array
+          items:
+            type: string
+          readOnly: true
         avatar_image:
           type: integer
           nullable: true
@@ -12781,12 +12799,14 @@ components:
       - fans_count
       - id
       - is_verified
+      - social_identities
       - star_ids
       - stars
       - total
       - tuzis
       - twitter
       - username
+      - zcash_identity_linked
       - zpages
     CreatorPromptQuote:
       type: object
@@ -15741,6 +15761,14 @@ components:
           allOf:
           - $ref: '#/components/schemas/TwitterProfileSummary'
           nullable: true
+          readOnly: true
+        zcash_identity_linked:
+          type: boolean
+          readOnly: true
+        social_identities:
+          type: array
+          items:
+            type: string
           readOnly: true
         avatar_image:
           type: integer

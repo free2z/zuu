@@ -1985,6 +1985,8 @@ export interface CreatorProfileDetail {
   readonly star_ids: readonly number[];
   readonly fans_count: number;
   readonly twitter: TwitterProfileSummary | null;
+  readonly zcash_identity_linked: boolean;
+  readonly social_identities: readonly string[];
   avatar_image?: FeaturedImage | null;
   banner_image?: FeaturedImage | null;
   /** Active PostgreSQL snapshot of this committed 2Z balance, encoded as canonical decimal xmax:xip_count. Compare xmax ascending as an unsigned 64-bit integer, then xip_count descending. Applies to read-only observations from the same database; absent on representations without a balance snapshot. */
@@ -2046,6 +2048,8 @@ export interface CreatorProfileUpdate {
   readonly star_ids: readonly number[];
   readonly fans_count: number;
   readonly twitter: TwitterProfileSummary | null;
+  readonly zcash_identity_linked: boolean;
+  readonly social_identities: readonly string[];
   /** @nullable */
   avatar_image?: number | null;
   /** @nullable */
@@ -3956,6 +3960,8 @@ export interface PatchedCreatorProfileUpdate {
   readonly star_ids?: readonly number[];
   readonly fans_count?: number;
   readonly twitter?: TwitterProfileSummary | null;
+  readonly zcash_identity_linked?: boolean;
+  readonly social_identities?: readonly string[];
   /** @nullable */
   avatar_image?: number | null;
   /** @nullable */
