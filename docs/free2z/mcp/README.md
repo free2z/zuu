@@ -43,7 +43,7 @@ openclaw mcp set free2z '{"url":"https://free2z.cash/api/mcp","transport":"strea
 openclaw mcp login free2z
 ```
 
-See [OpenClaw's transport and OAuth guide](https://docs.openclaw.ai/cli/mcp/transports). This setup is documented compatibility, not a recorded Free2Z end-to-end test.
+See [OpenClaw's transport and OAuth guide](https://docs.openclaw.ai/cli/mcp/transports), checked on 2026-11-12. This setup is a compatibility candidate, not a recorded Free2Z end-to-end test. Its default OAuth credentials are shared by the operator's runtimes; evaluate who can invoke the connection before linking accounts. Record the OpenClaw version, callback registration, browser consent, `free2z_list_accounts`, selected-account draft/readback and revocation before calling it verified. `doctor --probe` can check a live protocol session but does not prove those account workflows.
 
 An MCP label alone is insufficient: a client needs this HTTP transport, OAuth discovery and authorization-code authentication with PKCE, and a way to complete browser consent. Editors, terminal agents, desktop assistants and custom applications can implement those capabilities. Hosted chat products can impose their own connector, plan or administrator requirements. Developer APIs such as [OpenAI's MCP tools](https://developers.openai.com/api/docs/guides/tools-connectors-mcp) and [xAI's remote MCP tools](https://docs.x.ai/developers/tools/remote-mcp) can accept a bearer token; the integrating application must arrange authorization and token renewal.
 
@@ -66,6 +66,8 @@ Start by asking the assistant to list your connected Free2Z accounts. Every cont
 For example, connect the assistant as `foobar`, then ask:
 
 > Connect Free2Z account baz to this connection so I can prepare drafts for it.
+
+You can also open **Connected apps → Agent connections → Add account** on the connection you own, enter `baz` and choose the requested permissions. Creating the consent link grants no access. Continue to account consent, switch to `baz` when prompted and approve; then ask the assistant to list accounts again. Links expire after ten minutes, and the connection must still be authorized when the account approves.
 
 The assistant calls `free2z_connect_account` with the exact username and gives you a browser link. Open it, sign in as `baz`, and review the application, connection owner `foobar`, requested account `baz` and permissions. The page states that `foobar`'s connection will be able to act as `baz`. The accounts can belong to different people; whoever owns `baz` must approve that delegation. A browser signed in as `foobar` cannot approve the request for `baz`.
 
@@ -94,7 +96,7 @@ Browser account changes do not change the MCP selection or revoke the existing c
 
 Free2Z's normal balance requirements and upload limits apply to the selected account. Account ownership, membership visibility, validation and throttling also apply. Public profile tools exclude private fields; `auth_user_retrieve` requires separate `mcp:account` consent. Permanent content deletion additionally requires `mcp:delete`; an existing write or publication grant cannot delete content. Transfers, subscriptions, credential changes and arbitrary API requests require additional reviewed delegation; their catalog entries explain the gap. Existing connections and registered clients do not acquire new permissions automatically. A client registered before these permissions existed must register a new OAuth client (usually by removing and adding the server in its client settings), then request the needed scopes and complete fresh browser consent. Refreshing an old token or requesting scopes outside the old registration returns no additional authority. Existing connections continue to support their previously granted operations.
 
-Open [Connected apps](https://free2z.cash/account/apps) on your deployment to inspect connections, linked accounts and recent attributed actions. A connection owner can remove one linked account or the whole connection; a linked account owner can remove its individual grant. Removing a direct application's access also revokes every primary connection authorized by that account for that application and their linked access. Removing a client's local configuration is not a substitute for revoking access in Free2Z.
+Open **Connected apps** from account settings (or [go directly](https://free2z.cash/account/apps)) on your deployment to inspect connections, linked accounts and recent attributed actions. A connection owner can remove one linked account or the whole connection; a linked account owner can remove its individual grant. Removing a direct application's access also revokes every primary connection authorized by that account for that application and their linked access. Removing a client's local configuration is not a substitute for revoking access in Free2Z.
 
 ## Drafts, edits and publishing
 
