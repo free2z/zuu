@@ -5,7 +5,9 @@ COPY py/free2z/requirements/main.txt /requirements.txt
 RUN python -m pip install --disable-pip-version-check --require-hashes -r /requirements.txt
 ENV TIKTOKEN_CACHE_DIR=/opt/tiktoken-cache
 COPY py/free2z/utils/warm_tiktoken_cache.py /warm_tiktoken_cache.py
-RUN python /warm_tiktoken_cache.py
+COPY build/free2z/tiktoken-vocab /tiktoken-vocab
+RUN mkdir -p /usr/share/licenses/tiktoken-vocab && cp /tiktoken-vocab/LICENSE /usr/share/licenses/tiktoken-vocab/LICENSE
+RUN --network=none TIKTOKEN_VOCAB_DIR=/tiktoken-vocab python /warm_tiktoken_cache.py && rm -rf /tiktoken-vocab
 COPY py/free2z /source
 COPY scripts/free2z/package-runtime.py /package-runtime.py
 RUN python /package-runtime.py /source /py && rm -rf /source /package-runtime.py

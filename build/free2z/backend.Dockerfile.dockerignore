@@ -1,4 +1,8 @@
 **
+!build/
+!build/free2z/
+!build/free2z/tiktoken-vocab/
+!build/free2z/tiktoken-vocab/**
 !py/
 !py/free2z/
 !py/free2z/**
