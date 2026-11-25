@@ -33,11 +33,13 @@ import type {
   InternalEpoch,
   IntrospectRequest,
   IntrospectResponse,
+  MCPBrowserLink,
   MCPClientRegistration,
   MCPConnections,
   MCPIntent,
   MCPLinkDecision,
   MCPLinkEvaluation,
+  MCPLinkIntentResult,
   MCPLinkResult,
   MCPRegistrationResult,
   OAuthError,
@@ -1335,6 +1337,71 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
         TContext
       > => {
       return createMutation(getMcpConnectionRevokeMutationOptions(options));
+    }
+    /**
+ * Request independent account consent for a connection owned by this session.
+ */
+export const mcpConnectionLink = (
+    connectionId: string,
+    mCPBrowserLink: MCPBrowserLink,
+ options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
+) => {
+
+
+      return customInstance<MCPLinkIntentResult>(
+      {url: `/api/oauth/mcp/connections/${connectionId}/link/`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: mCPBrowserLink, signal
+    },
+      options);
+    }
+
+
+
+
+export const getMcpConnectionLinkMutationKey = () => ['mcpConnectionLink'] as const;
+
+export const getMcpConnectionLinkMutationOptions = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpConnectionLink>>, TError,McpConnectionLinkMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+): CreateMutationOptions<Awaited<ReturnType<typeof mcpConnectionLink>>, TError,McpConnectionLinkMutationVariables, TContext> => {
+
+const mutationKey = getMcpConnectionLinkMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof mcpConnectionLink>>, McpConnectionLinkMutationVariables> = (props) => {
+          const {connectionId,data} = props ?? {};
+
+          return  mcpConnectionLink(connectionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type McpConnectionLinkMutationResult = NonNullable<Awaited<ReturnType<typeof mcpConnectionLink>>>
+    export type McpConnectionLinkMutationBody = MCPBrowserLink
+    export type McpConnectionLinkMutationError = unknown
+    export type McpConnectionLinkMutationVariables = {connectionId: string;data: MCPBrowserLink}
+
+    export const createMcpConnectionLink = <TError = unknown,
+    TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpConnectionLink>>, TError,McpConnectionLinkMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
+ , queryClient?: QueryClient): CreateMutationResult<
+        Awaited<ReturnType<typeof mcpConnectionLink>>,
+        TError,
+        McpConnectionLinkMutationVariables,
+        TContext
+      > => {
+      return createMutation(getMcpConnectionLinkMutationOptions(options));
     }
     export const mcpAccountRevoke = (
     grantId: string,
