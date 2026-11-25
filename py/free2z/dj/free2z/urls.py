@@ -50,6 +50,8 @@ from dj.apps.g12f.views.account_deletion import (
 )
 from dj.apps.identity.auth_context import (
     INHERIT,
+    AMR_OTP,
+    current_auth_context,
     forget_all_tokens,
     forget_request_credentials,
     record_login,
@@ -93,9 +95,9 @@ class LogoutAllView(KnoxLogoutAllView):
 # caller's own credential, so an event committing after that read leaves the
 # stamp behind the account and the token is refused the first time it is used.
 class LoginView(KnoxLoginView):
-    # `post()` is overridden ONLY to drop the caller's unusable rows first --
-    # it delegates straight to knox, so the token-limit and TTL handling stays
-    # knox's and cannot drift.
+    # `post()` checks the presenting credential against the current factor
+    # and drops unusable rows before delegating issuance to Knox. Token-limit
+    # and TTL handling remain Knox's.
     #
     # Without this, the knox 4.2.0 -> 5.1.0 upgrade can lock a user out for up
     # to `TOKEN_TTL` (10 hours): 5.x cannot authenticate a token minted by
@@ -113,8 +115,22 @@ class LoginView(KnoxLoginView):
     # the destructive-migration hazard `bin/prod-healthcheck.sh` warns about.
     # See `ktauth.credentials.purge_unusable_tokens` for the full argument.
     def post(self, request, format=None):
-        purge_unusable_tokens(request.user)
-        return super().post(request, format=format)
+        # Exchange only a credential that actually proved the enrolled factor.
+        # A pre-enrolment/legacy session must not turn into a fresh bearer.
+        # Hold the factor lock through issuance, just like OTP consumers.
+        from django.db import transaction
+        from rest_framework.exceptions import PermissionDenied
+        from dj.apps.otp.utils import lock_factor, factor_binding
+
+        with transaction.atomic():
+            factor = lock_factor(request.user)
+            if factor is not None and factor.is_active:
+                context = current_auth_context(request)
+                if (context is None or AMR_OTP not in context.amr
+                        or context.otp_binding != factor_binding(factor)):
+                    raise PermissionDenied("Sign in again with your second factor.")
+            purge_unusable_tokens(request.user)
+            return super().post(request, format=format)
 
     def get_post_response_data(self, request, token, instance):
         stamp_issued_token(instance, request.user.kt_account_epoch)
