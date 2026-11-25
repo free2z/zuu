@@ -192,3 +192,45 @@ export function newMembershipIdempotencyKey(): string {
     hex.slice(20),
   ].join("-");
 }
+
+const PENDING_MEMBERSHIP_KEY = "free2z.pending-membership.v1";
+type PendingMembership = { actor: string; creator: string; price: number; key: string; uncertain?: boolean };
+
+/** Reuse the same money identity after reloads and only for the same consent tuple. */
+export interface MembershipStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
+function browserMembershipStorage(): MembershipStorage {
+  if (typeof localStorage === "undefined") throw new Error("Membership storage is unavailable.");
+  return localStorage;
+}
+export function membershipAttempt(actor: string, creator: string, price: number, storage: MembershipStorage = browserMembershipStorage()): PendingMembership {
+  const normalized = { actor: actor.toLowerCase(), creator: creator.toLowerCase(), price };
+  if (!normalized.actor || !normalized.creator || !Number.isSafeInteger(price) || price <= 0) throw new Error("Invalid membership purchase identity.");
+  const recordKey = `${PENDING_MEMBERSHIP_KEY}:${encodeURIComponent(normalized.actor)}:${encodeURIComponent(normalized.creator)}`;
+  let stored: string | null;
+  try { stored = storage.getItem(recordKey); }
+  catch { throw new Error("A safe membership retry identity could not be read. Purchase is blocked."); }
+  if (stored) {
+      let pending: PendingMembership;
+      try { pending = JSON.parse(stored) as PendingMembership; } catch { throw new Error("A safe membership retry identity could not be read. Purchase is blocked."); }
+      if (pending.actor !== normalized.actor || pending.creator !== normalized.creator || !Number.isSafeInteger(pending.price) || pending.price <= 0 || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(pending.key)) throw new Error("Corrupt pending membership identity; purchase is blocked.");
+      if (pending.price === price) return pending;
+      if (pending.actor === normalized.actor && pending.creator === normalized.creator) {
+        throw new MembershipPriceChangedError(pending.price, price);
+      }
+  }
+  const pending = { ...normalized, key: newMembershipIdempotencyKey() };
+  try { storage.setItem(recordKey, JSON.stringify(pending)); }
+  catch { throw new Error("A safe membership retry identity could not be saved. Purchase is blocked."); }
+  if (storage.getItem(recordKey) !== JSON.stringify(pending)) throw new Error("A safe membership retry identity could not be verified. Purchase is blocked.");
+  return pending;
+}
+
+export function clearMembershipAttempt(actor: string, creator: string, key: string, storage: MembershipStorage = browserMembershipStorage()): void {
+  const recordKey = `${PENDING_MEMBERSHIP_KEY}:${encodeURIComponent(actor.toLowerCase())}:${encodeURIComponent(creator.toLowerCase())}`;
+  const saved = storage.getItem(recordKey);
+  if (saved && (JSON.parse(saved) as PendingMembership).key === key) storage.removeItem(recordKey);
+}
+
+export function markMembershipAttemptUncertain(actor: string, creator: string, price: number, storage: MembershipStorage = browserMembershipStorage()): void {
+  membershipAttempt(actor, creator, price, storage);
+}
