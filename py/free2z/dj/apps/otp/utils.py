@@ -2,8 +2,10 @@ import binascii
 import enum
 import logging
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
+from django.utils.crypto import salted_hmac
 
 from django.core.cache import cache
 import pyotp
@@ -136,6 +138,24 @@ class TotpGate(enum.Enum):
         return "otp" if self is TotpGate.VERIFIED else None
 
 
+def factor_binding(factor):
+    """Private binding to this row and seed, never a client credential."""
+    return salted_hmac(
+        'free2z.totp.factor', f'{factor.pk}:{factor.secret}', algorithm='sha256',
+    ).hexdigest()
+
+
+def lock_factor(user):
+    """Account first, then existing factor, including pending enrolment.
+
+    The account lock closes the absent-row gap. Call inside the issuer's
+    transaction and retain it until credential issuance has completed.
+    All enrolment mutations use this same order.
+    """
+    get_user_model().objects.select_for_update().only('pk').get(pk=user.pk)
+    return OTPSecret.objects.select_for_update().filter(user_id=user.pk).first()
+
+
 def check_user_totp(user, token) -> TotpGate:
     """:func:`verify_user_totp`, saying which way it passed.
 
@@ -147,14 +167,18 @@ def check_user_totp(user, token) -> TotpGate:
     if user is None or not getattr(user, 'is_authenticated', False):
         return TotpGate.REFUSED
     with transaction.atomic():
-        otp_secret = (
-            OTPSecret.objects.select_for_update()
-            .filter(user_id=user.pk, is_active=True)
-            .first()
-        )
-        if otp_secret is None:
+        otp_secret = lock_factor(user)
+        user._verified_totp_binding = ''
+        if otp_secret is None or not otp_secret.is_active:
             return TotpGate.NOT_ENROLLED
+        # A shared per-account budget complements source-IP throttles. New
+        # clients, routes or source addresses must not reopen six-digit guesses.
+        attempt = claim_totp_attempt('account', user.pk, TOTP_ATTEMPT_TTL_SECONDS)
+        if attempt is None or attempt > TOTP_ATTEMPT_LIMIT:
+            return TotpGate.REFUSED
         if consume_token(otp_secret, token):
+            user._verified_totp_binding = factor_binding(otp_secret)
+            clear_totp_attempt('account', user.pk)
             return TotpGate.VERIFIED
         return TotpGate.REFUSED
 
@@ -182,10 +206,9 @@ def has_active_totp(user):
     """Return whether ``user`` has an enrolled, active TOTP factor."""
     if user is None or not getattr(user, "is_authenticated", False):
         return False
-    return OTPSecret.objects.filter(
-        user_id=user.pk,
-        is_active=True,
-    ).exists()
+    with transaction.atomic():
+        factor = lock_factor(user)
+        return factor is not None and factor.is_active
 
 
 def _totp_attempt_key(scope, identifier):
