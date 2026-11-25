@@ -18,6 +18,7 @@
   import { focusTrap } from "$lib/focus-trap";
   import {
     formatElapsed,
+    translationFailureReason,
     summarizeTray,
     summaryText,
     trayRows,
@@ -425,6 +426,7 @@
                   class="text-xs text-muted-foreground"
                   data-testid="translation-failure"
                 >
+                  {translationFailureReason(job?.error, $t)}
                   {failureSentence(job)}
                 </p>
               {/if}
