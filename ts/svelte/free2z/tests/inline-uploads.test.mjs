@@ -647,3 +647,29 @@ test("server normalization keeps non-image uploads in native embeds", async () =
     else assert.equal(doc.text, `\n\n::embed[${url}]\n\n`);
   }
 });
+
+test("picker upload serializes distinct alt and caption at a block boundary", async () => {
+  const { doc, uploader } = harness({ text: "before after" });
+  await uploader.startInlineUploads([file("bird.png")], 6, undefined, [
+    { alt: "Bird ] in flight", caption: "雪\n<script>" },
+  ]);
+  assert.equal(
+    doc.text,
+    'before\n\n![Bird \\] in flight](/uploadz/public/u/bird.png)\n::caption["雪\\n<script>"]\n\n after',
+  );
+});
+
+test("abandonment after a successful upload removes only its placeholder", async () => {
+  const upload = deferred();
+  const { doc, uploader, calls, abandon } = harness({
+    uploadPublicFile: () => upload.promise,
+  });
+  const run = uploader.startInlineUploads([file("late.png")], 0);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  abandon();
+  upload.resolve({ url: "/uploadz/public/u/late.png" });
+  await run;
+  assert.equal(doc.text, "");
+  assert.equal(uploader.pending, 0);
+  assert.deepEqual(calls.toasts, []);
+});
