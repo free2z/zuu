@@ -7,6 +7,7 @@ from django.db import models
 from django.db.models import (
     Count, Max, Q, Value, F, Case, When, IntegerField, Exists, OuterRef,
 )
+from django.contrib.postgres.expressions import ArraySubquery
 from django.db.models.functions import Greatest, Coalesce
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
@@ -43,6 +44,8 @@ from dj.apps.g12f.models import (
     Creator, CreatorBlock, CreatorFollow, CreatorMute, active_fans_count, zPage,
 )
 from dj.apps.g12f.identifiers import resolve_zpage_pk
+from dj.apps.zauth.models import ZcashIdentity
+from dj.apps.social.models import SocialIdentity
 from dj.apps.g12f.blocks import exclude_blocked
 from dj.apps.g12f.serializers.creator import (
     RegistrationSerializer,
@@ -304,6 +307,13 @@ class CustomUserDetailsView(UserDetailsView):
             return user
         annotated = Creator.objects.filter(pk=pk).annotate(
             fans_count=active_fans_count(),
+            zcash_identity_linked=Exists(
+                ZcashIdentity.objects.filter(creator_id=OuterRef('pk')),
+            ),
+            linked_social_provider_keys=ArraySubquery(
+                SocialIdentity.objects.filter(creator_id=OuterRef('pk'))
+                .order_by('provider').values('provider').distinct(),
+            ),
             # Both parts describe the active snapshot that reads tuzis, not
             # command receipt time or serialization time. On read-only reads
             # from one primary, xmax can only increase; at fixed xmax, the
