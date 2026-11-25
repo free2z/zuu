@@ -88,3 +88,14 @@ class MCPRegistrationResultSerializer(serializers.Serializer):
     scope = serializers.CharField()
     client_secret = serializers.CharField(required=False)
     client_secret_expires_at = serializers.IntegerField(required=False)
+
+
+class MCPBrowserLinkSerializer(serializers.Serializer):
+    expected_username = serializers.CharField(max_length=150, trim_whitespace=False)
+    scopes = serializers.ListField(child=serializers.CharField(), allow_empty=False)
+
+
+class MCPLinkIntentResultSerializer(serializers.Serializer):
+    url = serializers.URLField()
+    expires_at = serializers.DateTimeField()
+    expected_username = serializers.CharField()
