@@ -23,6 +23,7 @@ from .models import F2ZApplication, MCPAccountGrant, MCPConnection
 from .mcp_serializers import (
     MCPConnectionsSerializer, MCPIntentSerializer, MCPLinkDecisionSerializer,
     MCPLinkEvaluationSerializer, MCPLinkResultSerializer, MCPRegistrationResultSerializer,
+    MCPBrowserLinkSerializer, MCPLinkIntentResultSerializer,
 )
 from .scopes import MCP_SCOPES, SCOPE_OFFLINE_ACCESS, mcp_resource, scope_list, scope_string
 
@@ -223,6 +224,17 @@ class MCPConnectionsView(MCPSessionView):
             "connections": [_connection_data(c) for c in connections],
             "account_grants": [{**_account_data(g), "connection_id": str(g.connection_id), "primary_username": g.connection.primary_user.username, "application": {"name": g.connection.application.name, "client_id": g.connection.application.client_id}} for g in grants],
         })
+
+
+class MCPBrowserLinkView(MCPSessionView):
+    """Request independent account consent for a connection owned by this session."""
+    @extend_schema(request=MCPBrowserLinkSerializer, responses={201: MCPLinkIntentResultSerializer}, operation_id="mcp_connection_link")
+    def post(self, request, connection_id):
+        from .mcp import create_browser_link_intent
+        serializer = MCPBrowserLinkSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        result = create_browser_link_intent(request.user, connection_id, **serializer.validated_data)
+        return Response(result, status=201)
 
 
 class MCPConnectionRevokeView(MCPSessionView):
