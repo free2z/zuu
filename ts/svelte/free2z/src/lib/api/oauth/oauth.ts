@@ -1416,7 +1416,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type McpConnectionLinkMutationError = unknown
     export type McpConnectionLinkMutationVariables = {connectionId: string;data: MCPBrowserLink}
 
-    export const createMcpConnectionLink = <TError = unknown,
+    /** Request independent account consent for a connection owned by this session. */
+export const createMcpConnectionLink = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpConnectionLink>>, TError,McpConnectionLinkMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof mcpConnectionLink>>,
