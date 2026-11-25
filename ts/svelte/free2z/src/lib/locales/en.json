@@ -623,6 +623,14 @@
     "libraryImageAlt": "Image from your library",
     "imageLoadFailedWithStatus": "Failed to load image ({status}).",
     "imageFallback": "Image {id}",
+    "selectImageFirst": "Place the cursor on a standalone image first.",
+    "imageDetailsTitle": "Image details",
+    "imageDetailsHint": "Alt text describes the image for screen readers. A caption appears below the image for everyone.",
+    "imageDescription": "Alt text (image description)",
+    "imageCaption": "Visible caption",
+    "imageDetailsChanged": "The document changed. Select the image again.",
+    "imageDetailsSave": "Apply",
+    "editImageDetails": "Edit image at cursor",
     "imageName": "Image",
     "dropOrSelectCover": "Drop an image here or pick one from your device",
     "coverDropzoneLabel": "Drop an image here to upload a cover image",
@@ -3091,7 +3099,16 @@
         "uncertain": "Could not confirm"
       },
       "deletedAccount": "Deleted account",
-      "removedApplication": "Removed application"
+      "removedApplication": "Removed application",
+      "connectionId": "Connection ID",
+      "addAccount": "Add account",
+      "addTo": "Add an account to {app}",
+      "addHelp": "Enter the exact username. That account must sign in and approve access to this connection; creating a link grants no access.",
+      "exactUsername": "Exact account username",
+      "createLink": "Create consent link",
+      "reviewLink": "Continue to account consent",
+      "linkExpiry": "This link expires in 10 minutes. After approval, ask your assistant to list accounts again.",
+      "addFailed": "The account-link request could not be confirmed. No access is granted until the named account approves. Check Connected apps before trying again."
     }
   },
   "translationJobs": {
@@ -3109,6 +3126,8 @@
     "chipUnknown": "Checking…",
     "deliveredToast": "{language} is ready to review.",
     "doneReviewing": "Done",
+    "failureTimeout": "The translation took too long. Try a shorter article or try again later.",
+    "failureTruncated": "The translation reached its output limit before it was finished. Try a shorter article.",
     "flaggedItemNotFound": "not present verbatim in this draft; compare it with the original",
     "flaggedTextInDraft": "Find flagged items in the draft",
     "emptyBody": "Pick as many languages as you like. They translate side by side while you keep writing, and each one waits here for your review.",

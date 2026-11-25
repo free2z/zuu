@@ -623,6 +623,14 @@
     "libraryImageAlt": "Image de votre bibliothèque",
     "imageLoadFailedWithStatus": "Impossible de charger l’image ({status}).",
     "imageFallback": "Image {id}",
+    "selectImageFirst": "Placez d’abord le curseur sur une image isolée.",
+    "imageDetailsTitle": "Détails de l’image",
+    "imageDetailsHint": "Le texte alternatif décrit l’image pour les lecteurs d’écran. La légende apparaît sous l’image pour tout le monde.",
+    "imageDescription": "Texte alternatif (description de l’image)",
+    "imageCaption": "Légende visible",
+    "imageDetailsChanged": "Le document a changé. Sélectionnez à nouveau l’image.",
+    "imageDetailsSave": "Appliquer",
+    "editImageDetails": "Modifier l’image au curseur",
     "imageName": "Image",
     "dropOrSelectCover": "Déposez une image ici ou sélectionnez-en une sur votre appareil",
     "coverDropzoneLabel": "Déposez une image ici pour l’utiliser comme couverture",
@@ -3091,7 +3099,16 @@
         "uncertain": "Impossible de confirmer"
       },
       "deletedAccount": "Compte supprimé",
-      "removedApplication": "Application supprimée"
+      "removedApplication": "Application supprimée",
+      "connectionId": "Identifiant de connexion",
+      "addAccount": "Ajouter un compte",
+      "addTo": "Ajouter un compte à {app}",
+      "addHelp": "Saisissez le nom d’utilisateur exact. Ce compte doit se connecter et approuver l’accès à cette connexion ; créer un lien n’accorde aucun accès.",
+      "exactUsername": "Nom d’utilisateur exact du compte",
+      "createLink": "Créer un lien de consentement",
+      "reviewLink": "Continuer vers le consentement du compte",
+      "linkExpiry": "Ce lien expire dans 10 minutes. Après approbation, demandez à votre assistant de lister à nouveau les comptes.",
+      "addFailed": "La demande de liaison du compte n’a pas pu être confirmée. Aucun accès n’est accordé tant que le compte indiqué ne l’a pas approuvé. Vérifiez les applications connectées avant de réessayer."
     }
   },
   "translationJobs": {
@@ -3109,6 +3126,8 @@
     "chipUnknown": "Vérification…",
     "deliveredToast": "{language} : prête à relire.",
     "doneReviewing": "Terminé",
+    "failureTimeout": "La traduction a pris trop de temps. Essayez avec un article plus court ou réessayez plus tard.",
+    "failureTruncated": "La traduction a atteint sa limite de sortie avant d’être terminée. Essayez avec un article plus court.",
     "flaggedItemNotFound": "n’apparaît pas tel quel dans ce brouillon ; comparez-le à l’original",
     "flaggedTextInDraft": "Repérer les éléments signalés dans le brouillon",
     "emptyBody": "Choisissez autant de langues que vous voulez. Elles se traduisent en parallèle pendant que vous écrivez, et chacune vous attend ici pour relecture.",

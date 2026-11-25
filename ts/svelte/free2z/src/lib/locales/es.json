@@ -623,6 +623,14 @@
     "libraryImageAlt": "Imagen de tu biblioteca",
     "imageLoadFailedWithStatus": "No se pudo cargar la imagen ({status}).",
     "imageFallback": "Imagen {id}",
+    "selectImageFirst": "Coloca primero el cursor en una imagen independiente.",
+    "imageDetailsTitle": "Detalles de la imagen",
+    "imageDetailsHint": "El texto alternativo describe la imagen para lectores de pantalla. El pie aparece debajo de la imagen para todos.",
+    "imageDescription": "Texto alternativo (descripción de la imagen)",
+    "imageCaption": "Pie de imagen visible",
+    "imageDetailsChanged": "El documento cambió. Selecciona la imagen de nuevo.",
+    "imageDetailsSave": "Aplicar",
+    "editImageDetails": "Editar imagen en el cursor",
     "imageName": "Imagen",
     "dropOrSelectCover": "Suelta una imagen aquí o elige una de tu dispositivo",
     "coverDropzoneLabel": "Suelta una imagen aquí para usarla como portada",
@@ -3091,7 +3099,16 @@
         "uncertain": "No se pudo confirmar"
       },
       "deletedAccount": "Cuenta eliminada",
-      "removedApplication": "Aplicación eliminada"
+      "removedApplication": "Aplicación eliminada",
+      "connectionId": "ID de conexión",
+      "addAccount": "Añadir cuenta",
+      "addTo": "Añadir una cuenta a {app}",
+      "addHelp": "Introduce el nombre de usuario exacto. Esa cuenta debe iniciar sesión y aprobar el acceso a esta conexión; crear un enlace no concede acceso.",
+      "exactUsername": "Nombre de usuario exacto de la cuenta",
+      "createLink": "Crear enlace de consentimiento",
+      "reviewLink": "Continuar al consentimiento de la cuenta",
+      "linkExpiry": "Este enlace caduca en 10 minutos. Tras aprobarlo, pide a tu asistente que vuelva a listar las cuentas.",
+      "addFailed": "No se pudo confirmar la solicitud de enlace de cuenta. No se concede acceso hasta que la cuenta indicada lo apruebe. Revisa las aplicaciones conectadas antes de intentarlo de nuevo."
     }
   },
   "translationJobs": {
@@ -3109,6 +3126,8 @@
     "chipUnknown": "Comprobando…",
     "deliveredToast": "{language}: lista para revisar.",
     "doneReviewing": "Listo",
+    "failureTimeout": "La traducción tardó demasiado. Prueba con un artículo más corto o vuelve a intentarlo más tarde.",
+    "failureTruncated": "La traducción alcanzó su límite de salida antes de terminar. Prueba con un artículo más corto.",
     "flaggedItemNotFound": "no aparece literalmente en este borrador; compáralo con el original",
     "flaggedTextInDraft": "Buscar elementos marcados en el borrador",
     "emptyBody": "Elige todos los idiomas que quieras. Se traducen a la vez mientras sigues escribiendo, y cada uno te espera aquí para que lo revises.",

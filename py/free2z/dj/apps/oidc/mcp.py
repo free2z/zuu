@@ -183,16 +183,46 @@ def create_link_intent(raw_token: str, expected_username: str, scopes=None) -> d
         wanted = [s for s in wanted if s in principal.scopes] if scopes is None else wanted
         if not wanted or not set(wanted) <= set(MCP_SCOPES) or not set(wanted) <= principal.scopes:
             raise PermissionDenied("Requested permissions exceed this connection's consent.")
-        if connection.account_grants.filter(revoked_at__isnull=True).count() >= MAX_ACCOUNTS:
-            raise ValidationError("Disconnect an account before linking another.")
-        now = timezone.now()
-        if connection.link_intents.filter(used_at__isnull=True, expires_at__gt=now).count() >= 5:
-            raise ValidationError("Complete or wait for an existing account-link request.")
-        opaque = secrets.token_urlsafe(32)
-        intent = MCPLinkIntent.objects.create(
-            token_hash=hashlib.sha256(opaque.encode()).hexdigest(), connection=connection,
-            expected_username=expected_username, scope=scope_string(wanted), expires_at=now + LINK_TTL,
-        )
+        return _create_link_intent(connection, expected_username, wanted)
+
+
+def create_browser_link_intent(session_user, connection_id, expected_username, scopes):
+    """Owners may request a link in settings; the target must still consent.
+
+    Match action/consent lock order and revalidate the credential family under
+    those locks. A browser session never becomes an MCP credential or actor.
+    """
+    with transaction.atomic():
+        owner = get_user_model().objects.select_for_update(no_key=True).get(pk=session_user.pk)
+        candidate = MCPConnection.objects.filter(pk=connection_id, primary_user=owner).first()
+        if candidate is None:
+            raise PermissionDenied("This connection does not belong to your account.")
+        F2ZApplication.objects.select_for_update().get(pk=candidate.application_id)
+        AppAuthorization.objects.select_for_update().filter(user=owner, application_id=candidate.application_id).first()
+        connection = MCPConnection.objects.select_for_update(of=("self",)).select_related("primary_user", "application").get(pk=candidate.pk)
+        validate_connection_record(connection)
+        if owner.kt_account_epoch != session_user.kt_account_epoch:
+            raise _invalid()
+        wanted = scope_list(scopes)
+        if not wanted or not set(wanted) <= set(MCP_SCOPES) or not set(wanted) <= set(scope_list(connection.scope)):
+            raise PermissionDenied("Requested permissions exceed this connection's consent.")
+        return _create_link_intent(connection, expected_username, wanted)
+
+
+def _create_link_intent(connection, expected_username, wanted):
+    """Caller holds the connection lifecycle locks. This grants no access."""
+    if not isinstance(expected_username, str) or not expected_username or len(expected_username) > 150 or expected_username != expected_username.strip():
+        raise ValidationError("Supply the exact Free2Z username to link, without a display prefix.")
+    if connection.account_grants.filter(revoked_at__isnull=True).count() >= MAX_ACCOUNTS:
+        raise ValidationError("Disconnect an account before linking another.")
+    now = timezone.now()
+    if connection.link_intents.filter(used_at__isnull=True, expires_at__gt=now).count() >= 5:
+        raise ValidationError("Complete or wait for an existing account-link request.")
+    opaque = secrets.token_urlsafe(32)
+    intent = MCPLinkIntent.objects.create(
+        token_hash=hashlib.sha256(opaque.encode()).hexdigest(), connection=connection,
+        expected_username=expected_username, scope=scope_string(wanted), expires_at=now + LINK_TTL,
+    )
     return {"url": settings.OIDC_ISSUER.rstrip("/") + "/account/agent-link#intent=" + opaque,
             "expires_at": intent.expires_at.isoformat(), "expected_username": expected_username}
 
