@@ -468,8 +468,10 @@
       onpointerdown={(event) => {
         if (event.pointerType === "mouse") event.preventDefault();
       }}
-      onclick={editImageDetails}><ImageIcon class="size-3.5" /></Button
+      onclick={editImageDetails}
     >
+      <ImageIcon class="size-3.5" />
+    </Button>
   </div>
   <textarea
     bind:this={textareaRef}
