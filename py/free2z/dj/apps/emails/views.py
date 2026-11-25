@@ -2049,6 +2049,7 @@ class ChangePasswordView(APIView):
 
             # Re-authenticate and log the user in with the new password
             u = authenticate(username=user.username, password=new_password)
+            u._verified_totp_binding = getattr(user, "_verified_totp_binding", "")
             login(request, u)
             # The new session's AuthContext. The old password was
             # just re-proved, so this is a fresh password sign-in. An account
@@ -2351,8 +2352,10 @@ class ResetPasswordAPIView(APIView):
             )
 
         # Authenticate and login the user
+        verified_totp_binding = getattr(user, "_verified_totp_binding", "")
         user = authenticate(username=user.username, password=new_password)
         if user is not None:
+            user._verified_totp_binding = verified_totp_binding
             login(request, user)
             # The new session's AuthContext: the new password (with
             # the TOTP, when one was verified above), under the post-reset
