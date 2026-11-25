@@ -10,7 +10,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const workflowDirectory = '.github/workflows';
 const expectedPublishers = new Set(['zuuli-linux-image.yml', 'zuuli-store-capture-image.yml', 'f2z-images.yml']);
 const buildkitImage = 'moby/buildkit:v0.34.1@sha256:99368f3e46177c6405b9740e4461d91cee004128daeecca78d4ceac50ec1da5c';
-const buildkitStep = `      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0\n        with:\n          driver: docker-container\n          driver-opts: image=${buildkitImage}\n`;
+const buildkitStep = `      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1\n        with:\n          driver: docker-container\n          driver-opts: image=${buildkitImage}\n`;
 
 const forbidden = new Set(['NODE_EXTRA_CA_CERTS', 'NODE_USE_SYSTEM_CA', 'NODE_TLS_REJECT_UNAUTHORIZED', 'GIT_SSL_NO_VERIFY', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'GIT_SSL_CAINFO', 'GIT_SSL_CAPATH', 'REQUESTS_CA_BUNDLE', 'PIP_CERT', 'AWS_CA_BUNDLE', 'CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE', 'CARGO_HTTP_CAINFO', 'RUSTUP_USE_CURL']);
 
