@@ -25,7 +25,6 @@ import { Badge } from "@/components/ui/badge";
 import { Callout } from "@/components/ui/callout";
 import { Card } from "@/components/ui/card";
 import { SocialButtons } from "@/components/common/SocialButtons";
-import { BidiIdentifier } from "@/components/common/BidiIdentifier";
 import { MESSAGE_KEYS } from "@/i18n/messages";
 import {
   SOCIAL_PROVIDERS,
@@ -90,10 +89,13 @@ function ZcashLinkPending() {
 }
 
 export function LinkedAccounts({ user }: { user: AuthUser }) {
-  const identity = user.zcash_identity;
-  const did = identity ? `did:zcash:${identity}` : null;
-  const linkedSocial = SOCIAL_PROVIDERS.filter(
-    (p) => user.social_identities?.[p],
+  const zcashLinked = user.zcash_identity_linked === true;
+  const identityStateKnown =
+    typeof user.zcash_identity_linked === "boolean" &&
+    Array.isArray(user.social_identities);
+  const linkedSocial = (user.social_identities ?? []).filter(
+    (provider): provider is SocialProvider =>
+      SOCIAL_PROVIDERS.includes(provider as SocialProvider),
   );
 
   return (
@@ -110,21 +112,19 @@ export function LinkedAccounts({ user }: { user: AuthUser }) {
           icon={<ShieldCheck className="h-4 w-4" aria-hidden />}
           label="Zcash"
           detail={
-            did && identity ? (
-              <BidiIdentifier
-                value={did}
-                shorten
-                head={16}
-                tail={6}
-                className="mono-id font-mono"
-              />
-            ) : (
-              "Not linked"
-            )
+            zcashLinked
+              ? "Linked"
+              : identityStateKnown
+                ? "Not linked"
+                : "Unable to verify"
           }
           action={
-            identity ? (
+            zcashLinked ? (
               <Badge variant="success">Linked</Badge>
+            ) : !identityStateKnown ? (
+              <Badge variant="outline" className="text-muted-foreground">
+                Unknown
+              </Badge>
             ) : (
               <Badge variant="outline" className="text-muted-foreground">
                 Soon
@@ -133,10 +133,9 @@ export function LinkedAccounts({ user }: { user: AuthUser }) {
           }
         />
 
-        {identity ? null : <ZcashLinkPending />}
+        {zcashLinked || !identityStateKnown ? null : <ZcashLinkPending />}
 
-        {/* Already-linked social identities, observed by this session after a
-            successful `auth.socialLogin(provider, { associate: true })`. */}
+        {/* The authenticated account response is the authority for linked providers. */}
         {linkedSocial.map((provider) => (
           <IdentityRow
             key={provider}
@@ -154,22 +153,28 @@ export function LinkedAccounts({ user }: { user: AuthUser }) {
           default, and the only state today) this falls back to the exact
           "Coming soon" row that used to be hardcoded here.
         */}
-        <SocialButtons
-          associate
-          alreadyLinked={linkedSocial}
-          emptyState={
-            <IdentityRow
-              icon={<Github className="h-4 w-4" aria-hidden />}
-              label="X · Google · GitHub"
-              detail="Coming soon"
-              action={
-                <Badge variant="outline" className="text-muted-foreground">
-                  Soon
-                </Badge>
-              }
-            />
-          }
-        />
+        {identityStateKnown ? (
+          <SocialButtons
+            associate
+            alreadyLinked={linkedSocial}
+            emptyState={
+              <IdentityRow
+                icon={<Github className="h-4 w-4" aria-hidden />}
+                label="X · Google · GitHub"
+                detail="Coming soon"
+                action={
+                  <Badge variant="outline" className="text-muted-foreground">
+                    Soon
+                  </Badge>
+                }
+              />
+            }
+          />
+        ) : (
+          <p role="status" className="text-sm text-muted-foreground">
+            Unable to verify linked accounts. Refresh your profile to try again.
+          </p>
+        )}
       </div>
     </Card>
   );
