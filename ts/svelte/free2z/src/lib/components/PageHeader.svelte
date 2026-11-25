@@ -26,9 +26,9 @@
             <ArrowLeft
               class="h-5 w-5 transition-transform group-hover:-translate-x-1"
             />
-            <span class="text-xs font-bold tracking-widest uppercase"
-              >{$t("auth.back", "Back")}</span
-            >
+            <span class="text-xs font-bold tracking-widest uppercase">
+              {$t("auth.back", "Back")}
+            </span>
           </Button>
         {/if}
 

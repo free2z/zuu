@@ -247,9 +247,9 @@
           )}
         </p>
       {/if}
-      <a class="text-sm underline" href="/"
-        >{$t("account.delete.home", "Go to Free2Z")}</a
-      >
+      <a class="text-sm underline" href="/">
+        {$t("account.delete.home", "Go to Free2Z")}
+      </a>
     </section>
   {:else}
     <section class="space-y-2 text-sm" data-testid="account-delete-terms">

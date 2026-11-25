@@ -80,7 +80,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StartCreateMutationError = unknown
     export type StartCreateMutationVariables = {data: Registration}
 
-    export const createStartCreate = <TError = unknown,
+    /** /api/start - create new user with POST */
+export const createStartCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof startCreate>>, TError,StartCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof startCreate>>,

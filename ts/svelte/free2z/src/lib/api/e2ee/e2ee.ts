@@ -91,9 +91,9 @@ export type E2eeAuthorityRetrieveQueryError = AuthorityUnavailable
 
 
 /**
+ * Ed25519 public key, authority_id and log_id of the key this deployment signs HandleAssertions with. For operators comparing deployments; clients pin the key instead of fetching it.
  * @summary The handle authority's public key
  */
-
 export function createE2eeAuthorityRetrieve<TData = Awaited<ReturnType<typeof e2eeAuthorityRetrieve>>, TError = AuthorityUnavailable>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof e2eeAuthorityRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -168,7 +168,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type E2eeChatRequestsCreateMutationError = CreditError | InsufficientFundsError | ChatRequestRateLimited
     export type E2eeChatRequestsCreateMutationVariables = {username: string;data?: ChatRequestBody}
 
-    export const createE2eeChatRequestsCreate = <TError = CreditError | InsufficientFundsError | ChatRequestRateLimited,
+    /** Charge the server-set price (GET /api/e2ee/chat-requests/price/) from the caller and credit it to the recipient, atomically, and notify the recipient with an ENCRYPTED_CHAT_REQUEST event whose content_url opens e2e2z's first-contact screen for the caller's handle (the caller gets a read ENCRYPTED_CHAT_REQUEST row of their own, with no link, as the record of the spend). No message is sent. The Idempotency-Key is bound to the recipient; a replay returns the original result with `replayed: true` and never charges twice. Completed results replay for 365 days. Refusals (402, 404, 409 price_changed, 422, 429, 503) charge nothing and release (or never take) the key. Rate limits, per sender: 10 per hour, 30 per 24 hours, and 3 per 24 hours to the same recipient. */
+export const createE2eeChatRequestsCreate = <TError = CreditError | InsufficientFundsError | ChatRequestRateLimited,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof e2eeChatRequestsCreate>>, TError,E2eeChatRequestsCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof e2eeChatRequestsCreate>>,
@@ -225,7 +226,7 @@ export type E2eeChatRequestsPriceRetrieveQueryResult = NonNullable<Awaited<Retur
 export type E2eeChatRequestsPriceRetrieveQueryError = unknown
 
 
-
+/** Whole 2Z charged by POST /api/e2ee/chat-requests/{username}/. Set by the server; the client never supplies an amount. `enabled: false` means new requests are switched off and the POST will answer 503 `chat_requests_disabled`. */
 export function createE2eeChatRequestsPriceRetrieve<TData = Awaited<ReturnType<typeof e2eeChatRequestsPriceRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof e2eeChatRequestsPriceRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -294,9 +295,9 @@ export type E2eeHandleRetrieveQueryError = unknown
 
 
 /**
+ * Whether this account owns a messaging handle, the handle its username would give it, and whether it may claim one. Handles are permanent once bound.
  * @summary The caller's E2EE messaging handle
  */
-
 export function createE2eeHandleRetrieve<TData = Awaited<ReturnType<typeof e2eeHandleRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof e2eeHandleRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -372,6 +373,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type E2eeHandleClaimMutationVariables = {data: HandleClaimRequest}
 
     /**
+ * For an account with no handle: ineligible usernames, and the later accounts in a case-variant username group. The handle must be exactly ^[a-z0-9_]{1,30}$, not reserved, and not held by or folding to another account. It cannot be changed or released afterwards.
  * @summary Claim an E2EE messaging handle, permanently
  */
 export const createE2eeHandleClaim = <TError = HandleClaimError,

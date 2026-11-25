@@ -94,7 +94,7 @@ export type DyteRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof dyte
 export type DyteRetrieveQueryError = unknown
 
 
-
+/** Returns number of participants in a meeting or 4XX if not live */
 export function createDyteRetrieve<TData = Awaited<ReturnType<typeof dyteRetrieve>>, TError = unknown>(
  username: string,
     type: 'broadcast' | 'ppv' | 'subscribers-only', options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dyteRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -171,7 +171,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DyteCreateMutationError = StreamPaymentRequiredError | HostSeatConflict
     export type DyteCreateMutationVariables = {username: string;type: 'broadcast' | 'ppv' | 'subscribers-only';data?: MeetingJoinRequestSchema}
 
-    export const createDyteCreate = <TError = StreamPaymentRequiredError | HostSeatConflict,
+    /** Start or join a public meeting. Anonymous callers may join only broadcast meetings; ppv and subscribers-only require authentication and their corresponding entitlement checks. */
+export const createDyteCreate = <TError = StreamPaymentRequiredError | HostSeatConflict,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dyteCreate>>, TError,DyteCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof dyteCreate>>,
@@ -228,7 +229,7 @@ export type DyteHostSessionRetrieveQueryResult = NonNullable<Awaited<ReturnType<
 export type DyteHostSessionRetrieveQueryError = unknown
 
 
-
+/** Who holds the caller's broadcaster seat. Owner only. A dashboard tab reads this on load so a second tab or device shows "already live elsewhere" before anyone presses Go live. */
 export function createDyteHostSessionRetrieve<TData = Awaited<ReturnType<typeof dyteHostSessionRetrieve>>, TError = unknown>(
  username: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dyteHostSessionRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -303,7 +304,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DyteHostSessionCreateMutationError = HostSeatConflict
     export type DyteHostSessionCreateMutationVariables = {username: string;data: HostSessionAction}
 
-    export const createDyteHostSessionCreate = <TError = HostSeatConflict,
+    /** Renew (`heartbeat`) or give up (`release`) the broadcaster seat this tab holds. Owner only. */
+export const createDyteHostSessionCreate = <TError = HostSeatConflict,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dyteHostSessionCreate>>, TError,DyteHostSessionCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof dyteHostSessionCreate>>,
@@ -355,7 +357,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type DyteLiveStatusRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof dyteLiveStatusRetrieve>>>
 export type DyteLiveStatusRetrieveQueryError = unknown
-
 
 
 export function createDyteLiveStatusRetrieve<TData = Awaited<ReturnType<typeof dyteLiveStatusRetrieve>>, TError = unknown>(
@@ -431,7 +432,16 @@ export type DytePrivateRetrieveQueryResult = NonNullable<Awaited<ReturnType<type
 export type DytePrivateRetrieveQueryError = unknown
 
 
-
+/**
+ * Manage the authenticated creator's own private meeting.
+ *
+ * GET returns the secret UUID of the caller's private meeting.
+ * POST creates the caller's private meeting if it does not exist yet, and
+ * otherwise recycles the secret UUID and returns a new one.
+ *
+ * Only for the creator to manage their own private meeting: the `username`
+ * in the path must be the caller's own, and any other username is a 403.
+ */
 export function createDytePrivateRetrieve<TData = Awaited<ReturnType<typeof dytePrivateRetrieve>>, TError = unknown>(
  username: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dytePrivateRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -510,7 +520,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DytePrivateCreateMutationError = unknown
     export type DytePrivateCreateMutationVariables = {username: string}
 
-    export const createDytePrivateCreate = <TError = unknown,
+    /**
+ * Manage the authenticated creator's own private meeting.
+ *
+ * GET returns the secret UUID of the caller's private meeting.
+ * POST creates the caller's private meeting if it does not exist yet, and
+ * otherwise recycles the secret UUID and returns a new one.
+ *
+ * Only for the creator to manage their own private meeting: the `username`
+ * in the path must be the caller's own, and any other username is a 403.
+ */
+export const createDytePrivateCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dytePrivateCreate>>, TError,DytePrivateCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof dytePrivateCreate>>,
@@ -576,7 +596,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DytePrivateCreate2MutationError = unknown
     export type DytePrivateCreate2MutationVariables = {username: string;secret: string}
 
-    export const createDytePrivateCreate2 = <TError = unknown,
+    /**
+ * Post will join the private meeting:
+ *
+ * For the creator, it will join the meeting as the host
+ * For the participant, it will join the meeting as a participant
+ */
+export const createDytePrivateCreate2 = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dytePrivateCreate2>>, TError,DytePrivateCreate2MutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof dytePrivateCreate2>>,
@@ -640,7 +666,13 @@ export type DytePrivateRecordingRetrieveQueryResult = NonNullable<Awaited<Return
 export type DytePrivateRecordingRetrieveQueryError = unknown
 
 
-
+/**
+ * Manage only the owner's existing secret-scoped private room.
+ *
+ * Unlike public broadcasts, private calls have no public host-seat lease.
+ * The authenticated owner AND the current invitation secret identify the
+ * room; a participant's invitation never confers recording authority.
+ */
 export function createDytePrivateRecordingRetrieve<TData = Awaited<ReturnType<typeof dytePrivateRecordingRetrieve>>, TError = unknown>(
  username: string,
     secret: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dytePrivateRecordingRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -718,7 +750,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DytePrivateRecordingCreateMutationError = unknown
     export type DytePrivateRecordingCreateMutationVariables = {username: string;secret: string}
 
-    export const createDytePrivateRecordingCreate = <TError = unknown,
+    /**
+ * Manage only the owner's existing secret-scoped private room.
+ *
+ * Unlike public broadcasts, private calls have no public host-seat lease.
+ * The authenticated owner AND the current invitation secret identify the
+ * room; a participant's invitation never confers recording authority.
+ */
+export const createDytePrivateRecordingCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dytePrivateRecordingCreate>>, TError,DytePrivateRecordingCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof dytePrivateRecordingCreate>>,
@@ -782,7 +821,13 @@ export type DytePrivateRecordingVisibilityRetrieveQueryResult = NonNullable<Awai
 export type DytePrivateRecordingVisibilityRetrieveQueryError = unknown
 
 
-
+/**
+ * Whether a private room is being recorded, for anyone holding its secret.
+ *
+ * The owner recording API stays owner-only. Invitees on stage need the same
+ * yes-or-no the public live status gives broadcast, subscribers-only, and
+ * pay-per-view viewers.
+ */
 export function createDytePrivateRecordingVisibilityRetrieve<TData = Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>, TError = unknown>(
  username: string,
     secret: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dytePrivateRecordingVisibilityRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -860,7 +905,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DytePrivateRecordingStopCreateMutationError = unknown
     export type DytePrivateRecordingStopCreateMutationVariables = {username: string;secret: string}
 
-    export const createDytePrivateRecordingStopCreate = <TError = unknown,
+    /**
+ * Manage only the owner's existing secret-scoped private room.
+ *
+ * Unlike public broadcasts, private calls have no public host-seat lease.
+ * The authenticated owner AND the current invitation secret identify the
+ * room; a participant's invitation never confers recording authority.
+ */
+export const createDytePrivateRecordingStopCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dytePrivateRecordingStopCreate>>, TError,DytePrivateRecordingStopCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof dytePrivateRecordingStopCreate>>,
@@ -916,7 +968,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type DyteRecordingRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof dyteRecordingRetrieve>>>
 export type DyteRecordingRetrieveQueryError = unknown
-
 
 
 export function createDyteRecordingRetrieve<TData = Awaited<ReturnType<typeof dyteRecordingRetrieve>>, TError = unknown>(
@@ -1108,7 +1159,6 @@ export type DytePublicListQueryResult = NonNullable<Awaited<ReturnType<typeof dy
 export type DytePublicListQueryError = unknown
 
 
-
 export function createDytePublicList<TData = Awaited<ReturnType<typeof dytePublicList>>, TError = unknown>(
  params?: DytePublicListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dytePublicList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1170,7 +1220,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type DytePublicRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof dytePublicRetrieve>>>
 export type DytePublicRetrieveQueryError = unknown
-
 
 
 export function createDytePublicRetrieve<TData = Awaited<ReturnType<typeof dytePublicRetrieve>>, TError = unknown>(
@@ -1239,7 +1288,7 @@ export type DytePublicDiscoveryListQueryResult = NonNullable<Awaited<ReturnType<
 export type DytePublicDiscoveryListQueryError = unknown
 
 
-
+/** Return the current public live modes for at most 12 creators, ordered by presence freshness. The selected_creators list is complete for each selected creator. If complete is false, creators not selected are unknown rather than offline. Private rooms are never included. */
 export function createDytePublicDiscoveryList<TData = Awaited<ReturnType<typeof dytePublicDiscoveryList>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof dytePublicDiscoveryList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1371,7 +1420,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type DyteWebhookRecordingStatusUpdateCreateMutationError = unknown
 
 
-    export const createDyteWebhookRecordingStatusUpdateCreate = <TError = unknown,
+    /**
+ * DEPRECATED (superseded by the recording.statusUpdate branch of `webhook`),
+ * but retained and now signature-verified — see the note above.
+ */
+export const createDyteWebhookRecordingStatusUpdateCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof dyteWebhookRecordingStatusUpdateCreate>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof dyteWebhookRecordingStatusUpdateCreate>>,

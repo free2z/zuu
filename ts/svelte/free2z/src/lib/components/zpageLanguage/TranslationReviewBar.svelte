@@ -173,9 +173,9 @@
           aria-label={$t("translationJobs.previous", "Previous")}
         >
           <ChevronLeft class="size-4 sm:hidden" aria-hidden="true" />
-          <span class="hidden sm:inline"
-            >{$t("translationJobs.previous", "Previous")}</span
-          >
+          <span class="hidden sm:inline">
+            {$t("translationJobs.previous", "Previous")}
+          </span>
         </button>
         <button
           type="button"
@@ -186,9 +186,9 @@
           aria-label={$t("translationJobs.next", "Next")}
         >
           <ChevronRight class="size-4 sm:hidden" aria-hidden="true" />
-          <span class="hidden sm:inline"
-            >{$t("translationJobs.next", "Next")}</span
-          >
+          <span class="hidden sm:inline">
+            {$t("translationJobs.next", "Next")}
+          </span>
         </button>
       {/if}
       {#if published}
@@ -257,8 +257,9 @@
           <code
             class="rounded bg-amber-500/20 px-1.5 py-0.5 text-xs"
             data-testid="translation-review-warning-item"
-            >{warningItemText(item)}</code
           >
+            {warningItemText(item)}
+          </code>
         {/each}
         <span
           class="ms-auto inline-flex items-center gap-1 text-xs text-muted-foreground"
@@ -282,9 +283,9 @@
           {#each warnings as warning, index (index)}
             <li data-code={warning.code}>
               {warningLabel(warning, $t)}{#if warning.items?.length}:
-                <span class="text-muted-foreground"
-                  >{warning.items.map(warningItemText).join(", ")}</span
-                >{/if}
+                <span class="text-muted-foreground">
+                  {warning.items.map(warningItemText).join(", ")}
+                </span>{/if}
             </li>
           {/each}
         </ul>
@@ -318,19 +319,20 @@
                 data-testid="translation-review-inline-match"
               >
                 {#if entry.match !== null}
-                  <code
-                    >{entry.before}<mark
+                  <code>
+                    {entry.before}<mark
                       class="rounded bg-amber-300 px-0.5 text-foreground dark:bg-amber-600"
-                      >{entry.match}</mark
-                    >{entry.after}</code
-                  >
+                    >
+                      {entry.match}
+                    </mark>{entry.after}
+                  </code>
                 {:else}
-                  <span
-                    >{entry.item}: {$t(
+                  <span>
+                    {entry.item}: {$t(
                       "translationJobs.flaggedItemNotFound",
                       "not present verbatim in this draft; compare it with the original",
-                    )}</span
-                  >
+                    )}
+                  </span>
                 {/if}
               </li>
             {/each}

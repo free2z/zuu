@@ -534,30 +534,27 @@
     {/if}
     {#if isSubscribed}
       <Dialog.Header>
-        <Dialog.Title class="sr-only"
-          >{$t(
+        <Dialog.Title class="sr-only">
+          {$t(
             "profile.subscribe.manageTitle",
             "Manage subscription to {username}",
             {
               username: creator.username,
             },
-          )}</Dialog.Title
-        >
-        <Dialog.Description class="sr-only"
-          >{$t(
-            "profile.subscribe.manageRenewal",
-            "Manage subscription renewal",
-          )}</Dialog.Description
-        >
+          )}
+        </Dialog.Title>
+        <Dialog.Description class="sr-only">
+          {$t("profile.subscribe.manageRenewal", "Manage subscription renewal")}
+        </Dialog.Description>
       </Dialog.Header>
       <ManageSubscription {creator} onClose={() => onOpenChange(false)} />
     {:else}
       <Dialog.Header>
-        <Dialog.Title
-          >{$t("profile.subscribe.title", "Subscribe to {username}", {
+        <Dialog.Title>
+          {$t("profile.subscribe.title", "Subscribe to {username}", {
             username: creator.full_name || creator.username,
-          })}</Dialog.Title
-        >
+          })}
+        </Dialog.Title>
         <Dialog.Description>
           {$t(
             "profile.subscribe.exclusiveDescription",
@@ -626,9 +623,9 @@
       </div>
 
       <Dialog.Footer>
-        <Button variant="outline" onclick={() => handleOpenChange(false)}
-          >{$t("common.cancel", "Cancel")}</Button
-        >
+        <Button variant="outline" onclick={() => handleOpenChange(false)}>
+          {$t("common.cancel", "Cancel")}
+        </Button>
         {#if user}
           {#if isIntentConflict || isUnconfirmed}
             <Button onclick={handleRecoverIntent} disabled={isRecoveringIntent}>

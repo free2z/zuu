@@ -771,9 +771,9 @@
 
     {#if selectedModel}
       <label class="block space-y-1.5 text-sm" for="ai-cover-model">
-        <span class="font-medium"
-          >{$t("editor.aiModelChoice", "Image model")}</span
-        >
+        <span class="font-medium">
+          {$t("editor.aiModelChoice", "Image model")}
+        </span>
         <select
           id="ai-cover-model"
           class="w-full rounded-md border bg-background px-3 py-2"
@@ -786,9 +786,9 @@
           disabled={generating || choices.length < 2}
         >
           {#each choices as choice (choice.id)}
-            <option value={choice.id}
-              >{choice.display_name} · {choice.provider}</option
-            >
+            <option value={choice.id}>
+              {choice.display_name} · {choice.provider}
+            </option>
           {/each}
         </select>
       </label>
@@ -828,28 +828,29 @@
             href={selectedModel.privacy_policy_url}
             target="_blank"
             rel="noreferrer"
-            >{$t("editor.aiProviderPolicy", "Provider policy")}</a
           >
+            {$t("editor.aiProviderPolicy", "Provider policy")}
+          </a>
           ·
-          <a class="underline" href="/docs/legal/privacy-policy/"
-            >{$t("editor.aiFree2zPolicy", "Free2Z privacy policy")}</a
-          >
+          <a class="underline" href="/docs/legal/privacy-policy/">
+            {$t("editor.aiFree2zPolicy", "Free2Z privacy policy")}
+          </a>
         </p>
       </div>
       <label class="flex items-start gap-2 text-sm">
         <input type="checkbox" bind:checked={acceptedTerms} class="mt-1" />
-        <span
-          >{$t(
+        <span>
+          {$t(
             "editor.aiAcceptTerms",
             "I understand this prompt will be sent to {destination} and agree to the displayed charge and provider policy.",
-          ).replace("{destination}", selectedModel.destination)}</span
-        >
+          ).replace("{destination}", selectedModel.destination)}
+        </span>
       </label>
     {:else if choices.length > 0}
       <label class="block space-y-1.5 text-sm" for="ai-cover-model">
-        <span class="font-medium"
-          >{$t("editor.aiModelChoice", "Image model")}</span
-        >
+        <span class="font-medium">
+          {$t("editor.aiModelChoice", "Image model")}
+        </span>
         <select
           id="ai-cover-model"
           class="w-full rounded-md border bg-background px-3 py-2"
@@ -860,13 +861,13 @@
             acceptedTerms = false;
           }}
         >
-          <option value="" disabled
-            >{$t("editor.aiChooseModel", "Choose a model")}</option
-          >
+          <option value="" disabled>
+            {$t("editor.aiChooseModel", "Choose a model")}
+          </option>
           {#each choices as choice (choice.id)}
-            <option value={choice.id}
-              >{choice.display_name} · {choice.provider}</option
-            >
+            <option value={choice.id}>
+              {choice.display_name} · {choice.provider}
+            </option>
           {/each}
         </select>
       </label>

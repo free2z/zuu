@@ -239,15 +239,17 @@
       variant="outline"
       disabled={busy}
       onclick={() => providerLogin(provider)}
-      >Continue with {labels[provider]}</Button
     >
+      Continue with {labels[provider]}
+    </Button>
   {/each}
   <Button
     variant="outline"
     disabled={busy}
     onclick={() => providerLogin("legacy-x")}
-    >Continue with linked X account</Button
   >
+    Continue with linked X account
+  </Button>
   <details>
     <summary>Sign in with an existing Zcash wallet</summary>
     <p class="my-2 text-sm">
@@ -255,16 +257,16 @@
       sign-in methods. Sign the exact challenge below with your wallet. Never
       enter your private key or seed phrase.
     </p>
-    <label class="block"
-      >Zcash address
+    <label class="block">
+      Zcash address
       <input
         class="block w-full rounded border p-2"
         bind:value={address}
         disabled={busy || !!challenge}
       />
     </label>
-    <label class="block"
-      >Wallet two-factor code (if enabled)
+    <label class="block">
+      Wallet two-factor code (if enabled)
       <input
         class="block w-full rounded border p-2"
         aria-label="Wallet two-factor code"
@@ -275,33 +277,35 @@
       />
     </label>
     {#if challenge}
-      <label class="block"
-        >Free2Z sign-in challenge<textarea
+      <label class="block">
+        Free2Z sign-in challenge<textarea
           class="block w-full rounded border p-2"
           readonly
-          value={challenge}></textarea></label
-      >
-      <label class="block"
-        >Wallet signature<textarea
+          value={challenge}></textarea>
+      </label>
+      <label class="block">
+        Wallet signature<textarea
           class="block w-full rounded border p-2"
           bind:value={signature}
-          disabled={busy}></textarea></label
-      >
-      <Button disabled={busy || !signature} onclick={walletLogin}
-        >Verify wallet signature</Button
-      >
+          disabled={busy}></textarea>
+      </label>
+      <Button disabled={busy || !signature} onclick={walletLogin}>
+        Verify wallet signature
+      </Button>
       <Button
         variant="outline"
         disabled={busy}
         onclick={() => {
           challenge = "";
           signature = "";
-        }}>New challenge</Button
+        }}
       >
+        New challenge
+      </Button>
     {:else}
-      <Button disabled={busy || !address} onclick={walletChallenge}
-        >Get sign-in challenge</Button
-      >
+      <Button disabled={busy || !address} onclick={walletChallenge}>
+        Get sign-in challenge
+      </Button>
     {/if}
   </details>
   {#if error}<p role="alert" class="text-red-600">{error}</p>{/if}

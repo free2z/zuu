@@ -356,12 +356,12 @@
                 class="flex items-center gap-1.5 text-xs font-semibold text-amber-600 dark:text-amber-400"
               >
                 <AlertTriangle class="size-3.5" />
-                <span
-                  >{$t(
+                <span>
+                  {$t(
                     "dashboard.pages.exportStatus.warningsTitle",
                     "Export warnings:",
-                  )}</span
-                >
+                  )}
+                </span>
               </div>
               <ul
                 class="list-inside list-disc space-y-0.5 text-xs text-amber-700 dark:text-amber-300"
@@ -375,12 +375,12 @@
 
           <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Clock class="size-3.5" />
-            <span
-              >{$t(
+            <span>
+              {$t(
                 "dashboard.pages.exportStatus.expiresIn",
                 "Available for download for 24 hours.",
-              )}</span
-            >
+              )}
+            </span>
           </div>
 
           <div class="space-y-2 pt-2">

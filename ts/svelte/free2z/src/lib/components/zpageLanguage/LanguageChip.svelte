@@ -50,11 +50,11 @@
   data-testid="editor-language-chip"
 >
   {#if editingName && editingLanguage !== language}
-    <span
-      >{$t("editor.editingLanguage", "Editing: {language}", {
+    <span>
+      {$t("editor.editingLanguage", "Editing: {language}", {
         language: editingName,
-      })}</span
-    >
+      })}
+    </span>
     <span aria-hidden="true">·</span>
   {/if}
   {#if name}

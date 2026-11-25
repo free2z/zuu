@@ -41,8 +41,9 @@
         <div class="flex flex-col">
           <span
             class="text-2xl font-black tracking-tight text-(--f2z-text-primary) lg:text-3xl"
-            >100%</span
           >
+            100%
+          </span>
           <span
             class="mt-1 text-[10px] font-bold tracking-[0.08em] text-(--f2z-text-muted) uppercase lg:text-xs"
           >
@@ -54,8 +55,9 @@
         >
           <span
             class="text-2xl font-black tracking-tight text-(--f2z-text-primary) lg:text-3xl"
-            >0</span
           >
+            0
+          </span>
           <span
             class="mt-1 text-[10px] font-bold tracking-[0.08em] text-(--f2z-text-muted) uppercase lg:text-xs"
           >
@@ -67,8 +69,9 @@
         >
           <span
             class="text-2xl font-black tracking-tight text-(--f2z-text-primary) lg:text-3xl"
-            >∞</span
           >
+            ∞
+          </span>
           <span
             class="mt-1 text-[10px] font-bold tracking-[0.08em] text-(--f2z-text-muted) uppercase lg:text-xs"
           >

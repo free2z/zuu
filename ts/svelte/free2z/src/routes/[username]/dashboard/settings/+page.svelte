@@ -436,9 +436,9 @@
             </div>
           {/if}
         </div>
-        <Button href={`/${creator.username}`} variant="ghost"
-          >{$t("dashboard.settings.discard", "Discard")}</Button
-        >
+        <Button href={`/${creator.username}`} variant="ghost">
+          {$t("dashboard.settings.discard", "Discard")}
+        </Button>
         <Button onclick={handleSave} disabled={isSaving}>
           {#if isSaving}
             <Loader2 class="mr-2 size-4 animate-spin" />
@@ -548,9 +548,9 @@
 
             <div class="space-y-4 border-t pt-2">
               <div class="grid gap-2">
-                <Label for="fullName"
-                  >{$t("dashboard.settings.displayName", "Display Name")}</Label
-                >
+                <Label for="fullName">
+                  {$t("dashboard.settings.displayName", "Display Name")}
+                </Label>
                 <Input
                   id="fullName"
                   bind:value={fullName}
@@ -567,9 +567,9 @@
               </div>
 
               <div class="grid gap-2">
-                <Label for="bio"
-                  >{$t("dashboard.settings.biography", "Biography")}</Label
-                >
+                <Label for="bio">
+                  {$t("dashboard.settings.biography", "Biography")}
+                </Label>
                 <Textarea
                   id="bio"
                   rows={4}
@@ -594,15 +594,15 @@
       <div class="min-w-0 flex-1">
         <Tabs.Root bind:value={settingsTab} class="w-full space-y-6">
           <Tabs.List>
-            <Tabs.Trigger value="financial"
-              >{$t("dashboard.settings.financial", "Financial")}</Tabs.Trigger
-            >
-            <Tabs.Trigger value="security"
-              >{$t("dashboard.settings.security", "Security")}</Tabs.Trigger
-            >
-            <Tabs.Trigger value="account"
-              >{$t("dashboard.settings.account", "Account")}</Tabs.Trigger
-            >
+            <Tabs.Trigger value="financial">
+              {$t("dashboard.settings.financial", "Financial")}
+            </Tabs.Trigger>
+            <Tabs.Trigger value="security">
+              {$t("dashboard.settings.security", "Security")}
+            </Tabs.Trigger>
+            <Tabs.Trigger value="account">
+              {$t("dashboard.settings.account", "Account")}
+            </Tabs.Trigger>
           </Tabs.List>
 
           <Tabs.Content value="financial" class="space-y-6">
@@ -624,12 +624,9 @@
 
               <div class="grid gap-6">
                 <div class="grid gap-2">
-                  <Label for="zcash"
-                    >{$t(
-                      "dashboard.settings.zcashAddress",
-                      "Zcash Address",
-                    )}</Label
-                  >
+                  <Label for="zcash">
+                    {$t("dashboard.settings.zcashAddress", "Zcash Address")}
+                  </Label>
                   <!--
                     A direct support address must be verifiable at a glance, so this is
                     a wrapping textarea, never a single-line <input>: a
@@ -686,12 +683,12 @@
                   <div class="space-y-1.5">
                     <div class="flex min-h-11 items-center gap-3">
                       <Switch id="updateAll" bind:checked={updateAll} />
-                      <Label for="updateAll" control class="font-normal"
-                        >{$t(
+                      <Label for="updateAll" control class="font-normal">
+                        {$t(
                           "dashboard.settings.applyToAll",
                           "Apply to all existing articles",
-                        )}</Label
-                      >
+                        )}
+                      </Label>
                     </div>
                     <p
                       class="flex items-start gap-1.5 text-xs text-muted-foreground"
@@ -711,12 +708,12 @@
                 </div>
 
                 <div class="grid max-w-sm gap-2">
-                  <Label for="memberPrice"
-                    >{$t(
+                  <Label for="memberPrice">
+                    {$t(
                       "dashboard.settings.membershipPrice",
                       "Membership price (2Z per 30 days)",
-                    )}</Label
-                  >
+                    )}
+                  </Label>
                   <!--
                     2Z, not ZEC. The price is charged in 2Z platform
                     credits every 30 days; a creator reading "ZEC" priced a

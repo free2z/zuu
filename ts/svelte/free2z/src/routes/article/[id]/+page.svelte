@@ -265,8 +265,8 @@
         class="flex flex-col gap-4 text-sm text-muted-foreground sm:flex-row sm:gap-8"
       >
         {#if article?.vote_count}
-          <span class="flex items-center gap-2"
-            >👍 {isSingularCount(article.vote_count, $locale)
+          <span class="flex items-center gap-2">
+            👍 {isSingularCount(article.vote_count, $locale)
               ? $t("article.voteCountOne", "{count} vote", {
                   count: formatCount(article.vote_count),
                 })
@@ -276,8 +276,8 @@
           </span>
         {/if}
         {#if article?.comment_count}
-          <span class="flex items-center gap-2"
-            >💬 {isSingularCount(article.comment_count, $locale)
+          <span class="flex items-center gap-2">
+            💬 {isSingularCount(article.comment_count, $locale)
               ? $t("article.commentCountOne", "{count} comment", {
                   count: formatCount(article.comment_count),
                 })

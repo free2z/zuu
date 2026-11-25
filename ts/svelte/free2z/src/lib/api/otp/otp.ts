@@ -260,7 +260,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OtpSetupCreateMutationError = unknown
 
 
-    export const createOtpSetupCreate = <TError = unknown,
+    /**
+ * Begin MFA enrolment and return a new, unverified TOTP secret.
+ *
+ * Refuses with 409 when MFA is already enabled; an active secret is never
+ * returned.
+ */
+export const createOtpSetupCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof otpSetupCreate>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof otpSetupCreate>>,
@@ -312,7 +318,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type OtpStatusRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof otpStatusRetrieve>>>
 export type OtpStatusRetrieveQueryError = unknown
-
 
 
 export function createOtpStatusRetrieve<TData = Awaited<ReturnType<typeof otpStatusRetrieve>>, TError = unknown>(

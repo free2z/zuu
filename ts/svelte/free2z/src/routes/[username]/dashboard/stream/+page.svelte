@@ -1335,12 +1335,12 @@
                     </Dialog.Trigger>
                     <Dialog.Content class="sm:max-w-[425px]">
                       <Dialog.Header>
-                        <Dialog.Title
-                          >{$t(
+                        <Dialog.Title>
+                          {$t(
                             "dashboard.stream.settingsTitle",
                             "Stream Settings",
-                          )}</Dialog.Title
-                        >
+                          )}
+                        </Dialog.Title>
                         <Dialog.Description>
                           {$t(
                             "dashboard.stream.settingsDescription",
@@ -1350,12 +1350,12 @@
                       </Dialog.Header>
                       <div class="space-y-6 py-4">
                         <div class="space-y-3">
-                          <Label
-                            >{$t(
+                          <Label>
+                            {$t(
                               "dashboard.stream.videoQuality",
                               "Video Quality",
-                            )}</Label
-                          >
+                            )}
+                          </Label>
                           <Select.Root type="single" bind:value={videoQuality}>
                             <Select.Trigger
                               aria-label={$t(
@@ -1400,12 +1400,12 @@
                     </Drawer.Trigger>
                     <Drawer.Content>
                       <Drawer.Header class="text-left">
-                        <Drawer.Title
-                          >{$t(
+                        <Drawer.Title>
+                          {$t(
                             "dashboard.stream.settingsTitle",
                             "Stream Settings",
-                          )}</Drawer.Title
-                        >
+                          )}
+                        </Drawer.Title>
                         <Drawer.Description>
                           {$t(
                             "dashboard.stream.settingsDescription",
@@ -1415,12 +1415,12 @@
                       </Drawer.Header>
                       <div class="space-y-6 px-4 py-4">
                         <div class="space-y-3">
-                          <Label
-                            >{$t(
+                          <Label>
+                            {$t(
                               "dashboard.stream.videoQuality",
                               "Video Quality",
-                            )}</Label
-                          >
+                            )}
+                          </Label>
                           <Select.Root type="single" bind:value={videoQuality}>
                             <Select.Trigger
                               aria-label={$t(
@@ -1456,8 +1456,9 @@
                       <Drawer.Footer class="pt-2">
                         <Drawer.Close
                           class={buttonVariants({ variant: "outline" })}
-                          >{$t("common.close", "Close")}</Drawer.Close
                         >
+                          {$t("common.close", "Close")}
+                        </Drawer.Close>
                       </Drawer.Footer>
                     </Drawer.Content>
                   </Drawer.Root>
@@ -1632,11 +1633,12 @@
                 >
                   <span
                     class="mb-3 block text-sm font-semibold tracking-wider text-muted-foreground uppercase"
-                    >{$t(
+                  >
+                    {$t(
                       "dashboard.stream.pricePerMinute",
                       "Price per minute (2Z)",
-                    )}</span
-                  >
+                    )}
+                  </span>
                   <div class="relative">
                     <!-- 20px, not the lucide-default 16: a two-character mark
                          needs the extra size to read next to the text-lg value.
@@ -1830,35 +1832,29 @@
                       <div
                         class="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white"
                       ></div>
-                      <span
-                        >{$t(
+                      <span>
+                        {$t(
                           "dashboard.stream.seat.checking",
                           "Checking live status…",
-                        )}</span
-                      >
+                        )}
+                      </span>
                     {:else if loading}
                       <div
                         class="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white"
                       ></div>
-                      <span
-                        >{$t(
-                          "dashboard.stream.starting",
-                          "Starting Stream...",
-                        )}</span
-                      >
+                      <span>
+                        {$t("dashboard.stream.starting", "Starting Stream...")}
+                      </span>
                     {:else}
                       <Video size={24} />
-                      <span
-                        >{streamType === "broadcast"
+                      <span>
+                        {streamType === "broadcast"
                           ? $t(
                               "dashboard.stream.startBroadcast",
                               "Start Broadcast",
                             )
-                          : $t(
-                              "dashboard.stream.startStream",
-                              "Start Stream",
-                            )}</span
-                      >
+                          : $t("dashboard.stream.startStream", "Start Stream")}
+                      </span>
                     {/if}
                   </Button>
                 </div>
@@ -1882,15 +1878,15 @@
                 <div
                   class="h-2 w-2 animate-pulse rounded-full bg-red-500"
                 ></div>
-                <span class="text-xs font-bold tracking-wider"
-                  >{$t("dashboard.stream.live", "LIVE")}</span
-                >
+                <span class="text-xs font-bold tracking-wider">
+                  {$t("dashboard.stream.live", "LIVE")}
+                </span>
                 <span class="h-3 w-px bg-white/20"></span>
                 <div class="flex items-center gap-1.5">
                   <Users size={14} class="text-zinc-300" />
-                  <span class="font-mono text-sm font-medium"
-                    >{formatLocalizedNumber(count, $locale)}</span
-                  >
+                  <span class="font-mono text-sm font-medium">
+                    {formatLocalizedNumber(count, $locale)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1969,18 +1965,15 @@
     class="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
     data-testid="live-converse-composer"
   >
-    <Dialog.Title
-      >{$t(
-        "dashboard.stream.shareToConverse",
-        "Share to Converse",
-      )}</Dialog.Title
-    >
-    <Dialog.Description
-      >{$t(
+    <Dialog.Title>
+      {$t("dashboard.stream.shareToConverse", "Share to Converse")}
+    </Dialog.Title>
+    <Dialog.Description>
+      {$t(
         "dashboard.stream.reviewLiveAnnouncement",
         "Review and edit your announcement before posting. Your livestream will continue while you write.",
-      )}</Dialog.Description
-    >
+      )}
+    </Dialog.Description>
     {#if seatState === "live" && streamType === "broadcast" && streamSharePath}
       <ConverseComposer
         initialContent={`I'm live — come watch! ${new URL(streamSharePath, browser ? window.location.origin : "https://free2z.com").toString()}`}

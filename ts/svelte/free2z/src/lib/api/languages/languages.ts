@@ -80,7 +80,12 @@ export type LanguagesCatalogQueryResult = NonNullable<Awaited<ReturnType<typeof 
 export type LanguagesCatalogQueryError = void
 
 
-
+/**
+ * The languages we sell a translation into, named for the viewer.
+ *
+ * Public and unauthenticated on purpose: the picker is on screen before a
+ * visitor signs in, and the answer is the same for everyone.
+ */
 export function createLanguagesCatalog<TData = Awaited<ReturnType<typeof languagesCatalog>>, TError = void>(
  params?: LanguagesCatalogParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof languagesCatalog>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

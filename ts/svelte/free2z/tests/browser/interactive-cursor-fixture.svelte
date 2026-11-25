@@ -24,40 +24,50 @@
     onCheckedChange={() => associatedChanges++}
   />
   <output data-testid="associated-changes">{associatedChanges}</output>
-  <button onclick={() => (associatedDisabled = !associatedDisabled)}
-    >Toggle associated disabled</button
+  <button onclick={() => (associatedDisabled = !associatedDisabled)}>
+    Toggle associated disabled
+  </button>
+  <Label for="associated-enabled" control data-testid="label-associated-second">
+    Second label
+  </Label>
+  <Label
+    for="associated-missing"
+    control
+    data-testid="label-associated-missing"
   >
-  <Label for="associated-enabled" control data-testid="label-associated-second"
-    >Second label</Label
-  >
-  <Label for="associated-missing" control data-testid="label-associated-missing"
-    >Missing choice</Label
-  >
+    Missing choice
+  </Label>
   <input id="associated-native" type="checkbox" />
-  <Label for="associated-native" control data-testid="label-associated-native"
-    >Native choice</Label
-  >
+  <Label for="associated-native" control data-testid="label-associated-native">
+    Native choice
+  </Label>
   <input id="associated-radio" type="radio" />
-  <Label for="associated-radio" control data-testid="label-associated-radio"
-    >Radio choice</Label
-  >
+  <Label for="associated-radio" control data-testid="label-associated-radio">
+    Radio choice
+  </Label>
   <input id="associated-file" type="file" />
-  <Label for="associated-file" control data-testid="label-associated-file"
-    >File choice</Label
+  <Label for="associated-file" control data-testid="label-associated-file">
+    File choice
+  </Label>
+  <Label
+    for="associated-enabled"
+    control
+    data-testid="label-associated-enabled"
   >
-  <Label for="associated-enabled" control data-testid="label-associated-enabled"
-    >Associated choice</Label
-  >
+    Associated choice
+  </Label>
   <Checkbox id="associated-disabled" disabled />
   <Label
     for="associated-disabled"
     control
-    data-testid="label-associated-disabled">Disabled choice</Label
+    data-testid="label-associated-disabled"
   >
+    Disabled choice
+  </Label>
   <input id="associated-text" />
-  <Label for="associated-text" data-testid="label-associated-text"
-    >Text field</Label
-  >
+  <Label for="associated-text" data-testid="label-associated-text">
+    Text field
+  </Label>
   <Button data-testid="button-enabled">Enabled button</Button>
   <Button data-testid="button-disabled" disabled>Disabled button</Button>
   <!-- A label that wraps the shared Checkbox/Switch (a role=checkbox|switch

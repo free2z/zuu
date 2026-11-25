@@ -112,10 +112,10 @@
         is honest — and it is also the only place a reader can see why a page
         tagged with a variant spelling turned up here.
       -->
-      <span class="normal-case"
-        >· {$t("tag.alsoSpelled", "also spelled")}
-        {data.names.slice(1).join(", ")}</span
-      >
+      <span class="normal-case">
+        · {$t("tag.alsoSpelled", "also spelled")}
+        {data.names.slice(1).join(", ")}
+      </span>
     {/if}
   </p>
 

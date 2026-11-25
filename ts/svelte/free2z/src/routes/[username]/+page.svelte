@@ -284,9 +284,11 @@
             <div
               class="flex flex-wrap items-center justify-center gap-2 sm:gap-3 md:justify-start"
             >
-              <span class="text-xs font-medium text-muted-foreground sm:text-sm"
-                >@{creator.username}</span
+              <span
+                class="text-xs font-medium text-muted-foreground sm:text-sm"
               >
+                @{creator.username}
+              </span>
               <LiveIndicator username={creator.username} />
               <span class="text-xs text-muted-foreground sm:text-sm">
                 {articleCountLabel(creator.zpages || 0)}
@@ -403,9 +405,9 @@
           <Tabs.List>
             <Tabs.Trigger value="published">
               {$t("profile.published", "Publications")}
-              <Badge variant="secondary" class="ml-2"
-                >{formatCount(publishedCount)}</Badge
-              >
+              <Badge variant="secondary" class="ml-2">
+                {formatCount(publishedCount)}
+              </Badge>
             </Tabs.Trigger>
             <Tabs.Trigger value="posts" data-testid="profile-posts-tab">
               <MessagesSquare class="mr-1 size-3.5" />
@@ -461,21 +463,18 @@
                   </span>
                 </Select.Trigger>
                 <Select.Content>
-                  <Select.Item value="-published_at"
-                    >{$t(
-                      "profile.sort.published",
-                      "Recently Published",
-                    )}</Select.Item
-                  >
-                  <Select.Item value="-created_at"
-                    >{$t("profile.sort.newest", "Newest")}</Select.Item
-                  >
-                  <Select.Item value="created_at"
-                    >{$t("profile.sort.oldest", "Oldest")}</Select.Item
-                  >
-                  <Select.Item value="-f2z_score"
-                    >{$t("profile.sort.popular", "Popular")}</Select.Item
-                  >
+                  <Select.Item value="-published_at">
+                    {$t("profile.sort.published", "Recently Published")}
+                  </Select.Item>
+                  <Select.Item value="-created_at">
+                    {$t("profile.sort.newest", "Newest")}
+                  </Select.Item>
+                  <Select.Item value="created_at">
+                    {$t("profile.sort.oldest", "Oldest")}
+                  </Select.Item>
+                  <Select.Item value="-f2z_score">
+                    {$t("profile.sort.popular", "Popular")}
+                  </Select.Item>
                 </Select.Content>
               </Select.Root>
 
@@ -515,9 +514,9 @@
                 <p class="text-sm text-muted-foreground">
                   {$t("profile.noPublished", "No published articles found.")}
                 </p>
-                <Button href="/edit" variant="link" size="sm"
-                  >{$t("profile.createArticle", "Create Article")}</Button
-                >
+                <Button href="/edit" variant="link" size="sm">
+                  {$t("profile.createArticle", "Create Article")}
+                </Button>
               </div>
             {/each}
           </div>
@@ -619,21 +618,18 @@
                   </span>
                 </Select.Trigger>
                 <Select.Content>
-                  <Select.Item value="-published_at"
-                    >{$t(
-                      "profile.sort.published",
-                      "Recently Published",
-                    )}</Select.Item
-                  >
-                  <Select.Item value="-created_at"
-                    >{$t("profile.sort.newest", "Newest")}</Select.Item
-                  >
-                  <Select.Item value="created_at"
-                    >{$t("profile.sort.oldest", "Oldest")}</Select.Item
-                  >
-                  <Select.Item value="-f2z_score"
-                    >{$t("profile.sort.popular", "Popular")}</Select.Item
-                  >
+                  <Select.Item value="-published_at">
+                    {$t("profile.sort.published", "Recently Published")}
+                  </Select.Item>
+                  <Select.Item value="-created_at">
+                    {$t("profile.sort.newest", "Newest")}
+                  </Select.Item>
+                  <Select.Item value="created_at">
+                    {$t("profile.sort.oldest", "Oldest")}
+                  </Select.Item>
+                  <Select.Item value="-f2z_score">
+                    {$t("profile.sort.popular", "Popular")}
+                  </Select.Item>
                 </Select.Content>
               </Select.Root>
 

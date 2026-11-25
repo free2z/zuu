@@ -87,9 +87,9 @@ export type SdkBalanceRetrieveQueryError = ErrorEnvelope
 
 
 /**
+ * Read the caller's 2Z balance.
  * @summary Read the caller's 2Z balance
  */
-
 export function createSdkBalanceRetrieve<TData = Awaited<ReturnType<typeof sdkBalanceRetrieve>>, TError = ErrorEnvelope>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof sdkBalanceRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -166,6 +166,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SdkCallReportCreateMutationVariables = {callId: string;data: CallReportRequest}
 
     /**
+ * Files the signed-in user's report of one AI call's output, for the app's developer and Free2Z moderation. The call must be one this user made through this app in the last 90 days; any other id is `404 not_found`. One report per call and user: a repeat answers `200` with the same report, its reason and detail replaced by the latest. No AI content is stored. `unsafe` alerts Free2Z staff. At most 30 reports filed, or escalated to `unsafe`, per account per rolling hour, of which at most 5 unsafe (`429 rate_limited`). A child-directed app may not send `detail` (`400 invalid_request`, field `detail`).
  * @summary Report an AI call's output
  */
 export const createSdkCallReportCreate = <TError = ErrorEnvelope,
@@ -227,9 +228,9 @@ export type SdkGrantRetrieveQueryError = ErrorEnvelope
 
 
 /**
+ * Read only the authenticated app/user grant; never a reusable spend authorization.
  * @summary Read the bearer token's current AI grant
  */
-
 export function createSdkGrantRetrieve<TData = Awaited<ReturnType<typeof sdkGrantRetrieve>>, TError = ErrorEnvelope>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof sdkGrantRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -305,6 +306,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type PurchasesIntentsCreateMutationVariables = {data: PurchaseIntentCreate}
 
     /**
+ * Create a purchase intent and open its rail's payment surface.
  * @summary Create a purchase intent (buy 2Z)
  */
 export const createPurchasesIntentsCreate = <TError = ErrorEnvelope,
@@ -366,9 +368,9 @@ export type PurchasesIntentsRetrieveQueryError = ErrorEnvelope
 
 
 /**
+ * Read one purchase intent; clients poll this until it settles (§1.3).
  * @summary Read a purchase intent
  */
-
 export function createPurchasesIntentsRetrieve<TData = Awaited<ReturnType<typeof purchasesIntentsRetrieve>>, TError = ErrorEnvelope>(
  purchaseId: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof purchasesIntentsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

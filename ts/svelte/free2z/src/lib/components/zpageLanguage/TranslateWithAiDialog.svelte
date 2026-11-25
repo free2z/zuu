@@ -307,11 +307,9 @@
             onclick={onretry}
             disabled={buying}
             class="rounded-md border border-border px-3 py-1.5 text-sm"
-            >{$t(
-              "editor.translateRetryQuote",
-              "Refresh price and balance",
-            )}</button
           >
+            {$t("editor.translateRetryQuote", "Refresh price and balance")}
+          </button>
         {/if}
         {#if quote && !error && !insufficientFunds && affordable}
           <button

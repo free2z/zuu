@@ -1,12 +1,12 @@
 /**
  * Narrow jsdom internals used by the sanitizer retention regressions.
  *
- * The checked dependency lines are isomorphic-dompurify 4.4.x/jsdom 30.0.x
- * and 4.5.x/jsdom 30.1.x. jsdom 30.0.x exposes implementation objects via a
- * `Symbol(impl)` wrapper property; 30.1.x moved them behind private fields and
- * exports `implForWrapper` from a different internal utility module. Resolve
- * the utility relative to isomorphic-dompurify so this follows its actual
- * transitive jsdom rather than an unrelated top-level copy.
+ * The checked dependency lines are isomorphic-dompurify 4.4.x/jsdom 30.0.x,
+ * 4.5.x/jsdom 30.1.x, and jsdom 31.x. jsdom 30.0.x exposes implementation
+ * objects via a `Symbol(impl)` wrapper property; 30.1.x and 31.x moved them
+ * behind private fields and export `implForWrapper` from a different internal
+ * utility module. Resolve the utility relative to isomorphic-dompurify so this
+ * follows its actual transitive jsdom rather than an unrelated top-level copy.
  *
  * This is intentionally private-API-coupled. A changed layout must fail with
  * an actionable error so the retention tests are re-derived; silently
@@ -44,11 +44,15 @@ assert.ok(
 
 export const jsdomVersion =
   requireFromIsomorphicDOMPurify("jsdom/package.json").version;
-const supportedVersion = /^30\.(0|1)\./.exec(jsdomVersion);
+const supportedVersion = /^(?:30\.(0|1)|31)\./.exec(jsdomVersion);
 assert.ok(
   supportedVersion,
-  `unsupported jsdom ${jsdomVersion}; re-derive sanitizer leak controls for jsdom 30.0.x and 30.1.x`,
+  `unsupported jsdom ${jsdomVersion}; re-derive sanitizer leak controls for jsdom 30.0.x, 30.1.x, and 31.x`,
 );
+// jsdom 30.0.x records named properties for detached parser documents.
+// 30.1.x and 31.x skip elements that are not in the window's associated
+// document, so a raw DOMPurify sanitize no longer retains them. The production
+// cleanup is still required and is asserted on every supported line.
 export const detachedParserDocumentsRetainNamedProperties =
   supportedVersion[1] === "0";
 

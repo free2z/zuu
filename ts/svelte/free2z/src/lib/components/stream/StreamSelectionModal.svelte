@@ -55,11 +55,11 @@
 <Dialog.Root bind:open>
   <Dialog.Content class="sm:max-w-[425px]">
     <Dialog.Header>
-      <Dialog.Title
-        >{$t("stream.selection.title", "Join {username}'s Stream", {
+      <Dialog.Title>
+        {$t("stream.selection.title", "Join {username}'s Stream", {
           username,
-        })}</Dialog.Title
-      >
+        })}
+      </Dialog.Title>
       <Dialog.Description>
         {$t(
           "stream.selection.description",
@@ -109,11 +109,11 @@
                 </span>
                 {#if stream.price_per_minute}
                   <span>•</span>
-                  <span
-                    >{$t("stream.pricePerMinuteShort", "{amount} 2Z/min", {
+                  <span>
+                    {$t("stream.pricePerMinuteShort", "{amount} 2Z/min", {
                       amount: formatAmount(stream.price_per_minute),
-                    })}</span
-                  >
+                    })}
+                  </span>
                 {/if}
               </div>
             </div>

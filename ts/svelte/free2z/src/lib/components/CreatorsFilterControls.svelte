@@ -114,9 +114,9 @@
           {$t("creators.filters.filterAndSort", "Filter and sort")}
         </h3>
       {:else}
-        <Card.Title class="text-base font-semibold"
-          >{$t("creators.filters.filterAndSort", "Filter and sort")}</Card.Title
-        >
+        <Card.Title class="text-base font-semibold">
+          {$t("creators.filters.filterAndSort", "Filter and sort")}
+        </Card.Title>
       {/if}
     </div>
     {#if filterCount > 0}
@@ -185,9 +185,9 @@
 {#snippet sortField(isMobile: boolean)}
   <div class={isMobile ? "space-y-1.5" : "space-y-2"}>
     {#if isMobile}
-      <Label class="text-xs font-medium text-muted-foreground"
-        >{$t("creators.filters.sortBy", "Sort by")}</Label
-      >
+      <Label class="text-xs font-medium text-muted-foreground">
+        {$t("creators.filters.sortBy", "Sort by")}
+      </Label>
     {:else}
       <Label class="flex items-center gap-2 text-sm font-medium">
         <ArrowUpDown class="h-4 w-4 text-muted-foreground" />
@@ -215,11 +215,9 @@
           <Select.Group>
             <Select.GroupHeading
               class="px-2 py-1.5 text-xs font-semibold text-muted-foreground"
-              >{$t(
-                `creators.filters.sortGroups.${group.key}`,
-                group.label,
-              )}</Select.GroupHeading
             >
+              {$t(`creators.filters.sortGroups.${group.key}`, group.label)}
+            </Select.GroupHeading>
             {#each sortOptions.filter((o) => o.group === group.key) as option}
               <Select.Item
                 value={option.value}
@@ -245,9 +243,9 @@
 {#snippet verificationField(isMobile: boolean)}
   <div class={isMobile ? "space-y-1.5" : "space-y-2"}>
     {#if isMobile}
-      <Label class="text-xs font-medium text-muted-foreground"
-        >{$t("creators.filters.verification", "Verification")}</Label
-      >
+      <Label class="text-xs font-medium text-muted-foreground">
+        {$t("creators.filters.verification", "Verification")}
+      </Label>
     {:else}
       <Label class="flex items-center gap-2 text-sm font-medium">
         <ShieldCheck class="h-4 w-4 text-muted-foreground" />
@@ -297,9 +295,9 @@
 {#snippet membershipField(isMobile: boolean)}
   <div class={isMobile ? "space-y-1.5" : "space-y-2"}>
     {#if isMobile}
-      <Label class="text-xs font-medium text-muted-foreground"
-        >{$t("creators.filters.membership", "Membership")}</Label
-      >
+      <Label class="text-xs font-medium text-muted-foreground">
+        {$t("creators.filters.membership", "Membership")}
+      </Label>
     {:else}
       <Label class="flex items-center gap-2 text-sm font-medium">
         <CreditCard class="h-4 w-4 text-muted-foreground" />
@@ -346,15 +344,15 @@
 {#snippet p2pField(isMobile: boolean)}
   {#if isMobile}
     <div class="space-y-1.5">
-      <Label class="text-xs font-medium text-muted-foreground"
-        >{$t("creators.filters.directDonations", "Direct donations")}</Label
-      >
+      <Label class="text-xs font-medium text-muted-foreground">
+        {$t("creators.filters.directDonations", "Direct donations")}
+      </Label>
       <div
         class="flex h-9 items-center justify-between rounded-md border border-border/50 bg-background/50 px-2"
       >
-        <span class="text-xs text-muted-foreground"
-          >{$t("creators.filters.enabled", "Enabled")}</span
-        >
+        <span class="text-xs text-muted-foreground">
+          {$t("creators.filters.enabled", "Enabled")}
+        </span>
         <Switch
           checked={onlyZcash}
           onCheckedChange={handleZcashChange}
@@ -365,9 +363,9 @@
   {:else}
     <div class="flex items-center justify-between p-3">
       <div class="flex flex-col gap-0.5">
-        <Label class="text-sm font-medium"
-          >{$t("creators.filters.directDonations", "Direct donations")}</Label
-        >
+        <Label class="text-sm font-medium">
+          {$t("creators.filters.directDonations", "Direct donations")}
+        </Label>
       </div>
       <Switch checked={onlyZcash} onCheckedChange={handleZcashChange} />
     </div>
@@ -377,9 +375,9 @@
 {#snippet minPostsField(isMobile: boolean)}
   <div class="space-y-1.5">
     {#if isMobile}
-      <Label class="text-xs font-medium text-muted-foreground"
-        >{$t("creators.filters.minimumPosts", "Minimum posts")}</Label
-      >
+      <Label class="text-xs font-medium text-muted-foreground">
+        {$t("creators.filters.minimumPosts", "Minimum posts")}
+      </Label>
     {:else}
       <Label class="flex items-center gap-1 text-xs text-muted-foreground">
         <Hash class="h-3 w-3" />
@@ -403,9 +401,9 @@
 {#snippet minFollowersField(isMobile: boolean)}
   <div class="space-y-1.5">
     {#if isMobile}
-      <Label class="text-xs font-medium text-muted-foreground"
-        >{$t("creators.filters.minimumFollowers", "Minimum followers")}</Label
-      >
+      <Label class="text-xs font-medium text-muted-foreground">
+        {$t("creators.filters.minimumFollowers", "Minimum followers")}
+      </Label>
     {:else}
       <Label class="flex items-center gap-1 text-xs text-muted-foreground">
         <Users class="h-3 w-3" />

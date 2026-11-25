@@ -204,9 +204,9 @@
         "Agent account access could not be loaded.",
       )}
     </p>
-    <Button variant="outline" onclick={load}
-      >{$t("oauth.agent.retry", "Try again")}</Button
-    >
+    <Button variant="outline" onclick={load}>
+      {$t("oauth.agent.retry", "Try again")}
+    </Button>
   {:else if phase === "complete" || phase === "denied"}
     <div class="space-y-2 rounded-lg border bg-card p-5" role="status">
       <h2 class="text-lg font-semibold">
@@ -261,19 +261,19 @@
             { expected: prompt.expected_username },
           )}
         </p>
-        <Button variant="outline" disabled={switching} onclick={switchAccount}
-          >{$t("oauth.agent.signInAs", "Sign in as @{username}", {
+        <Button variant="outline" disabled={switching} onclick={switchAccount}>
+          {$t("oauth.agent.signInAs", "Sign in as @{username}", {
             username: prompt.expected_username,
-          })}</Button
-        >
+          })}
+        </Button>
       {:else}
         <fieldset
           disabled={phase === "submitting"}
           class="space-y-3 border-t pt-4"
         >
-          <legend class="pt-4 font-medium"
-            >{$t("oauth.agent.permissions", "Allow this assistant to")}</legend
-          >
+          <legend class="pt-4 font-medium">
+            {$t("oauth.agent.permissions", "Allow this assistant to")}
+          </legend>
           {#each prompt.scopes as scope}
             <Label control className="flex items-start gap-3 text-sm">
               <input
@@ -282,9 +282,9 @@
                 bind:group={selected}
                 class="mt-0.5 h-4 w-4 shrink-0"
               />
-              <span
-                >{scopeLabel($t, scope, prompt.scope_descriptions[scope])}</span
-              >
+              <span>
+                {scopeLabel($t, scope, prompt.scope_descriptions[scope])}
+              </span>
             </Label>
           {/each}
         </fieldset>
@@ -315,14 +315,16 @@
           <Button
             disabled={phase === "submitting" || selected.length === 0}
             onclick={() => decide(true)}
-            >{$t("oauth.agent.allow", "Allow access")}</Button
           >
+            {$t("oauth.agent.allow", "Allow access")}
+          </Button>
           <Button
             variant="outline"
             disabled={phase === "submitting"}
             onclick={() => decide(false)}
-            >{$t("oauth.agent.deny", "Decline")}</Button
           >
+            {$t("oauth.agent.deny", "Decline")}
+          </Button>
         </div>
       {/if}
     </div>

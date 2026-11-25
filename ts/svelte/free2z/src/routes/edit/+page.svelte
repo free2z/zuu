@@ -6176,24 +6176,29 @@
   {#if ownerSignedIn && recoveryDraft}
     <section role="status" class="space-y-2 border-b p-4">
       <p>{$t("editor.draftRecovery")}</p>
-      <button class="cursor-pointer underline" onclick={restoreConflictDraft}
-        >{$t("editor.restoreDraft")}</button
-      >
+      <button class="cursor-pointer underline" onclick={restoreConflictDraft}>
+        {$t("editor.restoreDraft")}
+      </button>
       <button
         class="ml-4 cursor-pointer underline"
         onclick={() => {
           clearConflictDraft(recoveryKey);
           recoveryDraft = null;
-        }}>{$t("editor.discardDraft")}</button
+        }}
       >
+        {$t("editor.discardDraft")}
+      </button>
     </section>
   {/if}
   {#if ownerSignedIn && saveConflicted}
     <section role="status" class="border-b p-4">
       <p>{saveError}</p>
-      <button class="cursor-pointer underline" onclick={() => reloadWithDraft()}
-        >{$t("editor.saveConflictReload")}</button
+      <button
+        class="cursor-pointer underline"
+        onclick={() => reloadWithDraft()}
       >
+        {$t("editor.saveConflictReload")}
+      </button>
     </section>
   {/if}
   <EditorTopbar
@@ -6458,11 +6463,12 @@
               class="mt-2 rounded-md border border-border px-3 py-1"
               onclick={() =>
                 void openTranslateWithAi(unresolvedTranslationLanguage!)}
-              >{$t(
+            >
+              {$t(
                 "editor.translationRecoverPurchase",
                 "Recover translation purchase",
-              )}</button
-            >
+              )}
+            </button>
           </div>
         {/if}
         {#if translationReviewNeeded && translationReviewTarget}
@@ -6485,12 +6491,13 @@
                 if (target)
                   void chooseDeliveredTranslation(target.page, target.language);
               }}
-              >{$t(
+            >
+              {$t(
                 "editor.translationReviewSavedLanguage",
                 "Review saved {language} draft",
                 { language: languageLabel(translationReviewTarget.language) },
-              )}</button
-            >
+              )}
+            </button>
           </div>
         {/if}
         {#if visibleTranslationProgress && !reviewSupersedesJobStatus}
@@ -6574,22 +6581,18 @@
                 type="button"
                 class="mt-2 rounded-md border border-border px-3 py-1"
                 onclick={() => void reviewTranslationDraft()}
-                >{$t(
-                  "editor.translationReviewDraft",
-                  "Review translated draft",
-                )}</button
               >
+                {$t("editor.translationReviewDraft", "Review translated draft")}
+              </button>
             {/if}
             {#if translationPending && !visibleTranslationProgress.checking}
               <button
                 type="button"
                 class="mt-2 rounded-md border border-border px-3 py-1"
                 onclick={() => void reconnectTranslation()}
-                >{$t(
-                  "editor.translationReconnect",
-                  "Check translation status",
-                )}</button
               >
+                {$t("editor.translationReconnect", "Check translation status")}
+              </button>
             {/if}
           </div>
         {/if}

@@ -44,9 +44,9 @@
             disabled={currentPage <= 1}
             class={currentPage <= 1 ? "pointer-events-none opacity-50" : ""}
           >
-            <span class="hidden sm:block"
-              >{$t("pagination.previous", "Previous")}</span
-            >
+            <span class="hidden sm:block">
+              {$t("pagination.previous", "Previous")}
+            </span>
           </Pagination.PrevButton>
         </Pagination.Item>
 

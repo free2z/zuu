@@ -298,8 +298,9 @@
             : 'bg-background text-foreground shadow-xs'}"
           aria-pressed={!showAllEvents}
           onclick={() => onFilterChange(false)}
-          >{$t("dashboard.notifications.social", "Social")}</button
         >
+          {$t("dashboard.notifications.social", "Social")}
+        </button>
         <button
           type="button"
           class="rounded-md px-3 py-1.5 text-sm font-medium transition-colors {showAllEvents
@@ -307,8 +308,9 @@
             : 'text-muted-foreground hover:text-foreground'}"
           aria-pressed={showAllEvents}
           onclick={() => onFilterChange(true)}
-          >{$t("dashboard.notifications.all", "All")}</button
         >
+          {$t("dashboard.notifications.all", "All")}
+        </button>
       </div>
 
       <div class="ml-auto flex items-center gap-1 sm:ml-0">
@@ -326,9 +328,9 @@
           <RefreshCcw
             class="size-4 {state.loadingInitial ? 'animate-spin' : ''}"
           />
-          <span class="hidden sm:inline"
-            >{$t("dashboard.notifications.refresh", "Refresh")}</span
-          >
+          <span class="hidden sm:inline">
+            {$t("dashboard.notifications.refresh", "Refresh")}
+          </span>
         </Button>
 
         {#if unreadCount > 0 || state.markingAllRead}
@@ -344,15 +346,12 @@
               {$t("dashboard.notifications.marking", "Marking…")}
             {:else}
               <CheckCheck class="size-4" />
-              <span class="sm:hidden"
-                >{$t("dashboard.notifications.markAllShort", "Mark all")}</span
-              >
-              <span class="hidden sm:inline"
-                >{$t(
-                  "dashboard.notifications.markAllRead",
-                  "Mark all as read",
-                )}</span
-              >
+              <span class="sm:hidden">
+                {$t("dashboard.notifications.markAllShort", "Mark all")}
+              </span>
+              <span class="hidden sm:inline">
+                {$t("dashboard.notifications.markAllRead", "Mark all as read")}
+              </span>
             {/if}
           </Button>
         {/if}
@@ -385,21 +384,21 @@
             <Select.Item
               value="all"
               label={$t("dashboard.notifications.allStatuses", "All statuses")}
-              >{$t(
-                "dashboard.notifications.allStatuses",
-                "All statuses",
-              )}</Select.Item
             >
+              {$t("dashboard.notifications.allStatuses", "All statuses")}
+            </Select.Item>
             <Select.Item
               value="unread"
               label={$t("dashboard.notifications.unread", "Unread")}
-              >{$t("dashboard.notifications.unread", "Unread")}</Select.Item
             >
+              {$t("dashboard.notifications.unread", "Unread")}
+            </Select.Item>
             <Select.Item
               value="read"
               label={$t("dashboard.notifications.read", "Read")}
-              >{$t("dashboard.notifications.read", "Read")}</Select.Item
             >
+              {$t("dashboard.notifications.read", "Read")}
+            </Select.Item>
           </Select.Content>
         </Select.Root>
 
@@ -425,19 +424,15 @@
             <Select.Item
               value="newest"
               label={$t("dashboard.notifications.newestFirst", "Newest first")}
-              >{$t(
-                "dashboard.notifications.newestFirst",
-                "Newest first",
-              )}</Select.Item
             >
+              {$t("dashboard.notifications.newestFirst", "Newest first")}
+            </Select.Item>
             <Select.Item
               value="oldest"
               label={$t("dashboard.notifications.oldestFirst", "Oldest first")}
-              >{$t(
-                "dashboard.notifications.oldestFirst",
-                "Oldest first",
-              )}</Select.Item
             >
+              {$t("dashboard.notifications.oldestFirst", "Oldest first")}
+            </Select.Item>
           </Select.Content>
         </Select.Root>
       </div>

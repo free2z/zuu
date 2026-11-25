@@ -89,6 +89,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KtHandleAssertionCreateMutationVariables = {data: HandleAssertionRequest}
 
     /**
+ * Signs a short-lived HandleAssertion (docs/free2z/messaging/KT.md in free2z/zuu) binding the authenticated account's messaging handle to an Ed25519 identity key, for submission to the key-transparency log.
+ *
+ * The handle is derived from the authenticated account and cannot be requested. The assertion is a bearer document and authorizes nothing on its own: the submission carrying it must also be signed by the identity key it names.
+ *
+ * This implements a PROPOSAL (free2z/zuu#594), not ratified spec.
  * @summary Mint a key-transparency handle-ownership assertion
  */
 export const createKtHandleAssertionCreate = <TError = HandleIneligible | AuthorityUnavailable,

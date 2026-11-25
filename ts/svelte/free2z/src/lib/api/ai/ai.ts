@@ -161,7 +161,36 @@ export type AiCatalogV1QueryResult = NonNullable<Awaited<ReturnType<typeof aiCat
 export type AiCatalogV1QueryError = void
 
 
-
+/**
+ * The signed AI model catalogue the f2z-ai gateway prices from.
+ *
+ * PUBLIC, deliberately. Everything in it is already public -- per-model
+ * provider prices and limits are on ``GET /api/ai/models/`` and the gateway's
+ * ``/v1/models``, and the platform margin is a published policy -- and the
+ * response is authenticated by its Ed25519 signature, not by who fetched it:
+ * the gateway trusts a key from its own configuration, never from here.
+ * Gating it behind internal auth would add a credential to the one path
+ * the gateway cannot price without, and protect nothing.
+ *
+ * Stateless: built from the active rate card and ``AIModel`` rows and
+ * signed on every request (see ``dj.apps.pricing.catalog``). ``ETag`` is a
+ * hash of the exact body; ``If-None-Match`` answers 304.
+ *
+ * No refusal is a 5xx: this is a public URL, and a 5xx here would feed the
+ * site-wide page-tier LB alerts.
+ *
+ * * key not provisioned -> 404 ``catalog_not_provisioned``, logged, NOT
+ *   alerted (the expected state until the owner provisions it);
+ * * a whole-document refusal -- a malformed or test key, no active rate
+ *   card, a revision stamped in the future -> 409 ``catalog_refused`` with
+ *   the ``reason``, plus the alerted ``ai_catalog_refused`` line;
+ * * a bad MODEL (no rate row, bad limits, all-zero prices, a duplicate id,
+ *   a per-image price on a provider that bills images as tokens) is left
+ *   OUT of an otherwise published catalogue, with an alerted
+ *   ``ai_catalog_model_excluded`` line -- it never blocks the document.
+ *
+ * A genuinely unexpected error still surfaces as a 500.
+ */
 export function createAiCatalogV1<TData = Awaited<ReturnType<typeof aiCatalogV1>>, TError = void>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiCatalogV1>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -228,7 +257,7 @@ export type AiCatalogV2QueryResult = NonNullable<Awaited<ReturnType<typeof aiCat
 export type AiCatalogV2QueryError = unknown
 
 
-
+/** Opt-in TTL pricing publication; schema-1 clients keep their endpoint. */
 export function createAiCatalogV2<TData = Awaited<ReturnType<typeof aiCatalogV2>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiCatalogV2>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -296,7 +325,7 @@ export type AiConversationsListQueryResult = NonNullable<Awaited<ReturnType<type
 export type AiConversationsListQueryError = unknown
 
 
-
+/** This is to get your own conversations and fork others. */
 export function createAiConversationsList<TData = Awaited<ReturnType<typeof aiConversationsList>>, TError = unknown>(
  params?: AiConversationsListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiConversationsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -370,7 +399,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiConversationsCreateMutationError = unknown
     export type AiConversationsCreateMutationVariables = {data: NonReadonly<Conversation>}
 
-    export const createAiConversationsCreate = <TError = unknown,
+    /** This is to get your own conversations and fork others. */
+export const createAiConversationsCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof aiConversationsCreate>>, TError,AiConversationsCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof aiConversationsCreate>>,
@@ -426,7 +456,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type AiConversationsPromptresponsesListQueryResult = NonNullable<Awaited<ReturnType<typeof aiConversationsPromptresponsesList>>>
 export type AiConversationsPromptresponsesListQueryError = unknown
-
 
 
 export function createAiConversationsPromptresponsesList<TData = Awaited<ReturnType<typeof aiConversationsPromptresponsesList>>, TError = unknown>(
@@ -556,7 +585,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type AiConversationsPromptresponsesRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof aiConversationsPromptresponsesRetrieve>>>
 export type AiConversationsPromptresponsesRetrieveQueryError = unknown
-
 
 
 export function createAiConversationsPromptresponsesRetrieve<TData = Awaited<ReturnType<typeof aiConversationsPromptresponsesRetrieve>>, TError = unknown>(
@@ -812,7 +840,7 @@ export type AiConversationsRetrieveQueryResult = NonNullable<Awaited<ReturnType<
 export type AiConversationsRetrieveQueryError = unknown
 
 
-
+/** This is to get your own conversations and fork others. */
 export function createAiConversationsRetrieve<TData = Awaited<ReturnType<typeof aiConversationsRetrieve>>, TError = unknown>(
  id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiConversationsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -887,7 +915,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiConversationsUpdateMutationError = unknown
     export type AiConversationsUpdateMutationVariables = {id: string;data: NonReadonly<Conversation>}
 
-    export const createAiConversationsUpdate = <TError = unknown,
+    /** This is to get your own conversations and fork others. */
+export const createAiConversationsUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof aiConversationsUpdate>>, TError,AiConversationsUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof aiConversationsUpdate>>,
@@ -952,7 +981,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiConversationsPartialUpdateMutationError = unknown
     export type AiConversationsPartialUpdateMutationVariables = {id: string;data?: NonReadonly<PatchedConversation>}
 
-    export const createAiConversationsPartialUpdate = <TError = unknown,
+    /** This is to get your own conversations and fork others. */
+export const createAiConversationsPartialUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof aiConversationsPartialUpdate>>, TError,AiConversationsPartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof aiConversationsPartialUpdate>>,
@@ -1014,7 +1044,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiConversationsDestroyMutationError = unknown
     export type AiConversationsDestroyMutationVariables = {id: string}
 
-    export const createAiConversationsDestroy = <TError = unknown,
+    /** This is to get your own conversations and fork others. */
+export const createAiConversationsDestroy = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof aiConversationsDestroy>>, TError,AiConversationsDestroyMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof aiConversationsDestroy>>,
@@ -1078,7 +1109,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiConversationsForkCreateMutationError = unknown
     export type AiConversationsForkCreateMutationVariables = {data: NonReadonly<Conversation>}
 
-    export const createAiConversationsForkCreate = <TError = unknown,
+    /** This is to get your own conversations and fork others. */
+export const createAiConversationsForkCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof aiConversationsForkCreate>>, TError,AiConversationsForkCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof aiConversationsForkCreate>>,
@@ -1135,7 +1167,7 @@ export type AiConversationsPublicRetrieveQueryResult = NonNullable<Awaited<Retur
 export type AiConversationsPublicRetrieveQueryError = unknown
 
 
-
+/** This is to get your own conversations and fork others. */
 export function createAiConversationsPublicRetrieve<TData = Awaited<ReturnType<typeof aiConversationsPublicRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiConversationsPublicRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1202,7 +1234,7 @@ export type AiCreatorOptionsRetrieveQueryResult = NonNullable<Awaited<ReturnType
 export type AiCreatorOptionsRetrieveQueryError = unknown
 
 
-
+/** Server-authoritative choices and a quote for creator AI operations. */
 export function createAiCreatorOptionsRetrieve<TData = Awaited<ReturnType<typeof aiCreatorOptionsRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiCreatorOptionsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1276,7 +1308,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiCreatorOptionsCreateMutationError = void
     export type AiCreatorOptionsCreateMutationVariables = {data: CreatorPromptQuote}
 
-    export const createAiCreatorOptionsCreate = <TError = void,
+    /** Quote the maximum hold for the exact text prompt and selected model. */
+export const createAiCreatorOptionsCreate = <TError = void,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof aiCreatorOptionsCreate>>, TError,AiCreatorOptionsCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof aiCreatorOptionsCreate>>,
@@ -1329,7 +1362,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type AiModelsListQueryResult = NonNullable<Awaited<ReturnType<typeof aiModelsList>>>
 export type AiModelsListQueryError = unknown
-
 
 
 export function createAiModelsList<TData = Awaited<ReturnType<typeof aiModelsList>>, TError = unknown>(
@@ -1395,7 +1427,6 @@ export type AiModelsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof 
 export type AiModelsRetrieveQueryError = unknown
 
 
-
 export function createAiModelsRetrieve<TData = Awaited<ReturnType<typeof aiModelsRetrieve>>, TError = unknown>(
  id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiModelsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1458,7 +1489,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type AiPersonalitiesListQueryResult = NonNullable<Awaited<ReturnType<typeof aiPersonalitiesList>>>
 export type AiPersonalitiesListQueryError = unknown
-
 
 
 export function createAiPersonalitiesList<TData = Awaited<ReturnType<typeof aiPersonalitiesList>>, TError = unknown>(
@@ -1583,7 +1613,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type AiPersonalitiesRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof aiPersonalitiesRetrieve>>>
 export type AiPersonalitiesRetrieveQueryError = unknown
-
 
 
 export function createAiPersonalitiesRetrieve<TData = Awaited<ReturnType<typeof aiPersonalitiesRetrieve>>, TError = unknown>(
@@ -1842,7 +1871,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AiPromptCreateMutationError = AIRequestError | InsufficientFundsError | AIServiceError
     export type AiPromptCreateMutationVariables = {data: MeteredPromptRequest}
 
-    export const createAiPromptCreate = <TError = AIRequestError | InsufficientFundsError | AIServiceError,
+    /** Send one prompt to a catalogue model and get the reply back synchronously. The charge is metered on the prompt and reply token counts at the model's published prices and debited from your 2Z balance; the response says exactly what was charged. The most this request can be charged (the prompt plus the longest reply asked for, plus a reasoning allowance on models whose output limit does not cover their reasoning) is held from your balance before the model is called -- refused with 402 if you do not hold it -- and the difference is returned when the reply is priced. No transcript is kept: use the conversation endpoints for one. Send an Idempotency-Key to be able to retry a dropped connection and get the same reply back without paying twice; the reply is kept with that key for replay. */
+export const createAiPromptCreate = <TError = AIRequestError | InsufficientFundsError | AIServiceError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof aiPromptCreate>>, TError,AiPromptCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof aiPromptCreate>>,
@@ -1901,7 +1931,10 @@ export type AiPublicConversationsListQueryResult = NonNullable<Awaited<ReturnTyp
 export type AiPublicConversationsListQueryError = unknown
 
 
-
+/**
+ * This viewset provides read-only access to public conversations.
+ * The ConversationDetailSerializer returns all of the promptresponses
+ */
 export function createAiPublicConversationsList<TData = Awaited<ReturnType<typeof aiPublicConversationsList>>, TError = unknown>(
  params?: AiPublicConversationsListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiPublicConversationsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1972,7 +2005,7 @@ export type AiPublicConversationsPromptresponsesListQueryResult = NonNullable<Aw
 export type AiPublicConversationsPromptresponsesListQueryError = unknown
 
 
-
+/** This viewset provides read-only access to prompt responses for public conversations */
 export function createAiPublicConversationsPromptresponsesList<TData = Awaited<ReturnType<typeof aiPublicConversationsPromptresponsesList>>, TError = unknown>(
  conversationId: string,
     params?: AiPublicConversationsPromptresponsesListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiPublicConversationsPromptresponsesList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -2043,7 +2076,7 @@ export type AiPublicConversationsPromptresponsesRetrieveQueryResult = NonNullabl
 export type AiPublicConversationsPromptresponsesRetrieveQueryError = unknown
 
 
-
+/** This viewset provides read-only access to prompt responses for public conversations */
 export function createAiPublicConversationsPromptresponsesRetrieve<TData = Awaited<ReturnType<typeof aiPublicConversationsPromptresponsesRetrieve>>, TError = unknown>(
  conversationId: string,
     id: number, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiPublicConversationsPromptresponsesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -2112,7 +2145,10 @@ export type AiPublicConversationsRetrieveQueryResult = NonNullable<Awaited<Retur
 export type AiPublicConversationsRetrieveQueryError = unknown
 
 
-
+/**
+ * This viewset provides read-only access to public conversations.
+ * The ConversationDetailSerializer returns all of the promptresponses
+ */
 export function createAiPublicConversationsRetrieve<TData = Awaited<ReturnType<typeof aiPublicConversationsRetrieve>>, TError = unknown>(
  id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof aiPublicConversationsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

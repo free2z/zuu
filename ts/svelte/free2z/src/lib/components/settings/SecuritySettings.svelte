@@ -500,12 +500,9 @@
     <div class="max-w-md space-y-4">
       {#if passwordIsSet !== false}
         <div class="space-y-2">
-          <Label for="currentPassword"
-            >{$t(
-              "settings.security.currentPassword",
-              "Current Password",
-            )}</Label
-          >
+          <Label for="currentPassword">
+            {$t("settings.security.currentPassword", "Current Password")}
+          </Label>
           <Input
             id="currentPassword"
             type="password"
@@ -515,9 +512,9 @@
         </div>
       {/if}
       <div class="space-y-2">
-        <Label for="newPassword"
-          >{$t("settings.security.newPassword", "New Password")}</Label
-        >
+        <Label for="newPassword">
+          {$t("settings.security.newPassword", "New Password")}
+        </Label>
         <Input
           id="newPassword"
           type="password"
@@ -526,9 +523,9 @@
         />
       </div>
       <div class="space-y-2">
-        <Label for="confirmPassword"
-          >{$t("auth.confirmPassword", "Confirm Password")}</Label
-        >
+        <Label for="confirmPassword">
+          {$t("auth.confirmPassword", "Confirm Password")}
+        </Label>
         <Input
           id="confirmPassword"
           type="password"
@@ -537,9 +534,9 @@
         />
       </div>
       <div class="space-y-2">
-        <Label for="passwordOtpToken"
-          >Authenticator code (if MFA is enabled)</Label
-        >
+        <Label for="passwordOtpToken">
+          Authenticator code (if MFA is enabled)
+        </Label>
         <Input
           id="passwordOtpToken"
           type="text"
@@ -552,9 +549,9 @@
       </div>
 
       {#if passwordNeedsReauth}
-        <Button variant="outline" onclick={reauthenticatePassword}
-          >{$t("auth.signInAgain", "Sign in again")}</Button
-        >
+        <Button variant="outline" onclick={reauthenticatePassword}>
+          {$t("auth.signInAgain", "Sign in again")}
+        </Button>
       {/if}
       {#if passwordError}
         <p
@@ -585,11 +582,11 @@
   <Dialog.Root bind:open={mfaDialogOpen} onOpenChange={handleMfaDialogChange}>
     <Dialog.Content class="sm:max-w-[520px]">
       <Dialog.Header>
-        <Dialog.Title
-          >{mfaDialogMode === "manage"
+        <Dialog.Title>
+          {mfaDialogMode === "manage"
             ? $t("settings.security.manageMfa", "Manage MFA")
-            : $t("settings.security.setupMfa", "Set up MFA")}</Dialog.Title
-        >
+            : $t("settings.security.setupMfa", "Set up MFA")}
+        </Dialog.Title>
         <Dialog.Description>
           {#if mfaDialogMode === "manage"}
             {$t(
@@ -634,8 +631,9 @@
               <Label
                 for="mfaSecret"
                 class="text-xs font-bold tracking-widest text-muted-foreground uppercase"
-                >{$t("settings.security.secret", "Secret")}</Label
               >
+                {$t("settings.security.secret", "Secret")}
+              </Label>
               <div class="flex items-center gap-2">
                 <Input
                   id="mfaSecret"
@@ -658,8 +656,9 @@
             <Label
               for="mfaToken"
               class="text-xs font-bold tracking-widest text-muted-foreground uppercase"
-              >{$t("auth.verificationCode", "Verification Code")}</Label
             >
+              {$t("auth.verificationCode", "Verification Code")}
+            </Label>
             <Input
               id="mfaToken"
               inputmode="numeric"
@@ -682,9 +681,9 @@
         </div>
       {/if}
       <Dialog.Footer class="pt-4">
-        <Button variant="ghost" onclick={() => (mfaDialogOpen = false)}
-          >{$t("common.close", "Close")}</Button
-        >
+        <Button variant="ghost" onclick={() => (mfaDialogOpen = false)}>
+          {$t("common.close", "Close")}
+        </Button>
         {#if mfaDialogMode === "setup"}
           <Button
             onclick={handleMfaVerify}

@@ -140,7 +140,10 @@ export type ZpageListQueryResult = NonNullable<Awaited<ReturnType<typeof zpageLi
 export type ZpageListQueryError = unknown
 
 
-
+/**
+ * API endpoint that allows zpages to be viewed or edited.
+ * This is the workhorse.
+ */
 export function createZpageList<TData = Awaited<ReturnType<typeof zpageList>>, TError = unknown>(
  params?: ZpageListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -216,7 +219,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageCreateMutationError = ZPageCreateNeeds2ZError | ZPageCreateIdempotencyError
     export type ZpageCreateMutationVariables = {data: NonReadonly<ZPageUpdate>;params?: ZpageCreateParams}
 
-    export const createZpageCreate = <TError = ZPageCreateNeeds2ZError | ZPageCreateIdempotencyError,
+    /** Create a zPage. Send an `Idempotency-Key` to make a retry of this create safe; the header documents the exact replay and refusal semantics. */
+export const createZpageCreate = <TError = ZPageCreateNeeds2ZError | ZPageCreateIdempotencyError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageCreate>>, TError,ZpageCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageCreate>>,
@@ -277,7 +281,13 @@ export type ZpageTranslationJobsQueryResult = NonNullable<Awaited<ReturnType<typ
 export type ZpageTranslationJobsQueryError = TranslationError
 
 
-
+/**
+ * Every AI translation job of this zPage that a client needs to show: the newest job per language from the last 30 days, plus the delivered job that produced any still-current draft, newest first, with the state of the translation it produced (or would overwrite). Read from the charge records themselves, so a job started on one device, or before a reload, is visible from any other. Read-only.
+ *
+ * Poll this while any job is `queued`. `in_flight` and `capacity` are account-wide, so a client can say how many more it may start.
+ *
+ * Owner only; a non-owner gets 404.
+ */
 export function createZpageTranslationJobs<TData = Awaited<ReturnType<typeof zpageTranslationJobs>>, TError = TranslationError>(
  free2zaddr: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageTranslationJobs>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -360,7 +370,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageTranslationBatchPurchaseMutationError = TranslationBatchError | InsufficientFundsError | TranslationError
     export type ZpageTranslationBatchPurchaseMutationVariables = {free2zaddr: string;data: TranslationBatchPurchase}
 
-    export const createZpageTranslationBatchPurchase = <TError = TranslationBatchError | InsufficientFundsError | TranslationError,
+    /**
+ * Buy AI translations of this zPage into several languages at once. **All or nothing**: either every item is bought and enqueued (202, one job per language) or nothing is charged.
+ *
+ * Each item is checked exactly as `POST .../variants/{language}/translate/` checks one: `expected_price` must equal the server's price, nothing published is overwritten, no job for that exact language may already be running, and the result must fit the published- and draft-translation ceilings -- counting the drafts that already-running jobs will create -- and the translation must be able to finish inside the time limit (`translation_too_long`). Any failure answers 409 `items_refused` listing EVERY failing language with its own `code`. A changed article answers 409 `source_changed`.
+ *
+ * Then the batch as a whole: the account's concurrent-translation cap (409 `translation_in_progress`, with `in_flight` and `max_in_flight`), the platform queue (503 `translation_backlog`) and the balance -- 402 if the TOTAL is unaffordable, naming the total. Recent-failure cooldowns answer 429 as on the single-language purchase.
+ *
+ * Every job settles independently afterwards, exactly as a single-language purchase does: each lands as a DRAFT, and each failure is refunded (or, under the accepted refund terms, settled) on its own. One edit of the article that aborts several running jobs counts as ONE change toward the accepted edit allowance, not one per job.
+ *
+ * Owner only; a non-owner gets 404.
+ */
+export const createZpageTranslationBatchPurchase = <TError = TranslationBatchError | InsufficientFundsError | TranslationError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageTranslationBatchPurchase>>, TError,ZpageTranslationBatchPurchaseMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageTranslationBatchPurchase>>,
@@ -425,7 +446,13 @@ export type ZpageTranslationBatchQuoteQueryResult = NonNullable<Awaited<ReturnTy
 export type ZpageTranslationBatchQuoteQueryError = TranslationBatchError | TranslationError
 
 
-
+/**
+ * What translating this zPage into each of `languages` would cost, and the total. **Charges nothing and writes nothing.**
+ *
+ * Every language gets an item: `available: true` with its `price`, or `available: false` with the `reason` the purchase would refuse it for -- evaluated as ONE batch, so the draft ceiling counts the earlier available items and the drafts running jobs will create. `total` sums the available items. Send the available ones back to `POST .../translations/` with their prices and `source_digest`.
+ *
+ * Owner only; a non-owner gets 404.
+ */
 export function createZpageTranslationBatchQuote<TData = Awaited<ReturnType<typeof zpageTranslationBatchQuote>>, TError = TranslationBatchError | TranslationError>(
  free2zaddr: string,
     params: ZpageTranslationBatchQuoteParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageTranslationBatchQuote>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -500,7 +527,13 @@ export type ZpageTranslationStatusQueryResult = NonNullable<Awaited<ReturnType<t
 export type ZpageTranslationStatusQueryError = TranslationError
 
 
-
+/**
+ * The most recent AI translation purchase for this zPage and language, and what became of it. 404 when the creator has never bought one.
+ *
+ * Poll this after a 202. `status` moves `queued` -> `delivered`, `refunded` or `settled` (all three terminal), and never leaves `queued` forever: a charge whose job never ran is refunded in full by the `g12f.reap_translation_charges` sweep within ten minutes of its deadline. A job still WAITING in the queue has not 'never run': it keeps its charge until it runs, or until the outer deadline of six hours from purchase.
+ *
+ * Owner only; a non-owner gets 404.
+ */
 export function createZpageTranslationStatus<TData = Awaited<ReturnType<typeof zpageTranslationStatus>>, TError = TranslationError>(
  free2zaddr: string,
     language: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageTranslationStatus>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -591,7 +624,24 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageTranslationPurchaseMutationError = TranslationError | InsufficientFundsError
     export type ZpageTranslationPurchaseMutationVariables = {free2zaddr: string;language: string;data: TranslationPurchase}
 
-    export const createZpageTranslationPurchase = <TError = TranslationError | InsufficientFundsError,
+    /**
+ * Buy an AI translation of this zPage into `language`. Debits `expected_price` 2Z, enqueues the work and answers **202** with a job id -- a long article takes minutes, so this is never synchronous. Poll `GET .../translate/`.
+ *
+ * `expected_price` must equal the server's own recomputed price or the purchase is refused with 409 `price_changed` and nothing is charged. New clients must also send the quote's `source_digest`; if the article body changed, the purchase is refused with 409 `source_changed` and nothing is charged. Legacy callers that omit the digest are checked against the body read at request start. `Idempotency-Key` is required: a double-click charges once.
+ *
+ * The result is always a **DRAFT** variant with `origin: "ai"` -- machine translations are never auto-published, and editing one flips it to `human`. If the translation fails for any reason -- the provider, unusable output, a safety check, a job that never runs, our own output cap -- the full amount is credited back and nothing is written. The ONE exception: if the article is edited or re-labelled, or its translation is edited or published, from under a job that has already been paid for, repeatedly inside one window, the provider work that was already done and billed to us is settled at metered cost (`status: "settled"`) instead of refunded. Never more than the quoted price, and never more than the provider actually did.
+ *
+ * Deleting the article, an ownership change, and a re-label our own language detector made are deliberately NOT in that set: we cannot tell them from an action of ours, so they refund in full.
+ *
+ * Recent FAILURES are rate-limited (429 `translation_failure_cooldown`, or `translation_failing` when the whole feature is failing), with `retry_after` in seconds. The refused attempt is not charged, and successful purchases are not rate-limited at all.
+ *
+ * A **published** variant in the target language is refused (409 `variant_published`): unreviewed machine output never overwrites live content. Unpublish or delete it first.
+ *
+ * An article already at its published-translation ceiling is refused (409 `published_variant_limit`) -- the draft it would buy could never be published. An article already at its draft-translation ceiling is refused too (409 `draft_variant_limit`) -- we do not charge for a translation that cannot be stored. An article too long to translate into `language` inside our time limit is refused (409 `translation_too_long`) -- we do not sell a translation that cannot finish.
+ *
+ * Owner only; a non-owner gets 404.
+ */
+export const createZpageTranslationPurchase = <TError = TranslationError | InsufficientFundsError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageTranslationPurchase>>, TError,ZpageTranslationPurchaseMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageTranslationPurchase>>,
@@ -657,7 +707,15 @@ export type ZpageTranslationQuoteQueryResult = NonNullable<Awaited<ReturnType<ty
 export type ZpageTranslationQuoteQueryError = TranslationError
 
 
-
+/**
+ * What an AI translation of this zPage into `language` would cost, in 2Z. **Charges nothing and writes nothing.**
+ *
+ * Pricing is cost-plus and always metered -- the price is what the provider call costs us, rounded up to the next penny, and one penny is one 2Z. There is no flat price and no cap, so this endpoint is not optional: it is the only way a creator can see the number before agreeing to it. The price is computed from the token count of the real prompt for this exact article on the model named in the response.
+ *
+ * Answers 409 `published_variant_limit` when the article already holds its full complement of published translations, or 409 `draft_variant_limit` when it holds its full complement of draft translations: a new one could never be published or stored, so there is no price to show. Answers 409 `translation_too_long` when the article (or one paragraph of it) is too long to translate into `language` inside the translation time limit, estimated from the same output-token estimate as the price.
+ *
+ * Owner only; a non-owner gets 404.
+ */
 export function createZpageTranslationQuote<TData = Awaited<ReturnType<typeof zpageTranslationQuote>>, TError = TranslationError>(
  free2zaddr: string,
     language: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageTranslationQuote>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -791,7 +849,7 @@ export type ZpageRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof zpa
 export type ZpageRetrieveQueryError = unknown
 
 
-
+/** One zPage. The response carries a strong `ETag` for the **canonical** article — send it back as `If-Match` on a later PUT/PATCH/DELETE to make that write conditional. It describes the canonical article even when `?lang=` rendered a translation, because the write on this URL always writes the canonical article; a translation's own validator comes from `GET /api/zpage/{id}/variants/{language}/`. */
 export function createZpageRetrieve<TData = Awaited<ReturnType<typeof zpageRetrieve>>, TError = unknown>(
  id: string,
     params?: ZpageRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -871,7 +929,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageUpdateMutationError = ConflictDetail | PreconditionFailed
     export type ZpageUpdateMutationVariables = {id: string;data: NonReadonly<ZPageUpdate>;params?: ZpageUpdateParams}
 
-    export const createZpageUpdate = <TError = ConflictDetail | PreconditionFailed,
+    /**
+ * Update a zPage. `source_language` is the article's language *label* and is mutable: changing it renames the source variant and the denormalized column in one transaction. If another variant already holds the target language the change is refused with **409** and an actionable message — never a silent overwrite of the creator's translation.
+ *
+ * Send `If-Match` with the `ETag` from the article read to make this write conditional: a second tab that saved in the meantime turns this into a **412** instead of silently discarding their edit. Without the header the write is last-write-wins, as it has always been.
+ */
+export const createZpageUpdate = <TError = ConflictDetail | PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageUpdate>>, TError,ZpageUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageUpdate>>,
@@ -938,7 +1001,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpagePartialUpdateMutationError = ConflictDetail | PreconditionFailed
     export type ZpagePartialUpdateMutationVariables = {id: string;data?: NonReadonly<PatchedzPageUpdate>;params?: ZpagePartialUpdateParams}
 
-    export const createZpagePartialUpdate = <TError = ConflictDetail | PreconditionFailed,
+    /** Partially update a zPage. `source_language` is mutable and owner-only; a target language already held by another variant is refused with **409**. Honours the optional `If-Match` precondition, returning **412** if the article changed since the `ETag` the client is holding. */
+export const createZpagePartialUpdate = <TError = ConflictDetail | PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpagePartialUpdate>>, TError,ZpagePartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpagePartialUpdate>>,
@@ -1004,7 +1068,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageDestroyMutationError = ConflictDetail | PreconditionFailed
     export type ZpageDestroyMutationVariables = {id: string}
 
-    export const createZpageDestroy = <TError = ConflictDetail | PreconditionFailed,
+    /**
+ * Delete a zPage. Owner only. Honours the optional `If-Match` precondition: a delete issued from a stale editor — one that never saw somebody else's newer draft — returns **412** and deletes nothing.
+ *
+ * The validator describes **this article's own fields**. Deleting an article also deletes its translations, and a concurrent write to one of those does *not* invalidate it — deliberately, because an AI translation landing while the creator edits the source would otherwise fail their own autosave and blame someone else for it.
+ *
+ * An article that still carries legacy on-chain records -- a ZEC payment (`Transaction`) or an on-chain comment (`PageComment`) addressed to it -- is refused with **409** and nothing is deleted: those rows are other people's payment records and are `PROTECT`ed, so the article cannot be removed from under them.
+ */
+export const createZpageDestroy = <TError = ConflictDetail | PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageDestroy>>, TError,ZpageDestroyMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageDestroy>>,
@@ -1065,7 +1136,7 @@ export type ZpageRelatedListQueryResult = NonNullable<Awaited<ReturnType<typeof 
 export type ZpageRelatedListQueryError = unknown
 
 
-
+/** Up to 6 published, public zPages related to this page, ranked by pgvector cosine similarity over the stored search-index embeddings (no OpenAI call at request time). If the page has no embedding, or no neighbors are within the similarity ceiling, falls back to the author's most recent published pages. Unpaginated array; no auth required. An authenticated owner may set `mine=true` to receive the same owner-only representation used by private reads; it never adds draft pages to the related set. Anonymous `mine=true` is 403. */
 export function createZpageRelatedList<TData = Awaited<ReturnType<typeof zpageRelatedList>>, TError = unknown>(
  id: string,
     params?: ZpageRelatedListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageRelatedList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -1144,6 +1215,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageTranslationsUpdateMutationVariables = {id: string;language: string;data: NonReadonly<ZPageUpdate>}
 
     /**
+ * **Deprecated** — use `PUT /api/zpage/{id}/variants/{language}/`, which runs the same code and additionally accepts PATCH. Kept for one release because the deployed editor calls this path. It has the same 96-published- and 96-draft-translation ceilings.
  * @deprecated
  */
 export const createZpageTranslationsUpdate = <TError = ConflictDetail | PreconditionFailed,
@@ -1211,6 +1283,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageTranslationsDestroyMutationVariables = {id: string;language: string}
 
     /**
+ * **Deprecated** — use `DELETE /api/zpage/{id}/variants/{language}/`. Delete one translation variant of a zPage. Owner only. The page's own `source_language` is canonical content, not a translation, and is refused. Deleting a translation that does not exist is a 404. Like the PUT on this route, a legacy article whose source language is unsupported/undetermined requires the `X-Free2Z-Source-Language` precondition header so a stale editor cannot destroy a variant it may have mislabelled.
  * @deprecated
  */
 export const createZpageTranslationsDestroy = <TError = PreconditionFailed,
@@ -1274,7 +1347,7 @@ export type ZpageVariantsListQueryResult = NonNullable<Awaited<ReturnType<typeof
 export type ZpageVariantsListQueryError = unknown
 
 
-
+/** Every language variant of this zPage with its real status. The source variant is first and carries `origin: "source"`; translations follow, sorted by tag. The owner sees their unpublished drafts, everyone else sees only published variants. Unpaginated array, no body content — fetch one variant to get its text. */
 export function createZpageVariantsList<TData = Awaited<ReturnType<typeof zpageVariantsList>>, TError = unknown>(
  id: string,
     params?: ZpageVariantsListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zpageVariantsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -1349,7 +1422,7 @@ export type ZpageVariantsRetrieveQueryResult = NonNullable<Awaited<ReturnType<ty
 export type ZpageVariantsRetrieveQueryError = unknown
 
 
-
+/** One language variant of a zPage. Unlike `GET /api/zpage/{id}/?lang=`, this does **not** fall back to the source variant: a language with no variant is a 404, so a client can use it to tell 'not translated yet' from 'translated'. A draft variant is visible to its owner only. The response carries this variant's strong `ETag`; send it back as `If-Match` to make a write to this variant conditional. */
 export function createZpageVariantsRetrieve<TData = Awaited<ReturnType<typeof zpageVariantsRetrieve>>, TError = unknown>(
  id: string,
     language: string,
@@ -1427,7 +1500,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageVariantsUpdateMutationError = ConflictDetail | PreconditionFailed
     export type ZpageVariantsUpdateMutationVariables = {id: string;language: string;data: NonReadonly<ZPageUpdate>}
 
-    export const createZpageVariantsUpdate = <TError = ConflictDetail | PreconditionFailed,
+    /** Create or replace one language variant. Owner only; a non-owner gets 404. Writing the page's own `source_language` updates the canonical article, so the source really is a variant like any other. Creating a variant requires `title` and `content`; send `If-None-Match: *` to create it only if nobody else has meanwhile (412 otherwise). Publishing a 97th translation returns 409; creating a 97th draft translation returns 409; edit an existing published translation, save a draft, or unpublish one instead. */
+export const createZpageVariantsUpdate = <TError = ConflictDetail | PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageVariantsUpdate>>, TError,ZpageVariantsUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageVariantsUpdate>>,
@@ -1493,7 +1567,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageVariantsPartialUpdateMutationError = ConflictDetail | PreconditionFailed
     export type ZpageVariantsPartialUpdateMutationVariables = {id: string;language: string;data?: NonReadonly<PatchedzPageUpdate>}
 
-    export const createZpageVariantsPartialUpdate = <TError = ConflictDetail | PreconditionFailed,
+    /** Update part of one language variant — publish a draft, fix a title — without resending the body. Owner only. A PATCH cannot *create* a variant: title and content are required for that, so use PUT. Publishing a 97th translation returns 409; existing published translations, drafts and unpublishes remain valid. */
+export const createZpageVariantsPartialUpdate = <TError = ConflictDetail | PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageVariantsPartialUpdate>>, TError,ZpageVariantsPartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageVariantsPartialUpdate>>,
@@ -1556,7 +1631,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ZpageVariantsDestroyMutationError = PreconditionFailed
     export type ZpageVariantsDestroyMutationVariables = {id: string;language: string}
 
-    export const createZpageVariantsDestroy = <TError = PreconditionFailed,
+    /** Delete one translation variant. Owner only; a non-owner gets 404. The variant with `origin: "source"` is the article itself and is refused with 400 — delete or relabel the article instead. Deleting a variant that does not exist is 404. */
+export const createZpageVariantsDestroy = <TError = PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof zpageVariantsDestroy>>, TError,ZpageVariantsDestroyMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof zpageVariantsDestroy>>,

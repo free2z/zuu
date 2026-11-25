@@ -132,9 +132,9 @@ export type OidcDiscoveryQueryError = unknown
 
 
 /**
+ * `/.well-known/openid-configuration`.
  * @summary OpenID Provider Metadata
  */
-
 export function createOidcDiscovery<TData = Awaited<ReturnType<typeof oidcDiscovery>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcDiscovery>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -203,9 +203,9 @@ export type OidcDeveloperAppsListQueryError = unknown
 
 
 /**
+ * The signed-in developer's registrations, and registering a new one.
  * @summary Apps the signed-in developer registered
  */
-
 export function createOidcDeveloperAppsList<TData = Awaited<ReturnType<typeof oidcDeveloperAppsList>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcDeveloperAppsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -281,6 +281,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcDeveloperAppsCreateMutationVariables = {data: NonReadonly<DeveloperApp>}
 
     /**
+ * The signed-in developer's registrations, and registering a new one.
  * @summary Register an app
  */
 export const createOidcDeveloperAppsCreate = <TError = void,
@@ -342,9 +343,9 @@ export type OidcDeveloperAppRetrieveQueryError = void
 
 
 /**
+ * One of the signed-in developer's registrations.
  * @summary One of the developer's apps
  */
-
 export function createOidcDeveloperAppRetrieve<TData = Awaited<ReturnType<typeof oidcDeveloperAppRetrieve>>, TError = void>(
  appId: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcDeveloperAppRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -421,6 +422,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcDeveloperAppUpdateMutationVariables = {appId: string;data?: NonReadonly<PatchedDeveloperApp>}
 
     /**
+ * Every field is optional. `client_type` cannot change. Raising `markup_bps` above the approval leaves the excess pending; users see a new markup only on re-consent.
  * @summary Edit an app's registration
  */
 export const createOidcDeveloperAppUpdate = <TError = void,
@@ -487,6 +489,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcDeveloperAppDestroyMutationVariables = {appId: string}
 
     /**
+ * One of the signed-in developer's registrations.
  * @summary Delete an app no user has authorized
  */
 export const createOidcDeveloperAppDestroy = <TError = void,
@@ -552,9 +555,13 @@ export type OidcDeveloperAppReportsListQueryError = void
 
 
 /**
+ * The AI output reports users filed on one of the developer's apps.
+ *
+ * Session (or Knox) only: an OAuth token is refused by the default-deny
+ * ``OAuth2JWTAuthentication`` because this view declares no scope, so an
+ * app can never read its users' reports. The reporter is never returned.
  * @summary AI output reports users filed on one of the developer's apps
  */
-
 export function createOidcDeveloperAppReportsList<TData = Awaited<ReturnType<typeof oidcDeveloperAppReportsList>>, TError = void>(
  appId: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcDeveloperAppReportsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -628,6 +635,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcDeveloperAppRotateSecretMutationVariables = {appId: string}
 
     /**
+ * Issue a new secret for a confidential client; the old one dies now.
  * @summary Rotate a confidential client's secret
  */
 export const createOidcDeveloperAppRotateSecret = <TError = void,
@@ -693,9 +701,12 @@ export type OidcAuthorizeEvaluateQueryError = OAuthError | void
 
 
 /**
+ * Answer what the consent page must do for this request.
+ *
+ * Writes nothing. `action` is `login`, `consent`, `approve` or
+ * `redirect`; see the response schema.
  * @summary Evaluate an authorization request (the consent step, read-only)
  */
-
 export function createOidcAuthorizeEvaluate<TData = Awaited<ReturnType<typeof oidcAuthorizeEvaluate>>, TError = OAuthError | void>(
  params: OidcAuthorizeEvaluateParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcAuthorizeEvaluate>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -771,6 +782,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcAuthorizeDecideMutationVariables = {data: ConsentDecision}
 
     /**
+ * The consent step (spec §5, §9.2, §9.3). See the module docstring.
  * @summary Record the user's decision and mint the authorization code
  */
 export const createOidcAuthorizeDecide = <TError = OAuthError | void,
@@ -832,9 +844,9 @@ export type OidcGrantsListQueryError = unknown
 
 
 /**
+ * The signed-in account's live grants (`/account/apps`, spec §5).
  * @summary Apps the account has authorized
  */
-
 export function createOidcGrantsList<TData = Awaited<ReturnType<typeof oidcGrantsList>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcGrantsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -908,6 +920,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcGrantRevokeMutationVariables = {applicationId: string}
 
     /**
+ * Revoke a grant: `agen` moves and every token of the grant dies.
  * @summary Revoke an app's authorization
  */
 export const createOidcGrantRevoke = <TError = void,
@@ -977,6 +990,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcGrantCapUpdateMutationVariables = {applicationId: string;data: GrantCapUpdate}
 
     /**
+ * Replaces the grant's cap; both fields are required and `spend_cap_2z: null` means no limit. Lowering the limit applies at once. Raising it (a higher amount, a different period, or no limit) needs a sign-in within the last 5 minutes and otherwise answers 401 `insufficient_user_authentication` (RFC 9470) without changing anything. Any period change is a raise, even to a longer period or a smaller amount: spend is counted per window and a new period starts an empty one.
  * @summary Set an authorized app's spending limit
  */
 export const createOidcGrantCapUpdate = <TError = void,
@@ -1046,9 +1060,17 @@ export type OidcInternalEpochQueryError = void
 
 
 /**
+ * For resource servers (the AI gateway) that miss the Redis publication:
+ * the account's current epoch and its live grants' generations, read from
+ * the rows. Shared-secret bearer; 503 while unconfigured.
+ *
+ * Contract for the gateway: `agen` lists LIVE grants only. A `client_id`
+ * absent from it means the grant is revoked (or never existed) -- refuse
+ * the token; absence is an answer, not a miss. A 404 means the subject
+ * does not exist: refuse too. Only a 503 (or no answer) is "unknown", and
+ * the spec's fail-closed rule applies to that.
  * @summary Current account epoch and grant generations (internal)
  */
-
 export function createOidcInternalEpoch<TData = Awaited<ReturnType<typeof oidcInternalEpoch>>, TError = void>(
  subject: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcInternalEpoch>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1129,6 +1151,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcIntrospectMutationVariables = {data: IntrospectRequest}
 
     /**
+ * RFC 7662 introspection (spec §9.7), confidential clients only.
  * @summary Introspect an access token (confidential clients, client_secret_basic)
  */
 export const createOidcIntrospect = <TError = OAuthError,
@@ -1191,9 +1214,10 @@ export type OidcJwksQueryError = void
 
 
 /**
+ * The JSON Web Key Set: the active ES256 and RS256 keys and their
+ * retired predecessors, each with a `kid` (spec §6.1, §7).
  * @summary JSON Web Key Set
  */
-
 export function createOidcJwks<TData = Awaited<ReturnType<typeof oidcJwks>>, TError = void>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcJwks>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1255,7 +1279,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type McpConnectionsQueryResult = NonNullable<Awaited<ReturnType<typeof mcpConnections>>>
 export type McpConnectionsQueryError = unknown
-
 
 
 export function createMcpConnections<TData = Awaited<ReturnType<typeof mcpConnections>>, TError = unknown>(
@@ -1646,6 +1669,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcRevokeMutationVariables = {data: RevokeRequest}
 
     /**
+ * RFC 7009 revocation (spec §9.5): a refresh token revokes its family;
+ * an access token is `unsupported_token_type`.
  * @summary Revoke a refresh token and its family
  */
 export const createOidcRevoke = <TError = OAuthError,
@@ -1740,6 +1765,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OidcTokenMutationVariables = {data: TokenRequest}
 
     /**
+ * RFC 6749 §3.2 token endpoint (spec §9.4).
  * @summary Exchange an authorization code or rotate a refresh token
  */
 export const createOidcToken = <TError = OAuthError,
@@ -1802,9 +1828,10 @@ export type OidcUserinfoQueryError = unknown
 
 
 /**
+ * OpenID Connect Core §5.3 (spec §9.6). Bearer access token with
+ * `openid`; returns the claims the granted scopes allow.
  * @summary Claims about the signed-in user
  */
-
 export function createOidcUserinfo<TData = Awaited<ReturnType<typeof oidcUserinfo>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof oidcUserinfo>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1879,6 +1906,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
     /**
+ * OpenID Connect Core §5.3 (spec §9.6). Bearer access token with
+ * `openid`; returns the claims the granted scopes allow.
  * @summary Claims about the signed-in user
  */
 export const createOidcUserinfoPost = <TError = unknown,

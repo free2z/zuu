@@ -630,35 +630,35 @@
           <div class="rounded-full bg-primary/10 p-1">
             <Check class="size-3 text-primary" />
           </div>
-          <span class="text-foreground/80"
-            >{$t(
+          <span class="text-foreground/80">
+            {$t(
               "profile.subscribe.benefitSupport",
               "Support {username} directly",
               { username: creator.username },
-            )}</span
-          >
+            )}
+          </span>
         </div>
         <div class="flex items-center gap-3 text-sm">
           <div class="rounded-full bg-primary/10 p-1">
             <Check class="size-3 text-primary" />
           </div>
-          <span class="text-foreground/80"
-            >{$t(
+          <span class="text-foreground/80">
+            {$t(
               "profile.subscribe.benefitPosts",
               "Access subscriber-only posts",
-            )}</span
-          >
+            )}
+          </span>
         </div>
         <div class="flex items-center gap-3 text-sm">
           <div class="rounded-full bg-primary/10 p-1">
             <Check class="size-3 text-primary" />
           </div>
-          <span class="text-foreground/80"
-            >{$t(
+          <span class="text-foreground/80">
+            {$t(
               "profile.subscribe.benefitStreams",
               "Access to private broadcast streams",
-            )}</span
-          >
+            )}
+          </span>
         </div>
       </div>
 
@@ -668,17 +668,20 @@
           <div class="flex flex-col items-center">
             <span
               class="mb-1 text-xs font-medium text-muted-foreground uppercase"
-              >{$t("profile.subscribe.monthly", "Monthly Subscription")}</span
             >
+              {$t("profile.subscribe.monthly", "Monthly Subscription")}
+            </span>
             <div class="flex items-baseline gap-1">
               <span
                 class="text-2xl font-bold text-foreground"
                 data-testid="profile-subscribe-price"
-                >{isFree ? $t("profile.subscribe.free", "Free") : price}</span
               >
+                {isFree ? $t("profile.subscribe.free", "Free") : price}
+              </span>
               {#if !isFree}
-                <span class="text-sm font-medium text-muted-foreground">2Z</span
-                >
+                <span class="text-sm font-medium text-muted-foreground">
+                  2Z
+                </span>
               {/if}
             </div>
             {#if isFree}
@@ -710,8 +713,9 @@
               class="font-mono font-bold {compareDecimalText(balance, price) < 0
                 ? 'text-destructive'
                 : 'text-foreground'}"
-              >{formatDecimalText(balance, $locale)} 2Z</span
             >
+              {formatDecimalText(balance, $locale)} 2Z
+            </span>
           </div>
 
           {#if !isFree && (!canAfford || insufficientFunds)}

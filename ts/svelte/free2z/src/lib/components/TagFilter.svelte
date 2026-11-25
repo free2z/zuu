@@ -198,8 +198,9 @@
             {$t("tags.noTagFound", "No tag found.")}
           </div>
         {:else}
-          <Command.Empty>{$t("tags.noTagFound", "No tag found.")}</Command.Empty
-          >
+          <Command.Empty>
+            {$t("tags.noTagFound", "No tag found.")}
+          </Command.Empty>
         {/if}
         <Command.Group>
           <Command.Item
@@ -224,9 +225,9 @@
                 class="flex flex-1 items-center justify-between gap-2 overflow-hidden"
               >
                 <span class="truncate">{tag.name}</span>
-                <span class="ml-auto shrink-0 text-xs text-muted-foreground"
-                  >{formatLocalizedNumber(tag.count, $locale)}</span
-                >
+                <span class="ml-auto shrink-0 text-xs text-muted-foreground">
+                  {formatLocalizedNumber(tag.count, $locale)}
+                </span>
               </div>
             </Command.Item>
           {/each}

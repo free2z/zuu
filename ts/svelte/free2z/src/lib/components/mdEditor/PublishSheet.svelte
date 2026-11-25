@@ -704,8 +704,9 @@
               variant="ghost"
               class="w-full text-muted-foreground"
               disabled={isSaving}
-              >{$t("editor.localPublish.keepEditing", "Keep editing")}</Button
             >
+              {$t("editor.localPublish.keepEditing", "Keep editing")}
+            </Button>
           {/snippet}
         </Sheet.Close>
       {:else if isPublished}

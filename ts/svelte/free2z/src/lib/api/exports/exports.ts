@@ -82,9 +82,9 @@ export type PublicationExportsListQueryError = PublicationExportError
 
 
 /**
+ * Returns the active unexpired or most recent publication export job for the authenticated creator.
  * @summary Retrieve the creator's current or latest publication export job.
  */
-
 export function createPublicationExportsList<TData = Awaited<ReturnType<typeof publicationExportsList>>, TError = PublicationExportError>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof publicationExportsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -158,6 +158,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
     /**
+ * Creates a publication export job for the authenticated creator, or returns the existing active in-flight job if already queued or running.
  * @summary Request a new publication export archive.
  */
 export const createPublicationExportsCreate = <TError = PublicationExportError,
@@ -219,9 +220,9 @@ export type PublicationExportsRetrieveQueryError = PublicationExportError
 
 
 /**
+ * Returns the current status, warnings, and metadata for the specified export job. Reveals nothing to cross-users.
  * @summary Retrieve publication export job status.
  */
-
 export function createPublicationExportsRetrieve<TData = Awaited<ReturnType<typeof publicationExportsRetrieve>>, TError = PublicationExportError>(
  id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof publicationExportsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -291,9 +292,9 @@ export type PublicationExportsDownloadQueryError = PublicationExportError
 
 
 /**
+ * Streams or offloads the private publication ZIP archive with Content-Disposition attachment. Only available to the owning creator before expiry.
  * @summary Download publication export archive ZIP.
  */
-
 export function createPublicationExportsDownload<TData = Awaited<ReturnType<typeof publicationExportsDownload>>, TError = PublicationExportError>(
  id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof publicationExportsDownload>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

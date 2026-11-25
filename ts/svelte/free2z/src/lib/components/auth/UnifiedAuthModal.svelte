@@ -1207,8 +1207,9 @@
             rel="noopener noreferrer"
             data-sveltekit-reload={termsLink.reload ? true : undefined}
             class="text-(--f2z-accent-primary) no-underline hover:underline"
-            >{$t("auth.termsLink")}</a
           >
+            {$t("auth.termsLink")}
+          </a>
         </p>
 
         <!-- General Error -->
@@ -1379,15 +1380,19 @@
           class="underline"
           href="https://policies.google.com/privacy"
           target="_blank"
-          rel="noreferrer">{$t("auth.privacyPolicy", "Privacy Policy")}</a
+          rel="noreferrer"
         >
+          {$t("auth.privacyPolicy", "Privacy Policy")}
+        </a>
         {$t("auth.and", "and")}
         <a
           class="underline"
           href="https://policies.google.com/terms"
           target="_blank"
-          rel="noreferrer">{$t("auth.googleTerms", "Terms of Service")}</a
-        >.
+          rel="noreferrer"
+        >
+          {$t("auth.googleTerms", "Terms of Service")}
+        </a>.
       </div>
     {/if}
   </div>
@@ -1459,9 +1464,9 @@
         {@render AuthBody()}
       </div>
       <Drawer.Footer class="shrink-0 pt-2">
-        <Drawer.Close disabled={isRecaptchaPending}
-          >{$t("common.cancel", "Cancel")}</Drawer.Close
-        >
+        <Drawer.Close disabled={isRecaptchaPending}>
+          {$t("common.cancel", "Cancel")}
+        </Drawer.Close>
       </Drawer.Footer>
     </Drawer.Content>
   </Drawer.Root>

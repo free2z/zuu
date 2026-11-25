@@ -846,9 +846,9 @@
           aria-label={$t("editor.uploadProgress", "Upload progress")}
         ></progress>
         <span>{uploadProgress}%</span>
-        <Button variant="outline" onclick={() => uploadAbort?.abort()}
-          >{$t("editor.cancelUpload", "Cancel upload")}</Button
-        >
+        <Button variant="outline" onclick={() => uploadAbort?.abort()}>
+          {$t("editor.cancelUpload", "Cancel upload")}
+        </Button>
       </div>
     {/if}
     <Tabs.Root bind:value={tab} class="min-h-0 flex-1 gap-4 overflow-hidden">
@@ -963,8 +963,10 @@
                     </span>
                     <span
                       class="hidden text-border sm:inline"
-                      aria-hidden="true">·</span
+                      aria-hidden="true"
                     >
+                      ·
+                    </span>
                     <span class="inline-flex items-center gap-1.5">
                       <ClipboardPaste class="h-3.5 w-3.5" />
                       {translate(
@@ -1029,10 +1031,11 @@
                       {:else if mediaType === "audio" || mediaType === "document"}
                         <span
                           class="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-xs"
-                          >{mediaType === "document"
-                            ? "PDF"
-                            : $t("editor.commandNames.audio", "Audio")}</span
                         >
+                          {mediaType === "document"
+                            ? "PDF"
+                            : $t("editor.commandNames.audio", "Audio")}
+                        </span>
                       {:else}
                         <img
                           src={image.previewUrl}
@@ -1281,10 +1284,11 @@
                     {:else if mediaType === "audio" || mediaType === "document"}
                       <span
                         class="flex h-full items-center justify-center text-sm text-muted-foreground"
-                        >{mediaType === "document"
-                          ? "PDF"
-                          : $t("editor.commandNames.audio", "Audio")}</span
                       >
+                        {mediaType === "document"
+                          ? "PDF"
+                          : $t("editor.commandNames.audio", "Audio")}
+                      </span>
                     {:else}
                       <img
                         src={buildMediaUrl(item.thumbnail || item.url)}

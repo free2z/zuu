@@ -104,7 +104,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TuzisDonateIdempotentCreateMutationError = CreditError | InsufficientFundsError
     export type TuzisDonateIdempotentCreateMutationVariables = {username: string;data: IdempotentDonationRequest}
 
-    export const createTuzisDonateIdempotentCreate = <TError = CreditError | InsufficientFundsError,
+    /** Atomically transfer 2Z and record a replayable response. The idempotency key is bound to recipient, amount, and anonymity. This explicit route supports backend-first rollout: clients must not fall back to the legacy donation POST after an ambiguous response. `intent: ppv` (the former pay-per-view unlock) is retired: a new request is refused with 400 `ppv_unlock_retired` and moves nothing, because PPV admission is a balance reserve and PPV is billed per minute watched; a key that completed a `ppv` unlock before the retirement still replays its receipt. Completed results replay for 365 days. */
+export const createTuzisDonateIdempotentCreate = <TError = CreditError | InsufficientFundsError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tuzisDonateIdempotentCreate>>, TError,TuzisDonateIdempotentCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tuzisDonateIdempotentCreate>>,
@@ -166,7 +167,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TuzisDonateCreateMutationError = CreditError | InsufficientFundsError
     export type TuzisDonateCreateMutationVariables = {username: string}
 
-    export const createTuzisDonateCreate = <TError = CreditError | InsufficientFundsError,
+    /** Donate 2Z to the creator in the url */
+export const createTuzisDonateCreate = <TError = CreditError | InsufficientFundsError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tuzisDonateCreate>>, TError,TuzisDonateCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tuzisDonateCreate>>,
@@ -219,7 +221,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type TuzisMySubscribersListQueryResult = NonNullable<Awaited<ReturnType<typeof tuzisMySubscribersList>>>
 export type TuzisMySubscribersListQueryError = unknown
-
 
 
 export function createTuzisMySubscribersList<TData = Awaited<ReturnType<typeof tuzisMySubscribersList>>, TError = unknown>(
@@ -284,7 +285,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type TuzisMySubscriptionsListQueryResult = NonNullable<Awaited<ReturnType<typeof tuzisMySubscriptionsList>>>
 export type TuzisMySubscriptionsListQueryError = unknown
-
 
 
 export function createTuzisMySubscriptionsList<TData = Awaited<ReturnType<typeof tuzisMySubscriptionsList>>, TError = unknown>(
@@ -353,7 +353,7 @@ export type TuzisMySubscriptionsSummaryRetrieveQueryResult = NonNullable<Awaited
 export type TuzisMySubscriptionsSummaryRetrieveQueryError = unknown
 
 
-
+/** Show whether the current balance covers the next renewals. */
 export function createTuzisMySubscriptionsSummaryRetrieve<TData = Awaited<ReturnType<typeof tuzisMySubscriptionsSummaryRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof tuzisMySubscriptionsSummaryRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -428,7 +428,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TuzisSubscribeConfirmedCreateMutationError = CreditError | InsufficientFundsError
     export type TuzisSubscribeConfirmedCreateMutationVariables = {username: string;data: ConfirmedSubscriptionRequest}
 
-    export const createTuzisSubscribeConfirmedCreate = <TError = CreditError | InsufficientFundsError,
+    /** Purchase 30 days only when the creator's transaction-locked price equals expected_price. A new subscription renews at that ceiling; an existing subscription retains its current renewal ceiling, including zero after cancellation. This explicit route supports backend-first rollout; clients must not fall back to the legacy subscription POST after an ambiguous response. Completed results replay for 365 days. A key that already completed a legacy POST /api/tuzis/subscribe/{username}/ for the same creator is replayed here too (replayed: true, nothing charged) rather than claimed anew, so a client may move an outstanding purchase intent from that route to this one without paying twice. That replay is the ONE 200 on this route that expected_price does not constrain, and it cannot be: the legacy route binds no price and records none, so the amount it debited is not recoverable from its receipt. Read it as 'this key already bought this membership, on a route that charged whatever the price was then' -- nothing is charged now, and `balance` is the fan's real balance either way. The same applies to a receipt reached through X-Superseded-Idempotency-Key. That carry-over replay only happens while the membership it bought is still running: receipts are kept far longer than 30 days, so a receipt whose month has already ENDED is not replayed -- you are not subscribed and it would be false -- and is not charged under that key either. It is 409 `idempotency_mismatch` with `key_resolved: true`, and the month is bought by the next request, under the fresh key that answer tells you to mint. Every replay on this route is guarded that way, including the replay of a receipt recorded under this very key. One other 200 is unbound for the same kind of reason: if your key already completed a purchase HERE, of a membership you are STILL holding from this creator, a retry of it at a different expected_price replays that purchase (replayed: true, nothing charged) rather than refusing. That key bought the month you are holding, so reporting it is the honest answer, and telling you to mint a fresh one would buy a second month for a fan trying to recover one purchase. Retire the key on that 200 like any other, and a deliberate extra month is then a normal purchase at the current price. Once the membership has lapsed the same retry is a 409 `idempotency_mismatch` with `key_resolved: true`, because then the receipt really does describe a request that is over. A NEW debit is always bound to expected_price. expected_price 0 confirms a FREE membership (a free follow): it grants the same 30 days and moves no 2Z, so `charged: true` there means the membership was extended, not that 2Z moved. On every 200, `balance` is the fan's balance as of this reply, including a replay; `charged` and `expires` describe the original request. */
+export const createTuzisSubscribeConfirmedCreate = <TError = CreditError | InsufficientFundsError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tuzisSubscribeConfirmedCreate>>, TError,TuzisSubscribeConfirmedCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tuzisSubscribeConfirmedCreate>>,
@@ -493,7 +494,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TuzisSubscribeRecoveryCreateMutationError = CreditError
     export type TuzisSubscribeRecoveryCreateMutationVariables = {creatorId: number;data: SubscriptionIntentRecoveryRequest}
 
-    export const createTuzisSubscribeRecoveryCreate = <TError = CreditError,
+    /** Reconcile one subscription retry handle for the authenticated payer and immutable creator. A committed purchase is reported as resolved. An unresolved recorded claim is retained as a terminal abandonment fence, including its legacy route aliases; the old key cannot charge again. A missing or unrelated handle is answered unchanged and reveals no other payer's receipt. */
+export const createTuzisSubscribeRecoveryCreate = <TError = CreditError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tuzisSubscribeRecoveryCreate>>, TError,TuzisSubscribeRecoveryCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tuzisSubscribeRecoveryCreate>>,
@@ -552,7 +554,11 @@ export type TuzisSubscribeRetrieveQueryResult = NonNullable<Awaited<ReturnType<t
 export type TuzisSubscribeRetrieveQueryError = unknown
 
 
-
+/**
+ * Subscribe the request.user as a fan to the star in the urls.
+ *
+ * Add another 30 days if repeated... hrm...
+ */
 export function createTuzisSubscribeRetrieve<TData = Awaited<ReturnType<typeof tuzisSubscribeRetrieve>>, TError = unknown>(
  username: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof tuzisSubscribeRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -626,7 +632,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TuzisSubscribeCreateMutationError = TuzisSubscribeCreate400 | InsufficientFundsError | TuzisSubscribeCreate409
     export type TuzisSubscribeCreateMutationVariables = {username: string}
 
-    export const createTuzisSubscribeCreate = <TError = TuzisSubscribeCreate400 | InsufficientFundsError | TuzisSubscribeCreate409,
+    /**
+ * Subscribe the request.user as a fan to the star in the urls.
+ *
+ * Add another 30 days if repeated... hrm...
+ */
+export const createTuzisSubscribeCreate = <TError = TuzisSubscribeCreate400 | InsufficientFundsError | TuzisSubscribeCreate409,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tuzisSubscribeCreate>>, TError,TuzisSubscribeCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tuzisSubscribeCreate>>,
@@ -691,7 +702,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TuzisSubscribePartialUpdateMutationError = unknown
     export type TuzisSubscribePartialUpdateMutationVariables = {username: string;data?: TuzisSubscribePartialUpdateBody}
 
-    export const createTuzisSubscribePartialUpdate = <TError = unknown,
+    /** Change the authenticated fan's maximum 2Z per renewal and return the authoritative subscription representation. */
+export const createTuzisSubscribePartialUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tuzisSubscribePartialUpdate>>, TError,TuzisSubscribePartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tuzisSubscribePartialUpdate>>,
@@ -758,7 +770,15 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TuzisSubscribeDestroyMutationError = unknown
     export type TuzisSubscribeDestroyMutationVariables = {username: string}
 
-    export const createTuzisSubscribeDestroy = <TError = unknown,
+    /**
+ * Set max_price to 0 so it won't renew.
+ *
+ * Cancellation is deliberately available after the creator is
+ * deactivated. New charges and renewals are blocked by the active-owner
+ * checks, but an existing recurring authorization must remain revocable
+ * while the creator is unavailable.
+ */
+export const createTuzisSubscribeDestroy = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tuzisSubscribeDestroy>>, TError,TuzisSubscribeDestroyMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tuzisSubscribeDestroy>>,
@@ -815,7 +835,7 @@ export type TuzisSubscriptionStatusRetrieveQueryResult = NonNullable<Awaited<Ret
 export type TuzisSubscriptionStatusRetrieveQueryError = CreditError
 
 
-
+/** Return this fan's authoritative membership state for one creator. */
 export function createTuzisSubscriptionStatusRetrieve<TData = Awaited<ReturnType<typeof tuzisSubscriptionStatusRetrieve>>, TError = CreditError>(
  username: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof tuzisSubscriptionStatusRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

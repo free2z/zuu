@@ -49,14 +49,16 @@
         target="_blank"
         rel="noopener"
         class="font-medium text-primary underline underline-offset-2"
-        >{$t("credits.title", "Why a penny a post?")}</a
       >
+        {$t("credits.title", "Why a penny a post?")}
+      </a>
     </div>
     <button
       type="button"
       onclick={dismiss}
       class="rounded px-2 py-1 text-muted-foreground hover:bg-background focus-visible:outline-2 focus-visible:outline-ring"
-      >{$t("credits.dismiss", "Dismiss welcome message")}</button
     >
+      {$t("credits.dismiss", "Dismiss welcome message")}
+    </button>
   </aside>
 {/if}

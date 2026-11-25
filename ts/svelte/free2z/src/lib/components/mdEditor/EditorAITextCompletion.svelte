@@ -294,12 +294,12 @@
 </script>
 
 <details class="my-4 rounded-lg border border-border p-4">
-  <summary class="cursor-pointer font-medium"
-    >{$t("editor.aiTextTitle", "Draft with AI")}</summary
-  >
+  <summary class="cursor-pointer font-medium">
+    {$t("editor.aiTextTitle", "Draft with AI")}
+  </summary>
   <div class="mt-3 grid gap-3">
-    <label class="grid gap-1 text-sm"
-      >{$t("editor.aiTextPrompt", "Prompt (sent to the selected provider)")}
+    <label class="grid gap-1 text-sm">
+      {$t("editor.aiTextPrompt", "Prompt (sent to the selected provider)")}
       <textarea
         class="min-h-24 rounded-md border border-input bg-background p-2"
         bind:value={prompt}
@@ -309,24 +309,25 @@
           "Describe the text you want. Draft content is never sent automatically.",
         )}></textarea>
     </label>
-    <label class="grid gap-1 text-sm"
-      >{$t("editor.aiTextModel", "Model")}
+    <label class="grid gap-1 text-sm">
+      {$t("editor.aiTextModel", "Model")}
       <select
         class="rounded-md border border-input bg-background p-2"
         bind:value={model}
         disabled={Boolean(pending)}
       >
-        {#each choices as choice}<option value={choice.id}
-            >{choice.display_name} · {choice.provider}</option
-          >{/each}
+        {#each choices as choice}<option value={choice.id}>
+            {choice.display_name} · {choice.provider}
+          </option>{/each}
       </select>
     </label>
     <button
       class="w-fit rounded-md border px-3 py-2 disabled:opacity-50"
       disabled={!model || !prompt.trim()}
       onclick={() => void getQuote()}
-      >{$t("editor.aiTextQuote", "Show price and destination")}</button
     >
+      {$t("editor.aiTextQuote", "Show price and destination")}
+    </button>
     {#if pending}
       <p role="status">
         {$t(
@@ -338,8 +339,9 @@
         class="w-fit rounded-md border px-3 py-2 disabled:opacity-50"
         disabled={busy}
         onclick={() => void submit()}
-        >{$t("editor.aiTextRetry", "Retry exact request")}</button
       >
+        {$t("editor.aiTextRetry", "Retry exact request")}
+      </button>
     {/if}
     {#if quote && !pending}
       <section aria-live="polite" class="grid gap-1 text-sm">
@@ -379,21 +381,23 @@
           href={quote.choice.privacy_policy_url}
           target="_blank"
           rel="noreferrer"
-          >{$t(
+        >
+          {$t(
             "editor.aiTextRetention",
             "Provider privacy and retention policy",
-          )}</a
-        >
+          )}
+        </a>
         <button
           class="w-fit rounded-md bg-primary px-3 py-2 text-primary-foreground disabled:opacity-50"
           disabled={busy}
           onclick={() => void submit()}
-          >{busy
+        >
+          {busy
             ? $t("editor.aiTextWorking", "Generating…")
             : $t("editor.aiTextSubmit", "Generate text (up to {price} 2Z)", {
                 price: quote.max_charge_2z,
-              })}</button
-        >
+              })}
+        </button>
       </section>
     {/if}
     {#if error}<p role="alert">{error}</p>{/if}
@@ -403,8 +407,9 @@
       <button
         class="w-fit rounded-md border px-3 py-2"
         onclick={() => void load()}
-        >{$t("editor.aiTextCatalogueRetry", "Retry model list")}</button
-      >{/if}
+      >
+        {$t("editor.aiTextCatalogueRetry", "Retry model list")}
+      </button>{/if}
     {#if preview}<section aria-live="polite" class="grid gap-2">
         <p>
           {$t(
@@ -422,12 +427,15 @@
         </p>
         <button
           class="w-fit rounded-md bg-primary px-3 py-2 text-primary-foreground"
-          onclick={accept}>{$t("editor.aiTextAccept", "Insert text")}</button
-        ><button
+          onclick={accept}
+        >
+          {$t("editor.aiTextAccept", "Insert text")}
+        </button><button
           class="w-fit rounded-md border px-3 py-2"
           onclick={() => (preview = null)}
-          >{$t("editor.aiTextDiscard", "Discard")}</button
         >
+          {$t("editor.aiTextDiscard", "Discard")}
+        </button>
       </section>{/if}
   </div>
 </details>

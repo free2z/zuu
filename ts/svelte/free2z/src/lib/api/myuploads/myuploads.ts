@@ -109,7 +109,6 @@ export type MyuploadsListQueryResult = NonNullable<Awaited<ReturnType<typeof myu
 export type MyuploadsListQueryError = unknown
 
 
-
 export function createMyuploadsList<TData = Awaited<ReturnType<typeof myuploadsList>>, TError = unknown>(
  params?: MyuploadsListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof myuploadsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -185,7 +184,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type MyuploadsCreateMutationError = UploadCreateUnsupported
     export type MyuploadsCreateMutationVariables = {data?: NonReadonly<FeaturedImage>}
 
-    export const createMyuploadsCreate = <TError = UploadCreateUnsupported,
+    /**
+ * Always 400 — creation is disabled on this route, whatever the body. It has no way to receive a file (the serializer has no `file` field), so the only row it could ever create is a fileless orphan: no bytes, no `mime_type`, a `url` of `/uploadz/public/`.
+ *
+ * Upload through `POST /uploads/handle` (batch) or `POST /uploads/single-public` (one file). Those sniff the bytes to decide the type, strip EXIF, and sit behind the nginx size authorization — none of which a generic create could do. This route is for listing, editing (`title`, `description`, `access`) and deleting what they created.
+ */
+export const createMyuploadsCreate = <TError = UploadCreateUnsupported,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof myuploadsCreate>>, TError,MyuploadsCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof myuploadsCreate>>,
@@ -237,7 +241,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type MyuploadsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof myuploadsRetrieve>>>
 export type MyuploadsRetrieveQueryError = unknown
-
 
 
 export function createMyuploadsRetrieve<TData = Awaited<ReturnType<typeof myuploadsRetrieve>>, TError = unknown>(
@@ -437,7 +440,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type MyuploadsDestroyMutationError = UploadInUse
     export type MyuploadsDestroyMutationVariables = {id: number}
 
-    export const createMyuploadsDestroy = <TError = UploadInUse,
+    /**
+ * Delete one of the caller's uploads.
+ *
+ * 409 when the file illustrates a story page: `storytime.Page.image` is a CASCADE reference, so deleting the file would delete the page with it. `detail` says what to remove first. Other references (zPage cover/enclosure, creator avatar/banner, Dyte recording) are SET_NULL and do NOT block deletion — they are cleared, and the referring object survives without them.
+ */
+export const createMyuploadsDestroy = <TError = UploadInUse,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof myuploadsDestroy>>, TError,MyuploadsDestroyMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof myuploadsDestroy>>,

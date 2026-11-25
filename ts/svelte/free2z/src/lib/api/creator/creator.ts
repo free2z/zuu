@@ -84,7 +84,7 @@ export type CreatorListQueryResult = NonNullable<Awaited<ReturnType<typeof creat
 export type CreatorListQueryError = unknown
 
 
-
+/** List Creators on Free2z */
 export function createCreatorList<TData = Awaited<ReturnType<typeof creatorList>>, TError = unknown>(
  params?: CreatorListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof creatorList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -151,7 +151,7 @@ export type CreatorRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof c
 export type CreatorRetrieveQueryError = unknown
 
 
-
+/** List Creators on Free2z */
 export function createCreatorRetrieve<TData = Awaited<ReturnType<typeof creatorRetrieve>>, TError = unknown>(
  usernameIexact: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof creatorRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -218,7 +218,7 @@ export type CreatorBlockRetrieveQueryResult = NonNullable<Awaited<ReturnType<typ
 export type CreatorBlockRetrieveQueryError = unknown
 
 
-
+/** List Creators on Free2z */
 export function createCreatorBlockRetrieve<TData = Awaited<ReturnType<typeof creatorBlockRetrieve>>, TError = unknown>(
  usernameIexact: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof creatorBlockRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -292,6 +292,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatorBlockUpdateMutationVariables = {usernameIexact: string}
 
     /**
+ * Idempotent. Takes no request body. While the block exists the caller is no longer served the blocked account's comments (thread, reply and comment lists), zPages (every public zPage list, including search and that account's profile list), reply/mention/comment-vote/page-vote/page-update notifications, or realtime notification pushes, and a new chat request from the blocked account to the caller answers 404 `recipient_not_found` and charges nothing (nor is a queued one emailed). Money receipts (donations, subscription and pay-per-view revenue, chat requests already paid for) stay listed. A zPage or comment opened directly by its identifier still resolves. The blocked account is not notified and its own reads are unchanged. Blocking yourself is refused with 400.
  * @summary Block a creator
  */
 export const createCreatorBlockUpdate = <TError = unknown,
@@ -358,6 +359,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatorBlockDestroyMutationVariables = {usernameIexact: string}
 
     /**
+ * Idempotent. Removes the block if it exists and reports `active: false` either way; everything the block hid is served again.
  * @summary Unblock a creator
  */
 export const createCreatorBlockDestroy = <TError = unknown,
@@ -419,9 +421,9 @@ export type CreatorFollowRetrieveQueryError = void
 
 
 /**
+ * The authenticated caller's follow state for one creator, plus the creator's public follow counts. This is the FREE follow graph: it never reads or writes 2Z, a Subscription, subscriber entitlement or `member_price`. A creator who does not exist and a creator who is deactivated are deliberately indistinguishable (both 404).
  * @summary Am I following this creator?
  */
-
 export function createCreatorFollowRetrieve<TData = Awaited<ReturnType<typeof creatorFollowRetrieve>>, TError = void>(
  usernameIexact: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof creatorFollowRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -495,6 +497,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatorFollowUpdateMutationVariables = {usernameIexact: string}
 
     /**
+ * Idempotent. The first call creates the relationship; every later call is a no-op that reports the same state. Takes no request body -- the pair is the entire state, and it is identified by the authenticated caller and the path segment. Following yourself is refused with 400 and creates no row.
  * @summary Follow a creator
  */
 export const createCreatorFollowUpdate = <TError = void,
@@ -561,6 +564,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatorFollowDestroyMutationVariables = {usernameIexact: string}
 
     /**
+ * Idempotent. Removes the relationship if it exists and reports `following: false` either way. Unlike cancelling a paid Subscription, this leaves nothing behind: there is no entitlement to run out and no renewal ceiling to zero. Returns 200 with the resulting state rather than 204 so a client can render the new counts without a second round trip.
  * @summary Unfollow a creator
  */
 export const createCreatorFollowDestroy = <TError = void,
@@ -620,7 +624,7 @@ export type CreatorMuteRetrieveQueryResult = NonNullable<Awaited<ReturnType<type
 export type CreatorMuteRetrieveQueryError = unknown
 
 
-
+/** List Creators on Free2z */
 export function createCreatorMuteRetrieve<TData = Awaited<ReturnType<typeof creatorMuteRetrieve>>, TError = unknown>(
  usernameIexact: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof creatorMuteRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -692,7 +696,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatorMuteUpdateMutationError = unknown
     export type CreatorMuteUpdateMutationVariables = {usernameIexact: string}
 
-    export const createCreatorMuteUpdate = <TError = unknown,
+    /** List Creators on Free2z */
+export const createCreatorMuteUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof creatorMuteUpdate>>, TError,CreatorMuteUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof creatorMuteUpdate>>,
@@ -754,7 +759,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CreatorMuteDestroyMutationError = unknown
     export type CreatorMuteDestroyMutationVariables = {usernameIexact: string}
 
-    export const createCreatorMuteDestroy = <TError = unknown,
+    /** List Creators on Free2z */
+export const createCreatorMuteDestroy = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof creatorMuteDestroy>>, TError,CreatorMuteDestroyMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof creatorMuteDestroy>>,

@@ -122,9 +122,9 @@
           "Agent account access could not be loaded.",
         )}
       </p>
-      <Button variant="outline" onclick={load}
-        >{$t("oauth.agent.retry", "Try again")}</Button
-      >
+      <Button variant="outline" onclick={load}>
+        {$t("oauth.agent.retry", "Try again")}
+      </Button>
     </div>
   {:else}
     {#each connections as connection (connection.id)}
@@ -148,8 +148,8 @@
             <li class="space-y-1 break-words">
               <span class="font-medium">@{account.username}</span>
               {#if !account.available}<span class="text-muted-foreground">
-                  · {$t("oauth.agent.unavailable", "Unavailable")}</span
-                >{/if}
+                  · {$t("oauth.agent.unavailable", "Unavailable")}
+                </span>{/if}
               <ul class="list-inside list-disc text-muted-foreground">
                 {#each account.scopes as scope}<li>
                     {scopeLabel($t, scope)}
@@ -163,9 +163,9 @@
             </li>
           {/each}
         </ul>
-        <Button variant="outline" onclick={() => askConnection(connection)}
-          >{$t("oauth.agent.removeConnection", "Remove connection")}</Button
-        >
+        <Button variant="outline" onclick={() => askConnection(connection)}>
+          {$t("oauth.agent.removeConnection", "Remove connection")}
+        </Button>
       </article>
     {/each}
     {#each grants as grant (grant.id)}
@@ -187,9 +187,9 @@
         {#if !grant.available}<p class="text-sm text-muted-foreground">
             {$t("oauth.agent.unavailable", "Unavailable")}
           </p>{/if}
-        <Button variant="outline" onclick={() => askGrant(grant)}
-          >{$t("oauth.agent.removeAccount", "Remove account access")}</Button
-        >
+        <Button variant="outline" onclick={() => askGrant(grant)}>
+          {$t("oauth.agent.removeAccount", "Remove account access")}
+        </Button>
       </article>
     {/each}
     {#if connections.length === 0 && grants.length === 0}<p
@@ -221,12 +221,12 @@
                 action.status,
               )}
             </p>
-            <time datetime={action.created_at} class="text-muted-foreground"
-              >{formatDateTime(action.created_at, getCurrentLocale(), {
+            <time datetime={action.created_at} class="text-muted-foreground">
+              {formatDateTime(action.created_at, getCurrentLocale(), {
                 dateStyle: "medium",
                 timeStyle: "short",
-              })}</time
-            >
+              })}
+            </time>
           </li>
         {/each}
       </ul>
@@ -253,16 +253,18 @@
           {problem}
         </p>{/if}
       <div class="flex flex-wrap gap-2">
-        <Button variant="destructive" disabled={removing} onclick={remove}
-          >{$t("oauth.agent.confirmRemove", "Remove access")}</Button
-        >
+        <Button variant="destructive" disabled={removing} onclick={remove}>
+          {$t("oauth.agent.confirmRemove", "Remove access")}
+        </Button>
         <Button
           variant="outline"
           disabled={removing}
           onclick={() => {
             target = null;
-          }}>{$t("oauth.agent.cancel", "Cancel")}</Button
+          }}
         >
+          {$t("oauth.agent.cancel", "Cancel")}
+        </Button>
       </div>
     </div>
   {/if}

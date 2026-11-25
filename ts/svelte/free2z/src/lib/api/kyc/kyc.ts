@@ -121,7 +121,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KycChangeStatusMutationError = KYCError
 
 
-    export const createKycChangeStatus = <TError = KYCError,
+    /** Toggle the applicant-controlled half of the state machine: NEW -> PENDING to submit for review, or APPROVED -> NEW to reopen. A PENDING or REJECTED application answers 400 — only a reviewer moves those. */
+export const createKycChangeStatus = <TError = KYCError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycChangeStatus>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycChangeStatus>>,
@@ -183,7 +184,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KycTaxFormDeleteMutationError = KYCMessage
 
 
-    export const createKycTaxFormDelete = <TError = KYCMessage,
+    /** Remove the uploaded tax form so the applicant can replace it. */
+export const createKycTaxFormDelete = <TError = KYCMessage,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycTaxFormDelete>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycTaxFormDelete>>,
@@ -240,7 +242,7 @@ export type KycTaxFormRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeo
 export type KycTaxFormRetrieveQueryError = unknown
 
 
-
+/** `file` is an authenticated `/uploadz/private/...` path, never a public URL, and is null before anything is uploaded. */
 export function createKycTaxFormRetrieve<TData = Awaited<ReturnType<typeof kycTaxFormRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof kycTaxFormRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -310,7 +312,12 @@ export type KycIdentityDocumentsRetrieveQueryResult = NonNullable<Awaited<Return
 export type KycIdentityDocumentsRetrieveQueryError = unknown
 
 
-
+/**
+ * ID front/back, an optional supporting document, and the live photo.
+ *
+ * All three verbs return the same full four-URL state, so a client never has
+ * to guess what changed.
+ */
 export function createKycIdentityDocumentsRetrieve<TData = Awaited<ReturnType<typeof kycIdentityDocumentsRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof kycIdentityDocumentsRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -338,7 +345,8 @@ export const kycIdentityDocumentsUpload = (
  options?: SecondParameter<typeof customInstance>,signal?: AbortSignal
 ) => {
 
-      const formData = new FormData();
+      const formData = identityDocumentsUpload === undefined ? undefined : (() => {
+const formData = new FormData();
 if(identityDocumentsUpload?.id_front !== undefined && identityDocumentsUpload.id_front !== null) {
  formData.append(`id_front`, identityDocumentsUpload.id_front);
  }
@@ -351,6 +359,8 @@ if(identityDocumentsUpload?.additional_document !== undefined && identityDocumen
 if(identityDocumentsUpload?.live_photo !== undefined && identityDocumentsUpload.live_photo !== null) {
  formData.append(`live_photo`, identityDocumentsUpload.live_photo);
  }
+return formData;
+})();
 
       return customInstance<IdentityDocuments>(
       {url: `/api/kyc/identity-documents`, method: 'POST',
@@ -397,7 +407,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KycIdentityDocumentsUploadMutationError = KYCIdentityError
     export type KycIdentityDocumentsUploadMutationVariables = {data?: IdentityDocumentsUpload}
 
-    export const createKycIdentityDocumentsUpload = <TError = KYCIdentityError,
+    /** Upload one or more identity documents. Send only the fields you want to replace. Every submitted file is validated by content before any of them is stored, so a single rejected file leaves the others untouched too. */
+export const createKycIdentityDocumentsUpload = <TError = KYCIdentityError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycIdentityDocumentsUpload>>, TError,KycIdentityDocumentsUploadMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycIdentityDocumentsUpload>>,
@@ -459,7 +470,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KycIdentityDocumentsDeleteMutationError = KYCIdentityError
 
 
-    export const createKycIdentityDocumentsDelete = <TError = KYCIdentityError,
+    /** Delete one stored document, named by `doc_type`. Returns the remaining state so the caller can re-render without a follow-up read. */
+export const createKycIdentityDocumentsDelete = <TError = KYCIdentityError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycIdentityDocumentsDelete>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycIdentityDocumentsDelete>>,
@@ -518,7 +530,11 @@ export type KycSignatureRetrieveQueryResult = NonNullable<Awaited<ReturnType<typ
 export type KycSignatureRetrieveQueryError = unknown
 
 
-
+/**
+ * The typed-name electronic signature for the tax form.
+ *
+ * https://www.irs.gov/newsroom/details-on-using-e-signatures-for-certain-forms
+ */
 export function createKycSignatureRetrieve<TData = Awaited<ReturnType<typeof kycSignatureRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof kycSignatureRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -594,7 +610,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KycSignatureUpdateMutationError = KYCMessage
     export type KycSignatureUpdateMutationVariables = {data?: UserProfileSignature}
 
-    export const createKycSignatureUpdate = <TError = KYCMessage,
+    /**
+ * The typed-name electronic signature for the tax form.
+ *
+ * https://www.irs.gov/newsroom/details-on-using-e-signatures-for-certain-forms
+ */
+export const createKycSignatureUpdate = <TError = KYCMessage,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycSignatureUpdate>>, TError,KycSignatureUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycSignatureUpdate>>,
@@ -660,7 +681,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KycTaxFormUploadMutationError = KYCMessage
     export type KycTaxFormUploadMutationVariables = {data: TaxFormUploadRequest}
 
-    export const createKycTaxFormUpload = <TError = KYCMessage,
+    /** Store the completed tax form. Which model row it lands in (W9/W8BEN/W8BENE) follows from the profile, not from anything the client sends. The file type is decided by sniffing the bytes; the declared Content-Type is ignored. */
+export const createKycTaxFormUpload = <TError = KYCMessage,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycTaxFormUpload>>, TError,KycTaxFormUploadMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycTaxFormUpload>>,
@@ -717,7 +739,7 @@ export type KycProfileRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeo
 export type KycProfileRetrieveQueryError = unknown
 
 
-
+/** Current applicant profile. Creates an empty NEW profile on first read so a brand-new applicant gets a resumable state rather than a 404. */
 export function createKycProfileRetrieve<TData = Awaited<ReturnType<typeof kycProfileRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof kycProfileRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -791,7 +813,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type KycProfileUpdateMutationError = KYCMessage
     export type KycProfileUpdateMutationVariables = {data?: NonReadonly<BasicInfo>}
 
-    export const createKycProfileUpdate = <TError = KYCMessage,
+    /** Set the applicant type. Editable only while the application is NEW; `application_status` is read-only and cannot be self-advanced. */
+export const createKycProfileUpdate = <TError = KYCMessage,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof kycProfileUpdate>>, TError,KycProfileUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof kycProfileUpdate>>,

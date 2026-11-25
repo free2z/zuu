@@ -24,9 +24,9 @@
   <h1 class="text-2xl font-semibold">{page.status}</h1>
   <p>{message}</p>
   {#if page.status >= 500}
-    <button class="cursor-pointer underline" onclick={() => location.reload()}
-      >{$t("editor.saveConflictReload")}</button
-    >
+    <button class="cursor-pointer underline" onclick={() => location.reload()}>
+      {$t("editor.saveConflictReload")}
+    </button>
   {:else}
     <a class="cursor-pointer underline" href="/">{$t("errors.returnHome")}</a>
   {/if}

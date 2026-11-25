@@ -483,22 +483,25 @@
         <div class="mt-4 flex flex-wrap items-center gap-2">
           <span
             class="mr-1 inline-flex items-center gap-1.5 text-xs font-medium text-(--f2z-text-muted)"
-            ><Clock3 class="size-3.5" /> Recent</span
           >
+            <Clock3 class="size-3.5" /> Recent
+          </span>
           {#each recentSearches.slice(0, 4) as recent}
             <button
               type="button"
               onclick={() => selectRecentSearch(recent)}
               class="rounded-full border border-(--f2z-border-primary) bg-transparent px-3 py-1.5 text-xs text-(--f2z-text-secondary) transition-colors hover:border-(--f2z-accent-primary) hover:text-(--f2z-accent-primary)"
-              >{recent}</button
             >
+              {recent}
+            </button>
           {/each}
           <button
             type="button"
             onclick={clearRecentSearches}
             class="px-2 py-1.5 text-xs text-(--f2z-text-muted) transition-colors hover:text-(--f2z-text-primary)"
-            >Clear</button
           >
+            Clear
+          </button>
         </div>
       {/if}
     </header>
@@ -527,9 +530,9 @@
               >
                 #{tagFilter}
                 <X class="size-3" aria-hidden="true" />
-                <span class="sr-only"
-                  >{$t("search.clearTagFilter", "Clear tag filter")}</span
-                >
+                <span class="sr-only">
+                  {$t("search.clearTagFilter", "Clear tag filter")}
+                </span>
               </button>
             {/if}
           </div>
@@ -537,21 +540,22 @@
             <div
               class="flex flex-wrap gap-x-3 gap-y-1 text-sm text-muted-foreground"
             >
-              {#if totalCreators > 0}<span
-                  >{totalCreators}
-                  {totalCreators === 1 ? "creator" : "creators"}</span
-                >{/if}
-              {#if totalSeries > 0}<span
-                  >{totalSeries} related {totalSeries === 1
+              {#if totalCreators > 0}<span>
+                  {totalCreators}
+                  {totalCreators === 1 ? "creator" : "creators"}
+                </span>{/if}
+              {#if totalSeries > 0}<span>
+                  {totalSeries} related {totalSeries === 1
                     ? "series"
-                    : "series"}</span
-                >{/if}
-              {#if totalResults > 0}<span
-                  >{totalResults} {totalResults === 1 ? "page" : "pages"}</span
-                >{/if}
-              {#if !hasAnyResults && searchFailures.length === 0}<span
-                  >0 results</span
-                >{/if}
+                    : "series"}
+                </span>{/if}
+              {#if totalResults > 0}<span>
+                  {totalResults}
+                  {totalResults === 1 ? "page" : "pages"}
+                </span>{/if}
+              {#if !hasAnyResults && searchFailures.length === 0}<span>
+                  0 results
+                </span>{/if}
             </div>
           {/if}
         </div>
@@ -574,8 +578,9 @@
               type="button"
               onclick={retrySearch}
               class="shrink-0 font-medium text-(--f2z-accent-primary) hover:underline"
-              >Retry</button
             >
+              Retry
+            </button>
           </div>
         {/if}
 
@@ -619,12 +624,12 @@
                   <span
                     class="flex min-w-0 flex-1 items-center justify-between gap-3 pr-2"
                   >
-                    <span class="font-semibold text-(--f2z-text-primary)"
-                      >Creators</span
-                    >
-                    <span class="text-xs font-normal text-(--f2z-text-muted)"
-                      >{totalCreators} found</span
-                    >
+                    <span class="font-semibold text-(--f2z-text-primary)">
+                      Creators
+                    </span>
+                    <span class="text-xs font-normal text-(--f2z-text-muted)">
+                      {totalCreators} found
+                    </span>
                   </span>
                 </Accordion.Trigger>
                 <Accordion.Content
@@ -648,12 +653,12 @@
                   <span
                     class="flex min-w-0 flex-1 items-center justify-between gap-3 pr-2"
                   >
-                    <span class="font-semibold text-(--f2z-text-primary)"
-                      >Related series</span
-                    >
-                    <span class="text-xs font-normal text-(--f2z-text-muted)"
-                      >{totalSeries} related</span
-                    >
+                    <span class="font-semibold text-(--f2z-text-primary)">
+                      Related series
+                    </span>
+                    <span class="text-xs font-normal text-(--f2z-text-muted)">
+                      {totalSeries} related
+                    </span>
                   </span>
                 </Accordion.Trigger>
                 <Accordion.Content
@@ -674,12 +679,12 @@
                   <span
                     class="flex min-w-0 flex-1 items-center justify-between gap-3 pr-2"
                   >
-                    <span class="font-semibold text-(--f2z-text-primary)"
-                      >Pages</span
-                    >
-                    <span class="text-xs font-normal text-(--f2z-text-muted)"
-                      >{firstResult}–{lastResult} of {totalResults}</span
-                    >
+                    <span class="font-semibold text-(--f2z-text-primary)">
+                      Pages
+                    </span>
+                    <span class="text-xs font-normal text-(--f2z-text-muted)">
+                      {firstResult}–{lastResult} of {totalResults}
+                    </span>
                   </span>
                 </Accordion.Trigger>
                 <Accordion.Content class="px-0 py-1 sm:px-4 sm:py-4">
@@ -706,23 +711,24 @@
                         class="gap-2"
                       >
                         <ArrowLeft class="size-4" />
-                        <span class="hidden sm:inline"
-                          >{$t("common.search.previous", "Previous")}</span
-                        >
+                        <span class="hidden sm:inline">
+                          {$t("common.search.previous", "Previous")}
+                        </span>
                       </Button>
                       <span
                         class="text-xs font-semibold tracking-wide text-muted-foreground"
-                        >Page {currentPage} of {totalPages}</span
                       >
+                        Page {currentPage} of {totalPages}
+                      </span>
                       <Button
                         variant="outline"
                         disabled={!hasNextPage}
                         onclick={() => goToPage(currentPage + 1)}
                         class="gap-2"
                       >
-                        <span class="hidden sm:inline"
-                          >{$t("common.search.next", "Next")}</span
-                        >
+                        <span class="hidden sm:inline">
+                          {$t("common.search.next", "Next")}
+                        </span>
                         <ArrowRight class="size-4" />
                       </Button>
                     </nav>

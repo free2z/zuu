@@ -52,9 +52,10 @@
     <div class="mt-1 flex items-center gap-2 text-xs text-(--f2z-text-muted)">
       <span class="truncate">@{creator.username}</span>
       <span aria-hidden="true">·</span>
-      <span class="inline-flex shrink-0 items-center gap-1"
-        ><FileText class="size-3" /> {creator.zpages || 0} pages</span
-      >
+      <span class="inline-flex shrink-0 items-center gap-1">
+        <FileText class="size-3" />
+        {creator.zpages || 0} pages
+      </span>
     </div>
   </div>
 
