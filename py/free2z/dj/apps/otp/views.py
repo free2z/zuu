@@ -17,7 +17,7 @@ from .models import OTPSecret
 from .serializers import VerifyOTPSerializer
 from dj.apps.identity.auth_context import AMR_PASSWORD, record_login
 
-from .utils import check_user_totp, consume_token, generate_secret
+from .utils import check_user_totp, consume_token, generate_secret, lock_factor, has_active_totp
 
 
 class BruteRateThrottle(
@@ -76,6 +76,7 @@ class SetupOTPView(APIView):
         user = request.user
 
         with transaction.atomic():
+            lock_factor(user)
             otp_secret, created = (
                 OTPSecret.objects.select_for_update().get_or_create(
                     user=user,
@@ -138,9 +139,9 @@ class EnableOTPView(APIView):
                 # and the OLD seed activated. Verify and flip only `is_active`,
                 # under the same row lock.
                 with transaction.atomic():
-                    otp_secret = OTPSecret.objects.select_for_update().get(
-                        user=user
-                    )
+                    otp_secret = lock_factor(user)
+                    if otp_secret is None:
+                        raise OTPSecret.DoesNotExist
                     # consume_token verifies AND burns the code under this
                     # same row lock: the code that activates MFA is
                     # single-use like any other, so it cannot be replayed
@@ -175,11 +176,7 @@ class DisableOTPView(APIView):
         # structurally impossible: after a successful disable there is no
         # secret left to present the burned code to.
         with transaction.atomic():
-            otp_secret = (
-                OTPSecret.objects.select_for_update()
-                .filter(user=user)
-                .first()
-            )
+            otp_secret = lock_factor(user)
             if otp_secret is None:
                 # Nothing to disable. Answer 400 rather than silently 200 so
                 # a confused client doesn't believe it stripped a factor that
@@ -268,7 +265,7 @@ class LoginWithOTPView(APIView):
         if pending is not None:
             if (
                 pending.check_password(password or '')
-                and OTPSecret.objects.filter(user=pending, is_active=True).exists()
+                and has_active_totp(pending)
             ):
                 gate = check_user_totp(pending, token)
                 if not gate.passed:
@@ -297,7 +294,7 @@ class LoginWithOTPView(APIView):
                             status=status.HTTP_401_UNAUTHORIZED)
         user = authenticate(username=username, password=password)
 
-        if user is not None and OTPSecret.objects.filter(user=user, is_active=True).exists():
+        if user is not None and has_active_totp(user):
             # verify_user_totp  verifies AND burns the code under the
             # row lock: the same six digits cannot log in twice within one
             # time step, here or on any other TOTP-gated route.
