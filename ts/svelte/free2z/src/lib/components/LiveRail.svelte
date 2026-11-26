@@ -125,8 +125,10 @@
           <span>{$t("homepage.liveNow", "Live Now")}</span>
           <span
             class="font-normal tracking-normal text-muted-foreground"
-            aria-hidden="true">· {items.length}</span
+            aria-hidden="true"
           >
+            · {items.length}
+          </span>
         </h2>
         <span
           class="h-px min-w-8 flex-1 border-t border-dashed border-border/50"
@@ -187,8 +189,9 @@
               <span class="relative flex min-w-0 flex-col gap-1">
                 <span
                   class="max-w-44 truncate text-sm leading-none font-semibold text-foreground"
-                  >@{it.name}</span
                 >
+                  @{it.name}
+                </span>
                 <span
                   class="flex items-center gap-1 text-[11px] leading-none whitespace-nowrap text-muted-foreground transition-colors group-hover:text-foreground/75"
                 >

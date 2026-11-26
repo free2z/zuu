@@ -83,7 +83,12 @@ export type SchemaRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof sc
 export type SchemaRetrieveQueryError = unknown
 
 
-
+/**
+ * OpenApi3 schema for this API. Format can be selected via content negotiation.
+ *
+ * - YAML: application/vnd.oai.openapi
+ * - JSON: application/vnd.oai.openapi+json
+ */
 export function createSchemaRetrieve<TData = Awaited<ReturnType<typeof schemaRetrieve>>, TError = unknown>(
  params?: SchemaRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof schemaRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

@@ -48,10 +48,9 @@
   }
 </script>
 
-<svelte:head
-  ><title>{$t("moderation.manage.title", "Blocked accounts")} | Free2Z</title
-  ></svelte:head
->
+<svelte:head>
+  <title>{$t("moderation.manage.title", "Blocked accounts")} | Free2Z</title>
+</svelte:head>
 <main class="mx-auto w-full max-w-3xl px-4 py-8" data-testid="block-management">
   <h1 class="text-2xl font-bold">
     {$t("moderation.manage.title", "Blocked accounts")}
@@ -73,9 +72,9 @@
             "Could not load the full block list.",
           )}
         </p>
-        <Button type="button" onclick={retryBlocks}
-          >{$t("moderation.manage.retry", "Retry")}</Button
-        >
+        <Button type="button" onclick={retryBlocks}>
+          {$t("moderation.manage.retry", "Retry")}
+        </Button>
       </div>
     {/if}
     {#if error}<p role="alert" class="mt-4">

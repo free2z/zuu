@@ -82,7 +82,12 @@ export type PricingCurrentQueryResult = NonNullable<Awaited<ReturnType<typeof pr
 export type PricingCurrentQueryError = unknown
 
 
-
+/**
+ * Current live 2Z pricing for ZEC and card payments.
+ *
+ * Public: both UIs poll this to show a live conversion rate. A 2Z is worth
+ * $0.01; ZEC purchases are priced off an aggregated, spread-adjusted ZEC/USD.
+ */
 export function createPricingCurrent<TData = Awaited<ReturnType<typeof pricingCurrent>>, TError = unknown>(
  params?: PricingCurrentParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof pricingCurrent>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -150,7 +155,7 @@ export type PricingQuoteQueryResult = NonNullable<Awaited<ReturnType<typeof pric
 export type PricingQuoteQueryError = unknown
 
 
-
+/** Estimated Zcash amount and exact card price for a quantity of 2Z. */
 export function createPricingQuote<TData = Awaited<ReturnType<typeof pricingQuote>>, TError = unknown>(
  params: PricingQuoteParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof pricingQuote>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

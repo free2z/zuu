@@ -759,9 +759,9 @@
            the width of their own longest option ("Cualquier acceso"). UI copy
            never truncates — the row wraps instead. -->
       <div class="flex flex-wrap items-center gap-2">
-        <label class="sr-only" for="media-type-filter"
-          >{$t("dashboard.media.filterByType", "Filter by type")}</label
-        >
+        <label class="sr-only" for="media-type-filter">
+          {$t("dashboard.media.filterByType", "Filter by type")}
+        </label>
         <select
           id="media-type-filter"
           value={mediaType}
@@ -772,22 +772,24 @@
             "Filter files by type",
           )}
         >
-          <option value="all"
-            >{$t("dashboard.media.allFiles", "All files")}</option
-          >
-          <option value="image">{$t("dashboard.media.images", "Images")}</option
-          >
-          <option value="video">{$t("dashboard.media.videos", "Videos")}</option
-          >
+          <option value="all">
+            {$t("dashboard.media.allFiles", "All files")}
+          </option>
+          <option value="image">
+            {$t("dashboard.media.images", "Images")}
+          </option>
+          <option value="video">
+            {$t("dashboard.media.videos", "Videos")}
+          </option>
           <option value="audio">{$t("dashboard.media.audio", "Audio")}</option>
-          <option value="document"
-            >{$t("dashboard.media.documents", "Documents")}</option
-          >
+          <option value="document">
+            {$t("dashboard.media.documents", "Documents")}
+          </option>
         </select>
 
-        <label class="sr-only" for="media-access-filter"
-          >{$t("dashboard.media.filterByAccess", "Filter by access")}</label
-        >
+        <label class="sr-only" for="media-access-filter">
+          {$t("dashboard.media.filterByAccess", "Filter by access")}
+        </label>
         <select
           id="media-access-filter"
           value={accessFilter}
@@ -799,18 +801,18 @@
             "Filter files by who can see them",
           )}
         >
-          <option value="all"
-            >{$t("dashboard.media.anyAccess", "Any access")}</option
-          >
-          <option value="public"
-            >{$t("dashboard.media.accessPublic", "Public")}</option
-          >
-          <option value="members"
-            >{$t("dashboard.media.accessMembers", "Subscribers")}</option
-          >
-          <option value="private"
-            >{$t("dashboard.media.accessPrivate", "Private")}</option
-          >
+          <option value="all">
+            {$t("dashboard.media.anyAccess", "Any access")}
+          </option>
+          <option value="public">
+            {$t("dashboard.media.accessPublic", "Public")}
+          </option>
+          <option value="members">
+            {$t("dashboard.media.accessMembers", "Subscribers")}
+          </option>
+          <option value="private">
+            {$t("dashboard.media.accessPrivate", "Private")}
+          </option>
         </select>
 
         <button
@@ -1238,15 +1240,15 @@
           disabled={saving}
           class="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm transition-colors outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         >
-          <option value="public"
-            >{$t("dashboard.media.accessPublic", "Public")}</option
-          >
-          <option value="members"
-            >{$t("dashboard.media.accessMembers", "Subscribers")}</option
-          >
-          <option value="private"
-            >{$t("dashboard.media.accessPrivate", "Private")}</option
-          >
+          <option value="public">
+            {$t("dashboard.media.accessPublic", "Public")}
+          </option>
+          <option value="members">
+            {$t("dashboard.media.accessMembers", "Subscribers")}
+          </option>
+          <option value="private">
+            {$t("dashboard.media.accessPrivate", "Private")}
+          </option>
         </select>
         <p class="text-xs text-muted-foreground">{accessHint(editAccess)}</p>
       </div>

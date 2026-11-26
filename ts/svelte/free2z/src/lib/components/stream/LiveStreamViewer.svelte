@@ -955,12 +955,12 @@
                 class="w-full justify-start bg-white/5 text-white hover:bg-white/10"
                 onclick={() => goto(streamWatchPath(username, stream.type))}
               >
-                <span
-                  >{$t("stream.watchAlternative", "Watch {type} ({viewers})", {
+                <span>
+                  {$t("stream.watchAlternative", "Watch {type} ({viewers})", {
                     type: streamTypeLabel(stream.type),
                     viewers: viewerCount(stream.participant_count),
-                  })}</span
-                >
+                  })}
+                </span>
               </Button>
             {/each}
           </div>
@@ -999,8 +999,9 @@
             stroke-linecap="round"
             stroke-linejoin="round"
             class="lucide lucide-x"
-            ><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg
           >
+            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+          </svg>
         </Button>
       </div>
     {/if}

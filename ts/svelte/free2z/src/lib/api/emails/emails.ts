@@ -243,9 +243,9 @@ export type EmailsConfirmRetrieveQueryError = void
 
 
 /**
+ * Renders the page the emailed confirmation link points at. This operation performs no write, so a prefetching mail client or security scanner cannot confirm an address. The page contains a form that POSTs to this same URL; that POST is what confirms.
  * @summary Email-confirmation landing page. Changes nothing.
  */
-
 export function createEmailsConfirmRetrieve<TData = Awaited<ReturnType<typeof emailsConfirmRetrieve>>, TError = void>(
  params: EmailsConfirmRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof emailsConfirmRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -323,6 +323,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type EmailsConfirmCreateMutationVariables = {data?: EmailConfirmRequest;params?: EmailsConfirmCreateParams}
 
     /**
+ * The write half of the confirmation link. Submitted by the button on the landing page above; the token travels in the body, with the query string accepted as a fallback for callers that already used the old shape.
  * @summary Confirm the email address the token belongs to.
  */
 export const createEmailsConfirmCreate = <TError = void,
@@ -567,9 +568,9 @@ export type EmailsOptOutRetrieveQueryError = void
 
 
 /**
+ * Renders the page the emailed unsubscribe link points at. This operation performs no write, so a prefetching mail client or security scanner cannot unsubscribe an address. The page contains a form that POSTs to this same URL; that POST is the unsubscribe.
  * @summary Unsubscribe landing page. Changes nothing.
  */
-
 export function createEmailsOptOutRetrieve<TData = Awaited<ReturnType<typeof emailsOptOutRetrieve>>, TError = void>(
  link: string,
     params?: EmailsOptOutRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof emailsOptOutRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -651,6 +652,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type EmailsOptOutCreateMutationVariables = {link: string;data?: EmailOptOutRequest;params?: EmailsOptOutCreateParams}
 
     /**
+ * The write half of the unsubscribe link, and the RFC 8058 one-click target advertised in the outgoing `List-Unsubscribe` / `List-Unsubscribe-Post` headers. Adds the address to the do-not-email list and DELETES the account's `Email` row, which is also its password-recovery address.
+ *
+ * The link token in the path is the credential and nothing else is needed. On a legacy link — the address in the path, no token there — the token travels in the body when the landing page's button is used, with the query string accepted as a fallback because an RFC 8058 client POSTs a fixed `List-Unsubscribe=One-Click` body to the published URL and can put nothing of its own in it.
  * @summary Unsubscribe this address and delete it from the account.
  */
 export const createEmailsOptOutCreate = <TError = void,
@@ -705,7 +709,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type EmailsPasswordIsSetRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof emailsPasswordIsSetRetrieve>>>
 export type EmailsPasswordIsSetRetrieveQueryError = unknown
-
 
 
 export function createEmailsPasswordIsSetRetrieve<TData = Awaited<ReturnType<typeof emailsPasswordIsSetRetrieve>>, TError = unknown>(
@@ -839,9 +842,13 @@ export type EmailsRecoveryStatusRetrieveQueryError = unknown
 
 
 /**
+ * Reports, for the authenticated caller and nobody else, whether this account could get back in after losing access -- and if not, the single next action that would fix it.
+ *
+ * A confirmed email address that is not on the opt-out list is the only recovery method. A password is a way IN, not a way BACK, and is never part of `can_recover`; conversely a confirmed address is enough on its own, because the reset flow sets a new password.
+ *
+ * Takes no parameters of any kind: it always describes the credential-bearing caller, so it cannot be aimed at another account. Returns no email address.
  * @summary Whether the calling account has a working recovery path.
  */
-
 export function createEmailsRecoveryStatusRetrieve<TData = Awaited<ReturnType<typeof emailsRecoveryStatusRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof emailsRecoveryStatusRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1021,7 +1028,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type EmailsStatusRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof emailsStatusRetrieve>>>
 export type EmailsStatusRetrieveQueryError = unknown
-
 
 
 export function createEmailsStatusRetrieve<TData = Awaited<ReturnType<typeof emailsStatusRetrieve>>, TError = unknown>(

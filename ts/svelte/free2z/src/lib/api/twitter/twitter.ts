@@ -131,7 +131,6 @@ export type TwitterPublicStatusRetrieveQueryResult = NonNullable<Awaited<ReturnT
 export type TwitterPublicStatusRetrieveQueryError = unknown
 
 
-
 export function createTwitterPublicStatusRetrieve<TData = Awaited<ReturnType<typeof twitterPublicStatusRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof twitterPublicStatusRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -311,7 +310,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type TwitterV1AccessTokenRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof twitterV1AccessTokenRetrieve>>>
 export type TwitterV1AccessTokenRetrieveQueryError = unknown
-
 
 
 export function createTwitterV1AccessTokenRetrieve<TData = Awaited<ReturnType<typeof twitterV1AccessTokenRetrieve>>, TError = unknown>(

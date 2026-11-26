@@ -577,8 +577,9 @@
             variant="outline"
             disabled={reauthBusy || phase === "submitting"}
             onclick={switchConsentAccount}
-            >{$t("oauth.agent.switch", "Switch account")}</Button
           >
+            {$t("oauth.agent.switch", "Switch account")}
+          </Button>
           {#if reauthError}<p
               role="alert"
               class="w-full text-sm text-destructive"
@@ -750,9 +751,9 @@
               data-testid="oauth-cap-preselected"
             />
             <span class="text-sm">
-              <span class="font-medium"
-                >{capSummary($t, preselected, locale)}</span
-              >
+              <span class="font-medium">
+                {capSummary($t, preselected, locale)}
+              </span>
               {#if preselected.spend_cap_2z !== null}
                 <span class="block text-muted-foreground">
                   {prompt.already_granted.length &&
@@ -792,9 +793,9 @@
                 data-testid="oauth-cap-current"
               />
               <span class="text-sm">
-                <span class="font-medium"
-                  >{capSummary($t, currentCap, locale)}</span
-                >
+                <span class="font-medium">
+                  {capSummary($t, currentCap, locale)}
+                </span>
                 <span class="block text-muted-foreground">
                   {$t(
                     "oauth.consent.cap.keepCurrent",
@@ -844,9 +845,9 @@
                     data-testid="oauth-cap-period"
                   >
                     {#each CAP_PERIODS as period (period)}
-                      <option value={period}
-                        >{capPeriodLabel($t, period)}</option
-                      >
+                      <option value={period}>
+                        {capPeriodLabel($t, period)}
+                      </option>
                     {/each}
                   </select>
                 </span>
@@ -881,12 +882,12 @@
                 data-testid="oauth-cap-none"
               />
               <span class="flex-1 space-y-2 text-sm">
-                <span class="font-medium"
-                  >{$t(
+                <span class="font-medium">
+                  {$t(
                     "oauth.cap.noLimit",
                     "Available balance (no extra budget)",
-                  )}</span
-                >
+                  )}
+                </span>
                 {#if capChoice === "none" && preselected.spend_cap_2z !== null}
                   <span class="flex items-start gap-2 text-destructive">
                     <input

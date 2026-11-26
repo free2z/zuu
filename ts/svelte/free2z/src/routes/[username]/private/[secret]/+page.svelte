@@ -629,11 +629,9 @@
       <Button
         data-testid="private-call-reconnect"
         onclick={recoverPrivateStream}
-        ><RefreshCw class="mr-2 h-4 w-4" />{$t(
-          "stream.reconnect",
-          "Reconnect",
-        )}</Button
       >
+        <RefreshCw class="mr-2 h-4 w-4" />{$t("stream.reconnect", "Reconnect")}
+      </Button>
     </div>
   {/if}
   {#if meeting && (connectionStatus === "disconnected" || connectionStatus === "failed") && !isOffline}

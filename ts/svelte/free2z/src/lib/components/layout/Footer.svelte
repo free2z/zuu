@@ -70,8 +70,9 @@
         >
           <span
             class="grid size-9 place-items-center rounded-xl border border-(--f2z-accent-primary)/25 bg-(--f2z-accent-primary)/10 text-base text-(--f2z-accent-primary) shadow-sm"
-            >2Z</span
           >
+            2Z
+          </span>
           {!$loading ? $t("common.navigation.logo", "Free2Z") : "Free2Z"}
         </a>
         <p class="mt-4 max-w-xs text-sm leading-6 text-(--f2z-text-muted)">
@@ -181,16 +182,18 @@
         </h2>
         <ul class="mt-4 space-y-3">
           <li>
-            <a href="/docs/legal/" data-sveltekit-reload class={linkClass}
-              >{$t("footer.terms", "Terms of service")}</a
-            >
+            <a href="/docs/legal/" data-sveltekit-reload class={linkClass}>
+              {$t("footer.terms", "Terms of service")}
+            </a>
           </li>
           <li>
             <a
               href="/docs/legal/privacy-policy/"
               data-sveltekit-reload
-              class={linkClass}>{$t("footer.privacy", "Privacy policy")}</a
+              class={linkClass}
             >
+              {$t("footer.privacy", "Privacy policy")}
+            </a>
           </li>
         </ul>
       </nav>
@@ -207,22 +210,26 @@
             target="_blank"
             rel="noreferrer"
             class="grid size-8 place-items-center rounded-full border border-(--f2z-border-primary) bg-(--f2z-bg-primary)/60 text-xs font-semibold text-(--f2z-text-muted) transition-all hover:-translate-y-0.5 hover:border-(--f2z-accent-primary)/45 hover:text-(--f2z-text-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none"
-            aria-label={$t("footer.xLabel", "Free2Z on X")}>X</a
+            aria-label={$t("footer.xLabel", "Free2Z on X")}
           >
+            X
+          </a>
           <a
             href="https://github.com/free2z/zuu"
             target="_blank"
             rel="noreferrer"
             class="grid size-8 place-items-center rounded-full border border-(--f2z-border-primary) bg-(--f2z-bg-primary)/60 text-(--f2z-text-muted) transition-all hover:-translate-y-0.5 hover:border-(--f2z-accent-primary)/45 hover:text-(--f2z-text-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none"
             aria-label={$t("footer.githubLabel", "Free2Z on GitHub")}
-            ><GitHubBrandIcon class="size-3.5" /></a
           >
+            <GitHubBrandIcon class="size-3.5" />
+          </a>
           <a
             href="/free2z"
             class="grid size-8 place-items-center rounded-full border border-(--f2z-border-primary) bg-(--f2z-bg-primary)/60 text-(--f2z-text-muted) transition-all hover:-translate-y-0.5 hover:border-(--f2z-accent-primary)/45 hover:text-(--f2z-text-primary) focus-visible:ring-2 focus-visible:ring-(--f2z-accent-primary)/30 focus-visible:outline-none"
             aria-label={$t("footer.communityLabel", "Free2Z community profile")}
-            ><Heart class="size-3.5" /></a
           >
+            <Heart class="size-3.5" />
+          </a>
         </div>
         <p class="mt-4 text-xs leading-5 text-(--f2z-text-muted)">
           {$t(

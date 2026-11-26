@@ -689,11 +689,12 @@
                   <span
                     class="text-xs text-amber-700 dark:text-amber-400"
                     data-testid="translate-into-replaces"
-                    >{$t(
+                  >
+                    {$t(
                       "translationJobs.replacesDraft",
                       "Replaces your saved draft",
-                    )}</span
-                  >
+                    )}
+                  </span>
                 {/if}
               </span>
               {#if reason}
@@ -702,16 +703,19 @@
                 <span
                   class="tabular-nums"
                   data-testid="translate-into-line-price"
-                  >{$t("editor.translateAiPrice", "{price} 2Z", {
-                    price,
-                  })}</span
                 >
+                  {$t("editor.translateAiPrice", "{price} 2Z", {
+                    price,
+                  })}
+                </span>
               {:else if entry.autonym && entry.autonym !== entry.name}
                 <bdi
                   dir={entry.direction}
                   lang={entry.language}
-                  class="text-xs text-muted-foreground">{entry.autonym}</bdi
+                  class="text-xs text-muted-foreground"
                 >
+                  {entry.autonym}
+                </bdi>
               {/if}
             </label>
           </li>
@@ -730,10 +734,11 @@
             <span
               class="text-xl font-semibold tabular-nums"
               data-testid="translate-into-total"
-              >{$t("editor.translateAiPrice", "{price} 2Z", {
-                price: total,
-              })}</span
             >
+              {$t("editor.translateAiPrice", "{price} 2Z", {
+                price: total,
+              })}
+            </span>
           {/if}
         </div>
         {#if selected.length && !resending}

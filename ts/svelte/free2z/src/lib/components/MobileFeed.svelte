@@ -499,12 +499,14 @@
             </span>
             <span
               class="mt-6 w-full truncate px-3 text-sm font-semibold text-(--f2z-text-primary)"
-              >{creatorName(creator)}</span
             >
+              {creatorName(creator)}
+            </span>
             <span
               class="mt-1 w-full truncate px-3 text-xs text-(--f2z-text-muted)"
-              >@{creator.username}</span
             >
+              @{creator.username}
+            </span>
           </a>
         {/each}
       </div>

@@ -156,8 +156,9 @@
             {#if originLabel(row)}
               <span
                 class="rounded-full border border-border px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                >{originLabel(row)}</span
               >
+                {originLabel(row)}
+              </span>
             {/if}
             {#if activeLanguages.includes(row.language)}
               <span
@@ -186,9 +187,9 @@
                 on the one row where opening is the thing you cannot do
                 .
               -->
-              <span class="text-muted-foreground"
-                >{$t("editor.variantOpenNow", "currently editing")}</span
-              >
+              <span class="text-muted-foreground">
+                {$t("editor.variantOpenNow", "currently editing")}
+              </span>
             {/if}
           </span>
 

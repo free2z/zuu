@@ -87,7 +87,7 @@ export type TaggingAutocompleteListQueryResult = NonNullable<Awaited<ReturnType<
 export type TaggingAutocompleteListQueryError = unknown
 
 
-
+/** Tags in use on the platform, most-used first. The tag vocabulary is open (`django-taggit`): this endpoint enumerates what exists, it does not define what is allowed. Tags with a zero count are omitted. Public zPage counts include only published pages from active creators. For an authenticated owner's vocabulary, pass `type=zpage&mine=true`; that mode includes the caller's drafts. */
 export function createTaggingAutocompleteList<TData = Awaited<ReturnType<typeof taggingAutocompleteList>>, TError = unknown>(
  params?: TaggingAutocompleteListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof taggingAutocompleteList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -156,7 +156,11 @@ export type TaggingHubRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeo
 export type TaggingHubRetrieveQueryError = void
 
 
-
+/**
+ * Resolve a `/tag/<slug>` hub: which tag names share the slug, how much published content they cover, and whether that is enough to be worth indexing. The pages themselves come from `GET /api/zpage/?hub_slug=`, which resolves the complete component server-side.
+ *
+ * The slug is lowercase, with every character that is not a Unicode letter, number or mark folded to `-`. The mapping is deliberately lossy, so distinct tags can share a slug; the hub browses their union rather than picking a winner, which is why `names` is a list.
+ */
 export function createTaggingHubRetrieve<TData = Awaited<ReturnType<typeof taggingHubRetrieve>>, TError = void>(
  slug: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof taggingHubRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -227,7 +231,13 @@ export type TaggingZpageSuggestionsListQueryResult = NonNullable<Awaited<ReturnT
 export type TaggingZpageSuggestionsListQueryError = unknown
 
 
-
+/**
+ * Pending AI tag suggestions for one of your own zPages.
+ *
+ * Suggestions are produced asynchronously by the `zpage-tag` subscriber when a published page's content changes. On a page that already carries at least one tag they are **never** applied on their own — this endpoint plus a `POST` to the same path is the only way one becomes a tag. A published page with **zero** tags when the pass finishes has the pass's tags applied directly instead, so nothing is left pending for it. Tags the page already carries are filtered out, and a suggestion the creator has previously dismissed never reappears.
+ *
+ * Owner-only; any other caller gets **404**.
+ */
 export function createTaggingZpageSuggestionsList<TData = Awaited<ReturnType<typeof taggingZpageSuggestionsList>>, TError = unknown>(
  free2zaddr: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof taggingZpageSuggestionsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -308,7 +318,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TaggingZpageSuggestionsDecideCreateMutationError = PreconditionFailed
     export type TaggingZpageSuggestionsDecideCreateMutationVariables = {free2zaddr: string;data?: ZPageTagDecision;params?: TaggingZpageSuggestionsDecideCreateParams}
 
-    export const createTaggingZpageSuggestionsDecideCreate = <TError = PreconditionFailed,
+    /**
+ * Accept or dismiss pending AI tag suggestions on your own zPage.
+ *
+ * Strictly additive: accepting adds tags, and **nothing on this route can remove a tag you wrote yourself** — dismissing marks the suggestion, never the tag. Dismissal is remembered per page, so a later AI pass will not propose the same tag again.
+ *
+ * The response carries the page's full tag list afterwards and whatever is still pending, so a client needs no follow-up read.
+ */
+export const createTaggingZpageSuggestionsDecideCreate = <TError = PreconditionFailed,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>, TError,TaggingZpageSuggestionsDecideCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof taggingZpageSuggestionsDecideCreate>>,

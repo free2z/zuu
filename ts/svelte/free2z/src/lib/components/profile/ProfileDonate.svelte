@@ -525,12 +525,9 @@
     {/if}
     {#if receipt}
       <Dialog.Header>
-        <Dialog.Title
-          >{$t(
-            "pageActions.donate.usageSent",
-            "Usage credits sent",
-          )}</Dialog.Title
-        >
+        <Dialog.Title>
+          {$t("pageActions.donate.usageSent", "Usage credits sent")}
+        </Dialog.Title>
         <Dialog.Description>
           {$t(
             "pageActions.donate.usageReceipt",
@@ -608,8 +605,10 @@
                 size="icon-lg"
                 aria-label="Decrease support amount"
                 onclick={() =>
-                  (donationAmount = Math.max(1, donationAmount - 1))}>−</Button
+                  (donationAmount = Math.max(1, donationAmount - 1))}
               >
+                −
+              </Button>
               <Input
                 id="support-amount"
                 type="number"
@@ -622,16 +621,20 @@
                 variant="outline"
                 size="icon-lg"
                 aria-label="Increase support amount"
-                onclick={() => (donationAmount += 1)}>+</Button
+                onclick={() => (donationAmount += 1)}
               >
+                +
+              </Button>
             </div>
             <div class="grid grid-cols-4 gap-2">
               {#each quickAmounts as amount}
                 <Button
                   variant={donationAmount === amount ? "secondary" : "outline"}
                   size="sm"
-                  onclick={() => (donationAmount = amount)}>{amount} 2Z</Button
+                  onclick={() => (donationAmount = amount)}
                 >
+                  {amount} 2Z
+                </Button>
               {/each}
             </div>
           </div>
@@ -655,12 +658,12 @@
                 disabled={sending}
               />
               <div class="space-y-1">
-                <Label for="support-anonymous" control
-                  >{$t(
+                <Label for="support-anonymous" control>
+                  {$t(
                     "pageActions.donate.anonymousLabel",
                     "Hide your username",
-                  )}</Label
-                >
+                  )}
+                </Label>
                 <p class="text-xs text-muted-foreground">
                   {$t(
                     "pageActions.donate.anonymousHint",
@@ -683,7 +686,8 @@
                 disabled={sending}
                 aria-busy={sending}
                 onclick={handleDonateTuzis}
-                >{sending
+              >
+                {sending
                   ? "Sending…"
                   : insufficientFunds
                     ? $t(
@@ -692,8 +696,8 @@
                       )
                     : $t("pageActions.donate.shareUsage", "Share {amount} 2Z", {
                         amount: donationAmount,
-                      })}</Button
-              >
+                      })}
+              </Button>
             {/if}
           {:else}
             <!-- In place: the donate dialog is a state of THIS page,
@@ -706,8 +710,9 @@
                 e.preventDefault();
                 requestLogin({ trigger: e.currentTarget });
               }}
-              >{$t("profile.donate.logInToSend", "Log in to share 2Zs")}</Button
             >
+              {$t("profile.donate.logInToSend", "Log in to share 2Zs")}
+            </Button>
           {/if}
         </Tabs.Content>
 
@@ -737,8 +742,9 @@
                 <code
                   data-testid="zec-recipient-address"
                   class="min-w-0 flex-1 rounded-md bg-background/80 px-2 py-1.5 font-mono text-[11px] leading-snug break-all select-all"
-                  >{recipientAddress}</code
                 >
+                  {recipientAddress}
+                </code>
                 <Button
                   variant="outline"
                   size="icon-sm"
@@ -821,17 +827,18 @@
             {#if recipientAcceptsMemo}
               <div class="space-y-2">
                 <div class="flex items-baseline justify-between gap-2">
-                  <Label for="zec-support-memo"
-                    >{$t(
+                  <Label for="zec-support-memo">
+                    {$t(
                       "pageActions.donate.memoLabel",
                       "Memo to the creator (optional)",
-                    )}</Label
-                  >
+                    )}
+                  </Label>
                   <span
                     data-testid="zec-memo-bytes"
                     class={`text-xs tabular-nums ${memoTooLong ? "text-destructive" : "text-muted-foreground"}`}
-                    >{memoBytes} / {ZCASH_MEMO_MAX_BYTES}</span
                   >
+                    {memoBytes} / {ZCASH_MEMO_MAX_BYTES}
+                  </span>
                 </div>
                 <Textarea
                   id="zec-support-memo"

@@ -483,8 +483,10 @@
                   <bdi
                     dir={entry.direction}
                     lang={entry.language}
-                    class="text-xs text-muted-foreground">{entry.autonym}</bdi
+                    class="text-xs text-muted-foreground"
                   >
+                    {entry.autonym}
+                  </bdi>
                 {/if}
               </div>
             {/each}
@@ -518,8 +520,9 @@
               <bdi
                 lang={typedLanguage.language}
                 class="text-xs text-muted-foreground"
-                >{typedLanguage.autonym}</bdi
               >
+                {typedLanguage.autonym}
+              </bdi>
             {/if}
           </div>
         {:else if options.length === 0}

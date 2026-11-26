@@ -82,7 +82,6 @@ export type EventsListQueryResult = NonNullable<Awaited<ReturnType<typeof events
 export type EventsListQueryError = unknown
 
 
-
 export function createEventsList<TData = Awaited<ReturnType<typeof eventsList>>, TError = unknown>(
  params?: EventsListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof eventsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -144,7 +143,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type EventsHasRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof eventsHasRetrieve>>>
 export type EventsHasRetrieveQueryError = unknown
-
 
 
 export function createEventsHasRetrieve<TData = Awaited<ReturnType<typeof eventsHasRetrieve>>, TError = unknown>(
@@ -213,7 +211,7 @@ export type EventsMentionPreferenceRetrieveQueryResult = NonNullable<Awaited<Ret
 export type EventsMentionPreferenceRetrieveQueryError = unknown
 
 
-
+/** Read or update the authenticated creator's in-app mention opt-out. */
 export function createEventsMentionPreferenceRetrieve<TData = Awaited<ReturnType<typeof eventsMentionPreferenceRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof eventsMentionPreferenceRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -287,7 +285,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type EventsMentionPreferencePartialUpdateMutationError = unknown
     export type EventsMentionPreferencePartialUpdateMutationVariables = {data?: PatchedMentionPreference}
 
-    export const createEventsMentionPreferencePartialUpdate = <TError = unknown,
+    /** Read or update the authenticated creator's in-app mention opt-out. */
+export const createEventsMentionPreferencePartialUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof eventsMentionPreferencePartialUpdate>>, TError,EventsMentionPreferencePartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof eventsMentionPreferencePartialUpdate>>,
@@ -458,7 +457,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type EventsUnreadCountRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof eventsUnreadCountRetrieve>>>
 export type EventsUnreadCountRetrieveQueryError = unknown
-
 
 
 export function createEventsUnreadCountRetrieve<TData = Awaited<ReturnType<typeof eventsUnreadCountRetrieve>>, TError = unknown>(

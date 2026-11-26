@@ -56,28 +56,26 @@
   >
     <Languages class="size-4" aria-hidden="true" />
     <!-- Wide: the sentence. Narrow: an icon and a count per state. -->
-    <span aria-hidden="true" class="hidden sm:inline"
-      >{text || $t("editor.translationsPanelTitle", "Translations")}</span
-    >
+    <span aria-hidden="true" class="hidden sm:inline">
+      {text || $t("editor.translationsPanelTitle", "Translations")}
+    </span>
     <span aria-hidden="true" class="inline-flex items-center gap-2 sm:hidden">
       {#if summary.ready}
-        <span class="inline-flex items-center gap-0.5"
-          ><CircleCheck class="size-3.5 text-primary" />{summary.ready}</span
-        >
+        <span class="inline-flex items-center gap-0.5">
+          <CircleCheck class="size-3.5 text-primary" />{summary.ready}
+        </span>
       {/if}
       {#if summary.active}
-        <span class="inline-flex items-center gap-0.5"
-          ><LoaderCircle
+        <span class="inline-flex items-center gap-0.5">
+          <LoaderCircle
             class="size-3.5 motion-safe:animate-spin"
-          />{summary.active}</span
-        >
+          />{summary.active}
+        </span>
       {/if}
       {#if summary.attention}
-        <span class="inline-flex items-center gap-0.5"
-          ><CircleAlert
-            class="size-3.5 text-destructive"
-          />{summary.attention}</span
-        >
+        <span class="inline-flex items-center gap-0.5">
+          <CircleAlert class="size-3.5 text-destructive" />{summary.attention}
+        </span>
       {/if}
     </span>
   </button>

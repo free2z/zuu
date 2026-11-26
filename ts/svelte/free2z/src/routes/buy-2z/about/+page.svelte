@@ -2,10 +2,9 @@
   import { tStore as t } from "$lib/i18n";
 </script>
 
-<svelte:head
-  ><title>{$t("credits.title", "Why a penny a post?")} · Free2Z</title
-  ></svelte:head
->
+<svelte:head>
+  <title>{$t("credits.title", "Why a penny a post?")} · Free2Z</title>
+</svelte:head>
 <article class="mx-auto w-full max-w-2xl space-y-4 px-4 py-10">
   <h1 class="text-2xl font-semibold">
     {$t("credits.title", "Why a penny a post?")}
@@ -25,6 +24,7 @@
   <a
     href="/buy-2z"
     class="font-medium text-primary underline underline-offset-2"
-    >{$t("insufficientFunds.buy", "Buy 2Z")}</a
   >
+    {$t("insufficientFunds.buy", "Buy 2Z")}
+  </a>
 </article>

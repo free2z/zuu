@@ -56,9 +56,9 @@
 <Dialog.Root bind:open onOpenChange={handleOpenChange}>
   <Dialog.Content>
     <Dialog.Header>
-      <Dialog.Title
-        >{$t("stream.types.payPerView", "Pay per view")}</Dialog.Title
-      >
+      <Dialog.Title>
+        {$t("stream.types.payPerView", "Pay per view")}
+      </Dialog.Title>
       <Dialog.Description>
         {$t(
           "stream.ppv.description",
@@ -106,9 +106,9 @@
     </div>
 
     <Dialog.Footer>
-      <Button variant="outline" onclick={() => handleOpenChange(false)}
-        >{$t("common.cancel", "Cancel")}</Button
-      >
+      <Button variant="outline" onclick={() => handleOpenChange(false)}>
+        {$t("common.cancel", "Cancel")}
+      </Button>
       {#if user && reserve !== null}
         <!-- Reachable whatever the balance, and never a payment: the server's
              join gate is the authority, and the reserve here is computed from

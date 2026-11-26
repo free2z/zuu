@@ -97,16 +97,15 @@
   }
 </script>
 
-<svelte:head
-  ><meta name="referrer" content="no-referrer" /><title>Free2Z sign-in</title
-  ></svelte:head
->
+<svelte:head>
+  <meta name="referrer" content="no-referrer" /><title>Free2Z sign-in</title>
+</svelte:head>
 <div class="mx-auto max-w-lg space-y-4 p-8">
   <p data-testid="reauth-callback-status" role="status">{status}</p>
   {#if pending}
     <form on:submit|preventDefault={finish} class="space-y-4">
-      <label class="block"
-        >Current two-factor code (if enabled)
+      <label class="block">
+        Current two-factor code (if enabled)
         <input
           class="block w-full rounded border p-2"
           bind:value={otp}
@@ -117,8 +116,10 @@
       <button
         type="submit"
         class="rounded border px-4 py-2"
-        disabled={submitting}>Finish signing in</button
+        disabled={submitting}
       >
+        Finish signing in
+      </button>
     </form>
   {/if}
 </div>

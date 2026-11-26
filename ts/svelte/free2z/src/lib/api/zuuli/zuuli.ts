@@ -78,7 +78,7 @@ export type ZuuliCapabilitiesQueryResult = NonNullable<Awaited<ReturnType<typeof
 export type ZuuliCapabilitiesQueryError = ZuuliError
 
 
-
+/** Public release compatibility and backend capability discovery. */
 export function createZuuliCapabilities<TData = Awaited<ReturnType<typeof zuuliCapabilities>>, TError = ZuuliError>(
  params?: ZuuliCapabilitiesParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof zuuliCapabilities>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

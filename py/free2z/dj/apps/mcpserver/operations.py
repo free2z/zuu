@@ -100,11 +100,11 @@ def _error(exc):
     raise exc
 
 
-def perform(raw_token, account, original, operation, scopes, callback):
+def perform(raw_token, account, original, operation, scopes, callback, *, creator_ids=()):
     from dj.apps.oidc.mcp import authorized_actor, record_action
     actor = None
     try:
-        with authorized_actor(raw_token, account, scopes) as actor:
+        with authorized_actor(raw_token, account, scopes, creator_ids=creator_ids) as actor:
             result = callback(actor)
             record_action(actor, operation, result["status"])
             result["account"] = actor.user.username

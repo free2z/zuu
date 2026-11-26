@@ -174,12 +174,12 @@
         <Search
           class="size-4 shrink-0 transition-colors group-hover:text-(--f2z-accent-primary)"
         />
-        <span class="flex-1 truncate text-left"
-          >{$t(
+        <span class="flex-1 truncate text-left">
+          {$t(
             "common.navigation.searchPlaceholder",
             "Search creators and pages…",
-          )}</span
-        >
+          )}
+        </span>
         {#if shortcutLabel}
           <!-- pointer-coarse belt-and-braces: the label is already blanked in
                JS on touch devices, this keeps it hidden even if a UA
@@ -228,9 +228,9 @@
           title={$t("common.navigation.create", "Create")}
         >
           <SquarePen class="size-4" />
-          <span class="hidden lg:inline"
-            >{$t("common.navigation.create", "Create")}</span
-          >
+          <span class="hidden lg:inline">
+            {$t("common.navigation.create", "Create")}
+          </span>
         </Button>
       {/if}
 

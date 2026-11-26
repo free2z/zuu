@@ -1243,18 +1243,15 @@
         <TabsContent value="stripe">
           <Card>
             <CardHeader>
-              <CardTitle
-                >{$t(
-                  "dashboard.billing.stripe.title",
-                  "Buy 2Z with Stripe",
-                )}</CardTitle
-              >
-              <CardDescription
-                >{$t(
+              <CardTitle>
+                {$t("dashboard.billing.stripe.title", "Buy 2Z with Stripe")}
+              </CardTitle>
+              <CardDescription>
+                {$t(
                   "dashboard.billing.stripe.description",
                   "Credit card, Apple Pay, Google Pay",
-                )}</CardDescription
-              >
+                )}
+              </CardDescription>
             </CardHeader>
             <CardContent class="grid gap-8 md:grid-cols-2">
               <form
@@ -1276,12 +1273,12 @@
                 {/if}
                 <div class="space-y-4">
                   <div class="space-y-2">
-                    <Label for="quantity"
-                      >{$t(
+                    <Label for="quantity">
+                      {$t(
                         "dashboard.billing.purchaseAmount",
                         "Purchase Amount (2Z)",
-                      )}</Label
-                    >
+                      )}
+                    </Label>
                     <div class="relative">
                       <Input
                         id="quantity"
@@ -1314,31 +1311,31 @@
 
                   <div class="space-y-3 rounded-xl border bg-muted/30 p-4">
                     <div class="flex justify-between text-sm">
-                      <span class="text-muted-foreground"
-                        >{$t("dashboard.billing.credit", "2Z Credit")}</span
-                      >
-                      <span class="font-mono"
-                        >{quantity.toLocaleString($locale)} 2Z</span
-                      >
+                      <span class="text-muted-foreground">
+                        {$t("dashboard.billing.credit", "2Z Credit")}
+                      </span>
+                      <span class="font-mono">
+                        {quantity.toLocaleString($locale)} 2Z
+                      </span>
                     </div>
                     <div class="flex justify-between text-sm">
-                      <span class="text-muted-foreground"
-                        >{$t("dashboard.billing.cardFee", "Card Fee")}</span
-                      >
-                      <span class="font-mono"
-                        >{asCurrency(cardFeeAmountCents)}</span
-                      >
+                      <span class="text-muted-foreground">
+                        {$t("dashboard.billing.cardFee", "Card Fee")}
+                      </span>
+                      <span class="font-mono">
+                        {asCurrency(cardFeeAmountCents)}
+                      </span>
                     </div>
                     <div class="flex justify-between border-t pt-2">
-                      <span class="font-bold"
-                        >{$t(
+                      <span class="font-bold">
+                        {$t(
                           "dashboard.billing.estimatedTotal",
                           "Estimated Total",
-                        )}</span
-                      >
-                      <span class="text-lg font-bold text-primary"
-                        >{asCurrency(totalCents)}</span
-                      >
+                        )}
+                      </span>
+                      <span class="text-lg font-bold text-primary">
+                        {asCurrency(totalCents)}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1364,15 +1361,15 @@
                     data-testid="authoritative-card-quote"
                   >
                     <div class="flex items-center justify-between gap-3">
-                      <span class="font-medium"
-                        >{$t(
+                      <span class="font-medium">
+                        {$t(
                           "dashboard.billing.exactCardCharge",
                           "Exact card charge",
-                        )}</span
-                      >
-                      <span class="font-mono text-lg font-bold text-primary"
-                        >{asCurrency(reviewedCheckout.quote.amountCents)}</span
-                      >
+                        )}
+                      </span>
+                      <span class="font-mono text-lg font-bold text-primary">
+                        {asCurrency(reviewedCheckout.quote.amountCents)}
+                      </span>
                     </div>
                     <p class="text-sm text-muted-foreground">
                       {$t(
@@ -1392,8 +1389,9 @@
                     <a
                       class="text-sm text-primary underline"
                       href="/docs/legal/token-sale-and-usage-terms"
-                      >{$t("dashboard.billing.creditPurchaseTerms")}</a
                     >
+                      {$t("dashboard.billing.creditPurchaseTerms")}
+                    </a>
                     <Button
                       type="button"
                       class="w-full"
@@ -1490,10 +1488,10 @@
                   >
                     <p>
                       Conservative estimated rate:
-                      <span class="font-mono"
-                        >{Math.round(liveTuzisPerZec).toLocaleString($locale)} 2Z
-                        / ZEC</span
-                      >
+                      <span class="font-mono">
+                        {Math.round(liveTuzisPerZec).toLocaleString($locale)} 2Z /
+                        ZEC
+                      </span>
                     </p>
                     {#if livePricing && Number.isFinite(Number(livePricing.zec_usd)) && Number(livePricing.zec_usd) > 0}
                       <p>
@@ -1505,12 +1503,9 @@
                       </p>
                       {#if typeof livePricing.updated_at === "string" && Number.isFinite(Date.parse(livePricing.updated_at))}
                         <p>
-                          Last updated: <time datetime={livePricing.updated_at}
-                            >{formatDateTime(
-                              livePricing.updated_at,
-                              $locale,
-                            )}</time
-                          >
+                          Last updated: <time datetime={livePricing.updated_at}>
+                            {formatDateTime(livePricing.updated_at, $locale)}
+                          </time>
                         </p>
                       {/if}
                     {/if}
@@ -1592,16 +1587,16 @@
                             ? "Unverified offer preview"
                             : "Current offer"}
                       </p>
-                      <Badge variant="secondary"
-                        >{promotion?.title || "Zcash offer"} · {formatLocalizedNumber(
+                      <Badge variant="secondary">
+                        {promotion?.title || "Zcash offer"} · {formatLocalizedNumber(
                           Number(promotion?.multiplier),
                           $locale,
-                        )}×</Badge
-                      >
+                        )}×
+                      </Badge>
                       {#if promotion?.ends_at}<p class="text-xs">
-                          Offer ends: <time datetime={promotion.ends_at}
-                            >{formatDateTime(promotion.ends_at, $locale)}</time
-                          >
+                          Offer ends: <time datetime={promotion.ends_at}>
+                            {formatDateTime(promotion.ends_at, $locale)}
+                          </time>
                         </p>{/if}
                       <p class="text-xs text-muted-foreground">
                         The offer must be active when your confirmed payment is
@@ -1698,9 +1693,9 @@
                       class="rounded-lg border p-3 text-sm"
                       data-testid="zcash-funding-terms"
                     >
-                      <summary class="cursor-pointer font-medium"
-                        >Read the funding terms</summary
-                      >
+                      <summary class="cursor-pointer font-medium">
+                        Read the funding terms
+                      </summary>
                       <p class="mt-3 break-words whitespace-pre-wrap">
                         {zcashPolicy.zec_funding_method.text}
                       </p>
@@ -1709,8 +1704,9 @@
                   <a
                     href="/docs/legal/token-sale-and-usage-terms"
                     class="text-sm text-primary underline"
-                    >Full usage-credit purchase terms</a
                   >
+                    Full usage-credit purchase terms
+                  </a>
                   <div
                     id="zcash-memo-required"
                     role="note"
@@ -1830,8 +1826,9 @@
                     type="button"
                     variant="outline"
                     onclick={() => refreshZcashPricing()}
-                    >Refresh estimate</Button
                   >
+                    Refresh estimate
+                  </Button>
                 {:else if !zcashUri}
                   <p role="status" class="text-sm text-destructive">
                     {$t(
@@ -1907,18 +1904,16 @@
             class="flex flex-1 items-center gap-1.5 text-xs sm:flex-initial sm:gap-2 sm:text-sm"
           >
             <Repeat2 class="hidden size-4 sm:block" />
-            <span
-              >{$t(
-                "dashboard.billing.tabs.subscriptions",
-                "Subscriptions",
-              )}</span
-            >
+            <span>
+              {$t("dashboard.billing.tabs.subscriptions", "Subscriptions")}
+            </span>
             {#if subscriptionsCount > 0}
               <Badge
                 variant="secondary"
                 class="h-5 min-w-5 rounded-full px-1.5 text-[10px]"
-                >{formatLocalizedNumber(subscriptionsCount, $locale)}</Badge
               >
+                {formatLocalizedNumber(subscriptionsCount, $locale)}
+              </Badge>
             {/if}
           </TabsTrigger>
           <TabsTrigger
@@ -1926,15 +1921,16 @@
             class="flex flex-1 items-center gap-1.5 text-xs sm:flex-initial sm:gap-2 sm:text-sm"
           >
             <Users class="hidden size-4 sm:block" />
-            <span
-              >{$t("dashboard.billing.tabs.subscribers", "Subscribers")}</span
-            >
+            <span>
+              {$t("dashboard.billing.tabs.subscribers", "Subscribers")}
+            </span>
             {#if subscribersCount > 0}
               <Badge
                 variant="secondary"
                 class="h-5 min-w-5 rounded-full px-1.5 text-[10px]"
-                >{formatLocalizedNumber(subscribersCount, $locale)}</Badge
               >
+                {formatLocalizedNumber(subscribersCount, $locale)}
+              </Badge>
             {/if}
           </TabsTrigger>
           <TabsTrigger
@@ -1942,14 +1938,16 @@
             class="flex flex-1 items-center gap-1.5 text-xs whitespace-normal sm:flex-initial sm:gap-2 sm:text-sm"
           >
             <History class="hidden size-4 sm:block" />
-            <span>{$t("dashboard.billing.tabs.history", "Card purchases")}</span
-            >
+            <span>
+              {$t("dashboard.billing.tabs.history", "Card purchases")}
+            </span>
             {#if transactionsCount > 0}
               <Badge
                 variant="secondary"
                 class="h-5 min-w-5 rounded-full px-1.5 text-[10px]"
-                >{formatLocalizedNumber(transactionsCount, $locale)}</Badge
               >
+                {formatLocalizedNumber(transactionsCount, $locale)}
+              </Badge>
             {/if}
           </TabsTrigger>
         </TabsList>
@@ -1961,18 +1959,18 @@
               class="flex flex-col items-start justify-between gap-3 space-y-0 sm:flex-row sm:items-center"
             >
               <div class="min-w-0 space-y-1">
-                <CardTitle
-                  >{$t(
+                <CardTitle>
+                  {$t(
                     "dashboard.billing.yourSubscriptions",
                     "Your Subscriptions",
-                  )}</CardTitle
-                >
-                <CardDescription
-                  >{$t(
+                  )}
+                </CardTitle>
+                <CardDescription>
+                  {$t(
                     "dashboard.billing.yourSubscriptionsDescription",
                     "Creators you support monthly.",
-                  )}</CardDescription
-                >
+                  )}
+                </CardDescription>
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 <Button
@@ -2023,12 +2021,12 @@
                       "No active subscriptions found.",
                     )}
                   </p>
-                  <Button href="/creators" variant="link" size="sm"
-                    >{$t(
+                  <Button href="/creators" variant="link" size="sm">
+                    {$t(
                       "dashboard.billing.findCreators",
                       "Find creators to support",
-                    )}</Button
-                  >
+                    )}
+                  </Button>
                 </div>
               {:else}
                 <div class="grid gap-4 md:grid-cols-2">
@@ -2254,11 +2252,12 @@
                               <Label
                                 for={`max-${subscription.star.username}`}
                                 class="text-[10px] font-bold tracking-wider text-muted-foreground uppercase"
-                                >{$t(
+                              >
+                                {$t(
                                   "dashboard.billing.maxPerMonth",
                                   "Maximum 2Z per month",
-                                )}</Label
-                              >
+                                )}
+                              </Label>
                               <Input
                                 id={`max-${subscription.star.username}`}
                                 name="maxPrice"
@@ -2285,11 +2284,9 @@
                               variant="outline"
                               size="sm"
                               class="h-9 sm:h-8"
-                              >{$t(
-                                "dashboard.billing.update",
-                                "Update",
-                              )}</Button
                             >
+                              {$t("dashboard.billing.update", "Update")}
+                            </Button>
                           </form>
                         {/if}
 
@@ -2336,16 +2333,16 @@
                     >
                       <ChevronLeft class="size-4" />
                     </Button>
-                    <span class="text-xs font-medium"
-                      >{$t(
+                    <span class="text-xs font-medium">
+                      {$t(
                         "dashboard.billing.pagination",
                         "Page {current} of {total}",
                         {
                           current: subscriptionsPage.toLocaleString($locale),
                           total: subTotalPages.toLocaleString($locale),
                         },
-                      )}</span
-                    >
+                      )}
+                    </span>
                     <Button
                       href={pageHref(
                         Math.min(subTotalPages, subscriptionsPage + 1),
@@ -2378,18 +2375,15 @@
               class="flex flex-col items-start justify-between gap-3 space-y-0 sm:flex-row sm:items-center"
             >
               <div class="min-w-0 space-y-1">
-                <CardTitle
-                  >{$t(
-                    "dashboard.billing.yourSubscribers",
-                    "Your Subscribers",
-                  )}</CardTitle
-                >
-                <CardDescription
-                  >{$t(
+                <CardTitle>
+                  {$t("dashboard.billing.yourSubscribers", "Your Subscribers")}
+                </CardTitle>
+                <CardDescription>
+                  {$t(
                     "dashboard.billing.yourSubscribersDescription",
                     "People who support you monthly.",
-                  )}</CardDescription
-                >
+                  )}
+                </CardDescription>
               </div>
               <div class="flex shrink-0 items-center gap-1">
                 <Button
@@ -2525,17 +2519,17 @@
                         <div
                           class="flex items-center justify-between text-xs text-muted-foreground"
                         >
-                          <span
-                            >{$t(
+                          <span>
+                            {$t(
                               "dashboard.billing.maxMonthly",
                               "Maximum monthly",
-                            )}</span
-                          >
-                          <span class="font-mono font-medium text-foreground"
-                            >{maxPrice === null
+                            )}
+                          </span>
+                          <span class="font-mono font-medium text-foreground">
+                            {maxPrice === null
                               ? "—"
-                              : `${maxPrice.toLocaleString($locale)} 2Z`}</span
-                          >
+                              : `${maxPrice.toLocaleString($locale)} 2Z`}
+                          </span>
                         </div>
                         <!-- Fails closed exactly like the fan card: an
                              unreadable ceiling claims no date at all, rather
@@ -2545,8 +2539,8 @@
                           <div
                             class="flex items-center justify-between text-xs text-muted-foreground"
                           >
-                            <span
-                              >{#if fanDateState === "active"}{$t(
+                            <span>
+                              {#if fanDateState === "active"}{$t(
                                   "dashboard.billing.renews",
                                   "Renews",
                                 )}{:else if fanDateState === "expired"}{$t(
@@ -2555,11 +2549,11 @@
                                 )}{:else}{$t(
                                   "dashboard.billing.ends",
                                   "Ends",
-                                )}{/if}</span
-                            >
-                            <span class="font-medium text-foreground"
-                              >{asDate(subscription.expires)}</span
-                            >
+                                )}{/if}
+                            </span>
+                            <span class="font-medium text-foreground">
+                              {asDate(subscription.expires)}
+                            </span>
                           </div>
                         {/if}
                       </div>
@@ -2590,16 +2584,16 @@
                     >
                       <ChevronLeft class="size-4" />
                     </Button>
-                    <span class="text-xs font-medium"
-                      >{$t(
+                    <span class="text-xs font-medium">
+                      {$t(
                         "dashboard.billing.pagination",
                         "Page {current} of {total}",
                         {
                           current: subscribersPage.toLocaleString($locale),
                           total: fanTotalPages.toLocaleString($locale),
                         },
-                      )}</span
-                    >
+                      )}
+                    </span>
                     <Button
                       href={pageHref(
                         subscriptionsPage,
@@ -2629,18 +2623,15 @@
         <TabsContent value="history">
           <Card>
             <CardHeader>
-              <CardTitle
-                >{$t(
-                  "dashboard.billing.history.title",
-                  "Card purchases",
-                )}</CardTitle
-              >
-              <CardDescription
-                >{$t(
+              <CardTitle>
+                {$t("dashboard.billing.history.title", "Card purchases")}
+              </CardTitle>
+              <CardDescription>
+                {$t(
                   "dashboard.billing.history.description",
                   "Your credit purchases through Stripe.",
-                )}</CardDescription
-              >
+                )}
+              </CardDescription>
             </CardHeader>
             <CardContent class="space-y-4">
               {#if transactions.length === 0}
@@ -2748,16 +2739,16 @@
                     >
                       <ChevronLeft class="size-4" />
                     </Button>
-                    <span class="text-xs font-medium"
-                      >{$t(
+                    <span class="text-xs font-medium">
+                      {$t(
                         "dashboard.billing.pagination",
                         "Page {current} of {total}",
                         {
                           current: transactionsPage.toLocaleString($locale),
                           total: txTotalPages.toLocaleString($locale),
                         },
-                      )}</span
-                    >
+                      )}
+                    </span>
                     <Button
                       href={pageHref(
                         subscriptionsPage,

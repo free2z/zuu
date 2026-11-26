@@ -26,6 +26,5 @@
   {...restProps}
 >
   <ChevronLeftIcon />
-  <span class="hidden sm:block">{$t("pagination.previous", "Previous")}</span
-  ></PaginationPrimitive.PrevButton
->
+  <span class="hidden sm:block">{$t("pagination.previous", "Previous")}</span>
+</PaginationPrimitive.PrevButton>

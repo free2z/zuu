@@ -73,9 +73,9 @@ test("sanitizeMarkdownHtml leaves no element in the shared window's named-proper
 
   // On jsdom 30.0.x this raw call is the negative control for our cleanup: it
   // leaves a detached parser node in the shared window's tracker. jsdom 30.1.x
-  // added an associated-document guard and no longer tracks detached parser
-  // docs, so the raw call is expected not to leak there. Both paths use the
-  // same DOMPurify instance as production.
+  // and 31.x added an associated-document guard and no longer track detached
+  // parser docs, so the raw call is expected not to leak there. Both paths use
+  // the same DOMPurify instance as production.
   assert.equal(window["f2z-leak-control"], undefined);
   DOMPurify.sanitize('<h2 id="f2z-leak-control">control</h2>');
   const rawSanitizerLeak = window["f2z-leak-control"];

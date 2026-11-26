@@ -340,12 +340,12 @@
   }
 </script>
 
-<svelte:head
-  ><title>Publicación con campaña local · Free2Z</title><meta
+<svelte:head>
+  <title>Publicación con campaña local · Free2Z</title><meta
     name="robots"
     content="noindex,nofollow"
-  /></svelte:head
->
+  />
+</svelte:head>
 
 <main class="min-w-0 flex-1 bg-background text-foreground" lang="es">
   <div
@@ -382,15 +382,17 @@
             variant={mode === "write" ? "secondary" : "ghost"}
             size="sm"
             onclick={() => (mode = "write")}
-            ><PenLine class="size-4" /> Escribir</Button
           >
+            <PenLine class="size-4" /> Escribir
+          </Button>
           <Button
             type="button"
             variant={mode === "preview" ? "secondary" : "ghost"}
             size="sm"
             onclick={() => (mode = "preview")}
-            ><Eye class="size-4" /> Vista previa</Button
           >
+            <Eye class="size-4" /> Vista previa
+          </Button>
           <Button
             type="button"
             disabled={busy}
@@ -398,8 +400,10 @@
               error = "";
               publishSheetOpen = true;
             }}
-            class="h-auto min-h-9 min-w-0 whitespace-normal">Publicar</Button
+            class="h-auto min-h-9 min-w-0 whitespace-normal"
           >
+            Publicar
+          </Button>
         </div>
       </header>
       {#if mode === "write"}
@@ -412,8 +416,9 @@
             language="es"
             direction="ltr"
           />
-          <label class="sr-only" for="post-description">Descripción breve</label
-          >
+          <label class="sr-only" for="post-description">
+            Descripción breve
+          </label>
           <input
             id="post-description"
             bind:value={draft.description}
@@ -421,9 +426,9 @@
             placeholder="Añade una descripción breve (opcional)"
             class="w-full border-0 bg-transparent text-lg text-muted-foreground outline-none"
           />
-          <label class="sr-only" for="post-content"
-            >Contenido de la publicación</label
-          >
+          <label class="sr-only" for="post-content">
+            Contenido de la publicación
+          </label>
           <textarea
             id="post-content"
             bind:this={bodyField}
@@ -475,13 +480,13 @@
         {#if draft}<CampaignPublishSettings bind:campaign={draft} />{/if}
         <div class="flex flex-wrap gap-2 border-t border-border/60 pt-4">
           {#if preserveStoredCreator}
-            <Button type="button" variant="outline" onclick={newPost}
-              >Empezar publicación nueva</Button
-            >
+            <Button type="button" variant="outline" onclick={newPost}>
+              Empezar publicación nueva
+            </Button>
           {/if}
-          <Button type="button" variant="outline" onclick={example}
-            >Cargar datos ficticios</Button
-          >
+          <Button type="button" variant="outline" onclick={example}>
+            Cargar datos ficticios
+          </Button>
           {#if post}
             <Button
               type="button"
@@ -489,8 +494,10 @@
               onclick={() => {
                 publishSheetOpen = false;
                 screen = "read";
-              }}>Volver a la publicación local</Button
+              }}
             >
+              Volver a la publicación local
+            </Button>
           {/if}
         </div>
       {/snippet}
@@ -499,23 +506,27 @@
     <div
       class="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 pt-4 sm:px-6 lg:px-8"
     >
-      <span class="text-xs text-muted-foreground">Publicación local</span
-      >{#if !readerOnly}<div class="flex flex-wrap gap-1">
-          <Button variant="ghost" size="sm" onclick={edit}
-            ><PenLine class="size-4" /> Editar</Button
-          ><Button variant="ghost" size="sm" onclick={newPost}
-            >Nueva publicación</Button
-          >{#if post.campaign.enabled}<Button
+      <span class="text-xs text-muted-foreground">
+        Publicación local
+      </span>{#if !readerOnly}<div class="flex flex-wrap gap-1">
+          <Button variant="ghost" size="sm" onclick={edit}>
+            <PenLine class="size-4" /> Editar
+          </Button><Button variant="ghost" size="sm" onclick={newPost}>
+            Nueva publicación
+          </Button>{#if post.campaign.enabled}<Button
               variant="ghost"
               size="sm"
-              onclick={() => (screen = "lab")}>Laboratorio del creador</Button
-            >{/if}<a
+              onclick={() => (screen = "lab")}
+            >
+              Laboratorio del creador
+            </Button>{/if}<a
             href="?lang=es&reader=1"
             target="_blank"
             rel="noopener"
             class="inline-flex min-h-9 items-center px-2 text-xs font-medium text-primary"
-            >Abrir lector independiente ↗</a
           >
+            Abrir lector independiente ↗
+          </a>
         </div>{/if}
     </div>
     <header class="mx-auto w-full max-w-5xl px-4 pt-10 pb-8 sm:px-6 lg:px-8">
@@ -577,19 +588,20 @@
             </div>
             <span
               class="rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground"
-              >{post.campaign.visibility === "threshold"
+            >
+              {post.campaign.visibility === "threshold"
                 ? "Total privado"
                 : post.campaign.visibility === "public"
                   ? "Auditoría pública local"
-                  : "Financiación oculta"}</span
-            >
+                  : "Financiación oculta"}
+            </span>
           </div>
           {#if post.campaign.visibility === "public"}
             <p class="mt-5 text-2xl font-semibold tracking-tight wrap-anywhere">
               {money(view.received!)}
-              <span class="text-sm font-normal text-muted-foreground"
-                >de {money(post.campaign.goal)} ZEC ficticios</span
-              >
+              <span class="text-sm font-normal text-muted-foreground">
+                de {money(post.campaign.goal)} ZEC ficticios
+              </span>
             </p>
             <div
               class="mt-3 h-1.5 overflow-hidden rounded-full bg-muted"
@@ -610,18 +622,19 @@
             </p>
           {:else if post.campaign.visibility === "threshold"}
             <p class="mt-5 flex items-start gap-2 text-sm">
-              <ShieldCheck class="mt-0.5 size-4 shrink-0 text-primary" /><span
-                >Meta final: {money(post.campaign.goal)} ZEC. {view.goalReached ===
+              <ShieldCheck class="mt-0.5 size-4 shrink-0 text-primary" /><span>
+                Meta final: {money(post.campaign.goal)} ZEC. {view.goalReached ===
                 true
                   ? "Alcanzada según una prueba verificada."
                   : view.goalReached === false
                     ? "Todavía no alcanzada según una prueba verificada."
                     : "Sin prueba verificada todavía."}<span
                   class="mt-1 block text-xs text-muted-foreground"
-                  >La prueba oculta el total ficticio. No demuestra fondos
-                  reales de Zcash.</span
-                ></span
-              >
+                >
+                  La prueba oculta el total ficticio. No demuestra fondos reales
+                  de Zcash.
+                </span>
+              </span>
             </p>
           {:else}<p class="mt-5 flex gap-2 text-sm text-muted-foreground">
               <LockKeyhole class="size-4 shrink-0" /> El creador no muestra la financiación.
@@ -644,9 +657,9 @@
                     <h3 class="text-sm font-semibold wrap-anywhere">
                       {phase.title}
                     </h3>
-                    <span class="text-xs text-muted-foreground"
-                      >{money(phase.target)} ZEC</span
-                    >
+                    <span class="text-xs text-muted-foreground">
+                      {money(phase.target)} ZEC
+                    </span>
                   </div>
                   <p class="mt-1 text-sm wrap-anywhere text-muted-foreground">
                     {phase.benefit}
@@ -655,34 +668,37 @@
                     <span
                       class:text-primary={phase.reached === true}
                       class:text-muted-foreground={phase.reached !== true}
-                      >{phase.reached === true
+                    >
+                      {phase.reached === true
                         ? "Financiación alcanzada"
                         : phase.reached === false
                           ? "Financiación pendiente"
-                          : "Financiación sin verificar"}</span
-                    ><span class="text-muted-foreground">
+                          : "Financiación sin verificar"}
+                    </span><span class="text-muted-foreground">
                       {" · "}{phase.delivered
                         ? "Entrega declarada por el creador"
-                        : "Entrega pendiente"}</span
-                    >
+                        : "Entrega pendiente"}
+                    </span>
                   </p>
                 </div>
               </li>
             {/each}
           </ol>
           {#if !readerOnly}<div class="mt-5 flex flex-wrap items-end gap-3">
-              <label class="field min-w-0 flex-1"
-                >Aporte ficticio (ZEC)<input
+              <label class="field min-w-0 flex-1">
+                Aporte ficticio (ZEC)<input
                   class={fieldClass}
                   bind:value={amount}
                   inputmode="decimal"
                   aria-label="Aporte ficticio en ZEC"
-                /></label
-              ><Button
+                />
+              </label><Button
                 class="h-auto min-h-10 min-w-0 whitespace-normal"
                 disabled={busy || view.funding !== "open"}
-                onclick={() => updateReceipts("add")}>Probar un aporte</Button
+                onclick={() => updateReceipts("add")}
               >
+                Probar un aporte
+              </Button>
             </div>
             <p class="mt-2 text-xs text-muted-foreground">
               Solo añade datos al prototipo. No se envía Zcash ni se usa la
@@ -711,9 +727,9 @@
           {#if post.campaign.visibility === "public"}<details
               class="mt-5 text-sm"
             >
-              <summary class="cursor-pointer font-medium"
-                >Auditar los datos ficticios</summary
-              >
+              <summary class="cursor-pointer font-medium">
+                Auditar los datos ficticios
+              </summary>
               <dl class="mt-3 grid grid-cols-2 gap-2 text-sm">
                 <dt class="text-muted-foreground">Recibido acumulado</dt>
                 <dd class="text-right wrap-anywhere">
@@ -732,9 +748,9 @@
           <details
             class="mt-5 border-t border-border pt-4 text-sm text-muted-foreground"
           >
-            <summary class="cursor-pointer font-medium text-foreground"
-              >Qué demuestra esta prueba local</summary
-            >
+            <summary class="cursor-pointer font-medium text-foreground">
+              Qué demuestra esta prueba local
+            </summary>
             <p class="mt-3 leading-relaxed">
               Las pruebas PLONK demuestran si un total ficticio, comprometido
               con un secreto aleatorio, alcanza cada meta. Todas las etapas usan
@@ -759,9 +775,9 @@
     <section class="mx-auto max-w-[900px] px-6 py-10 md:px-12">
       <div class="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 class="text-xl font-semibold">Laboratorio local del creador</h1>
-        <Button variant="outline" onclick={() => (screen = "read")}
-          >Volver al lector</Button
-        >
+        <Button variant="outline" onclick={() => (screen = "read")}>
+          Volver al lector
+        </Button>
       </div>
       <p class="mt-3 text-xs leading-relaxed text-muted-foreground">
         Los datos privados de este laboratorio viven en este navegador del
@@ -769,22 +785,24 @@
         Es una maqueta local, sin cuentas ni permisos reales.
       </p>
       <p class="mt-4 text-sm wrap-anywhere">
-        Total ficticio del creador: <strong
-          >{money(simulation.received)} ZEC</strong
-        >
+        Total ficticio del creador: <strong>
+          {money(simulation.received)} ZEC
+        </strong>
         · gastado: {money(simulation.spent)} ZEC
       </p>
       <div class="mt-4 flex flex-wrap items-end gap-2">
-        <label class="field min-w-0 flex-1"
-          >Aporte ficticio (ZEC)<input
+        <label class="field min-w-0 flex-1">
+          Aporte ficticio (ZEC)<input
             class={fieldClass}
             bind:value={amount}
             inputmode="decimal"
-          /></label
-        ><Button
+          />
+        </label><Button
           disabled={busy || view.funding !== "open"}
-          onclick={() => updateReceipts("add")}>Añadir aporte ficticio</Button
+          onclick={() => updateReceipts("add")}
         >
+          Añadir aporte ficticio
+        </Button>
       </div>
       <div class="mt-4 flex flex-wrap gap-2">
         <Button
@@ -794,35 +812,39 @@
             view.funding !== "open" ||
             zatoshis(simulation.received) >= zatoshis(post.campaign.goal)}
           onclick={() => updateReceipts("goal")}
-          >Alcanzar la meta ficticia</Button
-        ><Button
+        >
+          Alcanzar la meta ficticia
+        </Button><Button
           variant="outline"
           size="sm"
           disabled={busy}
           onclick={() =>
             changeFunding(view?.funding === "open" ? "paused" : "open")}
-          >{view.funding === "open"
-            ? "Pausar aportes"
-            : "Reabrir aportes"}</Button
-        ><Button
+        >
+          {view.funding === "open" ? "Pausar aportes" : "Reabrir aportes"}
+        </Button><Button
           variant="outline"
           size="sm"
           disabled={busy || view.funding === "closed"}
-          onclick={() => changeFunding("closed")}>Cerrar campaña</Button
+          onclick={() => changeFunding("closed")}
         >
+          Cerrar campaña
+        </Button>
       </div>
       <div class="mt-4 flex flex-wrap items-end gap-2">
-        <label class="field min-w-0 flex-1"
-          >Gasto ficticio (ZEC)<input
+        <label class="field min-w-0 flex-1">
+          Gasto ficticio (ZEC)<input
             class={fieldClass}
             bind:value={spendAmount}
             inputmode="decimal"
-          /></label
-        ><Button
+          />
+        </label><Button
           variant="outline"
           disabled={busy}
-          onclick={() => updateReceipts("spend")}>Registrar gasto</Button
+          onclick={() => updateReceipts("spend")}
         >
+          Registrar gasto
+        </Button>
       </div>
       <div class="mt-4 flex flex-wrap gap-2">
         {#each post.campaign.phases as phase, i (phase.id)}<Button
@@ -832,8 +854,10 @@
             disabled={busy ||
               simulation.delivered[i] ||
               zatoshis(simulation.received) < zatoshis(phase.target)}
-            onclick={() => markDelivered(i)}>Declarar entrega {i + 1}</Button
-          >{/each}
+            onclick={() => markDelivered(i)}
+          >
+            Declarar entrega {i + 1}
+          </Button>{/each}
       </div>
       {#if post.campaign.visibility === "threshold"}<div
           class="mt-6 border-t border-border pt-4"
@@ -844,8 +868,10 @@
               variant="outline"
               size="sm"
               disabled={busy}
-              onclick={retryProofs}>Regenerar pruebas</Button
+              onclick={retryProofs}
             >
+              Regenerar pruebas
+            </Button>
           </div>
           <p class="mt-2 text-xs leading-relaxed text-muted-foreground">
             Copia las pruebas, altera un campo y vuelve a verificar. Solo se
@@ -853,29 +879,34 @@
             actual. El paquete no puede reemplazar su contexto ni la clave del
             verificador.
           </p>
-          <label class="field mt-3"
-            >Paquete público de pruebas<textarea
+          <label class="field mt-3">
+            Paquete público de pruebas<textarea
               class={`${fieldClass} font-mono text-xs`}
               rows="7"
               bind:value={proofText}
               maxlength="60000"
               placeholder="Aquí aparecerán las pruebas, sin el monto privado ni su secreto."
-            ></textarea></label
-          >
+            ></textarea>
+          </label>
           <div class="mt-3 flex flex-wrap gap-2">
             <Button
               variant="outline"
               disabled={busy || !post.commitment}
               onclick={() => post && (proofText = exportProofs(post))}
-              >Copiar paquete al campo</Button
-            ><Button
+            >
+              Copiar paquete al campo
+            </Button><Button
               disabled={busy || !post.commitment}
-              onclick={() => verifyPublished(true)}>Verificar paquete</Button
-            ><Button
+              onclick={() => verifyPublished(true)}
+            >
+              Verificar paquete
+            </Button><Button
               variant="ghost"
               disabled={busy || !post.commitment}
-              onclick={() => verifyPublished()}>Verificar originales</Button
+              onclick={() => verifyPublished()}
             >
+              Verificar originales
+            </Button>
           </div>
         </div>{/if}
       <p class="mt-4 text-xs wrap-anywhere text-muted-foreground">

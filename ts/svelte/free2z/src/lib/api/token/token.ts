@@ -193,7 +193,11 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type TokenLogoutallCreateMutationError = unknown
 
 
-    export const createTokenLogoutallCreate = <TError = unknown,
+    /**
+ * Log the user out of all sessions
+ * I.E. deletes all auth tokens for the user
+ */
+export const createTokenLogoutallCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof tokenLogoutallCreate>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof tokenLogoutallCreate>>,

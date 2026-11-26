@@ -33,8 +33,10 @@
       <Label
         id="campaign-heading"
         for="campaign-enabled"
-        class="cursor-pointer text-sm font-semibold">Añadir una campaña</Label
+        class="cursor-pointer text-sm font-semibold"
       >
+        Añadir una campaña
+      </Label>
       <p class="text-xs text-muted-foreground">
         Tu publicación, con metas y etapas opcionales.
       </p>
@@ -72,20 +74,20 @@
             id="campaign-visibility"
             class="h-auto min-h-9 w-full min-w-0 text-left whitespace-normal"
           >
-            <span class="min-w-0 wrap-anywhere whitespace-normal"
-              >{visibilityLabels[campaign.visibility]}</span
-            >
+            <span class="min-w-0 wrap-anywhere whitespace-normal">
+              {visibilityLabels[campaign.visibility]}
+            </span>
           </Select.Trigger>
           <Select.Content class="max-w-[calc(100vw-2rem)]">
-            <Select.Item value="threshold" label={visibilityLabels.threshold}
-              >{visibilityLabels.threshold}</Select.Item
-            >
-            <Select.Item value="public" label={visibilityLabels.public}
-              >{visibilityLabels.public}</Select.Item
-            >
-            <Select.Item value="hidden" label={visibilityLabels.hidden}
-              >{visibilityLabels.hidden}</Select.Item
-            >
+            <Select.Item value="threshold" label={visibilityLabels.threshold}>
+              {visibilityLabels.threshold}
+            </Select.Item>
+            <Select.Item value="public" label={visibilityLabels.public}>
+              {visibilityLabels.public}
+            </Select.Item>
+            <Select.Item value="hidden" label={visibilityLabels.hidden}>
+              {visibilityLabels.hidden}
+            </Select.Item>
           </Select.Content>
         </Select.Root>
         <p class="text-xs leading-relaxed text-muted-foreground">
@@ -104,15 +106,18 @@
         variant="ghost"
         size="sm"
         disabled={campaign.phases.length >= 5}
-        onclick={addPhase}><Plus class="size-4" /> Añadir etapa</Button
+        onclick={addPhase}
       >
+        <Plus class="size-4" /> Añadir etapa
+      </Button>
     </div>
     {#each campaign.phases as phase, i (phase.id)}
       <fieldset
         class="min-w-0 space-y-3 rounded-md border border-border/60 p-3"
       >
-        <legend class="px-1 text-xs text-muted-foreground">Etapa {i + 1}</legend
-        >
+        <legend class="px-1 text-xs text-muted-foreground">
+          Etapa {i + 1}
+        </legend>
         <div class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-3">
           <div class="min-w-0 space-y-2">
             <Label for={`phase-${phase.id}-title`}>Nombre</Label>
@@ -132,8 +137,10 @@
               (campaign.phases = campaign.phases.filter(
                 (p) => p.id !== phase.id,
               ))}
-            class="self-end"><Trash2 class="size-4" /></Button
+            class="self-end"
           >
+            <Trash2 class="size-4" />
+          </Button>
           <div class="col-span-2 min-w-0 space-y-2">
             <Label for={`phase-${phase.id}-target`}>Meta (ZEC)</Label>
             <Input

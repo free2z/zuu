@@ -89,7 +89,18 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type ReportsCreateMutationError = unknown
     export type ReportsCreateMutationVariables = {data: ContentReport}
 
-    export const createReportsCreate = <TError = unknown,
+    /**
+ * Report visible content. Creator target_id is the public username;
+ * zPage target_id is free2zaddr; comment target_id is its UUID.
+ *
+ * Reports are private to moderation staff. A duplicate reporter/target/reason
+ * returns the original receipt without replacing its details. At most 20 new
+ * reports per account per rolling hour are accepted, serialized in Postgres.
+ * Receipts expose only report ID and creation time.
+ * CSAE reports sort first in the staff queue and alert staff immediately;
+ * other reasons alert staff by email. This is not an emergency service.
+ */
+export const createReportsCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof reportsCreate>>, TError,ReportsCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof reportsCreate>>,

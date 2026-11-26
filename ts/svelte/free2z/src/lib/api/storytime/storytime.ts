@@ -111,7 +111,6 @@ export type StorytimeRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof
 export type StorytimeRetrieveQueryError = unknown
 
 
-
 export function createStorytimeRetrieve<TData = Awaited<ReturnType<typeof storytimeRetrieve>>, TError = unknown>(
  creator: string,
     slug: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof storytimeRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -298,7 +297,7 @@ export type StorytimeMystoriesListQueryResult = NonNullable<Awaited<ReturnType<t
 export type StorytimeMystoriesListQueryError = unknown
 
 
-
+/** Use this for own stories */
 export function createStorytimeMystoriesList<TData = Awaited<ReturnType<typeof storytimeMystoriesList>>, TError = unknown>(
  params?: StorytimeMystoriesListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof storytimeMystoriesList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -365,7 +364,7 @@ export type StorytimeMystoriesRetrieveQueryResult = NonNullable<Awaited<ReturnTy
 export type StorytimeMystoriesRetrieveQueryError = unknown
 
 
-
+/** Use this for own stories */
 export function createStorytimeMystoriesRetrieve<TData = Awaited<ReturnType<typeof storytimeMystoriesRetrieve>>, TError = unknown>(
  slug: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof storytimeMystoriesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -440,7 +439,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type StorytimeMystoriesPartialUpdateMutationError = unknown
     export type StorytimeMystoriesPartialUpdateMutationVariables = {slug: string;data?: NonReadonly<PatchedStoryFull>}
 
-    export const createStorytimeMystoriesPartialUpdate = <TError = unknown,
+    /** Use this for own stories */
+export const createStorytimeMystoriesPartialUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof storytimeMystoriesPartialUpdate>>, TError,StorytimeMystoriesPartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof storytimeMystoriesPartialUpdate>>,

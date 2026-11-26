@@ -216,8 +216,10 @@
           onclick={() => {
             open = false;
             reset();
-          }}>{$t("common.cancel", "Cancel")}</Button
+          }}
         >
+          {$t("common.cancel", "Cancel")}
+        </Button>
         <Button
           type="submit"
           disabled={!reason || submitting}

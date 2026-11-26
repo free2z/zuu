@@ -203,8 +203,8 @@
       </p>
     {/if}
 
-    <Button variant="outline" class="w-full" onclick={onClose}
-      >{$t("common.done", "Done")}</Button
-    >
+    <Button variant="outline" class="w-full" onclick={onClose}>
+      {$t("common.done", "Done")}
+    </Button>
   </div>
 </div>

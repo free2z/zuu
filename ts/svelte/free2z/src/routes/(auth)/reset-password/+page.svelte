@@ -187,9 +187,9 @@
           onsubmit={handleSubmit}
         >
           <div class="space-y-2">
-            <Label for="new-password"
-              >{$t("auth.passwordReset.newPassword", "New password")}</Label
-            >
+            <Label for="new-password">
+              {$t("auth.passwordReset.newPassword", "New password")}
+            </Label>
             <Input
               id="new-password"
               type="password"
@@ -206,12 +206,12 @@
             />
           </div>
           <div class="space-y-2">
-            <Label for="confirm-password"
-              >{$t(
+            <Label for="confirm-password">
+              {$t(
                 "auth.passwordReset.confirmNewPassword",
                 "Confirm new password",
-              )}</Label
-            >
+              )}
+            </Label>
             <Input
               id="confirm-password"
               type="password"
@@ -221,12 +221,12 @@
             />
           </div>
           <div class="space-y-2">
-            <Label for="reset-otp-token"
-              >{$t(
+            <Label for="reset-otp-token">
+              {$t(
                 "auth.passwordReset.otpLabel",
                 "Authenticator code (if MFA is enabled)",
-              )}</Label
-            >
+              )}
+            </Label>
             <Input
               id="reset-otp-token"
               type="text"

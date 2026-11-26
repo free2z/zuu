@@ -633,6 +633,8 @@ OAUTH2_PROVIDER = {
         'mcp:live': 'Read and manage your livestream host session',
         'mcp:spend': 'Spend 2Z on comments, votes and translations within each explicit limit',
         'mcp:delete': 'Permanently delete your pages, translations, comments, conversations, collections and files',
+        'mcp:transfer': 'Donate 2Z and buy memberships within each explicit immediate charge limit',
+        'mcp:renew': 'Authorize future membership renewals up to an explicit cap, update caps and cancel renewals',
     },
     'DEFAULT_SCOPES': [],
     # Spec §6/§7/§8/§9.2, in seconds.

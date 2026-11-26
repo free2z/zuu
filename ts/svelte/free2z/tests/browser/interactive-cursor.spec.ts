@@ -247,7 +247,7 @@ test("the real notification headline and enabled shared controls use a pointer",
     "pointer",
   );
 
-  const readFilter = page.getByRole("button", {
+  const readFilter = page.getByRole("combobox", {
     name: "Filter notifications by read status",
   });
   await expect(readFilter).toHaveCSS("cursor", "pointer");
@@ -281,7 +281,10 @@ test("creator active-filter chips are pointer and keyboard buttons", async ({
   );
   await page.goto("/creators", { waitUntil: "domcontentloaded" });
 
-  const verification = page.getByRole("button", { name: /verified only/i });
+  const verification = page.getByRole("combobox", {
+    name: "Verification status",
+  });
+  await expect(verification).toHaveText("Verified only");
   const chips = page.getByTestId("creator-active-filter").filter({
     visible: true,
   });
@@ -293,7 +296,7 @@ test("creator active-filter chips are pointer and keyboard buttons", async ({
 
   await chip.focus();
   await page.keyboard.press("Enter");
-  const allCreators = page.getByRole("button", { name: /all creators/i });
+  const allCreators = verification;
   await expect(allCreators).toHaveText("All creators");
 
   await page.evaluate(() =>
