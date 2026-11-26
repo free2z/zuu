@@ -224,9 +224,9 @@
         </span>
       {/if}
 
-      <span class="mx-0.5 text-(--f2z-text-secondary)/40" aria-hidden="true"
-        >·</span
-      >
+      <span class="mx-0.5 text-(--f2z-text-secondary)/40" aria-hidden="true">
+        ·
+      </span>
 
       <Tooltip.Root>
         <Tooltip.Trigger>

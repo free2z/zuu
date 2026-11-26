@@ -452,9 +452,9 @@
 
     <div class="grid gap-8 md:grid-cols-2">
       <div class="space-y-2">
-        <Label
-          >{$t("settings.account.uniqueIdentifier", "Unique Identifier")}</Label
-        >
+        <Label>
+          {$t("settings.account.uniqueIdentifier", "Unique Identifier")}
+        </Label>
         <div
           class="flex items-center gap-1 rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm text-foreground"
         >
@@ -464,9 +464,9 @@
       </div>
 
       <div class="space-y-2">
-        <Label for="primaryEmail"
-          >{$t("settings.account.emailAddress", "Email Address")}</Label
-        >
+        <Label for="primaryEmail">
+          {$t("settings.account.emailAddress", "Email Address")}
+        </Label>
         <div class="flex flex-col gap-2 md:flex-row">
           <Input
             id="primaryEmail"
@@ -508,9 +508,9 @@
                 "Sign in again to update your recovery email. Your pending email stays here; save it after signing in.",
               )}
             </p>
-            <Button variant="outline" onclick={reauthenticateEmail}
-              >{$t("auth.signInAgain", "Sign in again")}</Button
-            >
+            <Button variant="outline" onclick={reauthenticateEmail}>
+              {$t("auth.signInAgain", "Sign in again")}
+            </Button>
           </div>
         {/if}
 
@@ -550,18 +550,20 @@
                   <Badge
                     variant="secondary"
                     class="bg-green-500/10 text-green-600 hover:bg-green-500/20"
-                    >{$t("settings.account.confirmed", "Confirmed")}</Badge
                   >
+                    {$t("settings.account.confirmed", "Confirmed")}
+                  </Badge>
                 {:else if emailStatus.pending}
                   <Badge
                     variant="secondary"
                     class="bg-yellow-500/10 text-yellow-600 hover:bg-yellow-500/20"
-                    >{$t("settings.account.pending", "Pending")}</Badge
                   >
+                    {$t("settings.account.pending", "Pending")}
+                  </Badge>
                 {:else}
-                  <Badge variant="secondary"
-                    >{$t("settings.account.unverified", "Unverified")}</Badge
-                  >
+                  <Badge variant="secondary">
+                    {$t("settings.account.unverified", "Unverified")}
+                  </Badge>
                 {/if}
               </div>
 
@@ -573,12 +575,12 @@
                       onCheckedChange={handleEmailPublicToggle}
                       id="public-email"
                     />
-                    <Label for="public-email" control class="font-normal"
-                      >{$t(
+                    <Label for="public-email" control class="font-normal">
+                      {$t(
                         "settings.account.publicVisibility",
                         "Public visibility",
-                      )}</Label
-                    >
+                      )}
+                    </Label>
                   </div>
                   <div class="flex items-center gap-2">
                     <Switch
@@ -586,12 +588,12 @@
                       onCheckedChange={handleEmailNotificationsToggle}
                       id="notify-email"
                     />
-                    <Label for="notify-email" control class="font-normal"
-                      >{$t(
+                    <Label for="notify-email" control class="font-normal">
+                      {$t(
                         "settings.account.receiveNotifications",
                         "Receive notifications",
-                      )}</Label
-                    >
+                      )}
+                    </Label>
                   </div>
                 </div>
                 <div>
@@ -601,11 +603,9 @@
                     class="pl-0 text-destructive hover:text-destructive"
                     onclick={handleEmailDelete}
                     disabled={emailActionLoading}
-                    >{$t(
-                      "settings.account.removeEmail",
-                      "Remove Email",
-                    )}</Button
                   >
+                    {$t("settings.account.removeEmail", "Remove Email")}
+                  </Button>
                 </div>
               {:else if emailStatus.email}
                 <div class="flex items-center gap-2">
@@ -614,18 +614,20 @@
                     size="sm"
                     onclick={handleEmailResend}
                     disabled={emailActionLoading}
-                    >{$t(
+                  >
+                    {$t(
                       "settings.account.resendConfirmation",
                       "Resend Confirmation",
-                    )}</Button
-                  >
+                    )}
+                  </Button>
                   <Button
                     variant="ghost"
                     size="sm"
                     onclick={handleEmailDelete}
                     disabled={emailActionLoading}
-                    >{$t("common.cancel", "Cancel")}</Button
                   >
+                    {$t("common.cancel", "Cancel")}
+                  </Button>
                 </div>
               {/if}
             </div>
@@ -709,7 +711,8 @@
       class="inline-block text-sm text-destructive underline"
       href="/account/delete"
       data-testid="delete-account-link"
-      >{$t("settings.account.deleteAccountLink", "Delete account…")}</a
     >
+      {$t("settings.account.deleteAccountLink", "Delete account…")}
+    </a>
   </div>
 </div>

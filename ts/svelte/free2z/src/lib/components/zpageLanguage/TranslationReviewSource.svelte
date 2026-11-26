@@ -81,9 +81,9 @@
         language: label(source?.language || sourceLanguage),
       })}
     </span>
-    <span aria-hidden="true" class="text-muted-foreground lg:hidden"
-      >{open ? "−" : "+"}</span
-    >
+    <span aria-hidden="true" class="text-muted-foreground lg:hidden">
+      {open ? "−" : "+"}
+    </span>
   </button>
   <div
     id="translation-review-source-body"

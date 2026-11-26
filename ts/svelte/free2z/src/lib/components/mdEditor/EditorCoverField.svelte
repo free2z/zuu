@@ -494,9 +494,9 @@
     class="flex h-[calc(100dvh-2rem)] max-h-[720px] flex-col overflow-hidden p-4 sm:max-w-[760px] sm:p-6"
   >
     <Dialog.Header class="shrink-0 pr-6">
-      <Dialog.Title
-        >{$t("editor.coverDialogTitle", "Choose a cover image")}</Dialog.Title
-      >
+      <Dialog.Title>
+        {$t("editor.coverDialogTitle", "Choose a cover image")}
+      </Dialog.Title>
       <Dialog.Description>
         {$t(
           "editor.coverDialogDescription",

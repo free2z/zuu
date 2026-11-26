@@ -111,9 +111,9 @@
               class="aspect-square size-full object-cover"
             />
           {:else}
-            <Avatar.Fallback class="bg-muted text-muted-foreground"
-              >{creator.username.substring(0, 2).toUpperCase()}</Avatar.Fallback
-            >
+            <Avatar.Fallback class="bg-muted text-muted-foreground">
+              {creator.username.substring(0, 2).toUpperCase()}
+            </Avatar.Fallback>
           {/if}
         </Avatar.Root>
 
@@ -167,9 +167,9 @@
               <span
                 class="h-0.5 w-0.5 shrink-0 rounded-full bg-muted-foreground/30"
               ></span>
-              <span class="whitespace-nowrap opacity-60"
-                >{fmtDate(creator.last_post_at || creator.date_joined)}</span
-              >
+              <span class="whitespace-nowrap opacity-60">
+                {fmtDate(creator.last_post_at || creator.date_joined)}
+              </span>
             {/if}
           </div>
         </div>

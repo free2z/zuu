@@ -60,30 +60,27 @@
 <Dialog.Root bind:open onOpenChange={changed}>
   <Dialog.Content class="z-[60] max-w-lg">
     <Dialog.Header>
-      <Dialog.Title
-        >{$t("editor.imageDetailsTitle", "Image details")}</Dialog.Title
-      >
-      <Dialog.Description
-        >{$t(
+      <Dialog.Title>
+        {$t("editor.imageDetailsTitle", "Image details")}
+      </Dialog.Title>
+      <Dialog.Description>
+        {$t(
           "editor.imageDetailsHint",
           "Alt text describes the image for screen readers. A caption appears below the image for everyone.",
-        )}</Dialog.Description
-      >
+        )}
+      </Dialog.Description>
     </Dialog.Header>
     <form onsubmit={save} class="space-y-4">
       <div class="space-y-2">
-        <Label for="image-description"
-          >{$t(
-            "editor.imageDescription",
-            "Alt text (image description)",
-          )}</Label
-        >
+        <Label for="image-description">
+          {$t("editor.imageDescription", "Alt text (image description)")}
+        </Label>
         <Input id="image-description" bind:value={alt} dir={direction} />
       </div>
       <div class="space-y-2">
-        <Label for="image-caption"
-          >{$t("editor.imageCaption", "Visible caption")}</Label
-        >
+        <Label for="image-caption">
+          {$t("editor.imageCaption", "Visible caption")}
+        </Label>
         <textarea
           id="image-caption"
           bind:value={caption}
@@ -98,9 +95,9 @@
           )}
         </p>{/if}
       <div class="flex justify-end gap-2">
-        <Button type="button" variant="ghost" onclick={cancel}
-          >{$t("common.cancel", "Cancel")}</Button
-        >
+        <Button type="button" variant="ghost" onclick={cancel}>
+          {$t("common.cancel", "Cancel")}
+        </Button>
         <Button type="submit">{$t("editor.imageDetailsSave", "Apply")}</Button>
       </div>
     </form>

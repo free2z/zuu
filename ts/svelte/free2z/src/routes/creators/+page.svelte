@@ -671,9 +671,9 @@
                     style="animation-delay: 0.2s"
                   ></div>
                 </div>
-                <span class="text-sm"
-                  >{$t("creators.loadingMore", "Loading more creators…")}</span
-                >
+                <span class="text-sm">
+                  {$t("creators.loadingMore", "Loading more creators…")}
+                </span>
               </div>
             {:else if !$creatorsQuery.hasNextPage}
               <div class="text-center text-sm text-muted-foreground">

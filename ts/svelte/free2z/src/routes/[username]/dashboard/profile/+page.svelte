@@ -385,9 +385,9 @@
                 <Edit3 class="size-5" />
                 {$t("profile.drafts", "Drafts")}
               </CardTitle>
-              <CardDescription
-                >{draftsInProgressLabel(draftCount)}</CardDescription
-              >
+              <CardDescription>
+                {draftsInProgressLabel(draftCount)}
+              </CardDescription>
             </div>
             {#if hiddenDrafts > 0}
               <Button
@@ -429,20 +429,14 @@
                         <Badge
                           variant="secondary"
                           class="text-[10px] tracking-wide uppercase"
-                          >{$t("dashboard.pages.draft", "Draft")}</Badge
                         >
-                        <span class="text-xs text-muted-foreground"
-                          >{$t(
-                            "dashboard.profile.modified",
-                            "Modified {time}",
-                            {
-                              time: formatRelativeTime(
-                                draft.updated_at,
-                                $locale,
-                              ),
-                            },
-                          )}</span
-                        >
+                          {$t("dashboard.pages.draft", "Draft")}
+                        </Badge>
+                        <span class="text-xs text-muted-foreground">
+                          {$t("dashboard.profile.modified", "Modified {time}", {
+                            time: formatRelativeTime(draft.updated_at, $locale),
+                          })}
+                        </span>
                       </div>
                       <!--
                         `truncate` here was `white-space: nowrap`, which is what
@@ -498,12 +492,12 @@
                       "None of your most recently created pages are drafts, so there are none to show here.",
                     )}
                   </p>
-                  <Button href={allPagesUrl} variant="link" size="sm"
-                    >{$t(
+                  <Button href={allPagesUrl} variant="link" size="sm">
+                    {$t(
                       "dashboard.profile.viewAllDrafts",
                       "View all your drafts",
-                    )}</Button
-                  >
+                    )}
+                  </Button>
                 {:else}
                   <p class="text-sm text-muted-foreground">
                     {$t(
@@ -511,12 +505,9 @@
                       "No active drafts.",
                     )}
                   </p>
-                  <Button href="/edit" variant="link" size="sm"
-                    >{$t(
-                      "dashboard.profile.createPage",
-                      "Create a new page",
-                    )}</Button
-                  >
+                  <Button href="/edit" variant="link" size="sm">
+                    {$t("dashboard.profile.createPage", "Create a new page")}
+                  </Button>
                 {/if}
               </div>
             {/if}
@@ -533,8 +524,9 @@
                 <CheckCircle2 class="size-5" />
                 {$t("dashboard.pages.published", "Published pages")}
               </CardTitle>
-              <CardDescription>{livePagesLabel(publishedCount)}</CardDescription
-              >
+              <CardDescription>
+                {livePagesLabel(publishedCount)}
+              </CardDescription>
             </div>
             {#if hiddenPublished > 0}
               <Button
@@ -563,14 +555,12 @@
                         <Badge
                           variant="default"
                           class="text-[10px] tracking-wide uppercase"
-                          >{$t(
-                            "dashboard.pages.publishedBadge",
-                            "Published",
-                          )}</Badge
                         >
-                        <span class="text-xs text-muted-foreground"
-                          >{formatRelativeTime(page.updated_at, $locale)}</span
-                        >
+                          {$t("dashboard.pages.publishedBadge", "Published")}
+                        </Badge>
+                        <span class="text-xs text-muted-foreground">
+                          {formatRelativeTime(page.updated_at, $locale)}
+                        </span>
                       </div>
                       <h3
                         class="line-clamp-2 pr-4 text-base font-semibold break-words text-foreground"
@@ -579,8 +569,9 @@
                         <a
                           href={pageUrl(page)}
                           class="transition-colors hover:text-primary hover:underline"
-                          >{page.title}</a
                         >
+                          {page.title}
+                        </a>
                       </h3>
                       <p class="line-clamp-1 text-sm text-muted-foreground">
                         {page.description ||
@@ -592,9 +583,9 @@
                       {#if page.tags?.length}
                         <div class="flex flex-wrap gap-1.5 pt-1">
                           {#each page.tags.slice(0, 3) as tag}
-                            <Badge variant="outline" class="text-[10px]"
-                              >#{tag}</Badge
-                            >
+                            <Badge variant="outline" class="text-[10px]">
+                              #{tag}
+                            </Badge>
                           {/each}
                         </div>
                       {/if}
@@ -632,12 +623,12 @@
                       "None of your most recently created pages are published, so there are none to show here.",
                     )}
                   </p>
-                  <Button href={allPagesUrl} variant="link" size="sm"
-                    >{$t(
+                  <Button href={allPagesUrl} variant="link" size="sm">
+                    {$t(
                       "dashboard.profile.viewAllPages",
                       "View all your pages",
-                    )}</Button
-                  >
+                    )}
+                  </Button>
                 {:else}
                   <p class="text-sm text-muted-foreground">
                     {$t(
@@ -645,12 +636,12 @@
                       "Nothing published yet.",
                     )}
                   </p>
-                  <Button href="/edit" variant="link" size="sm"
-                    >{$t(
+                  <Button href="/edit" variant="link" size="sm">
+                    {$t(
                       "dashboard.profile.createFirstPage",
                       "Create your first page",
-                    )}</Button
-                  >
+                    )}
+                  </Button>
                 {/if}
               </div>
             {/if}
@@ -663,12 +654,9 @@
         <!-- Quick Actions -->
         <Card>
           <CardHeader>
-            <CardTitle class="text-base"
-              >{$t(
-                "dashboard.profile.quickActions",
-                "Quick Actions",
-              )}</CardTitle
-            >
+            <CardTitle class="text-base">
+              {$t("dashboard.profile.quickActions", "Quick Actions")}
+            </CardTitle>
           </CardHeader>
           <CardContent class="space-y-2">
             <Button href="/edit" class="w-full justify-start" variant="default">
@@ -697,9 +685,9 @@
         <!-- Quick Upload -->
         <Card>
           <CardHeader>
-            <CardTitle class="text-base"
-              >{$t("dashboard.profile.quickUpload", "Quick Upload")}</CardTitle
-            >
+            <CardTitle class="text-base">
+              {$t("dashboard.profile.quickUpload", "Quick Upload")}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <MediaUploader />
@@ -709,9 +697,9 @@
         <!-- About Card -->
         <Card>
           <CardHeader>
-            <CardTitle class="text-base"
-              >{$t("dashboard.profile.creatorBio", "Creator Bio")}</CardTitle
-            >
+            <CardTitle class="text-base">
+              {$t("dashboard.profile.creatorBio", "Creator Bio")}
+            </CardTitle>
           </CardHeader>
           <CardContent class="space-y-4">
             {#if parsedBio.socials.length}
@@ -774,12 +762,9 @@
                     {/if}
                   </p>
                 {:else}
-                  <Badge variant="secondary"
-                    >{$t(
-                      "dashboard.profile.notConfigured",
-                      "Not Configured",
-                    )}</Badge
-                  >
+                  <Badge variant="secondary">
+                    {$t("dashboard.profile.notConfigured", "Not Configured")}
+                  </Badge>
                 {/if}
               </div>
               <div class="flex items-center justify-between">

@@ -139,10 +139,7 @@ export type AccountDeletionPreviewQueryResult = NonNullable<Awaited<ReturnType<t
 export type AccountDeletionPreviewQueryError = unknown
 
 
-/**
- * @summary What deleting this account would do
- */
-
+/** @summary What deleting this account would do */
 export function createAccountDeletionPreview<TData = Awaited<ReturnType<typeof accountDeletionPreview>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof accountDeletionPreview>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -226,6 +223,15 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AccountDeletionKeepMutationVariables = {data: AccountDeletionKeepRequest}
 
     /**
+ * ``POST /api/auth/account-deletion/keep/``: "Keep my account".
+ *
+ * A sign-in to an account in its deletion grace period is answered with a
+ * keep token instead of a credential. Spending it here cancels the deletion
+ * (``account_deletion.keep_account``: the account is active again, app
+ * grants stay revoked, the cancel is recorded and notified) and THEN signs
+ * the holder in -- a session for a browser, a Knox token for a native app --
+ * recording the proof the original sign-in made. Anonymous by definition;
+ * the keep token is the credential, short-lived and single-use.
  * @summary Keep an account whose deletion is pending, and sign in
  */
 export const createAccountDeletionKeep = <TError = AccountDeletionError | void,
@@ -294,6 +300,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AccountDeletionScheduleMutationVariables = {data: AccountDeletionRequest}
 
     /**
+ * Schedules deletion after a 30-day grace period; signing in before then offers to keep the account. Replaces `POST /api/auth/account-deletion/`, which deleted at once and now answers 405 (that path is the preview, GET only).
  * @summary Request deletion of the signed-in account
  */
 export const createAccountDeletionSchedule = <TError = AccountDeletionError,
@@ -364,7 +371,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthLoginCreateMutationError = void
     export type AuthLoginCreateMutationVariables = {data: CreatorLogin}
 
-    export const createAuthLoginCreate = <TError = void,
+    /**
+ * Check the credentials and, if they are valid, log the user in by establishing a Django session (the `sessionid` cookie).
+ *
+ * Accepts `username`, `password`, `captcha_result` and, for an account with MFA enabled, `otp_token`. Returns 204 with no body. No bearer token is issued here; a session-authenticated client that needs one exchanges the session at `/api/token/login/`.
+ *
+ * Rate limited per client address. 503 means the rate limiter's store is unavailable and sign-in is refused until it recovers; retry after the `Retry-After` interval.
+ */
+export const createAuthLoginCreate = <TError = void,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authLoginCreate>>, TError,AuthLoginCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authLoginCreate>>,
@@ -429,7 +443,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthLogoutCreateMutationError = unknown
 
 
-    export const createAuthLogoutCreate = <TError = unknown,
+    /**
+ * Calls Django logout method and delete the Token object
+ * assigned to the current User object.
+ *
+ * Accepts/Returns nothing.
+ */
+export const createAuthLogoutCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authLogoutCreate>>, TError,void, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authLogoutCreate>>,
@@ -496,7 +516,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthPasswordChangeCreateMutationError = unknown
     export type AuthPasswordChangeCreateMutationVariables = {data: CreatorPasswordChange}
 
-    export const createAuthPasswordChangeCreate = <TError = unknown,
+    /**
+ * Calls Django Auth SetPasswordForm save method.
+ *
+ * Accepts the following POST parameters: new_password1, new_password2
+ * Returns the success/fail message.
+ */
+export const createAuthPasswordChangeCreate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authPasswordChangeCreate>>, TError,AuthPasswordChangeCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authPasswordChangeCreate>>,
@@ -548,7 +574,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type AuthRecentRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof authRecentRetrieve>>>
 export type AuthRecentRetrieveQueryError = unknown
-
 
 
 export function createAuthRecentRetrieve<TData = Awaited<ReturnType<typeof authRecentRetrieve>>, TError = unknown>(
@@ -617,7 +642,7 @@ export type AuthSocialRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeo
 export type AuthSocialRetrieveQueryError = unknown
 
 
-
+/** GET /api/auth/social/ -> the caller's linked social identities. */
 export function createAuthSocialRetrieve<TData = Awaited<ReturnType<typeof authSocialRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authSocialRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -699,7 +724,17 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthSocialCreateMutationError = SocialOAuthLoginError | SocialOAuthForbidden | SocialOAuthConflict | SocialOAuthLoginUnavailable
     export type AuthSocialCreateMutationVariables = {provider: string;data: SocialOAuthLoginRequest}
 
-    export const createAuthSocialCreate = <TError = SocialOAuthLoginError | SocialOAuthForbidden | SocialOAuthConflict | SocialOAuthLoginUnavailable,
+    /**
+ * POST /api/auth/social/{provider}/  {code, state, redirect_uri, otp_token?}
+ * -> knox token.
+ *
+ * Dual-mode (identical to ZcashLoginView):
+ *   * request carries a valid knox token  -> ASSOCIATE (provider, uid) to that
+ *     Creator; 409 if that identity already belongs to a different Creator.
+ *   * otherwise                           -> get-or-create a Creator for the
+ *     identity and log in.
+ */
+export const createAuthSocialCreate = <TError = SocialOAuthLoginError | SocialOAuthForbidden | SocialOAuthConflict | SocialOAuthLoginUnavailable,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authSocialCreate>>, TError,AuthSocialCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authSocialCreate>>,
@@ -762,7 +797,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthSocialDestroyMutationError = SocialUnlinkNotFound | SocialUnlinkLastSignInMethod | SocialUnlinkRetry
     export type AuthSocialDestroyMutationVariables = {provider: string;uid: string}
 
-    export const createAuthSocialDestroy = <TError = SocialUnlinkNotFound | SocialUnlinkLastSignInMethod | SocialUnlinkRetry,
+    /** DELETE /api/auth/social/{provider}/{uid}/ -> unlink own identity. */
+export const createAuthSocialDestroy = <TError = SocialUnlinkNotFound | SocialUnlinkLastSignInMethod | SocialUnlinkRetry,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authSocialDestroy>>, TError,AuthSocialDestroyMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authSocialDestroy>>,
@@ -827,7 +863,13 @@ export type AuthSocialStartRetrieveQueryResult = NonNullable<Awaited<ReturnType<
 export type AuthSocialStartRetrieveQueryError = SocialOAuthError | SocialOAuthUnavailable
 
 
-
+/**
+ * GET /api/auth/social/{provider}/start?redirect_uri=… -> {authorize_url, state}
+ *
+ * Validates the app redirect against the server-side allowlist. Direct flows
+ * store a backend PKCE verifier; mobile stores only the app's S256 challenge
+ * and sends the provider to the fixed HTTPS relay. 503 if unconfigured.
+ */
 export function createAuthSocialStartRetrieve<TData = Awaited<ReturnType<typeof authSocialStartRetrieve>>, TError = SocialOAuthError | SocialOAuthUnavailable>(
  provider: string,
     params: AuthSocialStartRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authSocialStartRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -896,7 +938,7 @@ export type AuthSocialMobileCallbackRetrieveQueryResult = NonNullable<Awaited<Re
 export type AuthSocialMobileCallbackRetrieveQueryError = void | SocialOAuthRelayError
 
 
-
+/** Provider-only callback. Atomically consumes provider state and redirects only to ZUULI's fixed private-use URI. Callers cannot supply a destination. */
 export function createAuthSocialMobileCallbackRetrieve<TData = Awaited<ReturnType<typeof authSocialMobileCallbackRetrieve>>, TError = void | SocialOAuthRelayError>(
  params: AuthSocialMobileCallbackRetrieveParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authSocialMobileCallbackRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -967,7 +1009,13 @@ export type AuthSocialMobileProvidersRetrieveQueryResult = NonNullable<Awaited<R
 export type AuthSocialMobileProvidersRetrieveQueryError = unknown
 
 
-
+/**
+ * GET /api/auth/social/mobile/providers/ -> which providers are ready for
+ * ZUULI native login. A provider is true only when credentials, the safe
+ * owned HTTPS relay, PKCE support, and the mobile rollout gate are all ready.
+ * This endpoint is the native app's launch-UI contract; desktop/web callers
+ * must use the generic providers endpoint. NEVER leaks any secret value.
+ */
 export function createAuthSocialMobileProvidersRetrieve<TData = Awaited<ReturnType<typeof authSocialMobileProvidersRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authSocialMobileProvidersRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1037,7 +1085,12 @@ export type AuthSocialProvidersRetrieveQueryResult = NonNullable<Awaited<ReturnT
 export type AuthSocialProvidersRetrieveQueryError = unknown
 
 
-
+/**
+ * GET /api/auth/social/providers/ -> which providers have credentials, so
+ * direct desktop/web login can render its available buttons. This established
+ * contract is independent of the narrower mobile rollout gate. NEVER leaks
+ * any secret value.
+ */
 export function createAuthSocialProvidersRetrieve<TData = Awaited<ReturnType<typeof authSocialProvidersRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authSocialProvidersRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1104,7 +1157,7 @@ export type AuthUserRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof 
 export type AuthUserRetrieveQueryError = unknown
 
 
-
+/** This is only for the owner */
 export function createAuthUserRetrieve<TData = Awaited<ReturnType<typeof authUserRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof authUserRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -1178,7 +1231,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthUserUpdateMutationError = unknown
     export type AuthUserUpdateMutationVariables = {data: NonReadonly<CreatorProfileUpdate>}
 
-    export const createAuthUserUpdate = <TError = unknown,
+    /** This is only for the owner */
+export const createAuthUserUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authUserUpdate>>, TError,AuthUserUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authUserUpdate>>,
@@ -1242,7 +1296,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthUserPartialUpdateMutationError = unknown
     export type AuthUserPartialUpdateMutationVariables = {data?: NonReadonly<PatchedCreatorProfileUpdate>}
 
-    export const createAuthUserPartialUpdate = <TError = unknown,
+    /** This is only for the owner */
+export const createAuthUserPartialUpdate = <TError = unknown,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authUserPartialUpdate>>, TError,AuthUserPartialUpdateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authUserPartialUpdate>>,
@@ -1311,7 +1366,15 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthZcashChallengeCreateMutationError = ZcashAuthError
     export type AuthZcashChallengeCreateMutationVariables = {data: ZcashChallengeRequest}
 
-    export const createAuthZcashChallengeCreate = <TError = ZcashAuthError,
+    /**
+ * POST {address} -> {challenge}. Public.
+ *
+ * During rollout phase A, the v1 Redis mirror is authoritative and a newer
+ * issuance invalidates an older proof. Phase B keeps writing mirrors while
+ * consumers transition to PostgreSQL-only claims. Phase C stops mirror
+ * writes after every consumer has transitioned.
+ */
+export const createAuthZcashChallengeCreate = <TError = ZcashAuthError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authZcashChallengeCreate>>, TError,AuthZcashChallengeCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authZcashChallengeCreate>>,
@@ -1380,7 +1443,15 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AuthZcashLoginCreateMutationError = ZcashAuthError
     export type AuthZcashLoginCreateMutationVariables = {data: ZcashLoginRequest}
 
-    export const createAuthZcashLoginCreate = <TError = ZcashAuthError,
+    /**
+ * POST {address, challenge, signature, pubkey?, otp_token?} -> knox token.
+ *
+ * If the request carries a valid knox token (authenticated Creator),
+ * the verified address is linked to THAT account (associate flow)
+ * instead of creating a new one. An existing Creator's active TOTP is
+ * required for both login and association before a token is minted.
+ */
+export const createAuthZcashLoginCreate = <TError = ZcashAuthError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof authZcashLoginCreate>>, TError,AuthZcashLoginCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof authZcashLoginCreate>>,

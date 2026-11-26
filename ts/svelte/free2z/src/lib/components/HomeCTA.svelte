@@ -14,8 +14,9 @@
       {$t("homepage.cta.ownContent", "Own your content.")}<br />
       <span
         class="animate-gradient bg-300% bg-linear-to-r from-primary to-emerald-400 bg-clip-text text-transparent"
-        >{$t("homepage.cta.monetizeMind", "Monetize your mind.")}</span
       >
+        {$t("homepage.cta.monetizeMind", "Monetize your mind.")}
+      </span>
     </h2>
 
     <p
@@ -40,26 +41,30 @@
       class="mx-auto mt-8 mb-8 grid max-w-2xl grid-cols-3 gap-1 border-y border-dashed border-border/60 py-6 sm:mt-12 sm:mb-12 sm:gap-8 sm:py-8"
     >
       <div class="flex flex-col">
-        <span class="text-2xl font-black text-foreground sm:text-3xl">100%</span
-        >
+        <span class="text-2xl font-black text-foreground sm:text-3xl">
+          100%
+        </span>
         <span
           class="mt-1 text-[9px] leading-tight font-bold tracking-tight break-words text-muted-foreground uppercase sm:text-xs sm:tracking-wider"
-          >{$t("homepage.cta.ownership", "Ownership")}</span
         >
+          {$t("homepage.cta.ownership", "Ownership")}
+        </span>
       </div>
       <div class="flex flex-col">
         <span class="text-2xl font-black text-foreground sm:text-3xl">0</span>
         <span
           class="mt-1 text-[9px] leading-tight font-bold tracking-tight break-words text-muted-foreground uppercase sm:text-xs sm:tracking-wider"
-          >{$t("homepage.cta.intermediaries", "Intermediaries")}</span
         >
+          {$t("homepage.cta.intermediaries", "Intermediaries")}
+        </span>
       </div>
       <div class="flex flex-col">
         <span class="text-2xl font-black text-foreground sm:text-3xl">∞</span>
         <span
           class="mt-1 text-[9px] leading-tight font-bold tracking-tight break-words text-muted-foreground uppercase sm:text-xs sm:tracking-wider"
-          >{$t("homepage.cta.possibilities", "Possibilities")}</span
         >
+          {$t("homepage.cta.possibilities", "Possibilities")}
+        </span>
       </div>
     </div>
 
@@ -74,13 +79,14 @@
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
-          ><path
+        >
+          <path
             stroke-linecap="round"
             stroke-linejoin="round"
             stroke-width="2"
             d="M13 7l5 5m0 0l-5 5m5-5H6"
-          /></svg
-        >
+          />
+        </svg>
       </Button>
       <Button
         variant="outline"

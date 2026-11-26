@@ -85,7 +85,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type OpenaiImageCreateMutationError = ImageRequestError | InsufficientFundsError | ImageRequestPreconditionError | OpenaiImageCreate429
     export type OpenaiImageCreateMutationVariables = {data: ImageGenerationRequest}
 
-    export const createOpenaiImageCreate = <TError = ImageRequestError | InsufficientFundsError | ImageRequestPreconditionError | OpenaiImageCreate429,
+    /** Generate an image, save it to the authenticated user's uploads, and return the stored WebP URL. Costs 6 2Zs. */
+export const createOpenaiImageCreate = <TError = ImageRequestError | InsufficientFundsError | ImageRequestPreconditionError | OpenaiImageCreate429,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof openaiImageCreate>>, TError,OpenaiImageCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof openaiImageCreate>>,

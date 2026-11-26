@@ -91,7 +91,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type McpPostMutationError = void
     export type McpPostMutationVariables = {data?: McpPostBody}
 
-    export const createMcpPost = <TError = void,
+    /** Stateless JSON Streamable HTTP MCP. The official MCP SDK owns protocol negotiation, JSON-RPC messages and tool schemas; discover tools through MCP rather than treating this endpoint as a REST operation catalog. Cookies do not authenticate this endpoint. Model inputs are explicit tool arguments in the JSON body, including the selected authorized account. The trailing-slash alias has the same behavior. A failed or lost response does not prove rollback: reconcile mutation state before retrying. Send Content-Type application/json and Accept application/json, text/event-stream; the SDK refuses unacceptable representations with 406 and unsupported content types with 415. */
+export const createMcpPost = <TError = void,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpPost>>, TError,McpPostMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof mcpPost>>,
@@ -155,7 +156,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type McpPostAliasMutationError = void
     export type McpPostAliasMutationVariables = {data?: McpPostAliasBody}
 
-    export const createMcpPostAlias = <TError = void,
+    /** Stateless JSON Streamable HTTP MCP. The official MCP SDK owns protocol negotiation, JSON-RPC messages and tool schemas; discover tools through MCP rather than treating this endpoint as a REST operation catalog. Cookies do not authenticate this endpoint. Model inputs are explicit tool arguments in the JSON body, including the selected authorized account. The trailing-slash alias has the same behavior. A failed or lost response does not prove rollback: reconcile mutation state before retrying. Send Content-Type application/json and Accept application/json, text/event-stream; the SDK refuses unacceptable representations with 406 and unsupported content types with 415. */
+export const createMcpPostAlias = <TError = void,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpPostAlias>>, TError,McpPostAliasMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof mcpPostAlias>>,
@@ -213,7 +215,7 @@ export type McpExportBinaryQueryResult = NonNullable<Awaited<ReturnType<typeof m
 export type McpExportBinaryQueryError = void
 
 
-
+/** Stream the exact unexpired publication archive using its account-authorized capability. */
 export function createMcpExportBinary<TData = Awaited<ReturnType<typeof mcpExportBinary>>, TError = void>(
  exportId: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpExportBinary>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -281,7 +283,7 @@ export type McpDownloadBinaryQueryResult = NonNullable<Awaited<ReturnType<typeof
 export type McpDownloadBinaryQueryError = void
 
 
-
+/** Stream an owned original file using the capability returned by mcp_prepare_download. The URL alone is not authorized. */
 export function createMcpDownloadBinary<TData = Awaited<ReturnType<typeof mcpDownloadBinary>>, TError = void>(
  uploadId: number, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpDownloadBinary>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -348,7 +350,7 @@ export type McpUploadAuthorizeQueryResult = NonNullable<Awaited<ReturnType<typeo
 export type McpUploadAuthorizeQueryError = void
 
 
-
+/** Internal read-only edge auth_request admission before binary-body buffering. Consumes no bytes and creates no upload. The PUT endpoint independently rechecks authorization, size and digest even without this preflight. */
 export function createMcpUploadAuthorize<TData = Awaited<ReturnType<typeof mcpUploadAuthorize>>, TError = void>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof mcpUploadAuthorize>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -423,7 +425,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type McpUploadPutMutationError = void
     export type McpUploadPutMutationVariables = {uploadId: string;data?: Blob}
 
-    export const createMcpUploadPut = <TError = void,
+    /** Stream the exact prepared file bytes. Filename, media access, title, description and account were fixed by free2z_prepare_upload tool arguments. Headers authenticate the prepared intent and validate framing; they cannot replace its metadata. Authorization is checked before and after transfer. Replaying identical bytes returns the existing receipt; changed bytes fail. */
+export const createMcpUploadPut = <TError = void,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof mcpUploadPut>>, TError,McpUploadPutMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof mcpUploadPut>>,

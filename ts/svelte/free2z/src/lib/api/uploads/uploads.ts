@@ -79,7 +79,13 @@ export type UploadsLimitQueryResult = NonNullable<Awaited<ReturnType<typeof uplo
 export type UploadsLimitQueryError = unknown
 
 
-
+/**
+ * The maximum multipart request size the authenticated caller may upload, in bytes, plus every tier of the ladder. The request cap is 250 MiB for every balance of 1 whole 2Z or more; the historic 5000 2Z rung does not raise it. If a tier admitted larger bodies, nginx would stream them and occupy the pod's only sync Django worker for the client transfer.
+ *
+ * Exists because the enforcement point cannot answer the question: nginx refuses an oversize upload with a bodiless 403 (its `@deny_upload` location replaces the subrequest's response), so without this endpoint the number is knowable only by hardcoding a copy of the server's table in every client.
+ *
+ * **Session authentication only, in practice.** This view accepts whatever the project's default authentication classes accept, including a Knox token — but the upload endpoints the limit applies to (`/uploads/handle`, `/uploads/single-public`) are plain Django `@login_required` views, which read `request.user` from the session and know nothing about DRF token authentication. A token-only client can therefore read its limit here and still not be able to upload. Porting those two handlers to DRF is what would close that, and is not this endpoint's to do.
+ */
 export function createUploadsLimit<TData = Awaited<ReturnType<typeof uploadsLimit>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof uploadsLimit>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

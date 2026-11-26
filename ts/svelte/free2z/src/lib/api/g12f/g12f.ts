@@ -118,9 +118,9 @@ export type G12fBlocksMineListQueryError = void
 
 
 /**
+ * Every active account the authenticated caller has blocked, newest first, with the project's standard page-number pagination (`?page=`, `?page_size=`, at most 48 per page). Block and unblock with `PUT`/`DELETE /api/creator/{username}/block/`. A client uses this to offer unblocking and to hide the blocked accounts' content in lists the server rendered without the caller's session (cached or server-side-rendered feeds).
  * @summary Accounts I blocked
  */
-
 export function createG12fBlocksMineList<TData = Awaited<ReturnType<typeof g12fBlocksMineList>>, TError = void>(
  params?: G12fBlocksMineListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof g12fBlocksMineList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -190,9 +190,9 @@ export type G12fFollowsMineListQueryError = void
 
 
 /**
+ * Every creator the authenticated caller follows, newest first, with the project's standard page-number pagination (`?page=`, `?page_size=`). This is the FREE follow graph — it is not the paid subscription list and reflects nothing about 2Z, entitlement or `member_price`. Follows of accounts that have since been deactivated and accounts blocked by the caller are omitted.
  * @summary Creators I follow
  */
-
 export function createG12fFollowsMineList<TData = Awaited<ReturnType<typeof g12fFollowsMineList>>, TError = void>(
  params?: G12fFollowsMineListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof g12fFollowsMineList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -268,6 +268,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type G12fSeriesClearZpageQueryDestroyMutationVariables = {params: G12fSeriesClearZpageQueryDestroyParams}
 
     /**
+ * Deprecated alias kept for already-deployed clients. Use `DELETE /api/g12f/series/clear-zpage/{free2zaddr}/` instead: the resource being mutated belongs in the path, and this form was undocumented — the spec carried no `parameters:` block, so the only documented way to call it could never succeed.
  * @deprecated
  * @summary Deprecated: remove a zPage from every series (query form)
  */
@@ -335,6 +336,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type G12fSeriesClearZpageDestroyMutationVariables = {free2zaddr: string}
 
     /**
+ * Detaches the identified zPage from all of its series. The page must belong to the authenticated creator. Idempotent: clearing a page that is in no series succeeds.
  * @summary Remove a zPage from every series it belongs to
  */
 export const createG12fSeriesClearZpageDestroy = <TError = void,
@@ -390,7 +392,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type G12fSeriesMineListQueryResult = NonNullable<Awaited<ReturnType<typeof g12fSeriesMineList>>>
 export type G12fSeriesMineListQueryError = unknown
-
 
 
 export function createG12fSeriesMineList<TData = Awaited<ReturnType<typeof g12fSeriesMineList>>, TError = unknown>(
@@ -515,7 +516,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type G12fSeriesMineRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof g12fSeriesMineRetrieve>>>
 export type G12fSeriesMineRetrieveQueryError = unknown
-
 
 
 export function createG12fSeriesMineRetrieve<TData = Awaited<ReturnType<typeof g12fSeriesMineRetrieve>>, TError = unknown>(
@@ -767,7 +767,7 @@ export type G12fZpageSeriesRetrieveQueryResult = NonNullable<Awaited<ReturnType<
 export type G12fZpageSeriesRetrieveQueryError = unknown
 
 
-
+/** Retrieve series by zpage */
 export function createG12fZpageSeriesRetrieve<TData = Awaited<ReturnType<typeof g12fZpageSeriesRetrieve>>, TError = unknown>(
  free2zaddr: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof g12fZpageSeriesRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

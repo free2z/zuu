@@ -36,15 +36,12 @@
   <div
     class="flex shrink-0 items-center justify-between border-b bg-muted/50 px-3 py-2"
   >
-    <span class="text-xs font-medium text-muted-foreground"
-      >{$t("editor.mentionMenu.title", "Mention a creator")}</span
-    >
-    <span class="font-mono text-[10px] text-muted-foreground opacity-70"
-      >{$t(
-        "editor.menuInstructions",
-        "↑↓ Navigate · ↵ Select · Esc Close",
-      )}</span
-    >
+    <span class="text-xs font-medium text-muted-foreground">
+      {$t("editor.mentionMenu.title", "Mention a creator")}
+    </span>
+    <span class="font-mono text-[10px] text-muted-foreground opacity-70">
+      {$t("editor.menuInstructions", "↑↓ Navigate · ↵ Select · Esc Close")}
+    </span>
   </div>
   <div class="mention-menu-items max-h-[260px] min-h-0 overflow-y-auto p-1">
     {#each mentionResults as creator, index (creator.username)}

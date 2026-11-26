@@ -171,9 +171,9 @@
           "Your account is back. Apps you'd connected will ask you to connect again.",
         )}
       </p>
-      <a class="text-sm underline" href="/"
-        >{$t("account.delete.home", "Go to Free2Z")}</a
-      >
+      <a class="text-sm underline" href="/">
+        {$t("account.delete.home", "Go to Free2Z")}
+      </a>
     </section>
   {:else if state === "left"}
     <section class="space-y-3" role="status" data-testid="account-keep-left">
@@ -184,9 +184,9 @@
         )}
       </p>
       {#if !fromApp}
-        <a class="text-sm underline" href="/"
-          >{$t("account.delete.home", "Go to Free2Z")}</a
-        >
+        <a class="text-sm underline" href="/">
+          {$t("account.delete.home", "Go to Free2Z")}
+        </a>
       {/if}
     </section>
   {:else}
@@ -200,8 +200,9 @@
       <a
         class="text-sm underline"
         href={next ? `/login?next=${encodeURIComponent(next)}` : "/login"}
-        >{$t("account.delete.signIn", "Sign in")}</a
       >
+        {$t("account.delete.signIn", "Sign in")}
+      </a>
     </section>
   {/if}
 </div>

@@ -26,5 +26,5 @@
   {...restProps}
 >
   <span class="hidden sm:block">{$t("pagination.next", "Next")}</span>
-  <ChevronRightIcon /></PaginationPrimitive.NextButton
->
+  <ChevronRightIcon />
+</PaginationPrimitive.NextButton>

@@ -112,7 +112,6 @@ export type CommentsListQueryResult = NonNullable<Awaited<ReturnType<typeof comm
 export type CommentsListQueryError = unknown
 
 
-
 export function createCommentsList<TData = Awaited<ReturnType<typeof commentsList>>, TError = unknown>(
  params?: CommentsListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof commentsList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -247,7 +246,7 @@ export type CommentsList2QueryResult = NonNullable<Awaited<ReturnType<typeof com
 export type CommentsList2QueryError = unknown
 
 
-
+/** Comments under a content object identified by UUID and type */
 export function createCommentsList2<TData = Awaited<ReturnType<typeof commentsList2>>, TError = unknown>(
  type: string,
     uuid: string,
@@ -325,7 +324,8 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CommentsCreate2MutationError = InsufficientFundsError
     export type CommentsCreate2MutationVariables = {type: string;uuid: string;data: NonReadonly<CommentList>}
 
-    export const createCommentsCreate2 = <TError = InsufficientFundsError,
+    /** Comments under a content object identified by UUID and type */
+export const createCommentsCreate2 = <TError = InsufficientFundsError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof commentsCreate2>>, TError,CommentsCreate2MutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof commentsCreate2>>,
@@ -377,7 +377,6 @@ const {query: queryOptions, request: requestOptions} = options ?? {};
 
 export type CommentsRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof commentsRetrieve>>>
 export type CommentsRetrieveQueryError = unknown
-
 
 
 export function createCommentsRetrieve<TData = Awaited<ReturnType<typeof commentsRetrieve>>, TError = unknown>(
@@ -635,7 +634,11 @@ export type CommentsRepliesListQueryResult = NonNullable<Awaited<ReturnType<type
 export type CommentsRepliesListQueryError = unknown
 
 
-
+/**
+ * These are the child comments for a parent comment identified by UUID.
+ *
+ * NEW - not tied to zpage
+ */
 export function createCommentsRepliesList<TData = Awaited<ReturnType<typeof commentsRepliesList>>, TError = unknown>(
  uuid: string,
     params?: CommentsRepliesListParams, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof commentsRepliesList>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
@@ -713,7 +716,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type CommentsRepliesCreateMutationError = InsufficientFundsError
     export type CommentsRepliesCreateMutationVariables = {uuid: string;data: NonReadonly<CommentList>}
 
-    export const createCommentsRepliesCreate = <TError = InsufficientFundsError,
+    /**
+ * These are the child comments for a parent comment identified by UUID.
+ *
+ * NEW - not tied to zpage
+ */
+export const createCommentsRepliesCreate = <TError = InsufficientFundsError,
     TContext = unknown>(options?: { mutation?:CreateMutationOptions<Awaited<ReturnType<typeof commentsRepliesCreate>>, TError,CommentsRepliesCreateMutationVariables, TContext>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient): CreateMutationResult<
         Awaited<ReturnType<typeof commentsRepliesCreate>>,

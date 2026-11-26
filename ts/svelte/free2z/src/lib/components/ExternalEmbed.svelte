@@ -409,21 +409,21 @@
       />
     {:else if !("path" in firstParty)}
       <div class="first-party-embed first-party-embed-{firstParty.kind}">
-        <a class="first-party-embed-card" href={firstParty.href}
-          ><span class="first-party-embed-name" dir="ltr"
-            >{firstParty.href}</span
-          ></a
-        >
+        <a class="first-party-embed-card" href={firstParty.href}>
+          <span class="first-party-embed-name" dir="ltr">
+            {firstParty.href}
+          </span>
+        </a>
       </div>
     {:else}
       <div class="first-party-embed first-party-embed-{firstParty.kind}">
-        <a class="first-party-embed-card" href={firstPartySrc} rel="external"
-          ><span class="first-party-embed-kind" dir="ltr"
-            >{firstPartyFileBadge(firstParty.name)}</span
-          ><span class="first-party-embed-name" dir="auto"
-            >{firstParty.name}</span
-          ></a
-        >
+        <a class="first-party-embed-card" href={firstPartySrc} rel="external">
+          <span class="first-party-embed-kind" dir="ltr">
+            {firstPartyFileBadge(firstParty.name)}
+          </span><span class="first-party-embed-name" dir="auto">
+            {firstParty.name}
+          </span>
+        </a>
       </div>
     {/if}
   </div>
@@ -469,8 +469,9 @@
               {!$loading ? $t("privacy.from", "From") : "From"}
               <code
                 class="rounded-sm bg-background px-1.5 py-0.5 font-mono text-[0.8125rem] font-medium break-all text-foreground"
-                >{domain}</code
               >
+                {domain}
+              </code>
             </p>
           </div>
         </div>
@@ -514,11 +515,11 @@
             onclick={handleAlwaysAllow}
             title={`Always allow embeds from ${domain}`}
           >
-            <span class="truncate"
-              >{!$loading
+            <span class="truncate">
+              {!$loading
                 ? $t("privacy.alwaysAllowSite", "Always allow this site")
-                : "Always allow this site"}</span
-            >
+                : "Always allow this site"}
+            </span>
           </Button>
           <Button
             class="relative !h-8 px-3 text-xs after:absolute after:inset-x-0 after:-inset-y-1.5 after:content-['']"
@@ -571,9 +572,9 @@
           {:else if iframelyError}
             <div class="embed-status">
               This provider could not be embedded.
-              <a href={safeUrl} target="_blank" rel="noopener noreferrer"
-                >Open it directly</a
-              >
+              <a href={safeUrl} target="_blank" rel="noopener noreferrer">
+                Open it directly
+              </a>
             </div>
           {:else}
             <div

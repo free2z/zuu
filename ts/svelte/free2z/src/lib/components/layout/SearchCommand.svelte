@@ -380,11 +380,11 @@
           onSelect={submitSearch}
         >
           <Search class="text-(--f2z-accent-primary)" />
-          <span class="truncate"
-            >{$t("common.search.forQuery", "Search for “{query}”", {
+          <span class="truncate">
+            {$t("common.search.forQuery", "Search for “{query}”", {
               query: query.trim(),
-            })}</span
-          >
+            })}
+          </span>
           <Command.Shortcut class="flex items-center gap-1">
             <CornerDownLeft class="size-3" />
           </Command.Shortcut>
@@ -459,9 +459,9 @@
                   <Layers3 class="size-4" />
                 </span>
                 <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span class="truncate font-medium"
-                    >{item.name || "Untitled series"}</span
-                  >
+                  <span class="truncate font-medium">
+                    {item.name || "Untitled series"}
+                  </span>
                   <span class="truncate text-xs text-(--f2z-text-muted)">
                     {item.pageorder_set?.length || 0} pages
                   </span>
@@ -498,9 +498,9 @@
                   </span>
                 {/if}
                 <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span class="truncate font-medium"
-                    >{item.title || $t("editor.untitled", "Untitled")}</span
-                  >
+                  <span class="truncate font-medium">
+                    {item.title || $t("editor.untitled", "Untitled")}
+                  </span>
                   <span class="truncate text-xs text-(--f2z-text-muted)">
                     by {pageCreatorName(item)}
                   </span>
@@ -516,15 +516,16 @@
             role="status"
           >
             <AlertCircle class="mt-0.5 size-3.5 shrink-0 text-amber-500" />
-            <span class="min-w-0 flex-1"
-              >Some results are unavailable: {failedSources.join(", ")}.</span
-            >
+            <span class="min-w-0 flex-1">
+              Some results are unavailable: {failedSources.join(", ")}.
+            </span>
             <button
               type="button"
               onclick={retrySearch}
               class="shrink-0 font-medium text-(--f2z-accent-primary) hover:underline"
-              >Retry</button
             >
+              Retry
+            </button>
           </div>
         {/if}
       {:else if isLoading}
@@ -598,12 +599,9 @@
           onSelect={clearRecent}
         >
           <X />
-          <span
-            >{$t(
-              "common.search.clearRecentSearches",
-              "Clear recent searches",
-            )}</span
-          >
+          <span>
+            {$t("common.search.clearRecentSearches", "Clear recent searches")}
+          </span>
         </Command.Item>
       </Command.Group>
     {:else}

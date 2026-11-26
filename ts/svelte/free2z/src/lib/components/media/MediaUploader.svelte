@@ -829,9 +829,9 @@
       </div>
       <div class="space-y-1">
         <p class="text-lg font-medium">
-          <span class="hidden sm:inline"
-            >{$t("media.dropFilesOr", "Drop files or")}&nbsp;</span
-          >
+          <span class="hidden sm:inline">
+            {$t("media.dropFilesOr", "Drop files or")}&nbsp;
+          </span>
           <Label
             control
             class="text-base font-normal text-primary underline-offset-4 hover:underline"
@@ -842,9 +842,9 @@
         </p>
         <p class="text-sm text-muted-foreground" data-upload-hint>
           {$t("media.supportedTypesHint", "Images, video, audio & PDF")}
-          <span class="hidden sm:inline"
-            >· {$t("media.pasteHint", "Paste with ⌘/Ctrl + V")}</span
-          >
+          <span class="hidden sm:inline">
+            · {$t("media.pasteHint", "Paste with ⌘/Ctrl + V")}
+          </span>
         </p>
         <!-- The size ceiling, said BEFORE a file is picked — it used to be
              discoverable only by waiting out a doomed upload and reading
@@ -873,15 +873,16 @@
           class="h-9 rounded-lg border border-border bg-background px-3 text-sm transition-colors outline-none focus:border-primary focus:ring-2 focus:ring-primary/20"
         >
           <option value="public">{$t("media.accessPublic", "Public")}</option>
-          <option value="members"
-            >{$t("media.accessMembers", "Subscribers")}</option
-          >
-          <option value="private">{$t("media.accessPrivate", "Private")}</option
-          >
+          <option value="members">
+            {$t("media.accessMembers", "Subscribers")}
+          </option>
+          <option value="private">
+            {$t("media.accessPrivate", "Private")}
+          </option>
         </select>
-        <span class="text-xs text-muted-foreground"
-          >{uploadAccessNote(uploadAccess)}</span
-        >
+        <span class="text-xs text-muted-foreground">
+          {uploadAccessNote(uploadAccess)}
+        </span>
       </div>
       <input
         id="file-input"

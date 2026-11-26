@@ -68,7 +68,6 @@ export type GetTypeRetrieveQueryResult = NonNullable<Awaited<ReturnType<typeof g
 export type GetTypeRetrieveQueryError = unknown
 
 
-
 export function createGetTypeRetrieve<TData = Awaited<ReturnType<typeof getTypeRetrieve>>, TError = unknown>(
  id: string, options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof getTypeRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient

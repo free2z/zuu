@@ -113,35 +113,36 @@
 
 <div class="flex min-w-0 flex-wrap items-center gap-2 text-sm text-white">
   {#if delayed}
-    <span role="alert"
-      >{$t(
+    <span role="alert">
+      {$t(
         "dashboard.stream.recordingControls.delayed",
         "Recording has not started. Stop this attempt before trying again.",
-      )}</span
-    >
+      )}
+    </span>
   {/if}
   {#if view.error}
-    <span role="alert"
-      >{$t(
+    <span role="alert">
+      {$t(
         "dashboard.stream.recordingControls.error",
         "Recording status could not be confirmed. Check again before starting another recording.",
-      )}</span
-    >
+      )}
+    </span>
     <Button
       size="sm"
       variant="secondary"
       disabled={view.busy}
       onclick={() => controls?.run("status")}
-      >{$t("dashboard.stream.recordingControls.retry", "Check status")}</Button
     >
+      {$t("dashboard.stream.recordingControls.retry", "Check status")}
+    </Button>
   {:else}
     {#if view.state && messages[view.state]}
-      <span aria-live="polite"
-        >{$t(
+      <span aria-live="polite">
+        {$t(
           `dashboard.stream.recordingControls.${messages[view.state][0]}`,
           messages[view.state][1],
-        )}</span
-      >
+        )}
+      </span>
     {/if}
     {#if canStop}
       <Button
@@ -149,29 +150,25 @@
         variant="destructive"
         disabled={view.busy}
         onclick={() => controls?.run("stop")}
-        >{$t(
-          "dashboard.stream.recordingControls.stop",
-          "Stop recording",
-        )}</Button
       >
+        {$t("dashboard.stream.recordingControls.stop", "Stop recording")}
+      </Button>
     {:else if canStart}
       <Button
         size="sm"
         variant="secondary"
         disabled={view.busy}
         onclick={() => controls?.run("start")}
-        >{$t(
-          "dashboard.stream.recordingControls.start",
-          "Record livestream",
-        )}</Button
       >
+        {$t("dashboard.stream.recordingControls.start", "Record livestream")}
+      </Button>
     {:else if !view.state}
-      <span
-        >{$t(
+      <span>
+        {$t(
           "dashboard.stream.recordingControls.checking",
           "Checking recording status…",
-        )}</span
-      >
+        )}
+      </span>
     {/if}
   {/if}
 </div>

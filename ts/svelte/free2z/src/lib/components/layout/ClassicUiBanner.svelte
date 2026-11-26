@@ -116,11 +116,12 @@
     >
       <span
         class="w-full min-w-0 text-sm break-words text-(--f2z-text-secondary) sm:w-auto"
-        >{$t(
+      >
+        {$t(
           "navigation.newSiteNotice",
           "You're trying the new version of Free2Z",
-        )}</span
-      >
+        )}
+      </span>
       <a
         href={classicUiHref}
         data-sveltekit-reload

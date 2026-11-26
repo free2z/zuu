@@ -474,9 +474,9 @@
     {:else if state.applicationStatus === "REJECTED"}
       {#if state.rejectionReason}
         <p class="mt-2 text-sm">
-          <span class="font-medium"
-            >{$t("dashboard.kyc.status.reason", "Reason:")}</span
-          >
+          <span class="font-medium">
+            {$t("dashboard.kyc.status.reason", "Reason:")}
+          </span>
           {state.rejectionReason}
         </p>
       {/if}
@@ -529,9 +529,9 @@
             </span>
             <span>{$t(STEP_TITLES[step][0], STEP_TITLES[step][1])}</span>
             {#if completion[step] && step !== "intro" && step !== "review"}
-              <span class="sr-only"
-                >{$t("dashboard.kyc.stepDone", "Completed")}</span
-              >
+              <span class="sr-only">
+                {$t("dashboard.kyc.stepDone", "Completed")}
+              </span>
             {/if}
           </button>
         </h2>
@@ -989,9 +989,9 @@
             {:else if step === "review"}
               <ul class="mb-4 space-y-2 text-sm">
                 <li class="flex items-start gap-2">
-                  <span aria-hidden="true"
-                    >{completion.basicInfo ? "✓" : "•"}</span
-                  >
+                  <span aria-hidden="true">
+                    {completion.basicInfo ? "✓" : "•"}
+                  </span>
                   <span>
                     {#if taxForm}
                       {$t(
@@ -1016,9 +1016,9 @@
                   </span>
                 </li>
                 <li class="flex items-start gap-2">
-                  <span aria-hidden="true"
-                    >{completion.taxForm ? "✓" : "•"}</span
-                  >
+                  <span aria-hidden="true">
+                    {completion.taxForm ? "✓" : "•"}
+                  </span>
                   <span>
                     {completion.taxForm
                       ? $t(
@@ -1032,9 +1032,9 @@
                   </span>
                 </li>
                 <li class="flex items-start gap-2">
-                  <span aria-hidden="true"
-                    >{completion.identity ? "✓" : "•"}</span
-                  >
+                  <span aria-hidden="true">
+                    {completion.identity ? "✓" : "•"}
+                  </span>
                   <span>
                     {completion.identity
                       ? $t("dashboard.kyc.review.identityDone", "ID uploaded.")
@@ -1045,9 +1045,9 @@
                   </span>
                 </li>
                 <li class="flex items-start gap-2">
-                  <span aria-hidden="true"
-                    >{completion.livePhoto ? "✓" : "•"}</span
-                  >
+                  <span aria-hidden="true">
+                    {completion.livePhoto ? "✓" : "•"}
+                  </span>
                   <span>
                     {completion.livePhoto
                       ? $t(
@@ -1061,9 +1061,9 @@
                   </span>
                 </li>
                 <li class="flex items-start gap-2">
-                  <span aria-hidden="true"
-                    >{completion.signature ? "✓" : "•"}</span
-                  >
+                  <span aria-hidden="true">
+                    {completion.signature ? "✓" : "•"}
+                  </span>
                   <span>
                     {completion.signature
                       ? $t(

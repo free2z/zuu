@@ -253,9 +253,9 @@
         </Button>
 
         <div class="flex flex-col">
-          <span class="text-xs text-muted-foreground"
-            >{$t("audio.playback", "Playback")}</span
-          >
+          <span class="text-xs text-muted-foreground">
+            {$t("audio.playback", "Playback")}
+          </span>
           <div class="font-mono text-sm font-medium">
             {formatTime(currentTime)} / {formatTime(duration)}
           </div>

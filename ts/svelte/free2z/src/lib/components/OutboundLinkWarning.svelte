@@ -95,8 +95,10 @@
         </p>
         <code
           class="block max-w-full overflow-x-auto rounded-md border bg-muted/40 p-3 font-mono text-sm break-all text-foreground"
-          data-testid="outbound-link-destination">{destination.href}</code
+          data-testid="outbound-link-destination"
         >
+          {destination.href}
+        </code>
         <p class="text-sm text-muted-foreground">
           {$t("privacy.outboundLinkDomainLabel", "Host")}:
           <span class="font-mono text-foreground">{destination.hostname}</span>
@@ -148,11 +150,13 @@
               cancelled: true,
               trustDomain: false,
               disableWarnings: false,
-            })}>{$t("common.cancel", "Cancel")}</Button
+            })}
         >
-        <Button data-testid="outbound-link-continue" onclick={continueOnce}
-          >{$t("privacy.outboundLinkContinueOnce", "Continue once")}</Button
-        >
+          {$t("common.cancel", "Cancel")}
+        </Button>
+        <Button data-testid="outbound-link-continue" onclick={continueOnce}>
+          {$t("privacy.outboundLinkContinueOnce", "Continue once")}
+        </Button>
       </Dialog.Footer>
     {/if}
   </Dialog.Content>

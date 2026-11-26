@@ -414,11 +414,12 @@
       <a
         class="text-sm underline"
         href={`/${encodeURIComponent($currentUser.username)}/dashboard/billing`}
-        >{$t(
+      >
+        {$t(
           "oauth.connectedApps.manageBalance",
           "Manage balance and purchases",
-        )}</a
-      >
+        )}
+      </a>
       <p class="text-sm text-muted-foreground">
         {$t(
           "oauth.connectedApps.budgetHelp",
@@ -450,8 +451,9 @@
           "Your connected apps could not be loaded.",
         )}
       </p>
-      <Button onclick={load}>{$t("oauth.consent.tryAgain", "Try again")}</Button
-      >
+      <Button onclick={load}>
+        {$t("oauth.consent.tryAgain", "Try again")}
+      </Button>
     </div>
   {:else if visibleGrants.length === 0}
     <p class="text-muted-foreground" data-testid="connected-apps-empty">
@@ -571,11 +573,9 @@
         class="text-muted-foreground underline"
         href={DELETE_ACCOUNT_PATH}
         data-testid="connected-apps-delete-account"
-        >{$t(
-          "oauth.connectedApps.deleteAccount",
-          "Delete your Free2Z account",
-        )}</a
       >
+        {$t("oauth.connectedApps.deleteAccount", "Delete your Free2Z account")}
+      </a>
     </p>
   {/if}
   {#key agentConnectionsVersion}
@@ -771,12 +771,9 @@
             data-testid="connected-app-limit-kind-none"
           />
           <span class="flex-1 space-y-2 text-sm">
-            <span class="font-medium"
-              >{$t(
-                "oauth.cap.noLimit",
-                "Available balance (no extra budget)",
-              )}</span
-            >
+            <span class="font-medium">
+              {$t("oauth.cap.noLimit", "Available balance (no extra budget)")}
+            </span>
             {#if limitEdit.kind === "none" && limitCurrent?.spend_cap_2z !== null}
               <span class="flex items-start gap-2 text-destructive">
                 <input

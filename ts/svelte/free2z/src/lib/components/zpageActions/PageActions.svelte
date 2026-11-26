@@ -273,8 +273,10 @@
       type="button"
       class="float-right ml-2 rounded p-1 hover:bg-muted focus-visible:ring-2"
       aria-label={$t("navigation.dismiss", "Dismiss")}
-      onclick={() => (boostOutcome = null)}><X class="size-4" /></button
+      onclick={() => (boostOutcome = null)}
     >
+      <X class="size-4" />
+    </button>
     {#if visibleBoostOutcome.message}<p
         role="alert"
         data-testid="payment-outcome-error"

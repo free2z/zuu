@@ -571,9 +571,9 @@
               />
               <span>
                 <code class="text-xs">{scope}</code>
-                <span class="block text-muted-foreground"
-                  >{scopeLabel($t, scope)}</span
-                >
+                <span class="block text-muted-foreground">
+                  {scopeLabel($t, scope)}
+                </span>
               </span>
             </label>
           {/each}
@@ -847,8 +847,9 @@
       <p class="text-muted-foreground">
         {$t("oauth.developerApps.loadFailed", "Your apps could not be loaded.")}
       </p>
-      <Button onclick={load}>{$t("oauth.consent.tryAgain", "Try again")}</Button
-      >
+      <Button onclick={load}>
+        {$t("oauth.consent.tryAgain", "Try again")}
+      </Button>
     </div>
   {:else if apps.length === 0}
     <p class="text-muted-foreground" data-testid="dev-apps-empty">
@@ -876,12 +877,9 @@
                       "Native, mobile or browser app (public)",
                     )}
                 {#if app.frozen}
-                  · <span class="text-destructive"
-                    >{$t(
-                      "oauth.developerApps.frozen",
-                      "Frozen by Free2Z",
-                    )}</span
-                  >
+                  · <span class="text-destructive">
+                    {$t("oauth.developerApps.frozen", "Frozen by Free2Z")}
+                  </span>
                 {/if}
               </p>
             </div>
@@ -978,12 +976,9 @@
 >
   <Dialog.Content data-testid="dev-app-secret-dialog">
     <Dialog.Header>
-      <Dialog.Title
-        >{$t(
-          "oauth.developerApps.secretTitle",
-          "Your client secret",
-        )}</Dialog.Title
-      >
+      <Dialog.Title>
+        {$t("oauth.developerApps.secretTitle", "Your client secret")}
+      </Dialog.Title>
       <Dialog.Description>
         {$t(
           "oauth.developerApps.secretBody",
@@ -995,8 +990,10 @@
     {#if secret}
       <code
         class="block rounded-md border bg-muted/40 p-3 font-mono text-sm break-all select-all"
-        data-testid="dev-app-secret">{secret.value}</code
+        data-testid="dev-app-secret"
       >
+        {secret.value}
+      </code>
     {/if}
     <Dialog.Footer class="gap-2">
       <Button

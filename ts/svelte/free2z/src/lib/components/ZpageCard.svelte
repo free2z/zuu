@@ -163,9 +163,9 @@
             />
           {/if}
         </div>
-        <span class="truncate"
-          >{story?.creator?.full_name || `@${story?.creator?.username}`}</span
-        >
+        <span class="truncate">
+          {story?.creator?.full_name || `@${story?.creator?.username}`}
+        </span>
       </a>
     </div>
   </article>
@@ -229,12 +229,12 @@
         <span
           class="featured-story-label absolute top-2 left-2 z-10 rounded-sm bg-(--f2z-accent-primary)/90 px-1.5 py-0.5 text-[9px] font-bold tracking-[0.08em] whitespace-nowrap text-(--f2z-bg-primary) uppercase shadow-xs"
         >
-          <span class="featured-story-label-full"
-            >{$t("homepage.heroSection", "Featured Story")}</span
-          >
-          <span class="featured-story-label-short"
-            >{$t("homepage.featuredLabel", "Featured")}</span
-          >
+          <span class="featured-story-label-full">
+            {$t("homepage.heroSection", "Featured Story")}
+          </span>
+          <span class="featured-story-label-short">
+            {$t("homepage.featuredLabel", "Featured")}
+          </span>
         </span>
       {/if}
     </a>
@@ -259,14 +259,17 @@
               class="{compactOnMobile && !mobileHorizontal
                 ? 'sm:hidden '
                 : ''}text-muted-foreground/50"
-              aria-hidden="true">·</span
+              aria-hidden="true"
             >
+              ·
+            </span>
             <span
               class="{compactOnMobile && !mobileHorizontal
                 ? 'sm:hidden '
                 : ''}truncate font-semibold text-primary"
-              >{translateCategory(story.category, $t)}</span
             >
+              {translateCategory(story.category, $t)}
+            </span>
           {/if}
         </span>
       </div>
@@ -339,9 +342,9 @@
                 class="h-full w-full"
               />{/if}
           </span>
-          <span class="truncate"
-            >{story.creator.full_name || `@${story.creator.username}`}</span
-          >
+          <span class="truncate">
+            {story.creator.full_name || `@${story.creator.username}`}
+          </span>
         </a>
       {/if}
     </CardContent>

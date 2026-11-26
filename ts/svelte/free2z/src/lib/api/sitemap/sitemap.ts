@@ -76,7 +76,7 @@ export type SitemapIndexRetrieveQueryResult = NonNullable<Awaited<ReturnType<typ
 export type SitemapIndexRetrieveQueryError = unknown
 
 
-
+/** Return deterministic nonempty pages used to build sitemap.xml. */
 export function createSitemapIndexRetrieve<TData = Awaited<ReturnType<typeof sitemapIndexRetrieve>>, TError = unknown>(
   options?: { query?:Partial<CreateQueryOptions<Awaited<ReturnType<typeof sitemapIndexRetrieve>>, TError, TData>>, request?: SecondParameter<typeof customInstance>}
  , queryClient?: QueryClient
@@ -149,7 +149,7 @@ export type SitemapChunkRetrieveQueryResult = NonNullable<Awaited<ReturnType<typ
 export type SitemapChunkRetrieveQueryError = unknown
 
 
-
+/** Return one bounded, primary-key-ranged creator or internally canonicalized zPage sitemap page. */
 export function createSitemapChunkRetrieve<TData = Awaited<ReturnType<typeof sitemapChunkRetrieve>>, TError = unknown>(
  kind: string,
     page: string,

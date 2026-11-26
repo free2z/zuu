@@ -45,12 +45,9 @@
     <span class="text-xs font-medium text-muted-foreground">
       {menuTitle ?? $t("editor.slashMenu.title", "Commands")}
     </span>
-    <span class="font-mono text-[10px] text-muted-foreground opacity-70"
-      >{$t(
-        "editor.menuInstructions",
-        "↑↓ Navigate · ↵ Select · Esc Close",
-      )}</span
-    >
+    <span class="font-mono text-[10px] text-muted-foreground opacity-70">
+      {$t("editor.menuInstructions", "↑↓ Navigate · ↵ Select · Esc Close")}
+    </span>
   </div>
   <div class="slash-menu-items max-h-[360px] min-h-0 overflow-y-auto p-1">
     {#each filteredCommands as command, index}
@@ -97,8 +94,10 @@
                   <span
                     class="px-0.5 text-[10px] {isSelected
                       ? 'text-primary-foreground/50'
-                      : 'text-muted-foreground'}">+</span
+                      : 'text-muted-foreground'}"
                   >
+                    +
+                  </span>
                 {/if}
                 <Kbd.Root
                   class="h-5 min-w-0 border-0 px-1.5 font-mono text-[10px] shadow-none {isSelected

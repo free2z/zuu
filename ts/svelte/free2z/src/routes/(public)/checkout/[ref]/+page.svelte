@@ -36,11 +36,11 @@
   <div class="mx-auto max-w-2xl">
     <Card>
       <CardHeader>
-        <CardTitle
-          >{$t("checkout.title", "Checkout: {reference}", {
+        <CardTitle>
+          {$t("checkout.title", "Checkout: {reference}", {
             reference: ref,
-          })}</CardTitle
-        >
+          })}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div class="space-y-4">
@@ -49,16 +49,16 @@
             <p class="mt-2">
               {$t("checkout.creditCard", "Pay with credit card")}
             </p>
-            <Button class="mt-2" href={data.stripeHref}
-              >{$t("checkout.payWithStripe", "Pay with Stripe")}</Button
-            >
+            <Button class="mt-2" href={data.stripeHref}>
+              {$t("checkout.payWithStripe", "Pay with Stripe")}
+            </Button>
           </div>
           <div>
             <Badge variant="secondary">Zcash</Badge>
             <p class="mt-2">{$t("checkout.zcash", "Pay with Zcash")}</p>
-            <Button variant="outline" class="mt-2" href={data.zcashHref}
-              >{$t("checkout.payWithZcash", "Pay with Zcash")}</Button
-            >
+            <Button variant="outline" class="mt-2" href={data.zcashHref}>
+              {$t("checkout.payWithZcash", "Pay with Zcash")}
+            </Button>
           </div>
         </div>
       </CardContent>

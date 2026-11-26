@@ -354,12 +354,13 @@
                 </div>
                 <span
                   class="font-mono text-xs font-bold tracking-widest text-primary uppercase"
-                  >{$t("homepage.heroSection", "Featured Story")}</span
                 >
+                  {$t("homepage.heroSection", "Featured Story")}
+                </span>
               </div>
-              <span class="font-mono text-xs text-muted-foreground"
-                >{fmtDate(hero.created_at)}</span
-              >
+              <span class="font-mono text-xs text-muted-foreground">
+                {fmtDate(hero.created_at)}
+              </span>
             </div>
 
             <div
@@ -416,12 +417,14 @@
                 <div class="flex flex-col gap-0.5 leading-none">
                   <span
                     class="text-[10px] font-bold tracking-wider text-muted-foreground uppercase"
-                    >{$t("meta.createdBy", "by")}</span
                   >
+                    {$t("meta.createdBy", "by")}
+                  </span>
                   <span
                     class="text-xs font-bold text-foreground transition-colors group-hover/author:text-primary"
-                    >{hero?.creator?.full_name || hero?.creator?.username}</span
                   >
+                    {hero?.creator?.full_name || hero?.creator?.username}
+                  </span>
                 </div>
               </a>
             </div>
@@ -468,13 +471,14 @@
                     fill="none"
                     stroke="currentColor"
                     viewBox="0 0 24 24"
-                    ><path
+                  >
+                    <path
                       stroke-linecap="round"
                       stroke-linejoin="round"
                       stroke-width="2"
                       d="M17 8l4 4m0 0l-4 4m4-4H3"
-                    /></svg
-                  >
+                    />
+                  </svg>
                 </a>
               </div>
             </div>
@@ -523,13 +527,14 @@
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
-              ><path
+            >
+              <path
                 stroke-linecap="round"
                 stroke-linejoin="round"
                 stroke-width="2"
                 d="M17 8l4 4m0 0l-4 4m4-4H3"
-              /></svg
-            >
+              />
+            </svg>
           </Button>
         </div>
 
@@ -595,14 +600,15 @@
                   >
                     <span
                       class="text-primary transition-colors dark:group-hover:text-white"
-                      >{p.category
+                    >
+                      {p.category
                         ? translateCategory(p.category, $t)
-                        : $t("homepage.storyFallback", "Story")}</span
-                    >
+                        : $t("homepage.storyFallback", "Story")}
+                    </span>
                     <span class="text-muted-foreground/40">•</span>
-                    <span class="text-muted-foreground"
-                      >{fmtDate(p.created_at)}</span
-                    >
+                    <span class="text-muted-foreground">
+                      {fmtDate(p.created_at)}
+                    </span>
                   </div>
 
                   <h3
@@ -647,13 +653,14 @@
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                ><path
+              >
+                <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="2"
                   d="M7 20l4-16m2 16l4-16M6 9h14M4 15h14"
-                /></svg
-              >
+                />
+              </svg>
               {$t("homepage.trending", "Trending")}
             </h3>
             <div class="flex flex-wrap gap-2">
@@ -695,17 +702,19 @@
                 fill="none"
                 stroke="currentColor"
                 viewBox="0 0 24 24"
-                ><path
+              >
+                <path
                   stroke-linecap="round"
                   stroke-linejoin="round"
                   stroke-width="2"
                   d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"
-                /></svg
-              >
+                />
+              </svg>
               <span
                 class="text-[10px] font-bold tracking-widest text-primary uppercase"
-                >{$t("homepage.discover", "Discover")}</span
               >
+                {$t("homepage.discover", "Discover")}
+              </span>
             </div>
 
             <!--
@@ -718,9 +727,9 @@
 						-->
             <h2 class="text-3xl font-black tracking-tighter">
               {$t("homepage.exploreByTopicLead", "Explore by")}
-              <span class="text-primary"
-                >{$t("homepage.exploreByTopicAccent", "Topic")}</span
-              >
+              <span class="text-primary">
+                {$t("homepage.exploreByTopicAccent", "Topic")}
+              </span>
             </h2>
             <p class="text-lg leading-relaxed text-muted-foreground">
               {$t(
@@ -771,8 +780,9 @@
           </span>
           <span
             class="text-[10px] font-bold tracking-widest text-primary uppercase"
-            >{$t("homepage.trendingNow", "Trending Now")}</span
           >
+            {$t("homepage.trendingNow", "Trending Now")}
+          </span>
         </div>
 
         <div>
@@ -780,9 +790,9 @@
             class="text-3xl font-black tracking-tighter sm:text-4xl lg:text-5xl"
           >
             {$t("homepage.communityFavoritesLead", "Community")}
-            <span class="text-primary"
-              >{$t("homepage.communityFavoritesAccent", "Favorites")}</span
-            >
+            <span class="text-primary">
+              {$t("homepage.communityFavoritesAccent", "Favorites")}
+            </span>
           </h2>
           <p class="mt-4 text-lg leading-relaxed text-muted-foreground">
             {$t(
@@ -809,13 +819,14 @@
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
-          ><path
+        >
+          <path
             stroke-linecap="round"
             stroke-linejoin="round"
             stroke-width="2"
             d="M17 8l4 4m0 0l-4 4m4-4H3"
-          /></svg
-        >
+          />
+        </svg>
       </Button>
     </div>
 
@@ -849,8 +860,9 @@
             ></span>
             <span
               class="text-[10px] font-bold tracking-widest text-primary uppercase"
-              >{$t("homepage.community", "Community")}</span
             >
+              {$t("homepage.community", "Community")}
+            </span>
           </div>
 
           <div>
@@ -858,9 +870,9 @@
               class="text-3xl font-black tracking-tighter sm:text-4xl lg:text-5xl"
             >
               {$t("homepage.featuredCreatorsLead", "Featured")}
-              <span class="text-primary"
-                >{$t("homepage.featuredCreatorsAccent", "Creators")}</span
-              >
+              <span class="text-primary">
+                {$t("homepage.featuredCreatorsAccent", "Creators")}
+              </span>
             </h2>
             <p class="mt-4 text-lg leading-relaxed text-muted-foreground">
               {$t(
@@ -881,13 +893,14 @@
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
-            ><path
+          >
+            <path
               stroke-linecap="round"
               stroke-linejoin="round"
               stroke-width="2"
               d="M17 8l4 4m0 0l-4 4m4-4H3"
-            /></svg
-          >
+            />
+          </svg>
         </Button>
       </div>
 

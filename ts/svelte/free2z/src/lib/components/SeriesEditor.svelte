@@ -540,8 +540,10 @@
         onclick={() => {
           closeEditor();
           void loadSeries();
-        }}>{$t("seriesEditor.reload", "Reload series")}</button
+        }}
       >
+        {$t("seriesEditor.reload", "Reload series")}
+      </button>
     </div>
   {/if}
 {/snippet}
@@ -592,15 +594,16 @@
       <span>{$t("seriesEditor.triggerLabel", "Series:")}</span>
       <span
         class="inline-block max-w-[9rem] truncate align-bottom underline decoration-dotted underline-offset-2 sm:max-w-[12rem] lg:max-w-[16rem]"
-        >{triggerValue}</span
       >
+        {triggerValue}
+      </span>
       {#if selectedPosition && !isLoading && !loadFailed}
-        <span class="tabular-nums"
-          >{$t("seriesEditor.triggerPosition", "({position} of {total})", {
+        <span class="tabular-nums">
+          {$t("seriesEditor.triggerPosition", "({position} of {total})", {
             position: selectedPosition.position,
             total: selectedPosition.total,
-          })}</span
-        >
+          })}
+        </span>
       {/if}
     </Popover.Trigger>
     <Popover.Content
@@ -688,9 +691,9 @@
               }}
               disabled={isBusy || isUnsaved}
             >
-              <option value=""
-                >{$t("seriesEditor.none", "Not in a series")}</option
-              >
+              <option value="">
+                {$t("seriesEditor.none", "Not in a series")}
+              </option>
               {#each series as item (item.id)}
                 <option value={item.id}>{item.name}</option>
               {/each}
@@ -830,14 +833,17 @@
             >
               <span
                 class="w-5 shrink-0 text-center text-xs text-muted-foreground tabular-nums"
-                >{index + 1}</span
               >
+                {index + 1}
+              </span>
               <span
                 class={[
                   "min-w-0 flex-1 truncate text-sm",
                   entry.page.free2zaddr === page.free2zaddr && "font-medium",
-                ]}>{entry.page.title || entry.page.free2zaddr}</span
+                ]}
               >
+                {entry.page.title || entry.page.free2zaddr}
+              </span>
               <button
                 type="button"
                 class="rounded p-1.5 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-30"

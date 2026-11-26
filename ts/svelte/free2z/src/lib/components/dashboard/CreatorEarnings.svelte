@@ -390,12 +390,12 @@
                         : "economy.sdkService",
                     )}
                   </p>
-                  <time datetime={activity.created_at}
-                    >{new Intl.DateTimeFormat($locale, {
+                  <time datetime={activity.created_at}>
+                    {new Intl.DateTimeFormat($locale, {
                       dateStyle: "medium",
                       timeStyle: "short",
-                    }).format(new Date(activity.created_at))}</time
-                  >
+                    }).format(new Date(activity.created_at))}
+                  </time>
                   <p class="break-all text-muted-foreground">
                     {$t("economy.reference")}: {activity.id}
                   </p>
@@ -428,9 +428,9 @@
           <h3 class="font-semibold">{$t("economy.requestPayment")}</h3>
           <div class="grid gap-3 sm:grid-cols-2">
             <div>
-              <Label for="earnings-payment-amount"
-                >{$t("economy.usdAmount")}</Label
-              >
+              <Label for="earnings-payment-amount">
+                {$t("economy.usdAmount")}
+              </Label>
               <Input
                 id="earnings-payment-amount"
                 inputmode="decimal"
@@ -439,9 +439,9 @@
               />
             </div>
             <div>
-              <Label for="earnings-payment-address"
-                >{$t("economy.paymentAddress")}</Label
-              >
+              <Label for="earnings-payment-address">
+                {$t("economy.paymentAddress")}
+              </Label>
               <Textarea
                 id="earnings-payment-address"
                 bind:value={address}
@@ -489,17 +489,17 @@
               .legal_payee.jurisdiction})
           </p>
           <details class="rounded-lg border p-3">
-            <summary class="cursor-pointer font-medium"
-              >{$t("economy.readAgreement")} ({agreement.version})</summary
-            >
+            <summary class="cursor-pointer font-medium">
+              {$t("economy.readAgreement")} ({agreement.version})
+            </summary>
             <pre
               class="mt-3 font-sans text-sm break-words whitespace-pre-wrap">{agreement.text}</pre>
           </details>
           {#each agreement.schedules as schedule}
             <details class="rounded-lg border p-3">
-              <summary class="cursor-pointer font-medium"
-                >{schedule.service} ({schedule.version})</summary
-              >
+              <summary class="cursor-pointer font-medium">
+                {schedule.service} ({schedule.version})
+              </summary>
               <pre
                 class="mt-3 font-sans text-sm break-words whitespace-pre-wrap">{schedule.text}</pre>
             </details>
@@ -507,26 +507,27 @@
           <p class="text-sm text-muted-foreground">
             {$t("economy.prospective")}
           </p>
-          <label class="flex items-start gap-2 text-sm"
-            ><input
+          <label class="flex items-start gap-2 text-sm">
+            <input
               type="checkbox"
               bind:checked={accepted}
               disabled={busy}
               class="mt-1"
             />
-            <span>{$t("economy.acceptAcknowledgment")}</span></label
-          >
-          <Button disabled={!accepted || busy} onclick={acceptAgreement}
-            >{$t("economy.acceptAgreement")}</Button
-          >
+            <span>{$t("economy.acceptAcknowledgment")}</span>
+          </label>
+          <Button disabled={!accepted || busy} onclick={acceptAgreement}>
+            {$t("economy.acceptAgreement")}
+          </Button>
         {/if}
       {:else if !earnings.legal_payee}
         <p class="text-sm">{$t("economy.payeeReview")}</p>
         <a
           class="text-primary underline"
           href={`/${encodeURIComponent(ownerUsername)}/dashboard/kyc`}
-          >{$t("economy.verification")}</a
         >
+          {$t("economy.verification")}
+        </a>
       {/if}
       {#if payments.length}
         <div class="space-y-3 border-t pt-4">
@@ -581,8 +582,9 @@
       <a
         class="text-primary underline"
         href={`/${encodeURIComponent(ownerUsername)}/dashboard/kyc`}
-        >{$t("economy.verification")}</a
       >
+        {$t("economy.verification")}
+      </a>
     {:else}
       <p>{$t("economy.unavailable")}</p>
       {#if capabilities?.policy_version === 0}<p
@@ -609,8 +611,8 @@
         {error}
       </p>{/if}
     {#if notice}<p role="status" class="text-sm">{notice}</p>{/if}
-    <Button variant="outline" onclick={refresh} disabled={busy || loading}
-      >{$t("economy.refresh")}</Button
-    >
+    <Button variant="outline" onclick={refresh} disabled={busy || loading}>
+      {$t("economy.refresh")}
+    </Button>
   </CardContent>
 </Card>

@@ -869,8 +869,10 @@
               <span
                 class={drawerPresentation
                   ? "pr-1.5 text-xs text-muted-foreground sm:pr-0"
-                  : "text-xs text-muted-foreground"}>2Z</span
+                  : "text-xs text-muted-foreground"}
               >
+                2Z
+              </span>
             </div>
           {/snippet}
 
@@ -903,9 +905,9 @@
                   )}/{formatLocalizedNumber(MAX_CONTENT, $locale)}
                 </span>
               {/if}
-              <span class="sr-only"
-                >{getCharacterCounterLabel(content.length, MAX_CONTENT)}</span
-              >
+              <span class="sr-only">
+                {getCharacterCounterLabel(content.length, MAX_CONTENT)}
+              </span>
             </span>
           {/snippet}
 

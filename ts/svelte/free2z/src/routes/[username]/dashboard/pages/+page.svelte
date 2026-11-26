@@ -459,8 +459,9 @@
                       <Badge
                         variant="secondary"
                         class="border-none bg-yellow-500/90 text-[10px] font-bold tracking-wider text-black shadow-sm backdrop-blur-sm"
-                        >{$t("dashboard.pages.draft", "Draft")}</Badge
                       >
+                        {$t("dashboard.pages.draft", "Draft")}
+                      </Badge>
                     </div>
                   {/if}
                 </div>
@@ -502,8 +503,9 @@
                       <Badge
                         variant="outline"
                         class="h-5 border-yellow-500/30 bg-yellow-500/5 py-0 text-[10px] text-yellow-500"
-                        >{$t("dashboard.pages.draft", "Draft")}</Badge
                       >
+                        {$t("dashboard.pages.draft", "Draft")}
+                      </Badge>
                     {/if}
                   </div>
 
@@ -517,10 +519,10 @@
                       </span>
                       <span class="text-border">|</span>
                     {/if}
-                    <span
-                      >{$t("dashboard.pages.lastUpdated", "Last updated")}
-                      {formatRelativeTime(zpage.updated_at, $locale)}</span
-                    >
+                    <span>
+                      {$t("dashboard.pages.lastUpdated", "Last updated")}
+                      {formatRelativeTime(zpage.updated_at, $locale)}
+                    </span>
                     {#if zpage.vanity}
                       <span class="text-border">|</span>
                       <span class="font-mono">/{zpage.vanity}</span>
@@ -549,9 +551,9 @@
                     class="h-8 gap-2"
                   >
                     <Pencil class="size-3.5" />
-                    <span class="hidden sm:inline"
-                      >{$t("dashboard.pages.edit", "Edit")}</span
-                    >
+                    <span class="hidden sm:inline">
+                      {$t("dashboard.pages.edit", "Edit")}
+                    </span>
                   </Button>
                   <Button
                     variant="destructive"
@@ -622,9 +624,13 @@
               { query: searchQuery },
             )}
           </p>
-          <Button variant="link" onclick={clearSearch} class="mt-2 text-primary"
-            >{$t("dashboard.pages.clearSearch", "Clear search")}</Button
+          <Button
+            variant="link"
+            onclick={clearSearch}
+            class="mt-2 text-primary"
           >
+            {$t("dashboard.pages.clearSearch", "Clear search")}
+          </Button>
         </div>
       {/if}
     {:else}
