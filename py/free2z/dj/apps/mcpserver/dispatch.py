@@ -9,12 +9,13 @@ from uuid import UUID
 from django.urls import resolve
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
-from . import catalog
+from . import catalog, financial
 from .operations import _native, exact_etag, perform
 from .registry import REGISTRY
 
 
 BODY_FIELDS = {
+    **financial.BODIES,
     "emails_notifications_create": {"value"},
     "emails_public_create": {"value"},
     "ai_conversations_fork_create": {"conversation", "prompt_response"},
@@ -86,7 +87,15 @@ def _spending(kind, body, key, ceiling):
         raise ValidationError(
             "Supply max_charge_tuzis as a nonnegative decimal string with at most three decimal places."
         )
-    if kind == "comment":
+    if kind == "donation":
+        amount = _whole(body.get("amount"))
+        if not 1 <= amount <= 2147483647:
+            raise ValidationError("Donation amount must be 1..2147483647 whole 2Z.")
+    elif kind == "membership":
+        amount = _whole(body.get("expected_price"))
+        if amount > 999999:
+            raise ValidationError("expected_price must be at most 999999.")
+    elif kind == "comment":
         amount = _whole(body.get("tuzis"))
         if amount < 1:
             raise ValidationError("Comments cost at least 1 2Z.")
@@ -203,6 +212,8 @@ def invoke(
     allowed_query = {
         p["name"] for p in entry.get("parameters", []) if p["in"] == "query"
     }
+    if operation == financial.STATUS:
+        allowed_query.add("recipient_id")
     if set(query) - allowed_query or len(str(query)) > 8192:
         raise ValidationError("Use only the described query parameters.")
     if any(
@@ -226,6 +237,20 @@ def invoke(
     elif max_charge_tuzis is not None or idempotency_key is not None:
         raise ValidationError(
             "This operation does not accept spending or retry-key arguments."
+        )
+    recipient = (
+        financial.recipient_id(operation, path, body, query)
+        if operation in financial.FINANCIAL
+        else None
+    )
+    if recipient is not None and (
+        if_match is not None
+        or if_none_match is not None
+        or source_language is not None
+        or (query and operation != financial.STATUS)
+    ):
+        raise ValidationError(
+            "Financial calls accept only their described recipient and intent arguments."
         )
     create_only = False
     if (
@@ -313,6 +338,36 @@ def invoke(
             # Pin native dispatch to the immutable identity already authorized;
             # a concurrent vanity rename must not resolve a different parent.
             native_kwargs = {**match.kwargs, "pk": parent.free2zaddr}
+
+        def native_financial(star, data):
+            kwargs = {**match.kwargs}
+            if "username" in kwargs:
+                kwargs["username"] = star.username
+            if operation == financial.DONATE:
+                kwargs["recipient_id"] = star.pk
+            return _native(
+                actor,
+                original,
+                view,
+                row["method"],
+                concrete,
+                action=action,
+                kwargs=kwargs,
+                body=data if write else None,
+                headers=headers,
+            )
+
+        if recipient is not None:
+            return financial.execute(
+                actor,
+                operation,
+                recipient,
+                body,
+                idempotency_key,
+                max_charge_tuzis,
+                native_financial,
+                original,
+            )
         result = _native(
             actor,
             original,
@@ -331,5 +386,11 @@ def invoke(
     # debit and jobs commit in this transaction, with enqueue on_commit. A
     # lost response can replay the durable native receipt, never another debit.
     return perform(
-        raw, account, original, operation, authority["required_scopes"], call
+        raw,
+        account,
+        original,
+        operation,
+        authority["required_scopes"],
+        call,
+        creator_ids=(() if recipient is None else (recipient,)),
     )

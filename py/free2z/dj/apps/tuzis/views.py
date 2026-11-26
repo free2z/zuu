@@ -20,7 +20,7 @@ from drf_spectacular.utils import (
 from drf_spectacular.types import OpenApiTypes
 # from rest_framework.pagination import PageNumberPagination
 from dj.apps.g12f.models import Subscription, Creator
-from dj.apps.g12f.models.creator import SUBSCRIPTION_PERIOD
+from dj.apps.g12f.models.creator import SUBSCRIPTION_PERIOD, SUBSCRIBE_DEBOUNCE
 # The renewal worker's lead time, imported rather than restated: the horizon
 # below is derived from it, and a silent drift would make this page overstate
 # affordability by a whole extra charge.
@@ -353,8 +353,9 @@ def _subscription_lock_retryable_response():
 def _lock_subscription_intent(star, key, *, reject_abandoned=True):
     """Serialize settlement and recovery for one creator/key across payers.
 
-    The lock is transaction-scoped and acquired before ``Subscription.extend``
-    takes its subscription/balance locks. Recovery uses the same first lock, so
+    Settlement acquires ordered Creator locks, then this transaction-scoped
+    lock, then Subscription/ledger locks. Recovery moves no money and needs
+    only this intent lock before its receipt locks, so
     a fence cannot commit between a charge's preflight and its debit. The
     advisory key is deterministic, contains no payer data, and is only used on
     PostgreSQL, the production money-path database.
@@ -512,6 +513,7 @@ SERVER_ONLY_RECEIPT_FIELDS = frozenset({
     "_creator_pk",
     "_subscribe_route",
     "_subscription_intent",
+    "_mcp_financial",
 })
 
 
@@ -1436,7 +1438,9 @@ class IdempotentDonate2Z(APIView):
             "anonymous": anonymous,
             "action": intent,
         })
-        star = Creator.objects.filter(username=target_username).first()
+        stable_recipient = kwargs.get("recipient_id") if getattr(request, "mcp_actor", None) else None
+        star = (Creator.objects.filter(pk=stable_recipient).first() if stable_recipient
+                else Creator.objects.filter(username=target_username).first())
         if star is None:
             if Creator.objects.filter(username=target_username).exists():
                 return _credit_error(
@@ -1462,7 +1466,7 @@ class IdempotentDonate2Z(APIView):
 
         request_hash = idempotency.fingerprint({
             "recipient": str(star.pk),
-            "recipient_username": target_username,
+            "recipient_username": None if stable_recipient else target_username,
             "amount": str(amount),
             "anonymous": anonymous,
             "action": intent,
@@ -1553,6 +1557,18 @@ class IdempotentDonate2Z(APIView):
             raise
 
         return Response(body)
+
+
+def _recent_subscription_snapshot(fan, star):
+    """A read-only preflight can select a NO-DEBIT native debounce route.
+
+    extend rechecks under Subscription lock at this captured instant. It
+    refuses if the snapshot no longer proves a recent charge, rather than
+    acquiring Creator locks in reverse order or silently charging a month.
+    """
+    now = timezone.now()
+    last = Subscription.objects.filter(fan=fan, star=star).values_list("last_charged_at", flat=True).first()
+    return now if last is not None and now - last < SUBSCRIBE_DEBOUNCE else None
 
 
 class ConfirmedSubscribeView(APIView):
@@ -1817,13 +1833,16 @@ class ConfirmedSubscribeView(APIView):
 
             try:
                 with transaction.atomic():
+                    debounce_at = _recent_subscription_snapshot(fan, star)
+                    if debounce_at is None:
+                        ledger.lock_in_order(fan, star)
                     _lock_subscription_intent(star, key)
                     sub, _ = Subscription.objects.get_or_create(
                         star=star,
                         fan=fan,
                         defaults={"max_price": expected_price},
                     )
-                    charged = sub.extend(expected_price=expected_price)
+                    charged = sub.extend(expected_price=expected_price, _debounce_at=debounce_at)
                     fan.refresh_from_db(fields=["tuzis"])
                     body = {
                         "balance": str(fan.tuzis),
@@ -1844,6 +1863,9 @@ class ConfirmedSubscribeView(APIView):
                         compatibility_claim=compatibility_claim,
                     )
                 compatibility_committed = True
+            except ledger.SubscriptionRetryRequired:
+                idempotency.release(claim)
+                return _credit_error("subscription_retryable", "Membership changed; retry with the same key.", status.HTTP_409_CONFLICT)
             except _SubscriptionIntentAbandoned:
                 idempotency.release(claim)
                 return _abandoned_response()
@@ -2304,6 +2326,9 @@ class CreatorSubscribeView(APIView):
                 # together, so the later stale-claim takeover in idempotency.claim
                 # cannot re-run a charge that already happened.
                 with transaction.atomic():
+                    debounce_at = _recent_subscription_snapshot(fan, star)
+                    if debounce_at is None:
+                        ledger.lock_in_order(fan, star)
                     _lock_subscription_intent(star, idem_key)
                     sub, _ = Subscription.objects.get_or_create(
                         star=star,
@@ -2323,7 +2348,7 @@ class CreatorSubscribeView(APIView):
                     # an incident — unable to tell whether 2Z moved on a 2Z
                     # endpoint. `expires` rides along so the client can show the
                     # real membership end date instead of assuming +30 days.
-                    charged = sub.extend()
+                    charged = sub.extend(_debounce_at=debounce_at)
                     body = {
                         'charged': charged,
                         'expires': sub.expires.isoformat(),
@@ -2341,6 +2366,9 @@ class CreatorSubscribeView(APIView):
                             compatibility_claim=compatibility_claim,
                         )
                 compatibility_committed = True
+            except ledger.SubscriptionRetryRequired:
+                idempotency.release(claim)
+                return _credit_error("subscription_retryable", "Membership changed; retry with the same key.", status.HTTP_409_CONFLICT)
             except _SubscriptionIntentAbandoned:
                 if claim is not None:
                     idempotency.release(claim)
@@ -2410,11 +2438,12 @@ class CreatorSubscribeView(APIView):
         star: Creator = get_object_or_404(
             Creator, username=kwargs.get('username'))
         fan: Creator = request.user
-        # Cancellation participates in the same Subscription-first lock
+        # Cancellation participates in the same Creator-first lock
         # protocol as purchase/renewal. Updating only max_price prevents an
         # unlocked stale instance from erasing a just-paid expiry or debounce
         # timestamp after the charge commits.
         with transaction.atomic():
+            ledger.lock_in_order(fan, star)
             sub: Subscription = get_object_or_404(
                 Subscription.objects.select_for_update(),
                 star=star,
@@ -2457,29 +2486,35 @@ class CreatorSubscribeView(APIView):
             Creator, username=kwargs.get('username'), is_active=True)
         fan: Creator = request.user
 
-        sub: Subscription = get_object_or_404(
-            Subscription, star=star, fan=fan)
+        with transaction.atomic():
+            ledger.lock_in_order(fan, star)
+            fan.refresh_from_db(fields=["tuzis"])
+            star.refresh_from_db(fields=["member_price", "is_active"])
+            if not star.is_active:
+                return Response({"error": "Creator not found"}, status=404)
+            sub: Subscription = get_object_or_404(
+                Subscription.objects.select_for_update(), star=star, fan=fan)
 
-        request_serializer = SubscriptionMaxPriceSerializer(data=request.data)
-        request_serializer.is_valid(raise_exception=True)
-        max_price = request_serializer.validated_data['max_price']
-        # A free membership (price 0, ) accepts a cap too: it is the
-        # fan's consent for the free follow to renew itself, and the most it
-        # may ever be charged if the creator later raises the price.
-        if star.member_price is None or star.member_price < 0:
-            return Response(
-                data={'error': 'Creator does not have a chargeable price'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not (max_price >= star.member_price and max_price <= fan.tuzis):
-            return Response(
-                data={
-                    'error': 'max price should be between the price and what you have'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        sub.max_price = max_price
-        sub.save(update_fields=['max_price'])
-        return Response(SubscriptionSerializer(sub).data)
+            request_serializer = SubscriptionMaxPriceSerializer(data=request.data)
+            request_serializer.is_valid(raise_exception=True)
+            max_price = request_serializer.validated_data['max_price']
+            # A free membership (price 0, ) accepts a cap too: it is the
+            # fan's consent for the free follow to renew itself, and the most it
+            # may ever be charged if the creator later raises the price.
+            if star.member_price is None or star.member_price < 0:
+                return Response(
+                    data={'error': 'Creator does not have a chargeable price'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not (max_price >= star.member_price and max_price <= fan.tuzis):
+                return Response(
+                    data={
+                        'error': 'max price should be between the price and what you have'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            sub.max_price = max_price
+            sub.save(update_fields=['max_price'])
+            return Response(SubscriptionSerializer(sub).data)
 
 
 class _RecoveryResolved(Exception):

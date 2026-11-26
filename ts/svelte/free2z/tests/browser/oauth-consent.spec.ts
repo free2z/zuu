@@ -909,3 +909,32 @@ test("an ordinary /login starts X with no return path (it lands on /profile)", a
   expect(starts).toHaveLength(1);
   expect(starts[0].searchParams.has("next")).toBe(false);
 });
+
+test("financial consent names immediate transfers and future renewals separately", async ({
+  page,
+}) => {
+  await mockAuthorize(page, {
+    evaluate: () => ({
+      status: 200,
+      body: consentAnswer({
+        scopes: ["mcp:spend", "mcp:transfer", "mcp:renew"],
+        cap_required: false,
+      }),
+    }),
+  });
+  await page.goto(authorizeUrl());
+  // Cold Vite compilation can delay hydration on small CI machines.
+  await expect(page.getByTestId("oauth-consent")).toBeVisible({
+    timeout: 60_000,
+  });
+  const scopes = page.getByTestId("oauth-consent-scopes");
+  await expect(scopes).toContainText(
+    "Spend 2Z on comments, votes and translations within each explicit limit",
+  );
+  await expect(scopes).toContainText(
+    "Donate 2Z and buy memberships within each explicit immediate charge limit",
+  );
+  await expect(scopes).toContainText(
+    "Authorize future membership renewals up to an explicit cap, update caps and cancel renewals",
+  );
+});

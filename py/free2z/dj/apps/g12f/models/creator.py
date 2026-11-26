@@ -934,6 +934,7 @@ class Subscription(models.Model):
         expected_price=None,
         *,
         enforce_max_price=False,
+        _debounce_at=None,
     ) -> bool:
         """Charge the fan the star's member price and push expiry 30 days out.
 
@@ -981,6 +982,10 @@ class Subscription(models.Model):
         with transaction.atomic():
             from dj.apps.economy.epoch import pin_supported_policy
             pin_supported_policy()
+            # Match hosted authorization, purchase and renewal: ordered
+            # Creator locks precede Subscription and ledger locks.
+            if _debounce_at is None:
+                ledger.lock_in_order(self.fan, self.star)
             # Serialize concurrent extends of the SAME subscription. Any
             # duplicate waits here until the first has committed, so the
             # last_charged_at it then reads is authoritative.
@@ -994,8 +999,12 @@ class Subscription(models.Model):
                 # Row vanished (unsubscribed concurrently). Nothing to extend.
                 return False
 
-            now = timezone.now()
+            now = _debounce_at or timezone.now()
             last = locked["last_charged_at"]
+            # A native no-debit retry may skip shared Creator locks. It must
+            # NEVER fall through to money while holding only Subscription.
+            if _debounce_at is not None and (last is None or now - last >= debounce):
+                raise ledger.SubscriptionRetryRequired()
             if not Creator.objects.filter(
                 pk=self.star_id, is_active=True
             ).exists():
@@ -1003,8 +1012,8 @@ class Subscription(models.Model):
             if last is not None and now - last < debounce:
                 # A distinct confirmed intent still has to satisfy its price
                 # contract even though it cannot charge inside the debounce
-                # window. This ordinary MVCC read takes no Creator row lock;
-                # the charged path below revalidates under the balance locks.
+                # window. The no-debit route uses an ordinary MVCC read;
+                # the charged route holds ordered Creator locks.
                 if expected_price is not None:
                     current_price = Creator.objects.values_list(
                         "member_price", flat=True
@@ -1013,22 +1022,16 @@ class Subscription(models.Model):
                         raise ledger.ExpectedPriceMismatch(
                             expected_price, current_price
                         )
-                # The subscription lock alone makes this duplicate decision
-                # authoritative. Return before touching either shared Creator
-                # row: this path cannot move money, and letting free retries
-                # queue behind a popular creator's balance lock would amplify
-                # abusive or runaway clients into a money-path lock convoy.
+                # The locked subscription makes this duplicate decision
+                # authoritative. A no-debit route never takes Creator locks.
                 # Refresh in-memory state so the caller reports the truth. In
                 # particular, an explicit one-time purchase must not re-enable
                 # renewal on a row the fan already cancelled.
                 self.refresh_from_db()
                 return False
 
-            # Every subscription extension locks its subscription first, then
-            # both balance rows in the same global pk order used by donations.
-            # Holding the creator row lock through comparison + transfer makes
-            # the expected-price check part of the money transaction.
-            ledger.lock_in_order(self.fan, self.star)
+            # Ordered Creator locks acquired before the subscription remain
+            # held through price comparison and transfer.
             locked_star = Creator.objects.get(pk=self.star_id)
             if not locked_star.is_active:
                 raise ledger.InactiveCreator(locked_star)
