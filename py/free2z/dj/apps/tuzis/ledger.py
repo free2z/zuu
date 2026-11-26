@@ -117,6 +117,10 @@ class ExpectedPriceMismatch(Exception):
         )
 
 
+class SubscriptionRetryRequired(Exception):
+    """A no-debit debounce snapshot changed; restart with the same intent."""
+
+
 class InactiveCreator(Exception):
     """Raised when a public money transfer targets a deactivated creator."""
 
@@ -360,8 +364,8 @@ def lock_in_order(*creators) -> None:
     every AI comment score, and every balance transfer takes this order. It is
     the order a new writer should take for these paths, not a universal proof
     about every money writer. Other paths have separate lock classes: a
-    subscription extension locks its Subscription before the balance rows,
-    and a translation refund locks its IdempotencyKey before crediting.
+    subscription extension now takes these Creator locks before Subscription;
+    a translation refund locks its IdempotencyKey before crediting.
 
     The lock is ``FOR NO KEY UPDATE`` (``no_key=True``), not ``FOR UPDATE``,
     and the difference is a deadlock of its own. A balance ``UPDATE`` only

@@ -74,20 +74,23 @@ def authenticate_mcp(raw_token: str) -> MCPPrincipal:
 
 
 @contextmanager
-def _locked_connection(raw_token: str, *, target_user_id=None):
+def _locked_connection(raw_token: str, *, target_user_id=None, creator_ids=()):
     """Lifecycle lock order: users, app, OAuth grant, connection, token.
 
     Creator NO KEY UPDATE locks serialize identity changes and ledger writes
     while allowing foreign-key KEY SHARE checks from other accounts. A stronger
     lock can deadlock an insert against another user waiting for the shared app.
+    Immutable financial recipients join creator_ids BEFORE any lifecycle or
+    ledger lock. Inactive recipients are left to native replay/new-charge rules;
+    the primary and selected payer must remain active.
     Hold the locks through the caller's mutation. Recheck after acquiring them:
     a revoke that won a lock must deny the request, not become a stale snapshot.
     """
     principal = authenticate_mcp(raw_token)
     with transaction.atomic():
-        user_ids = sorted({principal.user_id, *([target_user_id] if target_user_id else [])})
+        user_ids = sorted({principal.user_id, *([target_user_id] if target_user_id else []), *creator_ids})
         users = {u.pk: u for u in get_user_model().objects.select_for_update(no_key=True).filter(pk__in=user_ids).order_by("pk")}
-        if len(users) != len(user_ids) or any(not u.is_active for u in users.values()):
+        if len(users) != len(user_ids) or any(not users[pk].is_active for pk in {principal.user_id, target_user_id or principal.user_id}):
             raise _invalid()
         connection = MCPConnection.objects.get(pk=principal.connection_id)
         F2ZApplication.objects.select_for_update().get(pk=connection.application_id)
@@ -145,10 +148,10 @@ def _selected_grant(connection_id, account):
 
 
 @contextmanager
-def authorized_actor(raw_token: str, account: str, required_scopes):
+def authorized_actor(raw_token: str, account: str, required_scopes, *, creator_ids=()):
     principal = authenticate_mcp(raw_token)
     selected = _selected_grant(principal.connection_id, account)
-    with _locked_connection(raw_token, target_user_id=selected.user_id) as (principal, connection, users):
+    with _locked_connection(raw_token, target_user_id=selected.user_id, creator_ids=creator_ids) as (principal, connection, users):
         grant = MCPAccountGrant.objects.select_for_update().get(pk=selected.pk, connection=connection)
         user = users[grant.user_id]
         if grant.revoked_at is not None or grant.account_epoch != user.kt_account_epoch:

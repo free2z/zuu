@@ -377,6 +377,8 @@ export interface Agreement {
  * * `mcp:live` - mcp:live
  * * `mcp:spend` - mcp:spend
  * * `mcp:delete` - mcp:delete
+ * * `mcp:transfer` - mcp:transfer
+ * * `mcp:renew` - mcp:renew
  */
 export type AllowedScopesEnum = typeof AllowedScopesEnum[keyof typeof AllowedScopesEnum];
 
@@ -400,6 +402,8 @@ export const AllowedScopesEnum = {
   'mcp:live': 'mcp:live',
   'mcp:spend': 'mcp:spend',
   'mcp:delete': 'mcp:delete',
+  'mcp:transfer': 'mcp:transfer',
+  'mcp:renew': 'mcp:renew',
 } as const;
 
 /**
@@ -1574,6 +1578,8 @@ export interface ConflictDetail {
  * * `mcp:live` - mcp:live
  * * `mcp:spend` - mcp:spend
  * * `mcp:delete` - mcp:delete
+ * * `mcp:transfer` - mcp:transfer
+ * * `mcp:renew` - mcp:renew
  */
 export type ScopeEnum = typeof ScopeEnum[keyof typeof ScopeEnum];
 
@@ -1597,6 +1603,8 @@ export const ScopeEnum = {
   'mcp:live': 'mcp:live',
   'mcp:spend': 'mcp:spend',
   'mcp:delete': 'mcp:delete',
+  'mcp:transfer': 'mcp:transfer',
+  'mcp:renew': 'mcp:renew',
 } as const;
 
 /**
