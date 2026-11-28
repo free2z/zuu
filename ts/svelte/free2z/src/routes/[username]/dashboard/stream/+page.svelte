@@ -1225,9 +1225,9 @@
 </script>
 
 <div class="px-4 py-3">
-  <Button href={`/${username}/dashboard/producer`}
-    >{$t("producer.heading")}</Button
-  >
+  <Button href={`/${username}/dashboard/producer`}>
+    {$t("producer.heading")}
+  </Button>
 </div>
 
 <svelte:head>

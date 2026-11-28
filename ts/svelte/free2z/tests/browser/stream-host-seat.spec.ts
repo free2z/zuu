@@ -70,7 +70,9 @@ async function openDashboard(page: Page, language = "en") {
   const hydratedAuth = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/auth/user/",
   );
-  await page.goto(`${STREAM_URL}?lang=${language}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${STREAM_URL}?lang=${language}`, {
+    waitUntil: "domcontentloaded",
+  });
   expect((await hydratedAuth).status()).toBe(200);
   await expect(page.getByTestId("stream-audience-grid")).toBeVisible();
 }
