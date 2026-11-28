@@ -792,3 +792,19 @@ test("registry and credential errors are private, malformed reload fails closed,
   }
   assert.equal(f.received.length, 0);
 });
+
+test("producer schema is discoverable but cannot start an MCP broadcast", async (t) => {
+  const f = await fixture(t);
+  const producer = [...operations.values()].filter((op) =>
+    op.id.startsWith("dyte_producer_v1_"),
+  );
+  assert.equal(producer.length, 5);
+  for (const op of producer) {
+    assert.equal(describe(op).supported, false);
+    await assert.rejects(
+      execute(f.config, { operation_id: op.id }),
+      /interactive Free2Z broadcast client/,
+    );
+  }
+  assert.equal(f.received.length, 0);
+});

@@ -36,6 +36,9 @@ export default defineConfig({
         // would retain another account's earnings or legal identity in an SPA.
         // Consumers that add caching must supply an actor-scoped lifecycle.
         operations: {
+          dyte_producer_v1_readiness: { query: { useQuery: false } },
+          dyte_producer_v1_status: { query: { useQuery: false } },
+          dyte_producer_v1_history: { query: { useQuery: false } },
           economy_agreement_accept: { query: { useMutation: false } },
           economy_payment_request: { query: { useMutation: false } },
           economy_usage_purchase: { query: { useMutation: false } },

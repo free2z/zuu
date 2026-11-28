@@ -116,6 +116,7 @@ export async function execute(
   readOnly = false,
 ) {
   const op = getOperation(input.operation_id);
+  if (op.unsupported) throw new Error(op.unsupported);
   if (readOnly && op.method !== "GET")
     throw new Error(
       "free2z_read only accepts GET operations; use free2z_execute for mutations.",

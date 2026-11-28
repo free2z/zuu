@@ -1948,6 +1948,7 @@ const server = createServer(async (request, response) => {
     if (isStreamAudienceFixture) {
       response.end(
         JSON.stringify({
+          id: 784,
           username: STREAM_AUDIENCE_FIXTURE_USER,
           full_name: "Stream Audience Fixture Creator",
           can_stream: true,

@@ -1,0 +1,10 @@
+{
+  "name": "@free2z/producer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Free2Z producer lifecycle client and accessible host panel, shared by the web dashboard and content app.",
+  "exports": {
+    ".": "./src/index.ts"
+  }
+}
