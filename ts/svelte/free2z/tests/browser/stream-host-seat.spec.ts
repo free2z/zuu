@@ -70,7 +70,7 @@ async function openDashboard(page: Page, language = "en") {
   const hydratedAuth = page.waitForResponse(
     (response) => new URL(response.url()).pathname === "/api/auth/user/",
   );
-  await page.goto(`${STREAM_URL}?lang=${language}`);
+  await page.goto(`${STREAM_URL}?lang=${language}`, { waitUntil: "domcontentloaded" });
   expect((await hydratedAuth).status()).toBe(200);
   await expect(page.getByTestId("stream-audience-grid")).toBeVisible();
 }
@@ -425,6 +425,12 @@ test("the creator's own public stream page joins as a viewer, never a host", asy
 
   await page.goto(`/${OWNER}/broadcast?lang=en`);
 
+  // The SSR shell can finish loading before the viewer's dynamic modules
+  // hydrate on a cold server. Wait for the existing owner affordance, then
+  // assert the exact viewer-only admission contract.
+  await expect(page.getByTestId("owner-viewer-notice")).toBeVisible({
+    timeout: 20000,
+  });
   await expect.poll(() => joins.length).toBeGreaterThan(0);
   for (const body of joins) {
     expect(body).toEqual({ role: "viewer" });

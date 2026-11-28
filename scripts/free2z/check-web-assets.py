@@ -2,7 +2,7 @@
 """Refuse unresolved Git LFS pointers in every website build input."""
 from pathlib import Path
 
-INPUTS = ('py/free2z', 'ts/svelte/free2z', 'ts/react/free2z', 'ts/free2z/bridge', 'docs/about-free2z', 'docs/free2z/website')
+INPUTS = ('py/free2z', 'ts/svelte/free2z', 'ts/react/free2z', 'ts/free2z/bridge', 'ts/free2z/producer', 'docs/about-free2z', 'docs/free2z/website')
 IGNORED = {'node_modules', '.svelte-kit', '__pycache__', '.venv', '.git', 'build', 'docsbuild'}
 
 

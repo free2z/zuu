@@ -33,6 +33,10 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "infoPlist": "Info.macos.plist",
+      "entitlements": "producer.macos.entitlements"
+    },
     "iOS": {
       "bundleVersion": "4",
       "developmentTeam": "F9AV5HKF6N",

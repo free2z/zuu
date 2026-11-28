@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "ts/svelte/free2z/**"
+      - "ts/free2z/producer/**"
       - ".github/workflows/ts-svelte-free2z.yml"
 
 permissions:

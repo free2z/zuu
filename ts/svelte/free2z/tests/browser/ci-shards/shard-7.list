@@ -36,3 +36,5 @@ zpage-hero.spec.ts › SSR and hydration reserve the same hero space while the c
 zpage-hero.spec.ts › SSR and hydration reserve the same hero space while the cover is delayed at 390px
 zpage-hero.spec.ts › cover frames keep the whole artwork and pad the column at 1280px
 zpage-hero.spec.ts › cover frames keep the whole artwork and pad the column at 390px
+producer-v1.spec.ts
+producer-lifecycle.spec.ts

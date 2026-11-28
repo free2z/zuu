@@ -962,6 +962,56 @@
       "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
     },
     {
+      "operation_id": "dyte_producer_v1_action",
+      "method": "POST",
+      "path": "/api/dyte/producer/v1/{stream_id}",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_producer_v1_draft",
+      "method": "POST",
+      "path": "/api/dyte/producer/v1",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_producer_v1_history",
+      "method": "GET",
+      "path": "/api/dyte/producer/v1/history",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_producer_v1_readiness",
+      "method": "GET",
+      "path": "/api/dyte/producer/v1",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
+      "operation_id": "dyte_producer_v1_status",
+      "method": "GET",
+      "path": "/api/dyte/producer/v1/{stream_id}",
+      "summary": "",
+      "supported": false,
+      "keywords": "live livestream stream broadcast session",
+      "reason": "This live operation can mint participant credentials, perform provider I/O or incur ongoing recording/PPV charges.",
+      "next_step": "Add bounded asynchronous lifecycle/spending authorization and a broadcast client for camera, microphone or encoded media."
+    },
+    {
       "operation_id": "dyte_public_discovery_list",
       "method": "GET",
       "path": "/api/dyte/public/discovery/",
