@@ -187,7 +187,10 @@ impl Journal {
             ensure!(
                 (m.uid() == uid || m.uid() == 0)
                     && (m.mode() & 0o022 == 0 || (m.uid() == 0 && m.mode() & 0o1000 != 0)),
-                "journal parent directory is writable by another user"
+                "journal parent directory is writable by another user: {} ({:o}, uid {})",
+                ancestor.display(),
+                m.mode() & 0o777,
+                m.uid()
             );
         }
         let pinned_path = canonical_dir.join("journal.sqlite");
@@ -865,12 +868,39 @@ impl Journal {
         Ok(())
     }
     pub fn status(&self, c: &Config) -> Result<Value> {
+        self.status_with_budget(
+            c,
+            std::time::Duration::from_secs(30),
+            std::time::Duration::from_secs(5),
+            || {},
+        )
+    }
+
+    fn status_with_budget<F>(
+        &self,
+        c: &Config,
+        timeout: std::time::Duration,
+        diagnostic_reserve: std::time::Duration,
+        before_inventory: F,
+    ) -> Result<Value>
+    where
+        F: FnOnce(),
+    {
         // A complete journal traversal is linear and intentionally independent
         // of lifetime counts. Keep a finite 30s health budget; a deadline or
         // corrupt row remains unverified and therefore unhealthy.
-        let timeout = std::time::Duration::from_secs(30);
+        // Keep five seconds of the existing total budget for the bounded
+        // health queries below. Inventory remains fail-closed when it cannot
+        // finish in its share; this is not an extension of the deadline.
+        ensure!(
+            diagnostic_reserve < timeout,
+            "invalid status deadline budget"
+        );
+        let inventory_timeout = timeout - diagnostic_reserve;
         let started = std::time::Instant::now();
         let _watchdog = InterruptDeadline::new(self.db.get_interrupt_handle(), timeout);
+        let _inventory_watchdog =
+            InterruptDeadline::new(self.db.get_interrupt_handle(), inventory_timeout);
         let tx = self.db.unchecked_transaction()?;
         let policies: Vec<_> = c
             .consumers
@@ -886,6 +916,7 @@ impl Journal {
             expected["network"] == self.network && expected["floor"] == self.floor,
             "status journal identity mismatch"
         );
+        let before_inventory = std::cell::RefCell::new(Some(before_inventory));
         let plan = handoff_plan(
             &tx,
             &self.network,
@@ -893,8 +924,11 @@ impl Journal {
             &policies,
             &expected,
             &|| {
+                if let Some(delay) = before_inventory.borrow_mut().take() {
+                    delay();
+                }
                 ensure!(
-                    started.elapsed() < timeout,
+                    started.elapsed() < inventory_timeout,
                     "status inventory deadline exceeded"
                 );
                 Ok(())
@@ -914,12 +948,15 @@ impl Journal {
         // Verified totals come from the same cursor traversal as handoff and
         // are never replaced with a partial SQL estimate or unknown-as-zero.
         drop(tx);
-        drop(_watchdog);
+        drop(_inventory_watchdog);
         let diagnostic_remaining = timeout
             .checked_sub(started.elapsed())
             .filter(|remaining| !remaining.is_zero())
             .ok_or_else(|| anyhow::anyhow!("status inventory deadline exceeded"))?;
         self.db.busy_timeout(diagnostic_remaining)?;
+        // Keep a query-phase interrupt armed as well as the original total
+        // watchdog. The total watchdog may fire while SQLite is idle; its
+        // one-shot interrupt would not bound a later diagnostic query.
         let _diagnostic_deadline =
             InterruptDeadline::new(self.db.get_interrupt_handle(), diagnostic_remaining);
         let pending: i64 = self.db.query_row("SELECT count(*) FROM deliveries d JOIN consumers c ON c.id=d.consumer WHERE d.acked=0 AND c.active=1",[],|r|r.get(0))?;
@@ -956,12 +993,17 @@ impl Journal {
                 Ok(json!({"id":id,"pending":pending,"failed":failed,"head":head.map(|(event_id,attempts,next_attempt,last_error)|json!({"event_id":event_id,"attempts":attempts,"next_attempt":next_attempt,"last_error":last_error}))}))
             }).collect::<Result<_>>()?
         };
+        let cursor = self.cursor()?;
+        let effective_ready = self.ready_internal()?;
+        let scanner = health
+            .map(|h| serde_json::from_str::<Value>(&h))
+            .transpose()?;
         ensure!(
             started.elapsed() < timeout,
             "status inventory deadline exceeded"
         );
         Ok(
-            json!({"cursor":self.cursor()?,"active_receipts":receipts,"pending_deliveries":pending,"failed_deliveries":failed,"missing_deliveries":missing,"inventory_receipt_count":inventory_receipt_count,"inventory_event_count":inventory_event_count,"inventory_bytes":inventory_bytes,"inventory_byte_limit":HANDOFF_MAX_INVENTORY_BYTES,"inventory_receipt_limit":null,"inventory_event_limit":null,"inventory_verification_ms":started.elapsed().as_millis() as u64,"inventory_verification_deadline_ms":30000,"delivery_inventory_verified":inventory_verified,"delivery_inventory_error":inventory_error,"consumers":consumers,"effective_ready":self.ready_internal()?,"scanner":health.map(|h|serde_json::from_str::<Value>(&h)).transpose()?}),
+            json!({"cursor":cursor,"active_receipts":receipts,"pending_deliveries":pending,"failed_deliveries":failed,"missing_deliveries":missing,"inventory_receipt_count":inventory_receipt_count,"inventory_event_count":inventory_event_count,"inventory_bytes":inventory_bytes,"inventory_byte_limit":HANDOFF_MAX_INVENTORY_BYTES,"inventory_receipt_limit":null,"inventory_event_limit":null,"inventory_verification_ms":started.elapsed().as_millis() as u64,"inventory_verification_deadline_ms":30000,"delivery_inventory_verified":inventory_verified,"delivery_inventory_error":inventory_error,"consumers":consumers,"effective_ready":effective_ready,"scanner":scanner}),
         )
     }
     pub fn scanner_health(
@@ -1573,4 +1615,78 @@ fn stage_handoff_event(
         params![consumer, payment_id],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod status_deadline_tests {
+    use super::*;
+    use crate::config::Consumer;
+    use std::time::{Duration, Instant};
+    use tempfile::TempDir;
+
+    fn setup() -> Result<(TempDir, Config, Journal)> {
+        let dir = TempDir::new()?;
+        let state_dir = dir.path().join("state");
+        fs::create_dir(&state_dir)?;
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&state_dir, fs::Permissions::from_mode(0o700))?;
+        let config = Config {
+            network: "main".into(),
+            rpc_url: "http://127.0.0.1:1".into(),
+            rpc_cookie_file: None,
+            ufvk_file: dir.path().join("key"),
+            state_dir,
+            birthday_height: 3_500_000,
+            automation_start_height: 3_500_001,
+            confirmations: 3,
+            poll_seconds: 1,
+            max_tip_age_seconds: 900,
+            max_tip_lag_blocks: 10,
+            max_tip_future_seconds: 7200,
+            consumers: vec![Consumer {
+                id: "test".into(),
+                argv: vec!["/bin/true".into()],
+                timeout_seconds: 1,
+                observe_unconfirmed: false,
+            }],
+        };
+        let journal = Journal::open(&config, "test-key")?;
+        Ok((dir, config, journal))
+    }
+
+    #[test]
+    fn exhausted_inventory_reserve_returns_unverified_diagnostics() -> Result<()> {
+        let (_dir, config, journal) = setup()?;
+        let started = Instant::now();
+        let status = journal.status_with_budget(
+            &config,
+            Duration::from_millis(500),
+            Duration::from_millis(300),
+            || std::thread::sleep(Duration::from_millis(250)),
+        )?;
+        assert!(started.elapsed() < Duration::from_millis(500));
+        assert_eq!(status["delivery_inventory_verified"], false);
+        assert!(status["missing_deliveries"].is_null());
+        assert!(status["inventory_receipt_count"].is_null());
+        assert!(status["inventory_bytes"].is_null());
+        assert_eq!(status["inventory_event_count"], 0);
+        assert!(status["delivery_inventory_error"].as_str().is_some());
+        assert!(status["cursor"].is_null());
+        Ok(())
+    }
+
+    #[test]
+    fn diagnostics_exhausting_total_deadline_fail_closed() -> Result<()> {
+        let (_dir, config, journal) = setup()?;
+        let started = Instant::now();
+        let result = journal.status_with_budget(
+            &config,
+            Duration::from_millis(150),
+            Duration::from_millis(50),
+            || std::thread::sleep(Duration::from_millis(160)),
+        );
+        assert!(started.elapsed() < Duration::from_millis(300));
+        assert!(result.is_err());
+        Ok(())
+    }
 }
