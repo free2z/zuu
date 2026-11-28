@@ -35,7 +35,13 @@ pytestmark = [pytest.mark.django_db(transaction=True), pytest.mark.skipif(
 @pytest.mark.parametrize("policy_version",[0,1])
 def test_actual_rust_adapter_against_restricted_postgres(holder, third_party, creator_factory, policy_version):
     executable = Path(os.environ['F2Z_GATEWAY_RUST_PROBE']).resolve(strict=True)
-    app, account, _card = third_party
+    app, account, card = third_party
+    from dj.apps.pricing.models import RateCard, RateCardModel
+    from django.utils import timezone
+    fallback_card = RateCard.objects.create(version=100000)
+    RateCardModel.objects.create(rate_card=fallback_card, model_id='review-model-fallback',
+                                **{field.name: 1 for field in RateCardModel._meta.fields if 'nusd' in field.name})
+    RateCard.objects.filter(pk=fallback_card.pk).update(active=True, published_at=timezone.now())
     other = creator_factory(tuzis=0)
     api.credit_user(other.pk,100000,"sys:promo","grant","rust-foreign",str(other.pk),f"rust-foreign:{other.pk}")
     other_account = api.ensure_account(other.pk)
@@ -68,7 +74,8 @@ def test_actual_rust_adapter_against_restricted_postgres(holder, third_party, cr
                         account_epoch=holder.kt_account_epoch, grant_generation=4)
         foreign = dict(identity, subject=str(other.public_id), account_epoch=other.kt_account_epoch)
         env = dict(os.environ, F2Z_PG_PROBE_DSN=uri, F2Z_PG_PROBE_CASE=json.dumps(
-            dict(identity=identity, foreign=foreign, call=str(call), other_call=str(other_call))))
+            dict(identity=identity, foreign=foreign, call=str(call), other_call=str(other_call),
+                 primary_card=card.pk, fallback_card=fallback_card.pk)))
         process = subprocess.Popen([str(executable)], env=env, stdin=subprocess.PIPE,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         try:
@@ -102,7 +109,17 @@ def test_actual_rust_adapter_against_restricted_postgres(holder, third_party, cr
             cursor.execute('SELECT balance,held FROM ledger_account WHERE id=%s', [account])
             assert cursor.fetchone() == (98000, 0)
             cursor.execute('SELECT outcome,count(*) FROM ledger_ai_usage WHERE account_id=%s GROUP BY outcome', [account])
-            assert dict(cursor.fetchall()) == {'settled': 1, 'expired': 1}
+            assert dict(cursor.fetchall()) == {'released': 1, 'settled': 1, 'expired': 1}
+            cursor.execute('SELECT count(*) FROM ledger_hold WHERE account_id=%s', [account])
+            assert cursor.fetchone() == (0,)
+            cursor.execute('SELECT attempt,outcome,charged FROM ledger_ai_usage '
+                           'WHERE account_id=%s AND logical_key=%s ORDER BY attempt', [account, str(call)])
+            assert cursor.fetchall() == [(1, 'released', 0), (2, 'settled', 2000)]
+            cursor.execute('SELECT snapshot FROM ledger_gateway_attempt WHERE call_id=%s', [call])
+            snapshots = [json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                         for row in cursor.fetchall()]
+            assert sorted(s['attempt'] for s in snapshots) == [1, 2]
+            assert len({s['hold_id'] for s in snapshots}) == 2
             cursor.execute('SELECT provider_m2z,platform_m2z,charged FROM ledger_ai_usage WHERE hold_id=%s', [expired_hold])
             assert cursor.fetchone() == (1000, -1000, 0)
     finally:

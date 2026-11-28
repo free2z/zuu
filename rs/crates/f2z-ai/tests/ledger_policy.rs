@@ -62,6 +62,7 @@ fn operations() -> Vec<Operation> {
         Operation::Hold {
             identity,
             call,
+            attempt: 1,
             amount_milli: 1000,
             model: "original:model".into(),
             rate_card: 1,

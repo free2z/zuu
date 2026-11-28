@@ -232,6 +232,7 @@ struct CallState {
     principal: OnceLock<Principal>,
     idempotency_key: OnceLock<String>,
     durable_call_id: OnceLock<uuid::Uuid>,
+    delivery_ended: Arc<AtomicBool>,
 }
 
 /// The handler's view of an admitted request. Inserted into its extensions.
@@ -239,6 +240,15 @@ struct CallState {
 pub struct CallHandle(Arc<CallState>);
 
 impl CallHandle {
+    /// Delivery ended; existing provider work still settles, but no fallback starts.
+    pub(crate) fn delivery_signal(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.0.delivery_ended)
+    }
+
+    pub(crate) fn delivery_ended(&self) -> bool {
+        self.0.delivery_ended.load(Ordering::Acquire)
+    }
+
     /// Process-local call number.
     #[must_use]
     pub fn id(&self) -> u64 {
@@ -403,6 +413,7 @@ where
             principal: OnceLock::new(),
             idempotency_key: OnceLock::new(),
             durable_call_id: OnceLock::new(),
+            delivery_ended: Arc::new(AtomicBool::new(false)),
         }));
         request.extensions_mut().insert(handle.clone());
         let future = self.inner.call(request);
