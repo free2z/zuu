@@ -1,3 +1,4 @@
+import { diagnostics } from "../../lib/diagnostics";
 // Encrypted messages — this app's whole screen.
 //
 // # #1022 — the gap is closed on phones
@@ -465,6 +466,9 @@ export default function MessagesFeature() {
     const generation = ++reconcileGeneration.current;
     const superseded = () => generation !== reconcileGeneration.current;
 
+    diagnostics.breadcrumb("messaging", "engine-status-requested");
+    diagnostics.breadcrumb("messaging", "device-info-requested");
+    diagnostics.breadcrumb("enrollment", "enrollment-status-requested");
     const [engineResult, enrollmentResult, deviceResult] =
       await Promise.allSettled([
         messaging.getEngineStatus(),
@@ -473,6 +477,10 @@ export default function MessagesFeature() {
         enrollment.getEnrollmentStatus(),
         messaging.getDeviceInfo(),
       ]);
+
+    diagnostics.breadcrumb("messaging", engineResult.status === "fulfilled" ? "engine-status-ready" : "engine-status-failed");
+    diagnostics.breadcrumb("messaging", deviceResult.status === "fulfilled" ? "device-info-ready" : "device-info-failed");
+    diagnostics.breadcrumb("enrollment", enrollmentResult.status === "fulfilled" ? "enrollment-status-ready" : "enrollment-unavailable");
 
     // The one answer with no substitute — every branch below reads `status`.
     // The plugin answers this even when its store failed to open (it reports

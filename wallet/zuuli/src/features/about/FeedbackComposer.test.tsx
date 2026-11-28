@@ -3,7 +3,11 @@ import type { Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { FeedbackComposer } from "./FeedbackComposer";
+import { FeedbackComposer as Composer } from "./FeedbackComposer";
+import { TestI18nProvider } from "@/i18n/test-provider";
+function FeedbackComposer(props: React.ComponentProps<typeof Composer>) {
+  return <TestI18nProvider><Composer {...props} /></TestI18nProvider>;
+}
 import {
   ABOUT_MESSAGES,
   ABOUT_MESSAGE_KEYS,
@@ -19,7 +23,7 @@ describe("FeedbackComposer", () => {
     expect(markup).toContain("Only that support inbox can read");
     expect(markup).toContain("Public GitHub issue");
     expect(markup).toContain("Anyone can read the issue and its history");
-    expect(markup).toContain("does not collect logs or tracebacks");
+    expect(markup).toContain("Include failure kinds and counts only");
     expect(markup).toContain("disabled");
     expect(markup).toContain("min-tap");
   });
@@ -30,7 +34,7 @@ describe("FeedbackComposer", () => {
     );
     expect(
       ABOUT_MESSAGE_KEYS.filter((key) => key.startsWith("feedback")),
-    ).toHaveLength(31);
+    ).toHaveLength(29);
   });
 
   it("states plainly that recovery-phrase screening is English-only (#830)", () => {

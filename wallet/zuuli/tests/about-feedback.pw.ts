@@ -49,11 +49,11 @@ test("320px keyboard flow previews and hands off exactly the reviewed public dra
   await chooseGithubWithKeyboard(page);
 
   const diagnostics = page.getByRole("switch", {
-    name: "Include sanitized diagnostics",
+    name: "Include reduced diagnostics",
   });
   await expect(diagnostics).not.toBeChecked();
-  await expect(diagnostics).toBeDisabled();
-  await expect(page.getByText(/does not collect logs or tracebacks/)).toBeVisible();
+  await expect(diagnostics).toBeEnabled();
+  await expect(page.getByText(/Include failure kinds and counts only/)).toBeVisible();
 
   await page.getByLabel("What happened?").fill("The save action stopped responding.");
   await page.getByRole("button", { name: "Review report" }).click();
@@ -288,12 +288,12 @@ test.describe("pseudo-expanded shipping locale feedback", () => {
       page.getByText(PSEUDO_ABOUT_MESSAGES.feedbackGithubPrivacy),
     ).toBeVisible();
     const diagnostics = page.getByRole("switch", {
-      name: PSEUDO_ABOUT_MESSAGES.feedbackDiagnosticsLabel,
+      name: "Include reduced diagnostics",
     });
-    await expect(diagnostics).toBeDisabled();
+    await expect(diagnostics).toBeEnabled();
     await expect(diagnostics).not.toBeChecked();
     await expect(
-      page.getByText(PSEUDO_ABOUT_MESSAGES.feedbackDiagnosticsUnavailable),
+      page.getByText(/Include failure kinds and counts only/),
     ).toBeVisible();
 
     const email = page.getByRole("radio", {

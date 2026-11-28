@@ -1,3 +1,4 @@
+import { diagnostics } from "../diagnostics";
 /**
  * Creator ZEC tip — the caller half of the intent bridge (#790, #905).
  *
@@ -337,7 +338,8 @@ export async function requestCreatorTipPayment(
 
   const session = createIntentSession(1);
   const issued = session.issue(request, now);
-  if (!issued.ok) return { kind: "unsendable", error: issued.error };
+  if (!issued.ok) { diagnostics.breadcrumb("bridge", "bridge-refused"); return { kind: "unsendable", error: issued.error }; }
+  diagnostics.breadcrumb("bridge", "bridge-request-encoded");
 
   let answer: Uint8Array;
   try {
@@ -347,6 +349,7 @@ export async function requestCreatorTipPayment(
       expiresAtMs: request.expiresAtMs,
     });
   } catch (error) {
+    diagnostics.breadcrumb("bridge", "bridge-refused");
     if (error instanceof IntentTransportUnavailableError) {
       return { kind: "no-transport", reason: error.reason };
     }
@@ -374,10 +377,12 @@ export async function requestCreatorTipPayment(
   // real clock close the window.
   const accepted = session.accept(answer, Date.now());
   if (!accepted.ok) {
+    diagnostics.breadcrumb("bridge", "bridge-refused");
     return accepted.error === "unknown-status"
       ? { kind: "unknown-status", status: accepted.status }
       : { kind: "refused", error: accepted.error };
   }
+  diagnostics.breadcrumb("bridge", "bridge-response-decoded");
   if (accepted.value.intent !== IntentFamily.ExecutePayment) {
     return { kind: "refused", error: IntentErrorCode.UnknownIntent };
   }
