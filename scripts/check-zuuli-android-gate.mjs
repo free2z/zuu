@@ -234,7 +234,7 @@ function check(
   }
   const expectedCacheStep = [
     "      - name: Restore the 32-bit Android Rust cache",
-    "        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+    "        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3",
     "        with:",
     "          workspaces: wallet/plugins/tauri-plugin-zcash",
     `          key: ${cacheKey}`,
@@ -355,7 +355,7 @@ function runSelfTest(workflow, toolchainEnv) {
     ],
     [
       "the cache action is replaced by decorative text",
-      "      - name: Restore the 32-bit Android Rust cache\n        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2",
+      "      - name: Restore the 32-bit Android Rust cache\n        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3",
       `      - name: Restore the 32-bit Android Rust cache\n        run: echo 'key: ${cacheKey}'`,
     ],
     [
