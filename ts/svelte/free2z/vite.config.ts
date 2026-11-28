@@ -161,8 +161,11 @@ export default defineConfig({
     // misses; the first cold page that compiled it (the editor, /converse, the
     // billing notification feed) reloaded under the test and lost its typed
     // state, failing the first attempt of a spec in most browser shards.
-    // tests/vite-optimize-deps.test.mjs keeps this list complete.
+    // `producer/+page.svelte` dynamically imports `@cloudflare/realtimekit`,
+    // which the scan also misses. tests/vite-optimize-deps.test.mjs keeps
+    // this list complete.
     include: [
+      "@cloudflare/realtimekit",
       "@lucide/svelte",
       "@lucide/svelte/icons/arrow-right",
       "bits-ui",
