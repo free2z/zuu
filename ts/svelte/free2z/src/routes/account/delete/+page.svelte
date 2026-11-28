@@ -1,4 +1,7 @@
 <script lang="ts">
+  import AccountDataExport from "$lib/components/AccountDataExport.svelte";
+  // Enable only after archive inventory and old-reader drain are verified.
+  const ACCOUNT_EXPORT_UI_ENABLED = false;
   import { formatDate } from "$lib/utils/date";
   /**
    * Delete your Free2Z account — `https://free2z.cash/account/delete`.
@@ -357,6 +360,7 @@
         </Button>
       </div>
     {:else}
+      <AccountDataExport enabled={ACCOUNT_EXPORT_UI_ENABLED} {reauthenticate} />
       <section
         class="space-y-4 rounded-lg border p-4"
         data-testid="account-delete-confirm"

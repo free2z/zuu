@@ -47,6 +47,7 @@ def test_exports_queue_uses_its_serial_worker_capacity_window(settings):
 
     assert health.QueueHealth(queue="default").overdue_threshold_seconds == 900
     assert health.QueueHealth(queue="exports").overdue_threshold_seconds == 7200
+    assert health.QueueHealth(queue="account-exports-v1").overdue_threshold_seconds == 7200
 
 
 # ---------------------------------------------------------------------------

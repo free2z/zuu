@@ -141,6 +141,13 @@ TASK_POLICIES: dict[str, TaskPolicy] = {
         'doing-age budget because legitimate exports can run for two hours.',
         health_alert_after_seconds=7200,
     ),
+    'exports.export_account_data_v1': TaskPolicy(
+        NEVER,
+        'takes its own claim (PublicationExportJob -> RUNNING) and is '
+        'retries only the admission-closed exception before claiming; a requeued '
+        'copy after a claim sees "not QUEUED" and returns. Generation is '
+        'bounded by the account deadline and uses its held versioned queue.',
+    ),
     'dyte.retry_recording_delivery': TaskPolicy(
         NEVER,
         'holds an application lease of DYTE_RECORDING_LEASE_SECONDS '

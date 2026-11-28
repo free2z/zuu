@@ -321,7 +321,7 @@ class QueueHealth:
             return charges.translation_overdue_threshold_seconds()
         if self.is_billing:
             return settings.JOB_HEALTH_BILLING_OVERDUE_SECONDS
-        if self.queue == "exports":
+        if self.queue in {"exports", "account-exports-v1"}:
             # One serial worker may legitimately leave the fourth admitted
             # 30-minute export runnable for roughly 90 minutes.
             return settings.JOB_HEALTH_EXPORTS_OVERDUE_SECONDS

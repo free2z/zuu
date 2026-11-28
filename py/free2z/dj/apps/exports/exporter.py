@@ -25,7 +25,7 @@ from dj.apps.g12f.embedded_media import FRONTMATTER_RE, _strip_fenced_blocks
 from dj.apps.g12f.localization import get_owner_visible_variants
 from dj.apps.g12f.models import Creator, Poll, Series, zPage
 from dj.apps.uploads.models import GenericFile
-from .models import ExportStatus, PublicationExportJob
+from .models import ExportStatus, ExportType, PublicationExportJob
 from .storage import get_export_storage
 
 logger = logging.getLogger(__name__)
@@ -259,12 +259,15 @@ class BoundedZipStreamWriter:
 class PublicationExporter:
     """Builds a complete, self-contained, portable publication archive ZIP."""
 
-    def __init__(self, job: PublicationExportJob):
+    def __init__(self, job: PublicationExportJob, max_duration_seconds: float | None = None, reject_shared_media: bool = False):
         self.job = job
+        self.reject_shared_media = reject_shared_media
         self.creator_id = job.creator_id
         self.creator: Creator | None = None
         self.max_bytes = getattr(settings, "EXPORT_MAX_ARCHIVE_BYTES", DEFAULT_MAX_ARCHIVE_BYTES)
         self.max_duration = getattr(settings, "EXPORT_MAX_DURATION_SECONDS", DEFAULT_MAX_DURATION_SECONDS)
+        if max_duration_seconds is not None:
+            self.max_duration = min(self.max_duration, max_duration_seconds)
         self.start_time = time.monotonic()
 
         self.warnings: list[str] = []
@@ -282,6 +285,30 @@ class PublicationExporter:
 
         self.temp_dir: tempfile.TemporaryDirectory | None = None
         self.temp_zip_path: Path | None = None
+
+    def build_archive_file(self, output_path: Path) -> dict:
+        """Build the existing publication archive contract at ``output_path``.
+
+        Full account exports reuse this pipeline so their pages retain the
+        same portable Markdown, translation, series, and owned-media behavior
+        as a standalone publication export. This method deliberately does not
+        touch a job row or persistent storage.
+        """
+        self.temp_dir = tempfile.TemporaryDirectory(prefix="publication_export_spool_")
+        spool_path = Path(self.temp_dir.name)
+        self.temp_zip_path = Path(output_path)
+        try:
+            snapshot_meta = self._spool_snapshot_to_disk(spool_path)
+            self._resolve_creator_assets(snapshot_meta, spool_path)
+            self._build_archive_zip(spool_path, snapshot_meta)
+            return {
+                "article_count": snapshot_meta["article_count"],
+                "asset_count": len(self.asset_registry),
+                "complete": self.complete,
+                "warnings": self.warnings,
+            }
+        finally:
+            self._cleanup_temp_files()
 
     def _check_timeout(self):
         if time.monotonic() - self.start_time > self.max_duration:
@@ -775,6 +802,13 @@ class PublicationExporter:
             bytes_streamed = 0
 
             try:
+                # A legacy shared key is not sufficient evidence that the
+                # bytes belong exclusively to this creator.
+                from .account_media import _shared_with_other_owner
+                if self.reject_shared_media and gf.file and _shared_with_other_owner(gf.file.name, self.creator_id):
+                    self._warn("A referenced media asset shares a storage key with another account.", incomplete=True)
+                    self._record_unbundled(orig_url, "shared_blob", None, None)
+                    continue
                 if not gf.file or not gf.file.storage.exists(gf.file.name):
                     self._warn("A referenced media asset could not be read from storage.", incomplete=True)
                     self._record_unbundled(orig_url, "missing_blob", None, None)
@@ -1345,12 +1379,11 @@ sha256sum -c checksums.sha256
 """
 
 
-def process_export_job(job_id: str):
+def process_export_job(job_id: str, expected_type: str = ExportType.PUBLICATIONS):
     """Entry point for procrastinate export background task.
 
-    In production, the dedicated exports-worker runs exclusively on queue='exports'
-    with concurrency=1 (k8s/free2z/worker), preventing concurrent worker thrashing
-    and isolating archival generation from general background tasks.
+    The publication worker consumes only its publication queue. The account
+    queue remains held until rollout prerequisites are verified.
     """
     try:
         job = PublicationExportJob.objects.get(id=job_id)
@@ -1361,6 +1394,14 @@ def process_export_job(job_id: str):
     if job.status != ExportStatus.QUEUED:
         logger.info("PublicationExportJob %s already in status %s, skipping.", job_id, job.status)
         return
+    if job.export_type != expected_type:
+        logger.error(
+            "Export task type mismatch for job %s: task=%s job=%s; leaving queued.",
+            job_id,
+            expected_type,
+            job.export_type,
+        )
+        return
 
     # Claim by compare-and-set. Procrastinate can redeliver after a lost worker
     # acknowledgement, and rolling Deployments can briefly have two replicas.
@@ -1370,6 +1411,7 @@ def process_export_job(job_id: str):
     claimed = PublicationExportJob.objects.filter(
         id=job_id,
         status=ExportStatus.QUEUED,
+        export_type=expected_type,
     ).update(
         status=ExportStatus.RUNNING,
         started_at=claimed_at,
@@ -1380,8 +1422,12 @@ def process_export_job(job_id: str):
         return
     job.refresh_from_db()
 
-    exporter = PublicationExporter(job)
-    exporter.export()
+    if expected_type == ExportType.ACCOUNT:
+        from .account_data import process_account_export_job
+        process_account_export_job(job)
+    else:
+        exporter = PublicationExporter(job)
+        exporter.export()
 
 
 def cleanup_expired_jobs(limit: int = None) -> tuple:
@@ -1452,10 +1498,18 @@ def cleanup_expired_jobs(limit: int = None) -> tuple:
         ).exclude(file_path="")
 
     def abandoned_jobs():
-        return PublicationExportJob.objects.filter(
+        jobs = PublicationExportJob.objects.filter(
             status__in=[ExportStatus.QUEUED, ExportStatus.RUNNING],
             updated_at__lte=abandoned_cutoff,
         )
+        # A rollout hold leaves account tasks queued for recovery. Do not let
+        # the generic stale-publication sweep turn those held rows into FAILED
+        # or delete their storage evidence. Completed account archives still
+        # follow the ordinary expiry/stray-file retention policy below.
+        from . import rollout
+        if not rollout.ACCOUNT_EXPORT_ADMISSION_ENABLED:
+            jobs = jobs.exclude(export_type=ExportType.ACCOUNT)
+        return jobs
 
     # Counted once, up front, to size the reservations. Reserving a flat
     # `share` per later sweep would starve the earlier ones whenever the
