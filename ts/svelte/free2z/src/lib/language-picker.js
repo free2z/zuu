@@ -705,14 +705,16 @@ export function rememberRecentLanguage(language, storage) {
 }
 
 /**
- * `localStorage`, or null where there isn't one. Accessing the property itself
- * throws in a blocked context, so the guard has to be a try/catch.
+ * Browser `localStorage`, or null during SSR / when storage is blocked.
+ * Node's `localStorage` has no `window` and is not the browser. Accessing
+ * the property itself can throw, so the guard stays in try/catch.
  *
  * @returns {Storage | null}
  */
 function safeLocalStorage() {
   try {
-    return typeof localStorage === "undefined" ? null : localStorage;
+    if (typeof window === "undefined") return null;
+    return localStorage;
   } catch {
     return null;
   }

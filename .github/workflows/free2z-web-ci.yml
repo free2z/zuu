@@ -49,7 +49,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -99,7 +99,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -147,7 +147,7 @@ jobs:
       - name: Use the static image Node version
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: |
             docs/about-free2z/package-lock.json
@@ -230,7 +230,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: |
             ts/svelte/free2z/package-lock.json
@@ -305,7 +305,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - run: npm ci
@@ -364,7 +364,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # reviewed immutable repository pin
@@ -435,7 +435,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
       - name: Audit every bundled and build dependency
         env:
           NPM_AUDIT_PROJECT: ${{ matrix.project }}
@@ -478,7 +478,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: ts/react/free2z/package-lock.json
       - run: npm ci --legacy-peer-deps
@@ -761,7 +761,7 @@ jobs:
           "$GITHUB_WORKSPACE/scripts/free2z/check-python-requirements-installed.py" --lock requirements/main.txt
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # reviewed immutable repository pin
         with:
-          node-version: 24.22.2
+          node-version: 26.13.1
           cache: npm
           cache-dependency-path: ts/svelte/free2z/package-lock.json
       - name: Install renderer dependencies for the translation oracle

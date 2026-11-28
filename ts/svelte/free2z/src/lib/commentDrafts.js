@@ -185,13 +185,14 @@ export function clearCommentDraft(storage, key) {
 }
 
 /**
- * `sessionStorage` when it exists and is reachable, otherwise null.
+ * Browser `sessionStorage`, or null during SSR / when storage is blocked.
+ * Node's `sessionStorage` has no `window` and is not the browser.
  *
  * @returns {DraftStorage | null}
  */
 export function getDraftStorage() {
   try {
-    if (typeof sessionStorage === "undefined") return null;
+    if (typeof window === "undefined") return null;
     return sessionStorage;
   } catch {
     return null;

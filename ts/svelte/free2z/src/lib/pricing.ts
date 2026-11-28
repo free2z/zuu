@@ -174,10 +174,14 @@ export function isEstimate(
   return now - updated > STALE_AFTER_MS;
 }
 
-/** Read the last successfully-fetched pricing from localStorage (browser only). */
+/**
+ * Read the last successfully-fetched pricing from browser `localStorage`.
+ * Node's `localStorage` has no `window` and is not the browser. Accessing
+ * storage can throw when it is blocked.
+ */
 export function readCachedPricing(): Pricing | null {
-  if (typeof localStorage === "undefined") return null;
   try {
+    if (typeof window === "undefined") return null;
     const raw = localStorage.getItem(CACHE_KEY);
     return raw ? (JSON.parse(raw) as Pricing) : null;
   } catch {
@@ -186,8 +190,8 @@ export function readCachedPricing(): Pricing | null {
 }
 
 function writeCachedPricing(pricing: Pricing): void {
-  if (typeof localStorage === "undefined") return;
   try {
+    if (typeof window === "undefined") return;
     localStorage.setItem(CACHE_KEY, JSON.stringify(pricing));
   } catch {
     /* storage full / disabled — non-fatal */

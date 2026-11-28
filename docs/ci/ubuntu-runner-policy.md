@@ -42,7 +42,7 @@ stable canary; rustfmt/clippy components and WASM/Android targets remain explici
 | --- | --- | --- |
 | `dependency-register.yml` | `offline` | Node 24.22.2; offline dependency-register policy. |
 | `dependency-register.yml` | `upstream` | Node 24.22.2; public upstream status queries. |
-| `docs-about-free2z.yml` | `build` | Node 24.22.2, npm ci and Docusaurus build. |
+| `docs-about-free2z.yml` | `build` | Node 26.13.1, npm ci and Docusaurus build. |
 | `rs.yml` | `changes` | Host Node/Git; policy and change detection. |
 | `rs.yml` | `payment_hooks` | Pinned Rust + rustfmt/clippy; native Linux release/test binaries. |
 | `rs.yml` | `rs_fmt` | Pinned Rust + rustfmt. |
@@ -51,8 +51,8 @@ stable canary; rustfmt/clippy components and WASM/Android targets remain explici
 | `rs.yml` | `rs_test` | Pinned Rust; host Docker runs digest-pinned Redis (see below); process/crash tests. |
 | `rs.yml` | `rs_wasm` | Pinned Rust with wasm32-unknown-unknown; compile-only browser contracts. |
 | `rs.yml` | `gate` | Host Node/Git; all existing needs/results remain required. |
-| `ts-react-free2z.yml` | `build` | Node 24.22.2; npm ci --legacy-peer-deps, React tests/build. |
-| `ts-svelte-free2z.yml` | `build` | Node 24.22.2; npm ci/check/test; libxml2-utils via isolated Ubuntu package installer. |
+| `ts-react-free2z.yml` | `build` | Node 26.13.1; npm ci --legacy-peer-deps, React tests/build. |
+| `ts-svelte-free2z.yml` | `build` | Node 26.13.1; npm ci/check/test; libxml2-utils via isolated Ubuntu package installer. |
 | `wallet-surfaces.yml` | `surfaces_rust` | Pinned Rust; free2z/e2e2z app matrix; Tauri Ubuntu packages (see below). |
 | `zuuallet.yml` | `fmt` | Pinned Rust + rustfmt. |
 | `zuuallet.yml` | `deny` | Pinned Rust; cargo-deny. |

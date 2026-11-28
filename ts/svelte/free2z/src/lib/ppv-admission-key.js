@@ -21,8 +21,9 @@ export function ppvJoinKey(owner, actorId, sessionId, meetingType = "ppv") {
   let existing = null;
   let storage;
   try {
-    if (typeof sessionStorage === "undefined")
-      throw new PpvAdmissionStorageError();
+    // Node's sessionStorage has no window. Missing window is the same
+    // failure as missing sessionStorage: the key cannot be persisted.
+    if (typeof window === "undefined") throw new PpvAdmissionStorageError();
     storage = sessionStorage;
     existing = storage.getItem(scope);
   } catch {
@@ -73,7 +74,7 @@ export function clearPpvJoinKey(
   const scope = storageKey(owner, actorId, meetingType, sessionId);
   let current = ppvJoinKeys.get(scope) ?? null;
   try {
-    if (!current && typeof sessionStorage !== "undefined")
+    if (!current && typeof window !== "undefined")
       current = sessionStorage.getItem(scope);
   } catch {
     // The in-memory value remains authoritative when storage is unavailable.
@@ -81,7 +82,7 @@ export function clearPpvJoinKey(
   if (current !== expectedKey) return;
   ppvJoinKeys.delete(scope);
   try {
-    if (typeof sessionStorage !== "undefined") sessionStorage.removeItem(scope);
+    if (typeof window !== "undefined") sessionStorage.removeItem(scope);
   } catch {
     // Keeping a completed key can only replay this same admission safely.
   }

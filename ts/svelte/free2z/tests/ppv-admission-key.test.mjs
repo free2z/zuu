@@ -14,7 +14,9 @@ function storage() {
 
 test("PPV keys are scoped to their actual provider session", () => {
   const previous = globalThis.sessionStorage;
+  const previousWindow = globalThis.window;
   globalThis.sessionStorage = storage();
+  globalThis.window = /** @type {any} */ ({});
   try {
     const sessionA = "00000000-0000-4000-8000-000000000001";
     const sessionB = "00000000-0000-4000-8000-000000000002";
@@ -27,13 +29,17 @@ test("PPV keys are scoped to their actual provider session", () => {
   } finally {
     if (previous === undefined) delete globalThis.sessionStorage;
     else globalThis.sessionStorage = previous;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
   }
 });
 
 test("unscoped legacy keys are not adopted and meeting types remain isolated", () => {
   const previous = globalThis.sessionStorage;
+  const previousWindow = globalThis.window;
   const currentStorage = storage();
   globalThis.sessionStorage = currentStorage;
+  globalThis.window = /** @type {any} */ ({});
   try {
     currentStorage.setItem(
       "f2z:ppv-join:ppv-key-legacy:719002",
@@ -49,11 +55,14 @@ test("unscoped legacy keys are not adopted and meeting types remain isolated", (
   } finally {
     if (previous === undefined) delete globalThis.sessionStorage;
     else globalThis.sessionStorage = previous;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
   }
 });
 
 test("a paid admission key is unavailable until storage persists and reads it back", () => {
   const previous = globalThis.sessionStorage;
+  const previousWindow = globalThis.window;
   globalThis.sessionStorage = {
     getItem: () => null,
     setItem: () => {
@@ -61,6 +70,7 @@ test("a paid admission key is unavailable until storage persists and reads it ba
     },
     removeItem: () => {},
   };
+  globalThis.window = /** @type {any} */ ({});
   try {
     assert.throws(
       () =>
@@ -74,16 +84,20 @@ test("a paid admission key is unavailable until storage persists and reads it ba
   } finally {
     if (previous === undefined) delete globalThis.sessionStorage;
     else globalThis.sessionStorage = previous;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
   }
 });
 
 test("a paid admission key is unavailable when storage silently drops its write", () => {
   const previous = globalThis.sessionStorage;
+  const previousWindow = globalThis.window;
   globalThis.sessionStorage = {
     getItem: () => null,
     setItem: () => {},
     removeItem: () => {},
   };
+  globalThis.window = /** @type {any} */ ({});
   try {
     assert.throws(
       () =>
@@ -97,6 +111,8 @@ test("a paid admission key is unavailable when storage silently drops its write"
   } finally {
     if (previous === undefined) delete globalThis.sessionStorage;
     else globalThis.sessionStorage = previous;
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
   }
 });
 
