@@ -238,6 +238,10 @@ jobs:
             # src-tauri input remain selected. Rust embeds bridge.ts directly;
             # the policy checker audits literal include_str!/include_bytes!
             # inputs so another embedded frontend file cannot silently skip.
+            if [[ "$file" == ts/free2z/producer/* ]]; then
+              surfaces=true
+              continue
+            fi
             frontend_only=false
             case "$file" in
               wallet/zuuli/src/*.ts|wallet/zuuli/src/*.tsx|wallet/zuuli/src/*.css|wallet/free2z/src/*.ts|wallet/free2z/src/*.tsx|wallet/free2z/src/*.css|wallet/e2e2z/src/*.ts|wallet/e2e2z/src/*.tsx|wallet/e2e2z/src/*.css)

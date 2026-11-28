@@ -120,6 +120,102 @@ def test_every_relation_to_an_account_has_a_deletion_policy():
     assert not stale, f"POLICY names relations that no longer exist: {sorted(stale)}"
 
 
+@pytest.mark.parametrize("held", [False, True])
+def test_producer_retention_revokes_capabilities_and_scrubs_content(
+    burner,
+    recent_login,
+    creator_factory,
+    held,
+):
+    from dj.apps.dyte.models import (
+        ProducerStream,
+        ProducerOperation,
+        ProducerActorClaim,
+    )
+
+    room, participant, owner, operation_key = (uuid.uuid4() for _ in range(4))
+    stream = ProducerStream.objects.create(
+        creator=burner,
+        account_epoch=burner.kt_account_epoch,
+        owner=owner,
+        title="Private draft title",
+        description="Personal broadcast notes",
+        state="ready",
+        room_id=room,
+        participant_id=participant,
+        token_ciphertext="encrypted-provider-capability",
+        token_expires_at=timezone.now() + timezone.timedelta(minutes=10),
+    )
+    operation = ProducerOperation.objects.create(
+        creator=burner,
+        stream=stream,
+        key=operation_key,
+        fingerprint="f" * 64,
+        result={"action": "refresh", "accepted_version": 1},
+        status=200,
+    )
+    claim = ProducerActorClaim.objects.create(
+        creator=burner,
+        token=uuid.uuid4(),
+        expires_at=timezone.now() + timezone.timedelta(minutes=2),
+    )
+    other = creator_factory(username="producer_neighbour")
+    if held:
+        from dj.apps.comments.models import ContentReport
+
+        ContentReport.objects.create(
+            reporter=other,
+            target_kind="creator",
+            target_id=str(burner.pk),
+            reason=ContentReport.Reason.CSAE,
+        )
+    other_stream = ProducerStream.objects.create(
+        creator=other,
+        account_epoch=other.kt_account_epoch,
+        owner=uuid.uuid4(),
+        title="Other title",
+        description="Other notes",
+        token_ciphertext="other-capability",
+    )
+    client = APIClient()
+    recent_login(client, burner)
+    assert _request(client, burner.username).status_code == 202
+    stream.refresh_from_db()
+    claim.refresh_from_db()
+    assert stream.state == "ending" and stream.token_ciphertext == ""
+    assert stream.token_expires_at is None and stream.participants is None
+    assert claim.token is None and claim.expires_at is None
+    assert stream.title == "Private draft title"  # grace period can still be kept
+    account_deletion.purge_due_deletions(
+        now=timezone.now()
+        + account_deletion.GRACE_PERIOD
+        + timezone.timedelta(seconds=1)
+    )
+    stream.refresh_from_db()
+    operation.refresh_from_db()
+    burner.refresh_from_db()
+    other_stream.refresh_from_db()
+    assert burner.deleted_at and not burner.is_active
+    assert (stream.title, stream.description, stream.token_ciphertext) == (
+        ("Private draft title", "Personal broadcast notes", "")
+        if held
+        else ("", "", "")
+    )
+    assert stream.creator_id == burner.pk and (
+        stream.room_id,
+        stream.participant_id,
+        stream.owner,
+    ) == (room, participant, owner)
+    assert operation.creator_id == burner.pk and operation.key == operation_key
+    assert operation.fingerprint == ("f" * 64 if held else "")
+    assert operation.result == {"action": "refresh", "accepted_version": 1}
+    assert (
+        other_stream.title,
+        other_stream.description,
+        other_stream.token_ciphertext,
+    ) == ("Other title", "Other notes", "other-capability")
+
+
 def test_a_burner_account_deletes_completely_and_every_credential_dies(
     burner, recent_login, creator_factory,
 ):
