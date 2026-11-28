@@ -137,9 +137,10 @@ Three things are worth stating because they are what this path rests on:
 
 ## 4. The confirmation, field by field
 
-Every value on the screen comes from `SendReview` — what
-`tauri-plugin-zcash` re-derived from its own native proposal — except one
-string, and that one is quoted and escaped.
+Payment values on the screen come from `SendReview` — what
+`tauri-plugin-zcash` re-derived from its own native proposal. The caller's
+purpose is quoted and escaped. Receiver privacy is independently derived by
+native address validation against the held wallet network.
 
 | Line | Source | Caller can influence? |
 |---|---|---|
@@ -150,6 +151,7 @@ string, and that one is quoted and escaped.
 | `To:` / `Amount:` / `Memo (quoted):` | `send::native_review_lines`, from the proposal | only as an *input* to the proposal, which must then survive `review_matches_request` |
 | `Network fee:` / `Total:` / `Network:` / `Change:` | as above | no |
 | `The requesting app expected a fee of …` | the request's `fee_zatoshis` | yes, as a number — shown as a discrepancy, never enforced |
+| Shielded support / `PRIVACY DOWNGRADE` | native `validate_recipient_address` against the held wallet network, after exact review matching | only by choosing the original destination; no address rewrite or caller-supplied privacy flag |
 
 `native_review_lines` is the block the wallet's own send flow shows, factored
 out of `format_native_send_confirmation` rather than copied: two renderings of

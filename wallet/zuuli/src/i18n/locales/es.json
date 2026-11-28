@@ -44,5 +44,14 @@
       "label": "Billetera anterior conservada",
       "title": "Billetera anterior conservada"
     }
+  },
+  "wallet": {
+    "history": {
+      "missingTitle": "Transacción no encontrada en esta cartera",
+      "missingBody": "Este enlace no prueba el pago. Comprueba la cartera activa y la sincronización y actualiza el historial.",
+      "refreshError": "No se pudo actualizar el historial de la cartera.",
+      "refresh": "Actualizar historial",
+      "all": "Todas las transacciones"
+    }
   }
 }

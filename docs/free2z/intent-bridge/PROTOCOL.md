@@ -631,3 +631,28 @@ One thing is still open, and it is the one no amount of CI can close:
   get-app-links <pkg>` reporting `verified`, and an iOS device opening a
   `/bridge/…` URL in the app, are the only evidence that counts. A simulator or
   emulator check is not evidence.
+
+### 7.2 Read-only creator-tip receipt navigation
+
+Free2Z can open `https://free2z.com/bridge/zuuli/#history=<txid>` after an
+accepted payment response, or `#history=all` when the outcome is uncertain.
+`<txid>` is exactly 64 lowercase hexadecimal characters. This uses the existing
+ZUULI association; it adds no intent family, API, capability or wallet command.
+
+ZUULI's renderer accepts only that exact origin and path, with no credentials,
+query or additional fragment fields. It navigates to local wallet history and
+selects the exact transaction identifier. The native intent receiver ignores a
+history-only link because it contains no `req`. A history link cannot provide an
+amount, creator attribution, transaction status, recipient or approval. An
+unknown identifier is displayed as missing from the active wallet, never as a
+payment receipt. Only the wallet's existing history adapter supplies its state.
+
+Free2Z retains the original creator, address and amount with the correlated
+outcome in process memory. An anonymous recovery flag is persisted before
+request dispatch; payment details and request bytes are not. An interrupted or
+uncertain request blocks another ZEC request after navigation/restart until the
+payer explicitly acknowledges checking ZUULI and the risk of paying twice.
+The flag also remains after an accepted response until receipt acknowledgement,
+so a crash before the payer reads success cannot silently reopen payment entry.
+Starting a new payment never retries an old intent. Rebroadcast of exact saved
+transaction bytes remains exclusively ZUULI's responsibility.

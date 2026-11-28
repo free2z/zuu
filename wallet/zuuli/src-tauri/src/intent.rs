@@ -458,7 +458,19 @@ async fn execute_payment<R: Runtime>(
 
         review_matches_request(payment, &review)?;
 
+        // Native validation against the held wallet network, after the review
+        // matched the immutable request. A transparent-only Unified Address
+        // needs the same warning as a transparent address; prefixes cannot
+        // establish privacy. This changes disclosure, never the destination.
+        let recipient_validation = send::validate_recipient_address(&state.network, recipient);
+        if !recipient_validation.valid {
+            return Err(IntentError::InvalidValue);
+        }
         let message = payment_confirmation(admitted, &review, payment.fee_zatoshis);
+        let message = format!(
+            "{message}\n\n{}",
+            crate::payment_privacy::disclosure(recipient_validation.can_receive_memo)
+        );
         if !confirm_natively(
             app,
             "Authorize Zcash payment for another app",
@@ -2616,7 +2628,9 @@ mod tests {
             "send::propose_send(",
             "send::prepare_send_confirmation(",
             "review_matches_request(payment, &review)",
+            "send::validate_recipient_address(&state.network, recipient)",
             "payment_confirmation(admitted, &review",
+            "crate::payment_privacy::disclosure(recipient_validation.can_receive_memo)",
             // The literal carries its `!`. Dropping the negation inverts the
             // primary control — approve on Cancel — and every functional test
             // in this module would stay green, because none of them can reach

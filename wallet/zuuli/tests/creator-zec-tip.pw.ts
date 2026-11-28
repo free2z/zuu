@@ -70,7 +70,51 @@ test("a forged creator-tip route state cannot unlock the destination", async ({
     "payment details could not be verified",
   );
   await expect(page.getByLabel("Recipient address")).toHaveCount(0);
-  await expect(
-    page.getByText("u1attackercontrolleddestination"),
-  ).toHaveCount(0);
+  await expect(page.getByText("u1attackercontrolleddestination")).toHaveCount(
+    0,
+  );
 });
+
+// Read-only receipt navigation uses the native wallet history adapter, never
+// transaction values supplied by the link. These are controlled browser fixtures,
+// not evidence of a signed mobile App Link or a real payment.
+for (const locale of ["en", "es", "fr"]) {
+  test(`a receipt selects exact durable-history state and an unknown id stays unknown (${locale})`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      ({ language }) => {
+        localStorage.setItem("zuuli.knox.token", "mock-knox-token");
+        localStorage.setItem("free2z-locale", language);
+      },
+      { language: locale },
+    );
+    const txid =
+      "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2";
+    await page.goto(`/wallet/history?txid=${txid}`);
+    const transaction = page.locator("[data-wallet-transaction]");
+    await expect(transaction).toBeVisible({ timeout: 15_000 });
+    await expect(transaction.getByText(txid, { exact: true })).toBeVisible();
+    await expect(
+      transaction.getByRole("button", { name: "Copy transaction ID" }),
+    ).toHaveCount(1);
+    await page.reload();
+    await expect(transaction.getByText(txid, { exact: true })).toBeVisible();
+    await page.goto(
+      `/wallet/history?txid=${"ff".repeat(32)}&creator=Mallory&amount=999`,
+    );
+    await expect(transaction).toBeVisible();
+    await expect(
+      transaction.getByRole("button", { name: "Copy transaction ID" }),
+    ).toHaveCount(0);
+    await expect(transaction).not.toContainText("Mallory");
+    await expect(transaction).not.toContainText("999");
+    await expect(transaction.getByRole("button")).toHaveCount(2);
+    const missingTitle = {
+      en: "Transaction not found in this wallet",
+      es: "Transacción no encontrada en esta cartera",
+      fr: "Transaction introuvable dans ce portefeuille",
+    }[locale];
+    await expect(transaction).toContainText(missingTitle!);
+  });
+}
