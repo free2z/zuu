@@ -536,6 +536,7 @@ mod tests {
                 | ErrorCode::CallNotFound
                 | ErrorCode::PurchaseNotFound
                 | ErrorCode::IdempotencyConflict
+                | ErrorCode::CompletionNotRetained
                 | ErrorCode::TooManyHolds
                 | ErrorCode::ContextLengthExceeded
                 | ErrorCode::PayloadTooLarge
