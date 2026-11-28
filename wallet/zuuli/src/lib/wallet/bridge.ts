@@ -9,6 +9,8 @@ import { useMock } from "../platform";
 import type { SensitiveEntryPurpose } from "@free2z/wallet-shared";
 import { mockWallet } from "./mock";
 import type {
+  PhoneSnapshot,
+  RecoveryPlan,
   AccountBalance,
   AccountInfo,
   AddressValidation,
@@ -40,7 +42,30 @@ async function invoke<T>(
   return tauriInvoke<T>(`plugin:zcash|${cmd}`, args);
 }
 
+function phoneLocale(): "en" | "es" | "fr" {
+  const language = document.documentElement.lang.split("-")[0];
+  return language === "es" || language === "fr" ? language : "en";
+}
+
 export const wallet = {
+  async getPhoneSnapshot(): Promise<PhoneSnapshot> {
+    if (useMock()) return { walletId: (await mockWallet.getWalletStatus()).activeWalletId!, walletCount: 2,
+      plan: { version: 1, network: "mainnet", accounts: [{ index: 0, birthday: 2600000, address: "public-fixture-address" }], history: [] },
+      fullyScanned: 2600000, chainTip: 2612004, syncCurrent: false, pendingPayment: false, recoveryUsable: false };
+    return invoke("get_phone_snapshot");
+  },
+  async verifyPhoneRecovery(walletId: string | null, plan: RecoveryPlan): Promise<PhoneSnapshot> {
+    if (useMock()) throw new Error("Native custody verification requires the mobile app");
+    return invoke("verify_phone_recovery", { args: { walletId, plan, locale: phoneLocale() } });
+  },
+  async showPhoneBackup(walletId: string | null, plan: RecoveryPlan): Promise<void> {
+    if (useMock()) throw new Error("Native backup requires the mobile app");
+    return invoke("show_phone_backup", { args: { walletId, plan, locale: phoneLocale() } });
+  },
+  async recoverPhoneWallet(walletId: string | null, plan: RecoveryPlan): Promise<WalletRestored> {
+    if (useMock()) throw new Error("Native recovery requires the mobile app");
+    return invoke("recover_phone_wallet", { args: { walletId, plan, locale: phoneLocale() } });
+  },
   async createWallet(name?: string): Promise<WalletCreated> {
     if (useMock()) return mockWallet.createWallet();
     return invoke("create_wallet", { args: { name } });

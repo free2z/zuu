@@ -28,9 +28,7 @@ pub async fn create_account(state: &WalletState) -> Result<AccountInfo> {
     // Get the tree state for the birthday
     // For simplicity, use the same birthday as the first account
     // In production, you'd want to get the current chain state
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|e| Error::DatabaseError(format!("failed to get account ids: {e}")))?;
+    let account_ids = ordered_account_ids(db)?;
     let first_account = account_ids
         .first()
         .ok_or(Error::DatabaseError("no accounts found".into()))?;
@@ -105,9 +103,7 @@ pub async fn list_accounts(state: &WalletState) -> Result<Vec<AccountInfo>> {
     let db_guard = state.read_db.lock().await;
     let db = db_guard.as_ref().ok_or(Error::WalletNotInitialized)?;
 
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|e| Error::DatabaseError(format!("failed to get account ids: {e}")))?;
+    let account_ids = ordered_account_ids(db)?;
 
     let mut accounts = Vec::new();
     for (idx, account_id) in account_ids.iter().enumerate() {
@@ -137,4 +133,40 @@ pub async fn list_accounts(state: &WalletState) -> Result<Vec<AccountInfo>> {
     }
 
     Ok(accounts)
+}
+
+/// Backend account enumeration has no order contract (SQLite may scan its UUID
+/// index). UI ordinals and primary-account spending must share ZIP32 order,
+/// never a random UUID/insertion order. Unknown or multi-seed ambiguous shapes
+/// refuse rather than silently selecting another account's funds.
+pub fn ordered_account_ids<D: WalletRead>(db: &D) -> Result<Vec<D::AccountId>> {
+    let mut accounts = Vec::new();
+    let mut indices = std::collections::HashSet::new();
+    for id in db
+        .get_account_ids()
+        .map_err(|_| Error::DatabaseError("account inventory unavailable".into()))?
+    {
+        let account = db
+            .get_account(id)
+            .map_err(|_| Error::DatabaseError("account inventory unavailable".into()))?
+            .ok_or(Error::WalletNotInitialized)?;
+        let derivation = account
+            .source()
+            .key_derivation()
+            .ok_or_else(|| Error::KeyError("account derivation unavailable".into()))?;
+        let index = u32::from(derivation.account_index());
+        if !indices.insert(index) {
+            return Err(Error::KeyError(
+                "ambiguous account derivations; preserve the original wallet".into(),
+            ));
+        }
+        accounts.push((index, id));
+    }
+    accounts.sort_by_key(|(index, _)| *index);
+    if accounts.first().is_some_and(|(index, _)| *index != 0) {
+        return Err(Error::KeyError(
+            "primary account zero is unavailable".into(),
+        ));
+    }
+    Ok(accounts.into_iter().map(|(_, id)| id).collect())
 }

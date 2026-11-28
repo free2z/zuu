@@ -1,4 +1,7 @@
 // Zcash Wallet — flagship wallet UI. Mounted at /wallet/*.
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
+import { PhoneMigration } from "./PhoneMigration";
 import { useEffect } from "react";
 import {
   NavLink,
@@ -38,11 +41,13 @@ const NAV: { to: string; label: string; icon: LucideIcon; end?: boolean }[] = [
 ];
 
 function WalletNav() {
+  const { t } = useTranslation();
   return (
     <nav
       className="mb-6 grid w-full grid-cols-2 gap-1 rounded-lg bg-muted/60 p-1 sm:inline-flex sm:w-auto sm:items-center"
       aria-label="Wallet sections"
     >
+      <NavLink to="/wallet/move" className="min-tap inline-flex items-center rounded-md px-3 py-1.5 text-sm">{t(MESSAGE_KEYS.phoneTitle)}</NavLink>
       {NAV.map(({ to, label, icon: Icon, end }) => (
         <NavLink
           key={to}
@@ -146,6 +151,10 @@ export default function WalletFeature() {
   useEffect(() => {
     if (!status) void bootstrap();
   }, [status, bootstrap]);
+
+  if (location.pathname === "/wallet/move" || (status?.custodyState && !["none", "unchecked", "present"].includes(status.custodyState))) {
+    return <PhoneMigration />;
+  }
 
   // Initial load: skeleton chrome.
   if (!isFunding && loading && !status) {
