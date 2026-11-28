@@ -978,13 +978,29 @@ pub fn validate(request: &ChatRequest) -> Result<(), ApiFailure> {
         ));
     }
     let mut images = 0usize;
+    let mut user_turn_started = false;
     for (index, message) in request.messages.iter().enumerate() {
         let at = |field: &str| format!("messages[{index}].{field}");
-        if message.role == Role::System && index != 0 {
+        if matches!(message.role, Role::System | Role::Developer) && user_turn_started {
             return Err(invalid(
                 &at("role"),
-                "system_not_first",
-                "at most one system message, and only as the first message",
+                "position",
+                "system and developer messages must precede the first user message",
+            ));
+        }
+        if message.role == Role::User {
+            user_turn_started = true;
+        }
+        if matches!(message.role, Role::System | Role::Developer)
+            && let Some(part_index) = message
+                .content
+                .iter()
+                .position(|part| matches!(part, ContentPart::Image { .. }))
+        {
+            return Err(invalid(
+                &format!("messages[{index}].content[{part_index}]"),
+                "image_not_supported_for_role",
+                "system and developer messages accept text parts only",
             ));
         }
         match message.role {
@@ -1153,6 +1169,12 @@ mod tests {
                 json!({"model": "m", "messages": [
                     {"role": "user", "content": []},
                     {"role": "system", "content": []}]}),
+                "messages[1].role",
+            ),
+            (
+                json!({"model": "m", "messages": [
+                    {"role": "user", "content": []},
+                    {"role": "developer", "content": []}]}),
                 "messages[1].role",
             ),
             (

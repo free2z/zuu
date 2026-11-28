@@ -248,12 +248,13 @@ impl<'de> Deserialize<'de> for J {
 /// SUCCESS fixture of that feature must declare. A new feature directory
 /// must be added here, which is the point: a directory the runner does not
 /// know is refused rather than silently skipped.
-pub const FEATURES: [(&str, Option<&str>); 5] = [
+pub const FEATURES: [(&str, Option<&str>); 6] = [
     ("text", None),
     ("sampling", None),
     ("structured_output", Some("structured_output")),
     ("tool_calling", Some("tools")),
     ("reasoning_effort", Some("reasoning_effort")),
+    ("system_messages", None),
 ];
 
 /// Top-level provider-body members a fixture may leave unlisted, per

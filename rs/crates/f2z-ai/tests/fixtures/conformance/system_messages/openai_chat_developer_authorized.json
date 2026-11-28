@@ -1,0 +1,57 @@
+{
+  "name": "openai_chat_developer_authorized",
+  "feature": "system_messages",
+  "source": "OpenAI Chat Completions create API reference, message roles: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create . Synthetic documented shape; no live provider call.",
+  "api_style": "openai_chat",
+  "provider": "openai",
+  "catalog_model": {
+    "controls": {
+      "system_role": "developer"
+    }
+  },
+  "request": {
+    "model": "m-openai_chat",
+    "messages": [
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "text",
+            "text": "Use concise answers."
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question?"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "refusal": null,
+    "encodings": {},
+    "provider_request": {
+      "messages": [
+        {
+          "role": "developer",
+          "content": "Use concise answers."
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "Question?"
+            }
+          ]
+        }
+      ]
+    },
+    "hold_extends": 0
+  }
+}

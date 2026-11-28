@@ -42,15 +42,6 @@
       "service_tier": "default",
       "input": [
         {
-          "role": "system",
-          "content": [
-            {
-              "type": "input_text",
-              "text": "Be brief."
-            }
-          ]
-        },
-        {
           "role": "user",
           "content": [
             {
@@ -66,7 +57,8 @@
       "reasoning": {
         "effort": "medium"
       },
-      "reasoning_effort": null
+      "reasoning_effort": null,
+      "instructions": "Be brief."
     },
     "provider_stream": [
       {

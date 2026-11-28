@@ -1,0 +1,43 @@
+{
+  "name": "openai_responses_system_image_refused",
+  "feature": "system_messages",
+  "source": "OpenAI Responses create API reference, whose instructions are one text field: https://developers.openai.com/api/reference/resources/responses/methods/create . Synthetic documented request shape; no live provider call.",
+  "api_style": "openai_responses",
+  "provider": "openai",
+  "catalog_model": {},
+  "request": {
+    "model": "m-openai-responses",
+    "messages": [
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "image",
+            "media_type": "image/png",
+            "data": "iVBORw0KGgo="
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is shown?"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "refusal": {
+      "status": 400,
+      "code": "invalid_request",
+      "details": {
+        "reason": "image_not_supported_for_role",
+        "field": "messages[0].content[0]"
+      }
+    },
+    "encodings": {}
+  }
+}
