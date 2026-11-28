@@ -104,6 +104,11 @@ def test_migrate_preserves_identity_and_both_urls(historical, reads, source):
     with connection.schema_editor() as editor:
         migration.forwards(apps, editor)
     assert snapshot(apps) == expected_snapshot(before)
+    # The API uses current ORM models, including fields added after 0122.
+    # Keep the historical migration/idempotence assertions above pinned to
+    # 0122, then advance the database to the current schema before HTTP reads.
+    current_executor = MigrationExecutor(connection)
+    current_executor.migrate(current_executor.loader.graph.leaf_nodes())
     with override_settings(ZPAGE_VARIANT_READS=reads):
         client = APIClient()
         for tag in ("yue", "yue-Hant"):

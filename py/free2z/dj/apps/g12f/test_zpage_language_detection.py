@@ -14,6 +14,7 @@ the network, exactly as in ``dj/apps/openai/test_language_detection.py``.
 import uuid
 
 import pytest
+from django.core.management import call_command
 from django.core.cache import cache
 from django.utils import timezone
 from procrastinate.exceptions import AlreadyEnqueued
@@ -25,10 +26,13 @@ from f2z.ai import providers
 from dj.apps.g12f import signals
 from dj.apps.g12f.models import zPage, ZPageVariant
 from dj.apps.g12f.models.zpage import (
+    LANGUAGE_DETECTION_PATH_BATCH,
+    LANGUAGE_DETECTION_PATH_LIVE,
     LANGUAGE_SOURCE_CREATOR,
     LANGUAGE_SOURCE_DETECTED,
     LEGACY_UNDETERMINED_LANGUAGE,
 )
+from dj.apps.g12f.tasks import apply_detection
 from dj.apps.g12f.tasks import DetectionUnavailable, detect_zpage_language
 from dj.apps.openai.models import AIModel
 
@@ -45,6 +49,189 @@ SPANISH_BODY = (
     "mensajes cifrados entre los creadores y las personas que los apoyan en "
     "la plataforma, con ejemplos concretos y capturas de pantalla."
 )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("path", [LANGUAGE_DETECTION_PATH_LIVE,
+                                   LANGUAGE_DETECTION_PATH_BATCH])
+def test_detection_path_is_recorded_for_new_labels(creator_factory, path):
+    page = make_page(creator_factory(), source_language="und",
+                     language_source=None, content="short text")
+    detection = lang.LanguageDetection("es", 0.9)
+
+    apply_detection(page, detection, path=path, reindex=False)
+    page.refresh_from_db()
+
+    assert page.source_language == "es"
+    assert page.language_source == LANGUAGE_SOURCE_DETECTED
+    assert page.language_detection_path == path
+
+
+@pytest.mark.django_db
+def test_legacy_detection_path_stays_unknown(creator_factory):
+    page = make_page(creator_factory(), source_language="es",
+                     language_source=LANGUAGE_SOURCE_DETECTED)
+    assert page.language_detection_path is None
+
+
+@pytest.mark.django_db
+def test_invalid_detection_path_is_rejected(creator_factory):
+    page = make_page(creator_factory(), source_language="und",
+                     language_source=None)
+    with pytest.raises(ValueError, match="path must be"):
+        apply_detection(page, lang.LanguageDetection("es", 0.9),
+                        path="migration", reindex=False)
+
+
+@pytest.mark.django_db
+def test_creator_relabel_clears_detection_path(creator_factory):
+    page = make_page(creator_factory(), source_language="en",
+                     language_source=LANGUAGE_SOURCE_DETECTED,
+                     language_detection_path=LANGUAGE_DETECTION_PATH_BATCH)
+    page.source_language = "oc"
+    page.save()
+    page.refresh_from_db()
+    assert page.language_source == LANGUAGE_SOURCE_CREATOR
+    assert page.language_detection_path is None
+
+
+@pytest.mark.django_db
+def test_stale_text_recheck_does_not_replace_creator_label(creator_factory):
+    page = make_page(creator_factory(), source_language="en",
+                     language_source=LANGUAGE_SOURCE_CREATOR,
+                     content="updated text")
+    apply_detection(page, lang.LanguageDetection("es", 0.9), reindex=False)
+    page.refresh_from_db()
+    assert page.source_language == "en"
+    assert page.language_source == LANGUAGE_SOURCE_CREATOR
+    assert page.language_detection_path is None
+
+
+@pytest.mark.django_db
+def test_aggregate_analysis_is_opt_in_aggregate_only_and_nonmutating(
+    creator_factory,
+):
+    from io import StringIO
+
+    from dj.apps.g12f.management.commands.analyze_zpage_language_labels import (
+        script_mismatch,
+    )
+
+    creator = creator_factory()
+    page = make_page(
+        creator,
+        source_language="sr-Latn",
+        language_source=LANGUAGE_SOURCE_DETECTED,
+        language_detection_path=LANGUAGE_DETECTION_PATH_BATCH,
+        is_published=True,
+        content="Садржај са приватним текстом који не сме у извештај.",
+    )
+    make_page(
+        creator_factory(), source_language="en",
+        language_source=LANGUAGE_SOURCE_CREATOR, is_published=True,
+        content="Manual creator label is excluded.",
+    )
+    make_page(creator_factory(), source_language="qaa", language_source="detected",
+              language_detection_path=LANGUAGE_DETECTION_PATH_LIVE,
+              is_published=True, content="Invalid legacy label.")
+    make_page(creator_factory(), source_language="fr",
+              language_source=LANGUAGE_SOURCE_DETECTED,
+              language_detection_path=LANGUAGE_DETECTION_PATH_LIVE,
+              is_published=True, is_subscriber_only=True)
+    make_page(creator_factory(), source_language="fr",
+              language_source=LANGUAGE_SOURCE_DETECTED,
+              language_detection_path=LANGUAGE_DETECTION_PATH_LIVE,
+              is_published=True)
+    make_page(creator_factory(), source_language="de",
+              language_source=LANGUAGE_SOURCE_DETECTED,
+              language_detection_path=LANGUAGE_DETECTION_PATH_LIVE,
+              is_published=False)
+    inactive_creator = creator_factory()
+    inactive_creator.is_active = False
+    inactive_creator.save(update_fields={"is_active"})
+    make_page(inactive_creator, source_language="de",
+              language_source=LANGUAGE_SOURCE_DETECTED,
+              language_detection_path=LANGUAGE_DETECTION_PATH_LIVE,
+              is_published=True)
+    before = (page.source_language, page.language_source,
+              page.language_detection_path)
+    output = StringIO()
+    call_command("analyze_zpage_language_labels", stdout=output)
+    assert "--scan" in output.getvalue()
+    assert page.content not in output.getvalue()
+    call_command("analyze_zpage_language_labels", "--scan", "--max-pages=2",
+                 "--batch-size=1", "--sample-chars=99", stdout=output)
+    report = output.getvalue()
+    assert "script_mismatch_heuristic=1" in report
+    assert page.content not in report
+    assert all(
+        line.startswith(("Read-only plan:", "scanned=", "path="))
+        or line.startswith("Add --scan")
+        for line in report.splitlines()
+    )
+    assert "stored_primary=en" not in report
+    assert "invalid_or_unknown_language=1" in report
+    assert "qaa" not in report
+    assert "scanned=2 truncated=true" in report
+    assert script_mismatch("sr-Latn", page.content)
+    page.refresh_from_db()
+    assert (page.source_language, page.language_source,
+            page.language_detection_path) == before
+
+
+@pytest.mark.django_db
+def test_aggregate_analysis_rejects_unbounded_or_invalid_limits():
+    from django.core.management.base import CommandError
+
+    with pytest.raises(CommandError):
+        call_command("analyze_zpage_language_labels", "--scan", "--max-pages=0")
+    with pytest.raises(CommandError):
+        call_command("analyze_zpage_language_labels", "--scan",
+                     "--batch-size=501")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("update_fields", [
+    {"language_source"}, {"source_language"},
+])
+def test_targeted_manual_authority_change_clears_path(
+    creator_factory, update_fields,
+):
+    page = make_page(creator_factory(), source_language="en",
+                     language_source=LANGUAGE_SOURCE_DETECTED,
+                     language_detection_path=LANGUAGE_DETECTION_PATH_BATCH)
+    if "source_language" in update_fields:
+        page.source_language = "fr"
+    else:
+        page.language_source = LANGUAGE_SOURCE_CREATOR
+    page.save(update_fields=update_fields)
+    page.refresh_from_db()
+    assert page.language_detection_path is None
+    if "source_language" in update_fields:
+        assert page.language_source == LANGUAGE_SOURCE_CREATOR
+
+
+@pytest.mark.django_db
+def test_content_only_edit_preserves_path_until_detection(creator_factory):
+    page = make_page(creator_factory(), source_language="en",
+                     language_source=LANGUAGE_SOURCE_DETECTED,
+                     language_detection_path=LANGUAGE_DETECTION_PATH_LIVE)
+    page.content = "New body"
+    page.save(update_fields={"content"})
+    page.refresh_from_db()
+    assert page.language_detection_path == LANGUAGE_DETECTION_PATH_LIVE
+
+
+@pytest.mark.django_db
+def test_bulk_authority_change_clears_path(creator_factory):
+    page = make_page(creator_factory(), source_language="en",
+                     language_source=LANGUAGE_SOURCE_DETECTED,
+                     language_detection_path=LANGUAGE_DETECTION_PATH_BATCH)
+    zPage.objects.filter(pk=page.pk).update(
+        language_source=LANGUAGE_SOURCE_CREATOR
+    )
+    page.refresh_from_db()
+    assert page.language_detection_path is None
 
 
 # --------------------------------------------------------------------------- #
