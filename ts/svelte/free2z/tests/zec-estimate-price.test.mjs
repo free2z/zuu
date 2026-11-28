@@ -81,7 +81,11 @@ test("code previews never contaminate the default cached pricing", async () => {
     globalThis,
     "localStorage",
   );
+  const originalWindow = globalThis.window;
   const writes = new Map();
+  // A window is what makes this the browser. Node 26's localStorage alone
+  // is SSR and must not be written.
+  globalThis.window = /** @type {any} */ ({});
   Object.defineProperty(globalThis, "localStorage", {
     configurable: true,
     value: { setItem: (key, value) => writes.set(key, value) },
@@ -104,6 +108,8 @@ test("code previews never contaminate the default cached pricing", async () => {
     });
     assert.deepEqual(JSON.parse(writes.get("f2z_pricing_v1")), price);
   } finally {
+    if (originalWindow === undefined) delete globalThis.window;
+    else globalThis.window = originalWindow;
     if (descriptor)
       Object.defineProperty(globalThis, "localStorage", descriptor);
     else delete globalThis.localStorage;

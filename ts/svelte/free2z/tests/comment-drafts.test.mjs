@@ -250,6 +250,9 @@ test("survives storage being unavailable or throwing", () => {
 });
 
 test("getDraftStorage returns null when sessionStorage is absent (SSR)", () => {
-  assert.equal(typeof sessionStorage, "undefined");
+  // Node 26 exposes sessionStorage with no window. SSR is the absence of
+  // window, and that storage must not be treated as the browser's.
+  assert.equal(typeof window, "undefined");
+  assert.equal(typeof sessionStorage, "object");
   assert.equal(getDraftStorage(), null);
 });

@@ -143,7 +143,8 @@ function requireStorage(storage) {
 }
 
 /**
- * @returns {Storage | null} `localStorage` when it exists, else null.
+ * @returns {Storage | null} Browser `localStorage`, or null during SSR /
+ * when storage is blocked. Node's `localStorage` has no `window`.
  *
  * Deliberately NOT write-probed. An earlier version wrote and deleted a probe
  * entry under `${STORAGE_PREFIX}probe` — which is byte-for-byte the storage key
@@ -154,7 +155,8 @@ function requireStorage(storage) {
  */
 function getKeyStorage() {
   try {
-    return typeof localStorage === "undefined" ? null : localStorage;
+    if (typeof window === "undefined") return null;
+    return localStorage;
   } catch {
     // Accessing the property itself can throw when storage is blocked.
     return null;
