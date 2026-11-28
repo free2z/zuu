@@ -44,5 +44,18 @@
       "label": "Ancien portefeuille conservé",
       "title": "Ancien portefeuille conservé"
     }
+  },
+  "diagnostics": {
+    "title": "Diagnostics",
+    "description": "Rapport local du frontend. Vérifiez-le avant de le copier ou de le partager ; aucun envoi automatique.",
+    "copy": "Copier le rapport",
+    "share": "Partager le rapport",
+    "refresh": "Actualiser",
+    "clear": "Effacer les données du frontend",
+    "copied": "Rapport copié.",
+    "failed": "Action impossible. Vous pouvez sélectionner le rapport ci-dessous.",
+    "nativeUnavailable": "La lecture des paniques natives est indisponible dans cet environnement.",
+    "feedback": "Inclure les diagnostics réduits",
+    "feedbackDescription": "Inclure uniquement les types et nombres de défaillances. Les rapports complets, noms de fichiers et traces restent exclus."
   }
 }

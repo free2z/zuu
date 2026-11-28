@@ -22,13 +22,13 @@ const SUBJECT_PREFIX = "Subject";
 const PRIVATE_ENTROPY_LENGTHS = [16, 20, 24, 28, 32, 48, 64] as const;
 
 describe("feedback privacy boundary", () => {
-  it("has no diagnostics input or traceback capture path", () => {
+  it("has no arbitrary diagnostics input or traceback capture path", () => {
     expect(captureFeedbackDiagnostics.length).toBe(0);
-    expect(captureFeedbackDiagnostics()).toBeNull();
+    expect(scrubFeedbackText(captureFeedbackDiagnostics(), REDACTED_VALUE).findings).toEqual([]);
     // JavaScript callers can violate the TypeScript arity at runtime. Even in
     // that case the implementation ignores the nested native/web exception.
     expect(
-      (captureFeedbackDiagnostics as (...input: unknown[]) => null)({
+      (captureFeedbackDiagnostics as (...input: unknown[]) => string)({
         name: "Error",
         message: "password: correct horse battery staple",
         stack: "at /Users/alice/wallet.ts:42",
@@ -39,7 +39,7 @@ describe("feedback privacy boundary", () => {
           },
         },
       }),
-    ).toBeNull();
+    ).toBe(captureFeedbackDiagnostics());
   });
 
   it.each([

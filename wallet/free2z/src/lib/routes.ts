@@ -20,6 +20,7 @@
  */
 export const APP_ROUTES = {
   home: "/",
+  diagnostics: "/diagnostics",
   login: "/login",
   articles: "/articles/*",
   search: "/search/*",

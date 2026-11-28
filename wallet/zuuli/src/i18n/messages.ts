@@ -5,6 +5,18 @@
  * hard failure in every locale.
  */
 export const MESSAGE_KEYS = {
+  diagnosticsTitle: "diagnostics.title",
+  diagnosticsDescription: "diagnostics.description",
+  diagnosticsCopy: "diagnostics.copy",
+  diagnosticsShare: "diagnostics.share",
+  diagnosticsRefresh: "diagnostics.refresh",
+  diagnosticsClear: "diagnostics.clear",
+  diagnosticsCopied: "diagnostics.copied",
+  diagnosticsFailed: "diagnostics.failed",
+  diagnosticsNativeUnavailable: "diagnostics.nativeUnavailable",
+  diagnosticsFeedback: "diagnostics.feedback",
+  diagnosticsFeedbackDescription: "diagnostics.feedbackDescription",
+
   commonLoading: "common.loading",
   commonPending: "common.pending",
   commonRetry: "common.retry",

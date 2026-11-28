@@ -1,6 +1,8 @@
 import {
   type DiagnosticFrame,
   scrubIdentifier,
+  scrubSource,
+  MAX_STACK_FRAMES,
   scrubStack,
   scrubText,
 } from "./redact";
@@ -154,7 +156,7 @@ function reviveFrame(value: unknown): DiagnosticFrame | null {
   if (typeof candidate.source !== "string") return null;
   return {
     fn: scrubIdentifier(candidate.fn),
-    source: scrubText(candidate.source),
+    source: scrubSource(candidate.source),
     line: typeof candidate.line === "number" ? Math.trunc(candidate.line) : 0,
     column:
       typeof candidate.column === "number" ? Math.trunc(candidate.column) : 0,
@@ -187,10 +189,11 @@ export function reviveDiagnosticEvent(value: unknown): DiagnosticEvent | null {
   const candidate = value as Record<string, unknown>;
   if (!isDiagnosticKind(candidate.kind)) return null;
   const frames = Array.isArray(candidate.frames)
-    ? candidate.frames.map(reviveFrame).filter((f): f is DiagnosticFrame => !!f)
+    ? candidate.frames.slice(0, MAX_STACK_FRAMES).map(reviveFrame).filter((f): f is DiagnosticFrame => !!f)
     : [];
   const breadcrumbs = Array.isArray(candidate.breadcrumbs)
     ? candidate.breadcrumbs
+        .slice(-12)
         .map(reviveBreadcrumb)
         .filter((c): c is DiagnosticBreadcrumb => !!c)
     : [];

@@ -112,7 +112,7 @@ interface PersistedShape {
 function positiveCapacity(value: number | undefined, fallback: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   const rounded = Math.trunc(value);
-  return rounded > 0 ? rounded : fallback;
+  return rounded > 0 ? Math.min(rounded, fallback) : fallback;
 }
 
 /**
@@ -207,7 +207,7 @@ export class DiagnosticsStore {
 
   private load(): DiagnosticEvent[] {
     const raw = this.persistence?.read();
-    if (!raw) return [];
+    if (!raw || raw.length > MAX_PERSISTED_CHARACTERS) return [];
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -223,6 +223,7 @@ export class DiagnosticsStore {
     if (!environment || environment.app !== this.environment.app) return [];
     if (!Array.isArray(payload.events)) return [];
     const events = payload.events
+      .slice(-this.eventCapacity)
       .map(reviveDiagnosticEvent)
       .filter((event): event is DiagnosticEvent => event !== null);
     return events.slice(-this.eventCapacity);

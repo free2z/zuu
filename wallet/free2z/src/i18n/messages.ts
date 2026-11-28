@@ -9,6 +9,16 @@
  * from importing another (#904, #906).
  */
 export const MESSAGE_KEYS = {
+  diagnosticsTitle: "diagnostics.title",
+  diagnosticsDescription: "diagnostics.description",
+  diagnosticsCopy: "diagnostics.copy",
+  diagnosticsShare: "diagnostics.share",
+  diagnosticsRefresh: "diagnostics.refresh",
+  diagnosticsClear: "diagnostics.clear",
+  diagnosticsCopied: "diagnostics.copied",
+  diagnosticsFailed: "diagnostics.failed",
+  diagnosticsNativeFree2z: "diagnostics.nativeFree2z",
+
   appName: "app.name",
   appTagline: "app.tagline",
   articlesSearchAccessible: "articles.searchAccessible",
