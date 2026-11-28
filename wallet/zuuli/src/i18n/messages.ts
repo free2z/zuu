@@ -5,6 +5,24 @@
  * hard failure in every locale.
  */
 export const MESSAGE_KEYS = {
+  notificationsTitle: "notifications.title",
+  notificationsPrivacy: "notifications.privacy",
+  notificationsLimit: "notifications.limit",
+  notificationsUnsupported: "notifications.unsupported",
+  notificationsUnconfigured: "notifications.unconfigured",
+  notificationsOff: "notifications.off",
+  notificationsDenied: "notifications.denied",
+  notificationsWaiting: "notifications.waiting",
+  notificationsEnabled: "notifications.enabled",
+  notificationsQueued: "notifications.queued",
+  notificationsExpired: "notifications.expired",
+  notificationsRevoking: "notifications.revoking",
+  notificationsUnavailable: "notifications.unavailable",
+  notificationsVerified: "notifications.verified",
+  notificationsEnable: "notifications.enable",
+  notificationsDisable: "notifications.disable",
+  notificationsTest: "notifications.test",
+
   commonLoading: "common.loading",
   commonPending: "common.pending",
   commonRetry: "common.retry",

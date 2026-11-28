@@ -4,6 +4,8 @@
   "platforms": ["linux", "macOS", "windows"],
   "windows": ["main"],
   "permissions": [
+    "notify:allow-status",
+
     "core:default",
     "opener:default",
     "zcash:default",

@@ -5,6 +5,12 @@
   "platforms": ["iOS", "android"],
   "windows": ["main"],
   "permissions": [
+    "notify:allow-status",
+    "notify:allow-enable",
+    "notify:allow-disable",
+    "notify:allow-reconcile",
+    "notify:allow-test-wake",
+
     "core:default",
     "deep-link:default",
     "opener:default",

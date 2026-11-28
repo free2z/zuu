@@ -44,5 +44,24 @@
       "label": "Billetera anterior conservada",
       "title": "Billetera anterior conservada"
     }
+  },
+  "notifications": {
+    "title": "Notificaciones de activación privadas",
+    "privacy": "Desactivadas por defecto. Al activarlas, el operador y Apple (iOS) o Google (Android) reciben un token estable del dispositivo, tu dirección IP y los horarios de notificación. Las colas separadas no impiden la correlación. No se envían cuentas, direcciones de billetera, importes, memos ni remitentes.",
+    "limit": "Las activaciones silenciosas no prueban un pago. No se garantizan la entrega ni la ejecución en segundo plano. Abre ZUULI para que su sincronización autorizada verifique los pagos. El registro caduca en 24 horas; al desactivar sin conexión queda pendiente la caducidad en el servidor.",
+    "unsupported": "Las notificaciones remotas no están disponibles en este navegador ni en esta versión de escritorio. Las notificaciones locales de escritorio son independientes.",
+    "unconfigured": "La validación privada del dispositivo no está configurada. El lanzamiento público sigue desactivado.",
+    "off": "Las notificaciones están desactivadas.",
+    "denied": "El permiso está denegado o revocado. Revisa los ajustes del sistema antes de volver a intentarlo.",
+    "waiting": "Esperando el token del sistema. El registro finalizará automáticamente; no hace falta volver a dar consentimiento.",
+    "enabled": "El registro privado de activación está activo. No detecta pagos.",
+    "queued": "Se ha encolado una activación de prueba para este dispositivo. La entrega no está confirmada.",
+    "expired": "El registro ha caducado. Desactívalo y obtén una nueva configuración de validación privada.",
+    "revoking": "Desactivadas localmente. La revocación del servidor está pendiente; abre la aplicación en línea o espera hasta 24 horas.",
+    "unavailable": "El servicio no está disponible. No se confirma ninguna entrega.",
+    "verified": "Se ha verificado una activación firmada. El estado del pago depende de la sincronización.",
+    "enable": "Activar con este coste de privacidad",
+    "disable": "Desactivar y revocar",
+    "test": "Probar solo este dispositivo"
   }
 }

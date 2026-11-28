@@ -1,0 +1,21 @@
+[package]
+name = "f2z-notify"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97"
+license = "AGPL-3.0-only"
+publish = false
+[dependencies]
+f2z-notify-proto = { path = "../f2z-notify-proto", version = "0.1.0" }
+axum = { version = "0.8", features = ["json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
+serde_json = "1"
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "http2", "json", "stream"] }
+sha2 = "0.10"
+subtle = "2"
+hex = "0.4"
+ed25519-dalek = { workspace = true }
+zeroize = "1"
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+getrandom = "0.3"

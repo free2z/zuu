@@ -101,6 +101,9 @@ MANIFESTS=(
   rs/crates/f2z-ai-testkit/Cargo.toml
   # The Rust SDK core (#1070): OAuth, token store, balance, purchases and the
   # /v1/chat client. MIT, linked by the Tauri plugin and third-party apps.
+  rs/crates/f2z-notify/Cargo.toml
+  rs/crates/f2z-notify-proto/Cargo.toml
+  wallet/plugins/tauri-plugin-notify/Cargo.toml
   rs/crates/f2z-sdk/Cargo.toml
 )
 

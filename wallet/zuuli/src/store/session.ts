@@ -1,3 +1,4 @@
+import { notificationCommand } from "@/lib/notifications/bridge";
 import { create } from "zustand";
 import { auth } from "@/lib/api/free2z";
 import { ApiError, isAuthed, setToken } from "@/lib/api/http";
@@ -90,7 +91,14 @@ export const useSession = create<SessionState>((set, get) => ({
     // that request fails, the draft must not survive for another account.
     discardPaidIntent();
     set({ user: null, tuzis: 0 });
-    await auth.logout();
+    // These authorities are independent: account revocation must not wait for
+    // an offline notification provider, and native disable must still settle
+    // if account logout rejects. Neither receives the other's credentials.
+    const [, account] = await Promise.allSettled([
+      notificationCommand("disable"),
+      auth.logout(),
+    ]);
+    if (account.status === "rejected") throw account.reason;
   },
 
   adjustTuzis(delta) {

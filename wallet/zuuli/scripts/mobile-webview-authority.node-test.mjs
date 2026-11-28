@@ -13,6 +13,11 @@ function fixture() {
       platforms: ["iOS", "android"],
       windows: ["main"],
       permissions: [
+        "notify:allow-status",
+        "notify:allow-enable",
+        "notify:allow-disable",
+        "notify:allow-reconcile",
+        "notify:allow-test-wake",
         "core:default",
         "deep-link:default",
         "opener:default",
@@ -40,6 +45,50 @@ function fixture() {
 test("the reviewed native capability and frame boundary passes", () => {
   const { mobile, tauri } = fixture();
   assert.doesNotThrow(() => assertMobileWebviewAuthority(mobile, tauri));
+});
+
+test("notification authority requires exactly the five public named commands", () => {
+  for (const required of [
+    "notify:allow-status",
+    "notify:allow-enable",
+    "notify:allow-disable",
+    "notify:allow-reconcile",
+    "notify:allow-test-wake",
+  ]) {
+    const { mobile, tauri } = fixture();
+    mobile.permissions = mobile.permissions.filter(
+      (permission) => permission !== required,
+    );
+    assert.throws(
+      () => assertMobileWebviewAuthority(mobile, tauri),
+      /mobile non-wallet permissions differs/,
+      required,
+    );
+  }
+  for (const forbidden of [
+    "notify:default",
+    "notify:allow-save",
+    "notify:allow-clear",
+    "notify:allow-start",
+    "notify:allow-payment",
+  ]) {
+    const { mobile, tauri } = fixture();
+    mobile.permissions.push(forbidden);
+    assert.throws(
+      () => assertMobileWebviewAuthority(mobile, tauri),
+      /mobile non-wallet permissions differs/,
+      forbidden,
+    );
+  }
+  const { mobile, tauri } = fixture();
+  mobile.permissions[0] = {
+    identifier: "notify:allow-status",
+    allow: [{ url: "https://example.com/*" }],
+  };
+  assert.throws(
+    () => assertMobileWebviewAuthority(mobile, tauri),
+    /only the reviewed mobile HTTP permission may carry scope data/,
+  );
 });
 
 /**

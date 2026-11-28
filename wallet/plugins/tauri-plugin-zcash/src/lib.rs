@@ -32,6 +32,15 @@ use desktop::Zcash;
 #[cfg(mobile)]
 use mobile::Zcash;
 
+/// Optional host-owned disconnect fence before deleting an active wallet. It carries
+/// no wallet/account identifiers, and executes before any destructive transition.
+pub type WalletDisconnectFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = std::result::Result<(), String>> + Send>>;
+/// Host-owned, receive-only notification revocation fence.
+pub struct WalletDisconnectHook<R: Runtime>(
+    pub Box<dyn Fn(tauri::AppHandle<R>) -> WalletDisconnectFuture + Send + Sync>,
+);
+
 /// Extensions to [`tauri::App`], [`tauri::AppHandle`] and [`tauri::Window`] to access the Zcash APIs.
 pub trait ZcashExt<R: Runtime> {
     fn zcash(&self) -> &Zcash<R>;

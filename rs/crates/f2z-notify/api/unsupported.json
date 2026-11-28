@@ -1,0 +1,29 @@
+{
+  "owner": "zuuli/notifications",
+  "api": "openapi.json",
+  "client": "../../f2z-notify-proto/src/lib.rs",
+  "mcp": {
+    "supported": [],
+    "unsupported": [
+      {
+        "operationId": "notifyRegister",
+        "reason": "No account/MCP authority to register devices, revoke consent or send push. Native private acceptance only."
+      },
+      {
+        "operationId": "notifyRotate",
+        "reason": "No account/MCP authority to register devices, revoke consent or send push. Native private acceptance only."
+      },
+      {
+        "operationId": "notifyRevoke",
+        "reason": "No account/MCP authority to register devices, revoke consent or send push. Native private acceptance only."
+      },
+      {
+        "operationId": "notifyWake",
+        "reason": "No account/MCP authority to register devices, revoke consent or send push. Native private acceptance only."
+      }
+    ]
+  },
+  "arbitraryUrls": false,
+  "contentQueueBinding": "unimplemented; relay WIRE v1 unchanged",
+  "accountRelations": []
+}
