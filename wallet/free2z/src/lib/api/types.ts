@@ -57,6 +57,14 @@ export interface CreatorDetail {
   p2paddr?: string | null;
 }
 
+/** Viewer-specific state from GET/PUT/DELETE /api/creator/{username}/follow/. */
+export interface CreatorFollowState {
+  username: string;
+  following: boolean;
+  follower_count: number;
+  following_count: number;
+}
+
 export interface AuthUser {
   id?: number;
   username: string;
