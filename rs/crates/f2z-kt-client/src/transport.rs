@@ -208,6 +208,18 @@ impl HttpTransport {
         }
     }
 
+    /// Supply a host-owned resolver, for example one that retains a privacy
+    /// transition lease until OS DNS has really completed. Keeps the reviewed
+    /// origin, timeouts and response semantics of this transport.
+    pub fn with_resolver(mut self, resolver: impl ureq::unversioned::resolver::Resolver) -> Self {
+        self.agent = ureq::Agent::with_parts(
+            self.agent.config().clone(),
+            ureq::unversioned::transport::DefaultConnector::default(),
+            resolver,
+        );
+        self
+    }
+
     fn get(&self, path: &str) -> Result<Vec<u8>, ClientError> {
         let url = format!("{}{path}", self.base);
         let response = self

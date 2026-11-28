@@ -143,6 +143,10 @@ pub struct UnenrollArgs {
 /// §3.2 `f2zmsg_enrollment_status`. Reads the store; needs no seed.
 #[tauri::command]
 pub async fn f2zmsg_enrollment_status<R: Runtime>(app: AppHandle<R>) -> Result<EnrollmentStatus> {
+    let _network = zuuli_transport::global()
+        .direct()
+        .await
+        .map_err(|_| Error::internal("enrollment unavailable in Tor mode"))?;
     app.f2zmsg().engine()?.enrollment_status().await
 }
 
@@ -161,6 +165,10 @@ pub async fn f2zmsg_enroll<R: Runtime>(
     app: AppHandle<R>,
     args: EnrollArgs,
 ) -> Result<EnrollmentStatus> {
+    let _network = zuuli_transport::global()
+        .direct()
+        .await
+        .map_err(|_| Error::internal("enrollment unavailable in Tor mode"))?;
     let engine = app.f2zmsg().engine_handle()?;
 
     let status = engine.enrollment_status().await?;
@@ -359,6 +367,10 @@ pub async fn f2zmsg_unenroll<R: Runtime>(
     app: AppHandle<R>,
     args: UnenrollArgs,
 ) -> Result<EnrollmentStatus> {
+    let _network = zuuli_transport::global()
+        .direct()
+        .await
+        .map_err(|_| Error::internal("enrollment unavailable in Tor mode"))?;
     app.f2zmsg().engine()?.unenroll(&args.confirmation).await
 }
 

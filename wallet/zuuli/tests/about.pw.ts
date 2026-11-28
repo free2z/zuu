@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
 import { expect, test } from "@playwright/test";
@@ -59,7 +60,7 @@ test("copy uses the complete stable minimal block and announces completion", asy
     origin: new URL(page.url()).origin,
   });
   await page.getByRole("button", { name: "Copy build info" }).click();
-  await expect(page.getByRole("status")).toHaveText("Build info copied.");
+  await expect(page.locator("[data-about-build-card]").getByRole("status")).toHaveText("Build info copied.");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   // Middle, tail-weighted truncation (see #829) — reuses truncateAddress's
   // default 8-head/10-tail split rather than a head-only prefix.
@@ -68,7 +69,9 @@ test("copy uses the complete stable minimal block and announces completion", asy
       `^ZUULI\\nVersion: ${RELEASE.version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` +
         `\\nBuild: ${RELEASE.build}` +
         "\\nRelease channel: Internal\\nPlatform: Web" +
-        "\\nSource commit: [0-9a-f]{8}…[0-9a-f]{10}$",
+        (execFileSync("git", ["status", "--porcelain"], { encoding: "utf8" }).trim()
+          ? "\\nSource commit: Unavailable in this build$"
+          : "\\nSource commit: [0-9a-f]{8}…[0-9a-f]{10}$"),
     ),
   );
   expect(copied).not.toMatch(/wallet|balance|device|address|\/Users\//i);
@@ -99,7 +102,7 @@ test.describe("pseudo-expanded shipping locale", () => {
       origin: new URL(page.url()).origin,
     });
     await page.keyboard.press("Enter");
-    await expect(page.getByRole("status")).toHaveText(
+    await expect(page.locator("[data-about-build-card]").getByRole("status")).toHaveText(
       PSEUDO_ABOUT_MESSAGES.copySuccess,
     );
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(

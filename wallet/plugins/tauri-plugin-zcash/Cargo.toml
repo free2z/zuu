@@ -19,6 +19,7 @@ production-route-probe = [
 ]
 
 [dependencies]
+zuuli-transport = { path = "../../zuuli-transport" }
 tauri = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }

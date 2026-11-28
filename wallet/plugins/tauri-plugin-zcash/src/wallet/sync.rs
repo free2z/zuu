@@ -30,7 +30,7 @@ use crate::models::SyncStatus;
 use crate::wallet::WalletDatabase;
 use crate::wallet::WalletState;
 use crate::wallet::cache::MemBlockCache;
-use crate::wallet::client::connect_to_lightwalletd;
+use crate::wallet::client::connect_at_epoch;
 
 /// Longest interval between sync re-checks once the wallet is caught up (30s).
 ///
@@ -957,6 +957,7 @@ async fn sync_task<R: Runtime>(
     last_known_chain_tip: Arc<AtomicU64>,
     last_sync_error: Arc<RwLock<Option<String>>>,
 ) {
+    let transport_epoch = zuuli_transport::global().status().epoch;
     tracing::info!("sync started with endpoint: {}", lightwalletd_url);
 
     // Ordered endpoint rotation: the configured endpoint first, then any
@@ -974,7 +975,7 @@ async fn sync_task<R: Runtime>(
     let mut consecutive_failures = 0u32;
 
     // Connect to lightwalletd
-    let mut client = match connect_to_lightwalletd(&lightwalletd_url).await {
+    let mut client = match connect_at_epoch(&lightwalletd_url, transport_epoch).await {
         Ok(c) => c,
         Err(e) => {
             let msg = format!("Can't reach the Zcash network: {e}");
@@ -1074,7 +1075,7 @@ async fn sync_task<R: Runtime>(
                     tracing::warn!(
                         "rotating lightwalletd endpoint after {consecutive_failures} consecutive failures -> {next}"
                     );
-                    match connect_to_lightwalletd(&next).await {
+                    match connect_at_epoch(&next, transport_epoch).await {
                         Ok(c) => {
                             client = c;
                             // A different server deserves a clean slate: whatever

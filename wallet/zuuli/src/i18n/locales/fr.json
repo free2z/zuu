@@ -44,5 +44,24 @@
       "label": "Ancien portefeuille conservé",
       "title": "Ancien portefeuille conservé"
     }
+  },
+  "tor": {
+    "title": "Tor pour les connexions du portefeuille",
+    "scope": "Les RPC du portefeuille utilisent votre service Tor local. L’API Free2Z, l’inscription, les téléchargements de paramètres et les liens externes sont bloqués quand Tor est activé. Les autres applications ne sont pas couvertes.",
+    "enable": "Activer Tor",
+    "disable": "Désactiver Tor",
+    "reconnect": "Reconnecter",
+    "advanced": "Diagnostic avancé",
+    "details": "Nécessite un service Tor SOCKS5 indépendant sur 127.0.0.1:9050. Les noms d’hôte sont transmis au proxy. ZUULI ne lance pas Tor, ne vérifie pas son identité et ne mesure pas sa progression de démarrage. Une connexion au proxy ne prouve pas qu’il s’agit de Tor. Au retour de l’arrière-plan ou après un changement de réseau, choisissez Reconnecter.",
+    "mobile": "La validation sur appareils Android et iOS signés reste ouverte. Aucun service Tor mobile intégré ni protection de tout le système n’est fourni.",
+    "epoch": "Époque de connexion",
+    "direct": "Connexion directe",
+    "waiting": "En attente d’une requête du portefeuille via le proxy",
+    "proxyConnected": "Proxy connecté · identité Tor non vérifiée",
+    "degraded": "Proxy indisponible · aucun repli en connexion directe",
+    "suspended": "Connexions en pause · reconnectez pour continuer",
+    "web": "Disponible uniquement dans l’application native",
+    "loading": "Lecture de l’état de connexion",
+    "error": "Échec du changement de connexion · vérifiez l’état natif avant de continuer"
   }
 }

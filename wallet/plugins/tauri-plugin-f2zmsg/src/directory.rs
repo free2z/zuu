@@ -579,8 +579,12 @@ impl KtDirectory {
             u32::try_from(witnesses.iter().filter(|w| w.independent).count()).unwrap_or(u32::MAX);
         let witnesses = WitnessSet::new(witnesses, config.threshold).map_err(map_kt_error)?;
 
-        let transport = HttpTransport::new(&config.base_url, config.timeout).map_err(map_error)?;
-        let submitter = HttpTransport::new(&config.base_url, config.timeout).map_err(map_error)?;
+        let transport = HttpTransport::new(&config.base_url, config.timeout)
+            .map_err(map_error)?
+            .with_resolver(PrivacyResolver);
+        let submitter = HttpTransport::new(&config.base_url, config.timeout)
+            .map_err(map_error)?
+            .with_resolver(PrivacyResolver);
         let checkpoint = match &checkpoints {
             Some(store) => store.load()?,
             None => None,
@@ -1762,5 +1766,44 @@ mod tests {
             directory.resolve("alice").unwrap_err().code(),
             ErrorCode::EngineLocked
         );
+    }
+}
+
+/// Synchronous resolver: unlike ureq's timeout resolver it never detaches a
+/// DNS thread. A privacy transition waits for the actual OS lookup to finish.
+#[derive(Debug)]
+struct PrivacyResolver;
+impl ureq::unversioned::resolver::Resolver for PrivacyResolver {
+    fn resolve(
+        &self,
+        uri: &ureq::http::Uri,
+        _config: &ureq::config::Config,
+        _timeout: ureq::unversioned::transport::NextTimeout,
+    ) -> std::result::Result<ureq::unversioned::resolver::ResolvedSocketAddrs, ureq::Error> {
+        let _lease = zuuli_transport::global()
+            .direct_now()
+            .map_err(ureq::Error::Io)?;
+        use std::net::ToSocketAddrs;
+        let host = uri.host().ok_or(ureq::Error::HostNotFound)?;
+        let port = uri
+            .port_u16()
+            .unwrap_or(if uri.scheme_str() == Some("https") {
+                443
+            } else {
+                80
+            });
+        let mut result = self.empty();
+        for address in (host, port)
+            .to_socket_addrs()
+            .map_err(ureq::Error::Io)?
+            .take(16)
+        {
+            result.push(address);
+        }
+        if result.is_empty() {
+            Err(ureq::Error::HostNotFound)
+        } else {
+            Ok(result)
+        }
     }
 }
