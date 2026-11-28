@@ -44,5 +44,38 @@
       "label": "Billetera anterior conservada",
       "title": "Billetera anterior conservada"
     }
+  },
+  "phone": {
+    "title": "Cambiar de teléfono",
+    "limitation": "Antes de empezar: no se admite la transferencia autenticada entre teléfonos ni archivos de copia cifrada portátil. Quick Start, Smart Switch y las copias de aplicaciones no recuperan las claves de la cartera. Este proceso usa tu frase de recuperación sin conexión en la aplicación nativa de iPhone o Android, incluso entre plataformas. No admite contraseñas BIP39 ni cuentas de solo visualización. La cartera nativa actual requiere la cuenta ZIP32 cero como principal; también recupera cuentas HD adicionales con índices no consecutivos. Las carteras sin cuenta cero no deben usar este proceso.",
+    "preserve": "Conserva el teléfono original, los archivos de recuperación y los registros de pagos pendientes. No restablezcas, desinstales ni borres ninguna instalación durante la recuperación.",
+    "old": "1. En el teléfono anterior",
+    "oldSteps": "Para cada cartera, guarda los metadatos siguientes y comprueba que tienes su frase sin conexión. Autentícate para ver las palabras en privado en la aplicación nativa. Guarda los metadatos con la copia sin conexión; contienen direcciones e identificadores del historial, así que no los publiques.",
+    "inventory": "Leer metadatos de esta cartera",
+    "backup": "Autenticar para la copia nativa sin conexión",
+    "new": "2. En el teléfono nuevo",
+    "newSteps": "Instala ZUULI, abre esta pantalla e introduce los metadatos esperados del teléfono anterior o del registro sin conexión. Recupera una vez por cada frase. Si los datos de la cartera ya existen, selecciónala y recupera sus claves allí; nunca importes otra copia. La recuperación nativa pide las palabras sin enviarlas a esta página.",
+    "unavailable": "¿No tienes el teléfono anterior? Necesitas la frase correcta sin conexión y un inventario de cuentas, direcciones y alturas de cumpleaños. Sin la frase, ZUULI y Free2Z no pueden recuperar los fondos. Sin metadatos no se verifica el descubrimiento de todas las cuentas; conserva las copias y pide ayuda antes de continuar. Si estás sin conexión o se interrumpe el proceso, conserva los datos y vuelve a intentarlo al conectarte.",
+    "metadata": "Metadatos esperados (nunca palabras de recuperación)",
+    "metadataNote": "Compara la red, cada índice de cuenta ZIP32, altura y dirección con el registro sin conexión de confianza. Estas instrucciones no son una copia autenticada y no prueban la recuperación por sí mismas.",
+    "consent": "He comprobado los metadatos esperados y quiero abrir la recuperación nativa. Conservaré el teléfono original y las copias.",
+    "recover": "Abrir recuperación nativa",
+    "checks": "3. Verificar en el teléfono nuevo",
+    "checkSteps": "Reinicia ZUULI, compara todas las cuentas y direcciones esperadas y autentícate abajo. Las comprobaciones nativas requieren claves utilizables para cada derivación, alturas coincidentes, una punta de cadena reciente, sincronización completa e historial esperado. Sincronizar o estar sin conexión no es un saldo cero verificado. Resuelve los pagos pendientes o inciertos en la cartera original sin crear otro pago.",
+    "verify": "Autenticar y comprobar cartera nativa",
+    "scope": "{count, plural, one {# cartera en esta instalación. Comprueba cada frase por separado.} other {# carteras en esta instalación. Comprueba cada frase por separado.}}",
+    "checked": "Comprobaciones nativas superadas para esta cartera ahora. La verificación de dispositivos y pagos sigue pendiente.",
+    "incomplete": "Recuperación no verificada. Continúa la sincronización y compara el historial original; una aplicación copiada o un saldo vacío no son prueba.",
+    "error": "No se pudo verificar la recuperación. No se registra ningún éxito. Conserva ambas instalaciones y los archivos de copia. Desbloquea el dispositivo y reintenta; comprueba la frase, la red y los metadatos. Las claves de dispositivo ausentes o incompatibles requieren recuperación sin conexión. La entrada nativa solo está disponible en iPhone y Android.",
+    "external": "No borres el teléfono anterior basándote en esta pantalla. Aún deben verificarse por separado el reinicio en un dispositivo real, la migración del sistema, la copia de recuperación y un pago de prueba autorizado explícitamente.",
+    "family": "4. Free2Z y e2e2z",
+    "familySteps": "El acceso a Free2Z es independiente de las claves de la cartera: vuelve a iniciar sesión. e2e2z necesita una nueva inscripción de dispositivo a través de ZUULI con aprobación nativa; la copia del sistema no debe clonar la autorización. Las claves de dispositivo, el historial de mensajes, las colas y los borradores locales no se recuperan con la frase. Conserva la instalación de mensajería anterior y revisa por separado la revocación de su dispositivo; aquí no se revoca ni borra automáticamente.",
+    "separate": "Esta frase pertenece a otra cartera. Añadir una identidad separada y conservar las carteras existentes.",
+    "source": "Metadatos de este teléfono",
+    "wallet": "Identidad de cartera",
+    "missing": "Hay datos de la cartera sin claves de dispositivo utilizables. Usa aquí la copia de recuperación sin conexión; conserva el teléfono anterior y los archivos originales. La sustitución automática está bloqueada.",
+    "corrupt": "No se pudo autenticar el registro cifrado. Comprueba tu frase sin conexión y los metadatos. Conserva los datos originales; si persisten los fallos de la clave del dispositivo, recupera en un destino limpio en vez de borrar esta instalación.",
+    "locked": "La autenticación nativa se canceló o no terminó. Desbloquea este dispositivo, vuelve a ZUULI y reintenta. Si el inicio sigue bloqueado, reinicia ZUULI después de desbloquear. Los datos de recuperación originales se conservan.",
+    "files": "No se pudieron verificar los archivos o el inventario de claves. Desbloquea y reinicia ZUULI una vez. Si sigue bloqueado, conserva esta instalación y usa la copia sin conexión y los metadatos en un destino limpio; nunca borres los datos para evitar esta pantalla."
   }
 }

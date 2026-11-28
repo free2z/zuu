@@ -1,4 +1,6 @@
 // Create / restore onboarding, shown when no wallet is initialized.
+import { useTranslation } from "react-i18next";
+import { MESSAGE_KEYS } from "@/i18n/messages";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -29,6 +31,7 @@ import {
 import { useSensitiveMnemonicEntry } from "@/lib/wallet/sensitive-entry";
 
 export function Onboarding() {
+  const { t } = useTranslation();
   const bootstrap = useWallet((s) => s.bootstrap);
   const status = useWallet((s) => s.status);
   const activeWallet = useWallet((s) => s.activeWallet);
@@ -104,6 +107,7 @@ export function Onboarding() {
         </p>
       </div>
 
+      <a className="min-tap inline-flex text-link underline" href="/wallet/move">{t(MESSAGE_KEYS.phoneTitle)}</a>
       <Tabs defaultValue="create">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="create">Create new</TabsTrigger>

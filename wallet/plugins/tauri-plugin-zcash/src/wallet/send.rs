@@ -1466,9 +1466,7 @@ where
     <DbT as WalletRead>::Error: std::fmt::Debug + std::fmt::Display,
     ParamsT: consensus::Parameters + Clone,
 {
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|error| Error::DatabaseError(format!("{error}")))?;
+    let account_ids = super::accounts::ordered_account_ids(db)?;
     let account_id = account_ids
         .first()
         .copied()
@@ -1507,9 +1505,7 @@ where
     let summary = self::native::wallet_summary_with_policy(db)
         .map_err(|error| Error::DatabaseError(format!("{error}")))?
         .ok_or(Error::SendError("no wallet summary available".into()))?;
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|error| Error::DatabaseError(format!("{error}")))?;
+    let account_ids = super::accounts::ordered_account_ids(db)?;
     let account_id = account_ids
         .first()
         .copied()
@@ -1596,9 +1592,7 @@ where
     <DbT as WalletRead>::Error: std::fmt::Debug + std::fmt::Display,
     ParamsT: consensus::Parameters + Clone,
 {
-    let account_ids = db
-        .get_account_ids()
-        .map_err(|error| Error::DatabaseError(format!("{error}")))?;
+    let account_ids = super::accounts::ordered_account_ids(db)?;
     let account_id = account_ids
         .first()
         .copied()
@@ -2527,6 +2521,36 @@ pub mod production_route_probe {
         let mut state =
             TestDsl::with_sapling_birthday_account(TestDbFactory::default(), BlockCache::new())
                 .build::<OrchardPoolTester>();
+        // Controlled multi-account recovery: force the backend's UUID-index
+        // enumeration to put a non-primary account first. The exact shipping
+        // callers must still fund, review and create transactions for ZIP32 zero.
+        let primary_id = state.get_account().id();
+        let seed = secrecy::SecretVec::new(state.test_seed().unwrap().expose_secret().clone());
+        let birthday = state.get_account().birthday().clone();
+        state
+            .wallet_mut()
+            .import_account_hd(
+                "Recovered account 7",
+                &seed,
+                zip32::AccountId::try_from(7).unwrap(),
+                &birthday,
+                None,
+            )
+            .unwrap();
+        state
+            .wallet_mut()
+            .conn_mut()
+            .execute(
+                "UPDATE accounts SET uuid = ?1 WHERE hd_account_index = 7",
+                [[0_u8; 16].as_slice()],
+            )
+            .unwrap();
+        assert_ne!(state.wallet().get_account_ids().unwrap()[0], primary_id);
+        assert_eq!(
+            crate::wallet::accounts::ordered_account_ids(state.wallet()).unwrap()[0],
+            primary_id
+        );
+
         for _ in 0..3 {
             let (_, _, _) =
                 state.add_a_single_note_checking_balance(Zatoshis::const_from_u64(EACH_NOTE_VALUE));
