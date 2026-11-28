@@ -116,6 +116,10 @@ export async function execute(
   readOnly = false,
 ) {
   const op = getOperation(input.operation_id);
+  if (op.id.startsWith("oidc_app_transfer"))
+    throw new Error(
+      "App ownership transfer is unavailable through MCP; use the browser consent flow.",
+    );
   if (readOnly && op.method !== "GET")
     throw new Error(
       "free2z_read only accepts GET operations; use free2z_execute for mutations.",

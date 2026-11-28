@@ -833,3 +833,76 @@ def test_one_app_cannot_throttle_another_app_for_the_same_user(buyer, app, creat
     assert create(first, key="a-over", suffix="a-over")[0].status_code == 429
     second = bearer(oauth_token(buyer, other_app, "purchase:create"))
     assert create(second, key="b0", suffix="b0")[0].status_code == 201
+
+
+@pytest.mark.django_db(transaction=True)
+def test_oauth_purchase_admission_serializes_with_app_transfer(buyer, app, creator_factory, monkeypatch):
+    """The actual SDK checkout cannot cross an ownership change mid-admission."""
+    import threading
+    from django.db import close_old_connections
+    from dj.apps.oidc import consent
+
+    recipient = creator_factory(username="purchase_recipient")
+    api = bearer(oauth_token(buyer, app, "purchase:create"))
+    owner_client = APIClient()
+    owner_client.force_authenticate(app.user)
+    made = owner_client.post(f"/api/oauth/apps/{app.pk}/transfer/", {
+        "recipient": recipient.username, "expected_actor_id": app.user_id,
+    }, format="json")
+    assert made.status_code == 201, made.content
+    transfer_id = made.json()["id"]
+    locked, release, finished = threading.Event(), threading.Event(), threading.Event()
+    original = consent._lock_application_for_consent
+    result = {}
+
+    def lock(application):
+        found = original(application)
+        locked.set()
+        assert release.wait(10)
+        return found
+
+    monkeypatch.setattr(consent, "_lock_application_for_consent", lock)
+
+    def purchase():
+        close_old_connections()
+        try:
+            result["purchase"], _ = create(api, key="transfer-race", return_url=APP_REDIRECT)
+        finally:
+            close_old_connections()
+
+    def accept():
+        close_old_connections()
+        try:
+            recipient_client = APIClient()
+            recipient_client.force_authenticate(recipient)
+            result["transfer"] = recipient_client.post(
+                f"/api/oauth/app-transfers/{transfer_id}/accept/",
+                {"expected_actor_id": recipient.pk}, format="json",
+            )
+        finally:
+            finished.set()
+            close_old_connections()
+
+    first, second = threading.Thread(target=purchase), threading.Thread(target=accept)
+    first.start()
+    try:
+        assert locked.wait(10)
+        second.start()
+        assert finished.wait(5)
+    finally:
+        release.set()
+        first.join(15)
+        if second.ident:
+            second.join(15)
+    assert not first.is_alive() and not second.is_alive()
+    assert result["purchase"].status_code == 201, result["purchase"].content
+    assert result["transfer"].json()["code"] == "app_busy"
+    recipient_client = APIClient()
+    recipient_client.force_authenticate(recipient)
+    retried = recipient_client.post(
+        f"/api/oauth/app-transfers/{transfer_id}/accept/", {"expected_actor_id": recipient.pk}, format="json",
+    )
+    assert retried.status_code == 200, retried.content
+    assert PurchaseIntent.objects.filter(application=app, creator=buyer).exists()
+    app.refresh_from_db()
+    assert app.user_id == recipient.pk

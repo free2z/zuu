@@ -189,6 +189,11 @@
       console.error("account deletion refused", response.status, code);
       if (code === "insufficient_user_authentication") {
         needsReauth = true;
+      } else if (code === "app_busy") {
+        errorText = $t(
+          "account.delete.appBusy",
+          "An app is being updated. Wait a moment and try again.",
+        );
       } else if (response.status === 409) {
         await loadPreview();
       } else if (code === "confirmation_mismatch") {
@@ -408,9 +413,11 @@
           <p class="text-sm" role="alert" data-testid="account-delete-blocked">
             {$t(
               "account.delete.appHasUsers",
-              "You own an app that people use. Email {email} to retire it; then you can delete your account.",
-              { email: HELP_EMAIL },
+              "You own an app with users or purchases. Transfer each such app to a consenting recipient before deleting your account.",
             )}
+            <a class="underline" href="/developers/apps"
+              >{$t("appTransfer.title", "Transfer app ownership")}</a
+            >
           </p>
         {:else}
           <div class="space-y-2">

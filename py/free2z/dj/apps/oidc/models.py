@@ -829,3 +829,25 @@ class MCPAIRequest(models.Model):
             name="oidc_mcp_ai_retry_key",
         )]
         indexes = [models.Index(fields=["content_purged", "content_expires_at"], name="oidc_mcp_ai_retention")]
+
+
+class AppOwnershipTransfer(models.Model):
+    """Durable offer and audit record; account IDs survive account deletion."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    application_id = models.UUIDField(db_index=True)
+    application_name = models.CharField(max_length=255)
+    sender_id = models.BigIntegerField(db_index=True)
+    recipient_id = models.BigIntegerField(db_index=True)
+    sender_epoch = models.PositiveIntegerField()
+    recipient_epoch = models.PositiveIntegerField()
+    created_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    state = models.CharField(max_length=16, default="pending")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["application_id"], condition=Q(state="pending"),
+                                    name="oidc_one_pending_app_transfer"),
+        ]
