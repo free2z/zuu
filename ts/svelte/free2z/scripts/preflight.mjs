@@ -13,7 +13,7 @@
 //      `npm ci` gave a fully green suite. The danger is not the noise, it is that
 //      a *genuine* failure gets waved off as "the known broken node_modules".
 //
-//   2. `engines.node` is >=24 and CI runs Node 24, but a default shell may sit on
+//   2. `engines.node` is >=24 and website CI runs Node 26.13.1, but a default shell may sit on
 //      22. On Node 22 the `.ts` test files fail to load outright with
 //      ERR_UNKNOWN_FILE_EXTENSION (type stripping for `.ts` only lands in 22.18).
 //      A toolchain artifact that is indistinguishable from a suite failure.
@@ -112,7 +112,7 @@ if (want) {
         `    Below that floor the .ts test files can fail to load with ERR_UNKNOWN_FILE_EXTENSION\n` +
         `    (type stripping for .ts only lands in 22.18), which looks identical to a real test\n` +
         `    failure but is not one.\n` +
-        `    Fix: nvm use ${wantParts[0]}   (CI runs Node ${wantParts[0]})`,
+        `    Fix: nvm use ${wantParts[0]}   (website CI runs Node 26.13.1)`,
     );
   }
 }

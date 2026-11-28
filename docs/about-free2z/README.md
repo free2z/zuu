@@ -1,7 +1,7 @@
 # Free2Z documentation
 
 This site uses Docusaurus 3.10 and builds the public Free2Z documentation.
-Use Node 24.22.2, matching the website build pipeline; the supported minimum
+Use Node 26.13.1, matching the website build pipeline; the supported minimum
 is Node 24.15.
 
 Install the committed dependency graph and build the static site:
@@ -20,7 +20,7 @@ The build synchronizes the plain-text legal pages and writes the site to
 Scoped npm overrides select patched versions of Tinypool, Serialize JavaScript,
 and UUID where the parent packages request older major versions. Keep the
 lockfile committed, and verify a fresh install, the site build, and `npm audit`
-when changing these overrides. The Node 24 baseline supports their module APIs.
+when changing these overrides. The pinned Node 26.13.1 release supports their module APIs.
 
 ### Dependency reconciliation (issue #1338)
 
