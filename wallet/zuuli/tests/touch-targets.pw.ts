@@ -212,7 +212,7 @@ for (const signedIn of [false, true]) {
       }
 
       await page.goto("/wallet/fund");
-      for (const tab of ["Send & Tip", "Activity"]) {
+      for (const tab of ["Send & Tip", "Purchases"]) {
         await page.getByRole("tab", { name: tab }).click();
         routeFailures.push(
           ...(await auditTouchTargets(page)).failures.map(

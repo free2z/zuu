@@ -26,7 +26,9 @@ export const BUY_PACKS = [500, 2_000, 5_000, 10_000] as const;
 export const TIP_PRESETS = [100, 500, 1_000, 2_500] as const;
 
 /** Validate the backend's exact ZEC quote before balance checks or confirmation. */
-export function zatoshisFromQuote(quote: Pick<PricingQuote, "zec_amount">): number | null {
+export function zatoshisFromQuote(
+  quote: Pick<PricingQuote, "zec_amount">,
+): number | null {
   return parseZecToZatoshis(quote.zec_amount);
 }
 
@@ -50,7 +52,9 @@ const KIND_META: Record<Kind, KindMeta> = {
 
 export function kindMeta(kind?: Kind): KindMeta {
   return (
-    (kind && KIND_META[kind]) ?? {
+    (kind && Object.prototype.hasOwnProperty.call(KIND_META, kind)
+      ? KIND_META[kind as Kind]
+      : undefined) ?? {
       label: "Activity",
       icon: Coins,
       badge: "secondary" as const,
