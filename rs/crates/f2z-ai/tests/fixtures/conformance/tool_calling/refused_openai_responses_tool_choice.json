@@ -41,6 +41,29 @@
         "field": "tool_choice"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "reason": "tools_unsupported",
+            "field": "/tool_choice"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "this model does not support tool_choice",
+              "details": {
+                "reason": "tools_unsupported",
+                "field": "/tool_choice"
+              },
+              "type": "invalid_request_error",
+              "param": "/tool_choice"
+            }
+          }
+        }
+      }
+    }
   }
 }

@@ -59,7 +59,154 @@
       "output_tokens": 16,
       "tool_calls": 0
     },
-    "encodings": {},
+    "encodings": {
+      "chat_completions": {
+        "chunks": [
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant",
+                  "content": ""
+                },
+                "finish_reason": null
+              }
+            ],
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-anthropic",
+              "hold_2z": 35,
+              "requested_model": "m-anthropic",
+              "provider": "anthropic",
+              "max_output_tokens": 8192,
+              "input_tokens_estimate": 1195
+            }
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "{\"items\": [\"a\", \"b"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "length"
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 120,
+              "completion_tokens": 16,
+              "total_tokens": 136,
+              "prompt_tokens_details": {
+                "cached_tokens": 0
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 0
+              }
+            },
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-anthropic",
+              "hold_2z": 35,
+              "requested_model": "m-anthropic",
+              "provider": "anthropic",
+              "max_output_tokens": 8192,
+              "input_tokens_estimate": 1195,
+              "charged_2z": 1,
+              "receipt_id": "$RECEIPT_ID",
+              "finish_reason": "length",
+              "settlement": "settled",
+              "released_2z": 34,
+              "collected_milli_2z": 1000,
+              "shortfall_milli_2z": 0,
+              "cap_remaining_milli_2z": null,
+              "usage_source": "provider"
+            }
+          }
+        ],
+        "response": {
+          "id": "$CALL_ID",
+          "object": "chat.completion",
+          "created": "$CREATED",
+          "model": "m-anthropic",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "{\"items\": [\"a\", \"b"
+              },
+              "finish_reason": "length"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 120,
+            "completion_tokens": 16,
+            "total_tokens": 136,
+            "prompt_tokens_details": {
+              "cached_tokens": 0
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "f2z": {
+            "call_id": "$CALL_ID",
+            "model": "m-anthropic",
+            "message": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "{\"items\": [\"a\", \"b"
+                }
+              ]
+            },
+            "finish_reason": "length",
+            "usage": {
+              "input_tokens": 120,
+              "cached_input_tokens": 0,
+              "cache_write_tokens": 0,
+              "output_tokens": 16,
+              "reasoning_tokens": 0,
+              "images": 0,
+              "tool_calls": 0
+            },
+            "usage_source": "provider",
+            "requested_model": "m-anthropic",
+            "provider": "anthropic",
+            "charged_2z": 1,
+            "receipt_id": "$RECEIPT_ID",
+            "settlement": "settled",
+            "hold_2z": 35,
+            "released_2z": 34,
+            "collected_milli_2z": 1000,
+            "shortfall_milli_2z": 0,
+            "cap_remaining_milli_2z": null
+          }
+        }
+      }
+    },
     "hold_extends": 0
   }
 }

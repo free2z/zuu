@@ -61,6 +61,29 @@
         "field": "tools"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "reason": "tools_unsupported",
+            "field": "/tools"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "this model does not support function tools",
+              "details": {
+                "reason": "tools_unsupported",
+                "field": "/tools"
+              },
+              "type": "invalid_request_error",
+              "param": "/tools"
+            }
+          }
+        }
+      }
+    }
   }
 }
