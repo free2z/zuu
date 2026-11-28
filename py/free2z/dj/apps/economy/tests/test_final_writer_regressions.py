@@ -29,9 +29,28 @@ def card_body(buyer):
         'return_url': 'https://free2z.cash/wallet', 'expected_actor_id': buyer.pk}
 
 
-def fake_session():
-    return SimpleNamespace(id='cs_recovered', url='https://checkout.stripe.com/c/pay/cs_recovered',
-        mode='payment', livemode=False, account=None)
+@pytest.fixture(autouse=True)
+def isolated_provider_io(mocker):
+    # Every provider read/write must be explicitly stubbed. An incomplete
+    # response fixture must fail locally rather than issue a real expiry call.
+    mocker.patch('requests.sessions.Session.request',
+        side_effect=AssertionError('final writer test attempted unstubbed HTTP'))
+    expire = mocker.patch.object(checkout_views.stripe.checkout.Session, 'expire')
+    yield
+    expire.assert_not_called()
+
+
+def fake_session(**kwargs):
+    price = kwargs['line_items'][0]['price_data']
+    return stripe.StripeObject.construct_from({
+        'id': 'cs_recovered',
+        'url': 'https://checkout.stripe.com/c/pay/cs_recovered',
+        'mode': kwargs['mode'], 'livemode': IDENTITY.livemode, 'account': None,
+        'amount_total': price['unit_amount'] * kwargs['line_items'][0]['quantity'],
+        'currency': price['currency'], 'client_reference_id': kwargs['client_reference_id'],
+        'metadata': kwargs['metadata'], 'expires_at': kwargs['expires_at'],
+        'status': 'open', 'payment_status': 'unpaid',
+    }, 'sk_test_final_writer_fixture')
 
 
 @pytest.mark.parametrize('rail', ['card'])
@@ -84,7 +103,7 @@ def test_sdk_stale_worker_recovery_uses_persisted_recovery_compatible_expiry(
     mocker.stop(crash)
     later = original.created_at + timedelta(minutes=16)
     monkeypatch.setattr(timezone, 'now', lambda: later)
-    provider = mocker.patch.object(checkout_views.stripe.checkout.Session, 'create', return_value=fake_session())
+    provider = mocker.patch.object(checkout_views.stripe.checkout.Session, 'create', side_effect=fake_session)
     response = api_client.post('/api/sdk/v1/purchases', card_body(buyer), format='json', HTTP_IDEMPOTENCY_KEY='crash-recover')
     assert response.status_code == 201
     assert provider.call_args.kwargs['expires_at'] == frozen_expiry
@@ -121,11 +140,12 @@ def test_documented_first_attempt_parameter_rejection_releases_unused_capacity(
         replay = api_client.post(route, body, format='json', HTTP_IDEMPOTENCY_KEY='definite-refusal')
         assert replay.status_code == 502 and provider.call_count == 1
         assert PurchaseIntent.objects.count() == 1
-    provider.side_effect = None
-    provider.return_value = fake_session()
+    provider.side_effect = fake_session
     retry = api_client.post(route, body, format='json', HTTP_IDEMPOTENCY_KEY='new-fixed-request')
     assert retry.status_code == (201 if sdk else 200)
     assert FundingReservation.objects.filter(state='reserved').count() == 1
+    assert FundingReservation.objects.filter(state='released').count() == 1
+    assert CheckoutIntent.objects.count() == provider.call_count == 2
 
 
 def test_parameter_error_after_ambiguous_creation_does_not_release_capacity(
@@ -205,7 +225,7 @@ def test_attributable_creation_refusal_cleanup_retries_after_actual_fence_clears
     retrieve = mocker.patch.object(checkout_views.stripe.checkout.Session, 'retrieve')
     route = '/api/sdk/v1/purchases' if sdk else '/api/stripe/create-checkout-session/'
     body = card_body(buyer) if sdk else {'quantity': 100, 'currentPath': '/wallet', 'expected_actor_id': buyer.pk}
-    assert api_client.post(route, body, format='json', HTTP_IDEMPOTENCY_KEY='fenced-refusal').status_code == 502
+    assert api_client.post(route, body, format='json', HTTP_IDEMPOTENCY_KEY='fenced-refusal-399').status_code == 502
     reservation = FundingReservation.objects.get()
     assert reservation.state == 'reserved'
     proof = IdempotencyKey.objects.get(scope='stripe-create-refusal')

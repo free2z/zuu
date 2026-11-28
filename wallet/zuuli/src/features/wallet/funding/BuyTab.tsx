@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CreditCard,
@@ -30,7 +30,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { pricing, tuzi } from "@/lib/api/free2z";
-import { useSession } from "@/store/session";
+import { captureSessionOwnership, useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";
 import { cn } from "@/lib/utils";
 import {
@@ -51,11 +51,15 @@ import {
   settleZecTopUpDemo,
   type ZecTopUpDemoRuntime,
 } from "./zec-top-up-demo";
+import { cardCheckoutFeedback, openCardCheckout } from "./card-checkout";
+import { getTokenSnapshot } from "@/lib/api/http";
 import {
-  cardCheckoutFeedback,
-  openCardCheckout,
-  startCardCheckout,
-} from "./card-checkout";
+  clearCreditedCardPurchase,
+  pendingCardPurchase,
+  persistWebCardPurchase,
+  type CardPurchase,
+  type PendingCardPurchase,
+} from "@/lib/checkout/card-purchase";
 import { checkoutReturnMode } from "@/lib/checkout/native-return";
 
 type QuoteState =
@@ -82,6 +86,27 @@ export function BuyTab() {
   const [selected, setSelected] = useState<number>(BUY_PACKS[1]);
   const [custom, setCustom] = useState("");
   const [cardLoading, setCardLoading] = useState(false);
+  const [cardPurchase, setCardPurchase] = useState<{
+    pending: PendingCardPurchase;
+    order: CardPurchase;
+  } | null>(null);
+  const cardBusy = useRef(false);
+  const cardMounted = useRef(false);
+  useEffect(() => {
+    cardMounted.current = true;
+    return () => {
+      cardMounted.current = false;
+    };
+  }, []);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const reviewedCard =
+    cardPurchase?.pending.actorId === user?.id ? cardPurchase : null;
+  const cardExpired =
+    !!reviewedCard && reviewedCard.order.expires_at * 1000 <= now;
   const [zecConfirm, setZecConfirm] = useState(false);
   const [zecLoading, setZecLoading] = useState(false);
   const [quoteState, setQuoteState] = useState<QuoteState>({ status: "idle" });
@@ -138,35 +163,145 @@ export function BuyTab() {
     quoteState.status === "error" ||
     (quoteState.status === "ready" && zatoshisNeeded === null);
 
-  async function payWithCard() {
-    if (!valid || amount === null) return;
-    const authenticated = useSession.getState().user !== null;
-    if (authenticated) setCardLoading(true);
+  async function readOriginalCardPurchase(pending: PendingCardPurchase) {
     try {
-      const result = await startCardCheckout({
-        authenticated,
-        amount,
-        // Signed-out taps must route directly to login even if native
-        // transport discovery is temporarily unavailable.
-        returnMode: authenticated ? await checkoutReturnMode() : "web",
-        createCheckout: tuzi.buyCheckout,
-        openCheckout: openCardCheckout,
-      });
-      if (result === "sign-in") {
-        navigate("/login", { state: { returnTo: "/wallet/fund" } });
-        return;
-      }
-      toast.info("Opening secure checkout…", {
-        description: "Complete your purchase with Stripe.",
-      });
+      return await tuzi.buyCheckout(
+        pending.quantity,
+        pending.returnMode,
+        pending,
+      );
     } catch (error) {
+      const { ApiError } = await import("@/lib/api/http");
+      if (
+        !(error instanceof ApiError) ||
+        error.status !== 503 ||
+        !error.body ||
+        typeof error.body !== "object" ||
+        !("code" in error.body) ||
+        error.body.code !== "native_checkout_unavailable" ||
+        pending.returnMode === "web"
+      )
+        throw error;
+      persistWebCardPurchase(pending);
+      return tuzi.buyCheckout(pending.quantity, pending.returnMode, pending);
+    }
+  }
+
+  async function payWithCard() {
+    const actor = useSession.getState().user;
+    if (!actor) {
+      navigate("/login", { state: { returnTo: "/wallet/fund" } });
+      return;
+    }
+    if (
+      cardBusy.current ||
+      !valid ||
+      amount === null ||
+      typeof actor.id !== "number"
+    )
+      return;
+    cardBusy.current = true;
+    setCardLoading(true);
+    const session = getTokenSnapshot();
+    const current = () =>
+      cardMounted.current &&
+      useSession.getState().user?.id === actor.id &&
+      getTokenSnapshot().generation === session.generation;
+    try {
+      const returnMode = await checkoutReturnMode();
+      if (!current()) return;
+      const pending = pendingCardPurchase(actor.id, amount, returnMode);
+      const order = await readOriginalCardPurchase(pending);
+      if (current()) setCardPurchase({ pending, order });
+    } catch (error) {
+      if (!current()) return;
       const feedback = cardCheckoutFeedback(error);
       toast.error(feedback.title, { description: feedback.description });
-      if (feedback.signIn) {
-        navigate("/login", { state: { returnTo: "/wallet/fund" } });
-      }
     } finally {
-      if (authenticated) setCardLoading(false);
+      cardBusy.current = false;
+      setCardLoading(false);
+    }
+  }
+
+  async function confirmCard() {
+    if (!reviewedCard || cardBusy.current || cardExpired) return;
+    cardBusy.current = true;
+    setCardLoading(true);
+    const actorId = reviewedCard.pending.actorId;
+    const session = getTokenSnapshot();
+    try {
+      // Re-read the original response, with the original key and terms. Never
+      // create a replacement purchase when resuming a quote or browser return.
+      const order = await readOriginalCardPurchase(reviewedCard.pending);
+      if (
+        !cardMounted.current ||
+        useSession.getState().user?.id !== actorId ||
+        getTokenSnapshot().generation !== session.generation
+      )
+        return;
+      if (
+        JSON.stringify(order.quote) !==
+          JSON.stringify(reviewedCard.order.quote) ||
+        order.id !== reviewedCard.order.id ||
+        order.url !== reviewedCard.order.url ||
+        order.expires_at !== reviewedCard.order.expires_at ||
+        order.expires_at * 1000 <= Date.now()
+      )
+        throw new Error(
+          "Review the original purchase again before opening checkout.",
+        );
+      await openCardCheckout(order.url);
+    } catch (error) {
+      toast.error("Couldn't open checkout", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "Retry the original purchase.",
+      });
+    } finally {
+      cardBusy.current = false;
+      setCardLoading(false);
+    }
+  }
+
+  async function checkCardReceipt() {
+    if (!reviewedCard || cardBusy.current) return;
+    cardBusy.current = true;
+    setCardLoading(true);
+    const ownsSession = captureSessionOwnership();
+    const current = () => cardMounted.current && ownsSession();
+    try {
+      const status = await tuzi.checkoutReturnStatus(
+        reviewedCard.order.status_token,
+      );
+      if (!current()) return;
+      if (status.status === "credited") {
+        if (status.tuzisCredited !== reviewedCard.order.quote.tuzis)
+          throw new Error(
+            "The receipt does not match the original purchase. Contact support.",
+          );
+        clearCreditedCardPurchase(reviewedCard.pending);
+        setCardPurchase(null);
+        await useSession.getState().refresh({ isCurrent: current });
+        if (!current()) return;
+        toast.success(
+          `${formatTuzis(status.tuzisCredited)} purchase confirmed`,
+          { description: "Free2Z verified the original credit receipt." },
+        );
+      } else
+        toast.info("Payment processing", {
+          description:
+            "No credit receipt yet. Retry this check; keep the original purchase.",
+        });
+    } catch (error) {
+      if (!current()) return;
+      toast.error("Couldn't verify purchase", {
+        description:
+          error instanceof Error ? error.message : "Retry the receipt check.",
+      });
+    } finally {
+      cardBusy.current = false;
+      if (cardMounted.current) setCardLoading(false);
     }
   }
 
@@ -220,7 +355,7 @@ export function BuyTab() {
                   setCustom("");
                 }}
                 aria-pressed={active}
-                aria-label={`Buy ${formatTuzis(pack)} for ${formatUsd(tuzisToUsd(pack))}`}
+                aria-label={`Select ${formatTuzis(pack)}; face value ${formatUsd(tuzisToUsd(pack))} before card fees`}
                 className={cn(
                   "min-tap group relative flex flex-col items-start gap-1 rounded-xl border p-4 text-start transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   active
@@ -284,14 +419,27 @@ export function BuyTab() {
       {/* Checkout panel */}
       <Card className="h-fit min-w-0 lg:sticky lg:top-4">
         <CardHeader className="pb-4">
-          <CardTitle className="flex items-baseline justify-between">
-            <span>You pay</span>
+          <CardTitle className="flex flex-col items-start gap-2">
+            <span>
+              {reviewedCard
+                ? "Card total, including fees"
+                : "Face value before card fees"}
+            </span>
             <span className="text-2xl font-bold bidi-number tabular-nums">
-              {valid ? formatUsd(usd) : "—"}
+              {reviewedCard
+                ? formatUsd(reviewedCard.order.quote.amount_cents / 100)
+                : valid
+                  ? formatUsd(usd)
+                  : "—"}
             </span>
           </CardTitle>
           <CardDescription className="bidi-number tabular-nums">
-            for {valid && amount !== null ? formatTuzis(amount) : "—"}
+            for{" "}
+            {reviewedCard
+              ? formatTuzis(reviewedCard.order.quote.tuzis)
+              : valid && amount !== null
+                ? formatTuzis(amount)
+                : "—"}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -308,8 +456,44 @@ export function BuyTab() {
             ) : (
               <CreditCard className="h-4 w-4" />
             )}
-            {user ? "Pay with card" : "Log in to buy"}
+            {user ? "Review card purchase" : "Log in to buy"}
           </Button>
+          {reviewedCard && (
+            <div className="space-y-3" aria-live="polite">
+              <p className="text-sm">
+                Exact server quote:{" "}
+                {formatTuzis(reviewedCard.order.quote.tuzis)} for{" "}
+                {formatUsd(reviewedCard.order.quote.amount_cents / 100)} USD,
+                including fees.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Keep this original purchase until Free2Z confirms its receipt.
+                Returning from Stripe does not confirm payment.
+              </p>
+              {cardExpired && (
+                <p role="status">
+                  This checkout quote expired. Check the original receipt or
+                  contact support before another purchase.
+                </p>
+              )}
+              <Button
+                className="h-auto w-full whitespace-normal py-3"
+                disabled={cardLoading || cardExpired}
+                onClick={confirmCard}
+              >
+                Pay with card{" "}
+                {formatUsd(reviewedCard.order.quote.amount_cents / 100)} USD
+              </Button>
+              <Button
+                className="w-full"
+                variant="outline"
+                disabled={cardLoading}
+                onClick={checkCardReceipt}
+              >
+                Check payment receipt
+              </Button>
+            </div>
+          )}
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck className="h-3.5 w-3.5 text-success" />
             Secured by Stripe. We never see your card details.

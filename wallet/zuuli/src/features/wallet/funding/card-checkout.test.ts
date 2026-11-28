@@ -11,6 +11,12 @@ import {
   startCardCheckout,
 } from "./card-checkout";
 
+it("preserves Stripe's opaque hosted checkout fragment", () => {
+  const url =
+    "https://checkout.stripe.com/c/pay/cs_test_123#fidkdWxOYHwnPyd1blpxYHZx";
+  expect(validateStripeCheckoutUrl(url)).toBe(url);
+});
+
 describe("card checkout authentication boundary", () => {
   it("routes a signed-out user to sign-in without calling checkout or opener", async () => {
     const createCheckout = vi.fn();
@@ -157,7 +163,6 @@ describe("Stripe Checkout URL policy", () => {
     ["non-default port", "https://checkout.stripe.com:8443/session"],
     ["scheme", "http://checkout.stripe.com/session"],
     ["protocol-relative", "//checkout.stripe.com/session"],
-    ["fragment", "https://checkout.stripe.com/session#redirect"],
     ["wildcard-like custom host", "https://sub.pay.free2z.cash/session"],
     ["parser control character", "https://checkout.stripe.com\t/session"],
   ])("rejects %s tricks", (_name, url) => {

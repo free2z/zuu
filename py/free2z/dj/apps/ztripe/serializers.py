@@ -104,6 +104,8 @@ class CheckoutSessionResponseSerializer(serializers.Serializer):
     )
     url = serializers.URLField(max_length=2048, trim_whitespace=False)
     quote = CheckoutQuoteSerializer()
+    expires_at = serializers.IntegerField(required=False, min_value=1)
+    status_token = serializers.CharField(required=False, max_length=1024)
 
     def validate_url(self, value):
         # ``allowed_hosts`` in the context is an explicit override used by the

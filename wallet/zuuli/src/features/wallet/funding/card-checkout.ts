@@ -123,6 +123,14 @@ export function cardCheckoutFeedback(error: unknown): CardCheckoutFeedback {
       signIn: false,
     };
   }
+  if (error instanceof ApiError && error.status === 409) {
+    return {
+      title: "Keep the original purchase",
+      description:
+        "The original checkout needs review. Retry its receipt check or contact support before another purchase.",
+      signIn: false,
+    };
+  }
   if (error instanceof ApiError && error.status === 429) {
     return {
       title: "Too many attempts",
