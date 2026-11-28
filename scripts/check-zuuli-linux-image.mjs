@@ -86,7 +86,7 @@ const schemaGateSamplePaths = [
 const pinnedActions = [
   "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1",
   "docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0",
-  "docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0",
+  "docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0",
   "docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0",
   "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2",
 ];
