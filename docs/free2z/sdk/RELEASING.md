@@ -82,7 +82,12 @@ sources/package manifest, permissions and generated command registration data.
 A Rust compile alone does not prove those assets are present. The npm packages
 must include emitted JavaScript/types and license/readme, and install in an
 isolated consumer without monorepo path dependencies. The SDK's
-`npm run test:package` checks that pre-publication tarball boundary.
+`npm run test:package` checks that pre-publication tarball boundary. With the
+native guest package's npm build dependencies installed, also run
+`npm run test:example` in `ts/free2z/sdk`: it validates the hello-ai consumer's
+web/Tauri frontend builds, focused controller tests and structural compatibility
+with the actual installed guest declarations. It does not build a native host,
+exercise CORS in a browser, or substitute for the live acceptance below.
 
 Before announcing live readiness, run the app acceptance flow with registered
 public clients and approved test accounts on desktop, iOS, Android and web:
