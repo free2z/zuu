@@ -338,7 +338,7 @@ class Command(BaseCommand):
                     continue
                 if page.language_source == LANGUAGE_SOURCE_CREATOR:
                     continue
-                apply_detection(page, detection, reindex=False)
+                apply_detection(page, detection, path="batch", reindex=False)
                 written += 1
         return written
 

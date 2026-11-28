@@ -979,6 +979,30 @@ SAMPLES = [
         "content": "После подне, уз млеко.",
         "note": "Short Serbian in Cyrillic.",
     },
+    {
+        "id": "sr-mixed-latn-opening-cyrl-body-1",
+        "gold": "sr",
+        "accept": ["sr-Cyrl"],
+        "pair": "bs-vs-hr-vs-sr",
+        "kind": KIND_MIXED,
+        "title": "Kratka beleška",
+        "segments": [
+            ["sr-Latn", "Danas pišem kratku belešku."],
+            ["sr", "Хлеб и млеко су важни. Општина је уредила пијацу. "
+                    "После кише, време је било лепо."],
+            ["sr", "Хлеб се продаје сваког јутра. Млеко стиже на време."],
+        ],
+        "note": "Latin opening followed by a Cyrillic majority body.",
+    },
+    {
+        "id": "sr-latn-brief-1",
+        "gold": "sr-Latn",
+        "pair": "bs-vs-hr-vs-sr",
+        "kind": KIND_SHORT,
+        "title": "Vreme",
+        "content": "Posle podne.",
+        "note": "Very short Latin Serbian sample for script retention.",
+    },
 
     # ------------------------------------------------------------------ #
     # fa vs ps vs ur
