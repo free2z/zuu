@@ -95,7 +95,7 @@ const pinnedZuualletToolchain =
 const pinnedGenericToolchain =
   "dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable";
 const pinnedRustCache =
-  "Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2";
+  "Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3";
 const requiredPackages = [
   "bash",
   "binutils",
