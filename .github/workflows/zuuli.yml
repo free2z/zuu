@@ -120,6 +120,12 @@ jobs:
           node scripts/check-zuuli-store-capture-image.mjs --self-test
           node scripts/check-zuuli-store-capture-image.mjs
 
+      # Inventory declarations independently of whether target builds are selected.
+      - name: Verify wallet Android compile SDK inventory
+        run: |
+          node scripts/check-wallet-android-sdk.mjs --self-test
+          node scripts/check-wallet-android-sdk.mjs
+
       - name: Verify the required 32-bit Android type-check policy
         run: |
           node scripts/check-zuuli-android-gate.mjs --self-test

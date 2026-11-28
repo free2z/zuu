@@ -142,3 +142,10 @@ docker build --platform linux/amd64 \
   --tag zuuli-linux-ci:local .github/containers/zuuli-linux
 docker run --rm zuuli-linux-ci:local /usr/local/bin/verify-zuuli-linux-image
 ```
+
+The wallet Android compile SDK inventory lives in `scripts/check-wallet-android-sdk.mjs`.
+When changing an inventoried Android Gradle build or bumping compile SDK, review
+all affected build files and update the SDK literal and reviewed source hashes;
+run the check and its `--self-test`. Register new Android builds and explicitly
+disposition plugins without Android support. This inventory checks source
+identity and declarations, not target build compatibility.
