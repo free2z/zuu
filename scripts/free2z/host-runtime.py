@@ -48,6 +48,7 @@ def fetch(args):
     web = provenance.verify(ROOT, args.work / 'tools/gh', args.web_tag, commit,
                             args.output / 'web-release')
     names = subprocess.check_output(['git', 'ls-files', '-z', '--', 'rs/zcash-payment-hooks',
+                                     'rs/zcash-wallet-recovery',
                                      'rust-toolchain.toml', 'LICENSE', 'build/free2z/host-tools.json',
                                      'build/free2z/host-nsswitch.conf',
                                      'build/free2z/host-licenses',
@@ -118,7 +119,7 @@ def assemble(args):
            '--mount', f'type=bind,source={rust},target=/work',
            '--entrypoint=/bin/sh', image, '/src/scripts/free2z/host-rust-build.sh', timeout=3600)
     payload = args.work / 'payload'
-    package.prepare(args.work / 'backend.tar', payload, rust / 'zcash-paymentd',
+    package.prepare(args.work / 'backend.tar', payload, rust / 'zcash-paymentd', rust / 'wallet-recover',
                     args.work / 'tools/patchelf', inputs, rust / 'licenses')
     qualification = inputs['tools']['qualification_image']
     docker('pull', '--platform=linux/amd64', qualification)

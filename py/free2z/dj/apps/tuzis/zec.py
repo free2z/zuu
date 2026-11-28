@@ -363,7 +363,8 @@ def record_zec_memo_disposition(
         if (
             decision == ZecMemoDisposition.REFUNDED
             and disposition.classification
-            not in ZecMemoDisposition.PAGE_CLASSIFICATIONS
+            not in (ZecMemoDisposition.PAGE_CLASSIFICATIONS |
+                    {ZecMemoDisposition.TRANSACTION_UNAVAILABLE})
         ):
             # credit_pages_unified refuses to record a refunded note on a
             # page that later appears; credit_creators has no such guard, so

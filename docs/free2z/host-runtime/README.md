@@ -1,10 +1,11 @@
 # Native host runtime
 
-Free2Z host applications use a relocatable CPython runtime and the canonical
-`rs/zcash-payment-hooks` daemon. The package is derived from the exact backend
-image selected by a signed website release. Deployment configuration, receiving
-identities, service definitions, wallet paths, secrets, and activation controls
-belong to the deployment repository.
+Free2Z host applications use a relocatable CPython runtime, the canonical
+`rs/zcash-payment-hooks` daemon, and the isolated
+`rs/zcash-wallet-recovery` executable. The package is derived from the exact
+backend image selected by a signed website release. Deployment configuration,
+receiving identities, service definitions, wallet paths, secrets, and activation
+controls belong to the deployment repository.
 
 The preparation protocol does not authorize activation. A consumer must verify
 both releases independently, match their source commit and backend digest,
@@ -36,14 +37,14 @@ the verified assembly. With Python's `-I`, the trusted launcher must explicitly
 add that assembly's `py` directory to the import path; inherited `PYTHONPATH`
 is ignored.
 
-The daemon must be compiled from the same ZUU commit with the repository's
-locked Rust toolchain and Cargo lockfile, inside the selected backend image.
+Both executables must be compiled from the same ZUU commit with the repository's
+locked Rust toolchain and their independent Cargo lockfiles, inside the selected backend image.
 The tool archive checksums in `build/free2z/host-tools.json` are build inputs.
 No compiler, dependency installation, or package download runs on the receiving
 host. Rust dependency license files and their package inventory accompany the
 binary.
 
-Crate license files are read from archives whose checksums match `Cargo.lock`,
+Crate license files for both Rust graphs are read from archives whose checksums match their lockfiles,
 including author and notice files. Packages that omit separate license texts
 use reviewed snapshots in `build/free2z/host-licenses/`, bound to the exact crate
 version, archive checksum, upstream commit, and text digests. Supplements never

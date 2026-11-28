@@ -5,6 +5,7 @@ on:
       - main
     paths:
       - rs/zcash-payment-hooks/**
+      - rs/zcash-wallet-recovery/**
       - rust-toolchain.toml
       - LICENSE
       - .github/workflows/free2z-host-release.yml

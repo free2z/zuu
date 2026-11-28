@@ -231,6 +231,8 @@ class ClosureTests(unittest.TestCase):
             image_tar(root / 'image.tar', files)
             daemon = root / 'daemon'
             daemon.write_bytes(elf(['libc.so.6']))
+            recovery = root / 'recovery'
+            recovery.write_bytes(elf(['libc.so.6']))
             licenses = root / 'licenses'
             licenses.mkdir()
             (licenses / 'packages.json').write_text('[]')
@@ -239,10 +241,12 @@ class ClosureTests(unittest.TestCase):
                 target.write_bytes(elf(ELF(target.read_bytes()).needed, runpath=command[-2]))
             with patch('host_runtime.package.subprocess.run', side_effect=patch_file), \
                     patch('host_runtime.relocation.psycopg', side_effect=lambda data: data):
-                package.prepare(root / 'image.tar', root / 'output', daemon, Path('/verified/patchelf'), {}, licenses)
+                package.prepare(root / 'image.tar', root / 'output', daemon, recovery,
+                                Path('/verified/patchelf'), {}, licenses)
             self.assertFalse(list((root / 'output').rglob('*.o')))
             self.assertFalse(list((root / 'output').rglob('*.a')))
             self.assertTrue((root / 'output/runtime/lib/python3.12/LICENSE.txt').is_file())
+            self.assertTrue((root / 'output/bin/wallet-recover').is_file())
             self.assertEqual((root / 'output/runtime/share/zoneinfo/UTC').read_bytes(), tzif(0))
             evidence = json.loads((root / 'output/runtime/derivation.json').read_text())
             self.assertEqual(evidence['files']['runtime/share/zoneinfo/Asia/Tokyo'],

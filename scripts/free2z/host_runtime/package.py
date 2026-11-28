@@ -40,7 +40,7 @@ def safe_name(name):
             or name.startswith('/') or not name or len(name) > 255
             or any(ord(c) < 32 or ord(c) == 127 for c in name)):
         raise ValueError('invalid payload path')
-    if not (name.startswith(('runtime/', 'py/')) or name == 'bin/zcash-paymentd'):
+    if not (name.startswith(('runtime/', 'py/')) or name in ('bin/zcash-paymentd', 'bin/wallet-recover')):
         raise ValueError('path outside host runtime')
     if name.startswith('py/env/'):
         raise ValueError('virtual environments are not relocatable payloads')
@@ -105,7 +105,7 @@ class Package:
             elf = self.elfs[name]
             source = self.sources[name]['source']
             # Rust is compiled in this same image; it has no private RPATH.
-            source = source.removeprefix('image:/') if source.startswith('image:/') else 'bin/zcash-paymentd'
+            source = source.removeprefix('image:/') if source.startswith('image:/') else name
             self.edges[name] = {}
             for dependency in elf.needed:
                 if dependency in SYSTEM_LIBRARIES:
@@ -166,7 +166,7 @@ class Package:
         return evidence
 
 
-def prepare(image_path, destination, daemon, patchelf, inputs, rust_licenses):
+def prepare(image_path, destination, daemon, recovery, patchelf, inputs, rust_licenses):
     image = Image(image_path)
     try:
         os_release = dict(line.split('=', 1) for line in image.read('etc/os-release')[1].decode().splitlines()
@@ -216,6 +216,9 @@ def prepare(image_path, destination, daemon, patchelf, inputs, rust_licenses):
         package.add('bin/zcash-paymentd', daemon.read_bytes(), 'cargo:rs/zcash-payment-hooks')
         if 'bin/zcash-paymentd' not in package.elfs:
             raise ValueError('daemon is not a native ELF executable')
+        package.add('bin/wallet-recover', recovery.read_bytes(), 'cargo:rs/zcash-wallet-recovery')
+        if 'bin/wallet-recover' not in package.elfs:
+            raise ValueError('wallet recovery executable is not a native ELF executable')
         return package.finish(inputs)
     finally:
         image.close()

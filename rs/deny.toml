@@ -107,21 +107,19 @@ yanked = "warn"
 # not about libcrux, and it will be true again the next time someone tries this.
 ignore = [
   # ---------------------------------------------------------------------------
-  # Bundled SQLite < 3.54.0 in the rs/ workspace lock (libsqlite3-sys 0.35.0 via
-  # rusqlite 0.37.0, used by the relay and messaging stores). A fresh entry for
-  # this graph, not a copy of wallet/deny.toml's: rs/ holds rusqlite at 0.37
-  # because its crates are linked into wallet/zuuli/src-tauri beside
-  # tauri-plugin-zcash, and libsqlite3-sys `links = "sqlite3"` allows only one
-  # copy there (see rusqlite in rs/Cargo.toml). The fix (libsqlite3-sys >= 0.39,
-  # rusqlite >= 0.41) needs an intermediate crate to move first: upstream
-  # zcash_client_sqlite. rs/zcash-payment-hooks is an independent graph and is
-  # already on the fixed line (#1580), so it does not need this entry.
-  # Exploiting it requires opening a database next to an attacker-crafted -wal
-  # file with a mismatched page size, i.e. local write access to the data
-  # directory. Remove when upstream zcash_client_sqlite allows rusqlite >= 0.41 /
-  # libsqlite3-sys >= 0.39. free2z/zuu#1531.
-  # ---------------------------------------------------------------------------
-  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.35.0 bundles SQLite < 3.54.0 via rusqlite 0.37.0 in the rs workspace (rs/Cargo.lock), held to the wallet's single-copy SQLite; needs an intermediate crate to move first: upstream zcash_client_sqlite pins rusqlite 0.37. Exploit needs a DB opened beside an attacker-crafted WAL with a mismatched page size, i.e. local write access to the data directory. Remove when upstream zcash_client_sqlite allows rusqlite >=0.41 / libsqlite3-sys >=0.39. free2z/zuu#1531" },
+  # Bundled SQLite < 3.54.0 in the rs workspace and the isolated wallet recovery
+  # graph (libsqlite3-sys 0.35.0 via rusqlite 0.37.0). The workspace needs .37
+  # for its wallet-linked SQLite singleton. The companion recovery executable
+  # needs .37 because current upstream zcash_client_sqlite 0.23.0 still declares
+  # it. That executable refuses a wallet unless its directory is owner-only
+  # (0700), no less-trusted user can replace it through a writable ancestor,
+  # and the database/WAL/SHM/journal are owner-only single-link files (0600).
+  # A less-trusted OS user therefore cannot supply the crafted DB/WAL pair in
+  # RUSTSEC-2026-0459. The payment daemon stays on rusqlite .42 / SQLite >=3.54.
+  # Remove this entry when both the rs workspace can move and upstream
+  # zcash_client_sqlite permits rusqlite >=0.41 / libsqlite3-sys >=0.39.
+  # free2z/zuu#1531.
+  { id = "RUSTSEC-2026-0459", reason = "libsqlite3-sys 0.35.0 bundles SQLite < 3.54.0 via rusqlite 0.37.0 in the rs workspace and isolated wallet-recovery graph; upstream zcash_client_sqlite 0.23.0 still requires rusqlite 0.37. The recovery executable requires an owner-only (0700) wallet directory with no less-trusted writable ancestor and owner-only (0600), single-link database/WAL/SHM/journal files, preventing a less-trusted OS user from supplying the crafted DB/WAL pair. The payment daemon remains on rusqlite 0.42 / SQLite >=3.54. Remove when both the rs workspace and upstream zcash_client_sqlite can use libsqlite3-sys >=0.39. free2z/zuu#1531" },
 
   # ---------------------------------------------------------------------------
   # BUILD-TIME ONLY. `proc-macro-error2` is

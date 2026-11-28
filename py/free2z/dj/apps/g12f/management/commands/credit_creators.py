@@ -322,6 +322,12 @@ class Command(BaseCommand):
         except LegacyProducerDisabled as exc:
             raise CommandError(str(exc)) from exc
         z = Client()
+        try:
+            gate = getattr(z, 'verify_hydration', None)
+            if gate is not None and not getattr(z, 'dummy', False):
+                gate()
+        except Exception:
+            raise CommandError('wallet recovery/hydration unavailable; no processing heartbeat') from None
 
         # A misconfigured WALLET_DB (or a missing ZCASH_USER) does not raise:
         # both clients fall back to a DUMMY mode that returns one hardcoded
@@ -518,6 +524,23 @@ class Command(BaseCommand):
 
             scanned += 1
             total_zec += amount
+
+            if tx.get('memo_available') is False and amount > 0:
+                # A compact note is a durable fact, never a purchase instruction.
+                from dj.apps.tuzis.models import ZecMemoDisposition
+                identity = canonical_disposition_note(tx)
+                disposition = record_zec_memo_observation(
+                    txid=identity[0], pool=identity[1], output_index=identity[2],
+                    amount_zec=disposition_amount_from_tx(tx),
+                    classification=ZecMemoDisposition.TRANSACTION_UNAVAILABLE)
+                if economic_policy.version == 1 or economic_policy.fenced:
+                    from dj.apps.economy.captured_notes import capture_wallet_note
+                    capture_wallet_note(tx)
+                if disposition.decision is None:
+                    unresolved += 1
+                    print(BLOCKED.format(reason="received note transaction details unavailable; "
+                                        "bounded recovery or explicit operator disposition required"))
+                continue
 
             if economic_policy.version == 1 or economic_policy.fenced:
                 from dj.apps.economy.captured_notes import capture_wallet_note

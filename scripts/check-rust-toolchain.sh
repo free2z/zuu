@@ -53,6 +53,7 @@ TOOLCHAIN_FILE=rust-toolchain.toml
 # flags at all and would fail on anything registered only elsewhere.
 MANIFESTS=(
   rs/zcash-payment-hooks/Cargo.toml
+  rs/zcash-wallet-recovery/Cargo.toml
   wallet/zuuli/wasm-spike/Cargo.toml
   wallet/zuuli/crypto-target-spike/Cargo.toml
   wallet/zuuli/src-tauri/Cargo.toml

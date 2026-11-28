@@ -254,6 +254,8 @@ const RUST_ROOT_CONTRACTS = [
         name: "payment_hooks",
         probeRoot: "rs/zcash-payment-hooks",
         additionalProbePaths: [
+          "rs/zcash-wallet-recovery/Cargo.toml",
+          "rs/zcash-wallet-recovery/src/wallet_recovery.rs",
           "docs/zcash-payment-hooks/CONTRACT.md",
           "scripts/check-rust-deny.sh",
           "rs/deny.toml",
@@ -286,6 +288,7 @@ const RUST_ROOT_CONTRACTS = [
     mixedProbePaths: [
       ["rs/zcash-payment-hooks/src/lib.rs", { rs: "false", payment_hooks: "true" }],
       ["rs/zcash-payment-hooks/tests/lifecycle.rs", { rs: "false", payment_hooks: "true" }],
+      ["rs/zcash-wallet-recovery/src/wallet_recovery.rs", { rs: "false", payment_hooks: "true" }],
       ["docs/zcash-payment-hooks/CONTRACT.md", { rs: "false", payment_hooks: "true" }],
       ["rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "false" }],
       ["rs/zcash-payment-hooks/src/lib.rs\0rs/crates/f2z-sdk/src/lib.rs", { rs: "true", payment_hooks: "true" }],

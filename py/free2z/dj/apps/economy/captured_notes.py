@@ -367,6 +367,8 @@ def recover_payment_notices(*, limit=50, time_budget=5):
 
 def _names_purchase(note):
     if note.memo_plain is None:
+        if note.memo_hex == (b"\xf6" + bytes(511)).hex():
+            return False  # Verified full NoMemo is distinct from unknown data.
         return None  # Opaque/unavailable bytes cannot prove a non-purchase.
     try:
         decoded=json.loads(note.memo_plain)
@@ -451,7 +453,9 @@ def process_captured_zec_note(*, note_id, confirmations, evidence, instant=False
             'evidence':dict(evidence,reason='retired_original_contract_requires_resolution')})
         return CapturedFundingResult('pending_resolution',f'captured-note:{note.pk}',False,'retired_original_contract_requires_resolution')
     reason = 'unattributed_purchase' if creator is None else None
-    if disposition is not None:
+    if disposition is not None and not (
+            disposition.classification == ZecMemoDisposition.TRANSACTION_UNAVAILABLE
+            and note.memo_hex is not None):
         ZecNoteDisposition.objects.get_or_create(event_key=f'operator-disposition:{note.pk}:{disposition.pk}',defaults={
             'note':note,'kind':'observed','evidence':{'source_reference':f'zec-memo-disposition:{disposition.pk}',
                 'decision':disposition.decision}})

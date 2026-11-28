@@ -208,7 +208,6 @@ fn hook_failure(error: &anyhow::Error) -> HookFailure {
 
 #[tokio::test]
 async fn failures_are_classified_without_child_or_event_data() -> Result<()> {
-    let d = TempDir::new()?;
     let cases: [(&str, &str, u64, HookFailure, &str); 3] = [
         (
             "exits",
@@ -244,13 +243,18 @@ async fn failures_are_classified_without_child_or_event_data() -> Result<()> {
         assert_eq!(failure_reason(&error), reason);
         assert!(!failure_reason(&error).contains("private"));
     }
-    let missing = ExecAutomation(Consumer {
-        id: "missing".into(),
-        argv: vec![d.path().join("absent").to_string_lossy().into_owned()],
+    // A NUL in argv is rejected before process creation. ENOENT can instead
+    // surface as child exit 127 on Linux, depending on the spawn implementation.
+    let invalid_program = ExecAutomation(Consumer {
+        id: "invalid-program".into(),
+        argv: vec!["\0".into()],
         timeout_seconds: 2,
         observe_unconfirmed: false,
     });
-    let error = missing.handle(&event()).await.expect_err("missing hook");
+    let error = invalid_program
+        .handle(&event())
+        .await
+        .expect_err("invalid program path");
     assert_eq!(hook_failure(&error), HookFailure::Start);
     assert_eq!(failure_reason(&error), "hook could not start");
     // Anything unclassified keeps a fixed generic reason, never its message.

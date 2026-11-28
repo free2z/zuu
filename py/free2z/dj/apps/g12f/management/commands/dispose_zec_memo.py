@@ -1,6 +1,10 @@
 """Retire one unroutable ZEC note after a human decision.
 
-Two kinds of note land in the queue: an unreadable ``buy_2z`` memo seen by
+Unavailable transaction details also create per-note observations. A decision
+retires their blocked presence; later hydrated instructions still follow normal
+receipt idempotency. Spending alone never resolves these observations.
+
+Other kinds of note land in the queue: an unreadable ``buy_2z`` memo seen by
 ``credit_creators``, and a page memo seen by ``credit_pages_unified``
 that names a zPage which does not exist or does not parse. The
 listing prints each row's classification and, for page rows, the action and
@@ -50,7 +54,7 @@ def _os_user():
 class Command(BaseCommand):
     help = (
         "Record a human disposition for an unroutable ZEC note (unreadable "
-        "buy_2z memo, or a page memo naming no zPage); this does not issue "
+        "buy_2z memo, unavailable transaction details, or a page memo naming no zPage); this does not issue "
         "or reverse any 2Z and moves no ZEC"
     )
 

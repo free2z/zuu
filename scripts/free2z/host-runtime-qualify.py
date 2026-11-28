@@ -197,6 +197,8 @@ def run(root):
         mapped.add(str(path).replace(str(root), '$PAYLOAD', 1))
     subprocess.run([str(root / 'bin/zcash-paymentd'), '--help'], check=True,
                    env={}, timeout=30, stdout=subprocess.DEVNULL)
+    subprocess.run([str(root / 'bin/wallet-recover'), '--help'], check=True,
+                   env={}, timeout=30, stdout=subprocess.DEVNULL)
     with tempfile.TemporaryDirectory(prefix='host-qualification-') as scratch:
         scratch = Path(scratch)
         lock_path = scratch / 'producer.lock'

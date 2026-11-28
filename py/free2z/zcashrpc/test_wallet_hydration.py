@@ -52,9 +52,9 @@ class WalletHydrationTests(unittest.TestCase):
         output = StringIO()
         with patch.dict("os.environ", {"WALLET_DB": self.path}), redirect_stderr(output):
             self.assertEqual(main(), 0)
-        self.assertIn("credit_creators: CREDITING BLOCKED - 1", output.getvalue())
+        self.assertIn("credit-loop: 1 positive", output.getvalue())
         self.assertRegex(output.getvalue().strip(),
-                         r"^credit_(creators|pages_unified): CREDITING BLOCKED - .+$")
+                         r"^credit-loop: .+$")
         self.assertIn("Verified payments continue", output.getvalue())
         self.assertNotIn("cycle ok", output.getvalue())
 
