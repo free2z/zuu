@@ -83,6 +83,14 @@ class PublicMeetingDiscoverySerializer(serializers.Serializer):
     )
 
 
+class HostUsageSerializer(serializers.Serializer):
+    """Usage settled for the current provider session; never historical."""
+    amount_2z = serializers.IntegerField(allow_null=True)
+    complete = serializers.BooleanField()
+    as_of = serializers.DateTimeField()
+    status = serializers.ChoiceField(choices=['available', 'unavailable'])
+
+
 HOST_ROLE = 'host'
 VIEWER_ROLE = 'viewer'
 
