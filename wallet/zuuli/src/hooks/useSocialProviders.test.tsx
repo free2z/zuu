@@ -1,7 +1,7 @@
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { parseHTML } from "linkedom";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/platform", () => ({ useMock: () => false }));

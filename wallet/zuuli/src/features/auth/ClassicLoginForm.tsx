@@ -3,7 +3,7 @@
 // to a second, 6-digit code step before the session is considered established.
 
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2, LogIn, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";

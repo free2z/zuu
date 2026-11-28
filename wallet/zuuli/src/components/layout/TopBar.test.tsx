@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useSession } from "@/store/session";
 import { useWallet } from "@/store/wallet";

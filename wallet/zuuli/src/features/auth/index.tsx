@@ -6,7 +6,7 @@
 // (with 2FA when enabled) and, soon, X / Google follow below as alternatives.
 
 import { useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router";
 import {
   ArrowLeft,
   ArrowUpRight,

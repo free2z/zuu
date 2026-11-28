@@ -2,12 +2,13 @@ import { lazy, Suspense, useEffect, useRef } from "react";
 import {
   createBrowserRouter,
   Navigate,
-  RouterProvider,
   Routes,
   Route,
   useLocation,
   useNavigate,
-} from "react-router-dom";
+} from "react-router";
+// The DOM entry injects react-dom flushSync. The main entry's RouterProvider does not.
+import { RouterProvider } from "react-router/dom";
 import { toast } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";

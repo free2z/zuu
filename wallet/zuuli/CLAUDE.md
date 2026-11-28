@@ -93,7 +93,7 @@ never merge two identity directories or add an insecure mobile import path.
 
 - React 18 + TypeScript 5 + Vite 6
 - TailwindCSS 3 + shadcn/ui (Radix primitives + CVA), dark-first, violet primary
-- react-router-dom 6 (routing), Zustand 5 (state)
+- react-router 7 (routing), Zustand 5 (state)
 - @tauri-apps/api 2 (IPC), Tauri v2 backend
 - qrcode.react, sonner (toasts), lucide-react. **No Markdown, Mermaid,
   remark/rehype or RealtimeKit dependency** — they left with their surfaces in

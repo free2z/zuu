@@ -7,7 +7,7 @@
 // the sibling specialization for linking a Zcash key to an already signed-in
 // account — it reuses the exact same stepper instead of duplicating it.
 
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { auth } from "@/lib/api/free2z";
 import { setToken } from "@/lib/api/http";

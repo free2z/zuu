@@ -1,6 +1,6 @@
 // Composite wallet UI pieces: sync bar, address card, transaction row.
 import { QRCodeSVG } from "qrcode.react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";

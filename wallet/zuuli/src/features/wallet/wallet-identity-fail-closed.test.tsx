@@ -1,6 +1,6 @@
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { WalletInfo, WalletStatus } from "@/lib/wallet/types";

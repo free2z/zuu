@@ -17,7 +17,7 @@
 // feature-isolation boundary.
 
 import { useState, type ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { toast } from "sonner";
 import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";

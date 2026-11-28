@@ -1,6 +1,6 @@
 // Send ZEC: live address validation, memo, payment-URI paste, review + confirm.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router";
 import {
   AlertCircle,
   CheckCircle2,

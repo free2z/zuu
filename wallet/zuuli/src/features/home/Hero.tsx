@@ -1,4 +1,4 @@
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { Coins, Wallet, ArrowUpRight } from "lucide-react";
 import { formatTuzis, formatZecTrim } from "@/lib/format";
 import { useSession } from "@/store/session";

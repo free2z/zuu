@@ -1,4 +1,4 @@
-import { Outlet, useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router";
 import { Sidebar, MobileTabBar } from "./Sidebar";
 import { TopBar } from "./TopBar";
 import { ScrollArea } from "@/components/ui/scroll-area";

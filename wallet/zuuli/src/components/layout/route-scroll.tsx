@@ -6,7 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigationType } from "react-router-dom";
+import { useLocation, useNavigationType } from "react-router";
 import {
   RouteScrollContextProvider,
   type RouteScrollContextValue,

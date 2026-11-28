@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 import { RouteScrollContextProvider } from "@/hooks/useRouteScroll";
 import { TestI18nProvider } from "@/i18n/test-provider";
