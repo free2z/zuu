@@ -222,6 +222,7 @@ export const mockWallet = {
     const active = activeMockWallet(scenario);
     const wallets = initialized ? availableMockWallets(scenario) : [];
     return {
+      custodyState: globalThis.localStorage?.getItem("zuuli.mock.custody-state") ?? "unchecked",
       initialized,
       hasSeed: initialized,
       syncedHeight: synced,
