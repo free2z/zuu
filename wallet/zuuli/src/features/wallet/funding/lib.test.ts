@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { zatoshisFromQuote } from "./lib";
+import { kindMeta, zatoshisFromQuote } from "./lib";
 
 describe("zatoshisFromQuote", () => {
   it("preserves the backend's exact quoted zatoshi amount", () => {
@@ -12,4 +12,20 @@ describe("zatoshisFromQuote", () => {
       expect(zatoshisFromQuote({ zec_amount })).toBeNull();
     },
   );
+});
+
+describe("kindMeta", () => {
+  it.each(["__proto__", "constructor", "toString", "future-kind"])(
+    "uses safe fallback metadata for unknown kind %s",
+    (kind) => {
+      expect(kindMeta(kind)).toMatchObject({
+        label: "Activity",
+        badge: "secondary",
+      });
+      expect(kindMeta(kind).icon).toBe(kindMeta("future-kind").icon);
+    },
+  );
+  it("preserves known non-buy kinds", () => {
+    expect(kindMeta("donate").label).toBe("Tip");
+  });
 });

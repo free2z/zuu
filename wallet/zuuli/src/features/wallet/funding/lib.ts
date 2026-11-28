@@ -82,21 +82,3 @@ export function kindIconClass(kind?: Kind): string {
 
 /** cents → whole 2Z. tuzis_credited is already in 2Z, but keep the unit clear. */
 export const TUZIS_PER_CENT = TUZIS_PER_USD / 100; // === 1
-
-import { describe, expect, it } from "vitest";
-
-describe("kindMeta", () => {
-  it.each(["__proto__", "constructor", "toString", "future-kind"])(
-    "uses safe fallback metadata for unknown kind %s",
-    (kind) => {
-      expect(kindMeta(kind)).toMatchObject({
-        label: "Activity",
-        badge: "secondary",
-      });
-      expect(kindMeta(kind).icon).toBe(kindMeta("future-kind").icon);
-    },
-  );
-  it("preserves known non-buy kinds", () => {
-    expect(kindMeta("donate").label).toBe("Tip");
-  });
-});
