@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseHTML } from "linkedom";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { TestI18nProvider } from "@/i18n/test-provider";
 import es from "@/i18n/locales/es.json";

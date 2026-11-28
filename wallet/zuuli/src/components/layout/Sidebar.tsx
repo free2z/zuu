@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { NavLink, useLocation } from "react-router";
 import { useTranslation } from "react-i18next";
 import { Wordmark } from "@/components/brand/Logo";
 import {

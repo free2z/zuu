@@ -357,7 +357,7 @@ const REVIEWED_IMPORTED_SINKS: Readonly<Record<string, ImportedSinkContract>> =
       TooltipContent: ["children"],
       TooltipTrigger: ["children"],
     },
-    "react-router-dom": { Link: ["aria-label", "children"] },
+    "react-router": { Link: ["aria-label", "children"] },
   };
 
 function jsxTagForAttributes(
