@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import RealtimeKitClient from "@cloudflare/realtimekit";
@@ -14,8 +14,96 @@ import {
   type LiveConnectionFailure,
 } from "./connection-failure";
 import { MeetingRecordingNotice } from "./MeetingRecordingNotice";
+import {
+  createReactionController,
+  REACTION_EVENT,
+  REACTIONS,
+  type Reaction,
+  type ReactionEvent,
+} from "./reactions";
 
 type StageStatus = "connecting" | "connected" | "failed" | "ended";
+
+function MeetingReactions({ meeting }: { meeting: RealtimeKitClient }) {
+  const controller = useMemo(() => createReactionController(), []);
+  const [visible, setVisible] = useState(controller.visible);
+  const [announcement, setAnnouncement] = useState("");
+  const [status, setStatus] = useState("");
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const receive = (event: ReactionEvent) => {
+      const item = controller.receive(event);
+      if (!item) return;
+      setVisible(controller.visible);
+      setAnnouncement(`A participant reacted ${item.emoji}`);
+      timers.current.set(
+        item.id,
+        setTimeout(() => {
+          controller.expire(item.id);
+          timers.current.delete(item.id);
+          setVisible(controller.visible);
+        }, 3000),
+      );
+    };
+    meeting.participants.on("broadcastedMessage", receive);
+    return () => {
+      meeting.participants.off("broadcastedMessage", receive);
+      for (const timer of timers.current.values()) clearTimeout(timer);
+      timers.current.clear();
+      controller.clear();
+    };
+  }, [controller, meeting]);
+  const send = (emoji: Reaction) => {
+    const payload = controller.makePayload(emoji);
+    if (!payload) {
+      setStatus("Please wait before sending another reaction.");
+      return;
+    }
+    meeting.participants
+      .broadcastMessage(REACTION_EVENT, payload)
+      .then(() => setStatus("Reaction sent."))
+      .catch(() => setStatus("Reaction could not be sent."));
+  };
+  return (
+    <div className="absolute inset-0 pointer-events-none">
+      <div
+        className="absolute bottom-4 right-4 z-20 flex gap-1 rounded-full bg-black/75 p-1 pointer-events-auto"
+        aria-label="Meeting reactions"
+      >
+        {REACTIONS.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            className="min-h-11 min-w-11 rounded-full text-xl focus-visible:outline focus-visible:outline-2"
+            aria-label={`Send ${emoji} reaction`}
+            onClick={() => send(emoji)}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+      <div
+        aria-hidden="true"
+        className="absolute bottom-16 right-6 flex gap-1 text-3xl"
+      >
+        {visible.map((item) => (
+          <span
+            className="animate-[reaction-rise_3s_ease-out_both] motion-reduce:animate-none"
+            key={item.id}
+          >
+            {item.emoji}
+          </span>
+        ))}
+      </div>
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </span>
+      <span className="sr-only" role="status">
+        {status}
+      </span>
+    </div>
+  );
+}
 
 /**
  * Clients whose room is confirmed left, by us or by the provider. Stage is the
@@ -267,7 +355,10 @@ export function Stage({
         const classified = classifyLiveFailure(err, "sdk-init");
         // Never log the raw SDK error: provider errors can echo credentials or
         // private endpoints. The allowlisted boundary/category is sufficient.
-        console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+        console.warn(
+          "RealtimeKit connection failed",
+          safeLiveDiagnostic(classified),
+        );
         setFailure(classified);
         setStatus("failed");
       });
@@ -317,7 +408,10 @@ export function Stage({
           new TypeError("room transport failed"),
           "room-session",
         );
-        console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+        console.warn(
+          "RealtimeKit connection failed",
+          safeLiveDiagnostic(classified),
+        );
         setFailure(classified);
         setStatus("failed");
       }
@@ -392,7 +486,10 @@ export function Stage({
       onTicketRefreshed(fresh);
     } catch (error) {
       const classified = classifyLiveFailure(error, "ticket-refresh");
-      console.warn("RealtimeKit connection failed", safeLiveDiagnostic(classified));
+      console.warn(
+        "RealtimeKit connection failed",
+        safeLiveDiagnostic(classified),
+      );
       setFailure(classified);
       setStatus("failed");
     } finally {
@@ -421,7 +518,10 @@ export function Stage({
       <div className="absolute inset-0 grid place-items-center px-6">
         <div className="flex flex-col items-center gap-3 text-center">
           <div className="grid h-14 w-14 place-items-center rounded-full bg-destructive/20 ring-2 ring-destructive/40">
-            <AlertCircle className="h-7 w-7 text-destructive-foreground" aria-hidden />
+            <AlertCircle
+              className="h-7 w-7 text-destructive-foreground"
+              aria-hidden
+            />
           </div>
           <p className="max-w-xs text-sm text-white/80">
             <FailureMessage messageKey={failure.messageKey} />
@@ -471,9 +571,7 @@ export function Stage({
       <div className="absolute inset-0 grid place-items-center">
         <div className="flex flex-col items-center gap-3 text-white/80">
           <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
-          <span className="text-sm">
-            {t(MESSAGE_KEYS.liveStageConnecting)}
-          </span>
+          <span className="text-sm">{t(MESSAGE_KEYS.liveStageConnecting)}</span>
         </div>
       </div>
     );
@@ -491,6 +589,7 @@ export function Stage({
           leaveOnUnmount={false}
           className="h-full w-full"
         />
+        <MeetingReactions meeting={meeting} />
         <MeetingRecordingNotice meeting={meeting} />
       </div>
     </RealtimeKitProvider>
