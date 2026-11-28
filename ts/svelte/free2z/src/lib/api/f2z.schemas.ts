@@ -1912,6 +1912,10 @@ export interface CreatorMeeting {
      */
   price_per_minute?: string;
   e2ee?: boolean;
+  /** @nullable */
+  readonly participant_count: number | null;
+  /** @nullable */
+  readonly participant_count_as_of: string | null;
 }
 
 export interface CreatorPasswordChange {
@@ -4373,6 +4377,10 @@ export interface PublicMeetingList {
      * @pattern ^-?\d{0,4}(?:\.\d{0,2})?$
      */
   price_per_minute?: string;
+  /** @nullable */
+  readonly participant_count: number | null;
+  /** @nullable */
+  readonly participant_count_as_of: string | null;
 }
 
 /**

@@ -27,9 +27,14 @@ from django.urls import reverse
 from django.utils import timezone
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.core.cache import cache
 
 from dj.apps.dyte.models import CreatorMeeting
 from dj.apps.dyte.views import PUBLIC_DISCOVERY_LIMIT
+from dj.apps.dyte.client import (
+    _count_snapshot_key, PARTICIPANT_COUNT_TTL,
+    PARTICIPANT_COUNT_SNAPSHOT_TTL,
+)
 from dj.apps.g12f.branding import default_logo_url
 from dj.apps.uploads.models import GenericFile, ImageVariant, Webp
 
@@ -44,9 +49,12 @@ EXPECTED_FIELDS = {
     "created_at",
     "price_per_minute",
     "e2ee",
+    "participant_count",
+    "participant_count_as_of",
 }
 
-DISCOVERY_FIELDS = {"username", "avatar", "meeting_type", "price_per_minute"}
+DISCOVERY_FIELDS = {"username", "avatar", "meeting_type", "price_per_minute",
+                   "participant_count", "participant_count_as_of"}
 
 
 def _live_room(creator, **kwargs):
@@ -172,6 +180,66 @@ def test_public_list_includes_each_public_mode_but_never_private(
         "subscribers-only",
     }
     assert all(set(row) == DISCOVERY_FIELDS for row in payload["results"])
+
+
+@pytest.mark.django_db
+def test_discovery_uses_cached_snapshot_without_provider_probe(
+    api_client, creator_factory, mocker,
+):
+    creator = creator_factory(username="snapshot-discovery")
+    room = _live_room(creator, meeting_id="snapshot-discovery-room")
+    observed_at = timezone.now().isoformat()
+    cache.set(_count_snapshot_key(room.meeting_id), {
+        "version": 1, "count": 1, "observed_at": observed_at,
+        "room_id": room.meeting_id, "provider_session_id": None,
+    }, PARTICIPANT_COUNT_TTL)
+    probe = mocker.patch(
+        "dj.apps.dyte.client._SESSION.get",
+        side_effect=AssertionError("discovery must not probe provider"),
+    )
+
+    response = api_client.get(reverse("public-meeting-discovery"))
+
+    assert response.status_code == 200
+    row = response.json()["results"][0]
+    assert row["participant_count"] == 1
+    assert row["participant_count_as_of"] == observed_at
+    probe.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_native_list_uses_fresh_snapshot_and_unknown_stale_without_provider(
+    api_client, creator_factory, mocker,
+):
+    creator = creator_factory(username="native-snapshot-list")
+    fresh = _live_room(creator, meeting_id="native-list-fresh")
+    stale = _live_room(creator, meeting_id="native-list-stale", meeting_type="ppv")
+    observed_at = timezone.now().isoformat()
+    cache.set(_count_snapshot_key(fresh.meeting_id), {
+        "version": 1, "count": 1, "observed_at": observed_at,
+        "room_id": fresh.meeting_id, "provider_session_id": None,
+    }, PARTICIPANT_COUNT_TTL)
+    cache.set(_count_snapshot_key(stale.meeting_id), {
+        "version": 1, "count": 8,
+        "observed_at": (timezone.now() - timedelta(
+            seconds=PARTICIPANT_COUNT_SNAPSHOT_TTL + 1,
+        )).isoformat(),
+        "room_id": stale.meeting_id, "provider_session_id": None,
+    }, PARTICIPANT_COUNT_TTL)
+    probe = mocker.patch(
+        "dj.apps.dyte.client._SESSION.get",
+        side_effect=AssertionError("native listing must not probe provider"),
+    )
+
+    response = api_client.get(reverse("public-meeting-list"))
+
+    assert response.status_code == 200
+    rows = {row["meeting_id"]: row for row in response.json()["results"]}
+    assert rows[fresh.meeting_id]["participant_count"] == 1
+    assert rows[fresh.meeting_id]["participant_count_as_of"] == observed_at
+    assert rows[stale.meeting_id]["participant_count"] is None
+    assert rows[stale.meeting_id]["participant_count_as_of"] is None
+    probe.assert_not_called()
 
 
 @pytest.mark.django_db

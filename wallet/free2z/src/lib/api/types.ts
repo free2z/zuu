@@ -348,6 +348,7 @@ export interface LiveStatus {
   live: boolean;
   /** Authoritative hydrated count, or null while the count is unavailable. */
   participants: number | null;
+  participants_as_of: string | null;
   kind: StreamKind;
 }
 
@@ -362,6 +363,7 @@ export interface Livestream {
   live: boolean;
   /** Authoritative hydrated count, or null while the count is unavailable. */
   participants: number | null;
+  participants_as_of?: string | null;
   /** 2Z price to join (0 for free broadcast). */
   price_tuzis: number;
   thumbnail?: string | null;

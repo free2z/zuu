@@ -6,8 +6,29 @@ import {
   sumParticipantCounts,
   type ParticipantCount,
 } from "./participant-count";
+import { normalizeFreshParticipantCount } from "./api/free2z";
 
 describe("participant count truthfulness", () => {
+  it("maps only fresh snapshot counts and preserves host-alone one", () => {
+    const now = Date.now();
+    expect(
+      normalizeFreshParticipantCount(1, new Date(now).toISOString(), now),
+    ).toEqual({
+      count: 1,
+      asOf: new Date(now).toISOString(),
+    });
+    for (const [count, asOf] of [
+      [1, undefined],
+      [1, new Date(now - 91_000).toISOString()],
+      [1, new Date(now + 1).toISOString()],
+      ["1", new Date(now).toISOString()],
+    ] as const) {
+      expect(normalizeFreshParticipantCount(count, asOf, now)).toEqual({
+        count: null,
+        asOf: null,
+      });
+    }
+  });
   it("preserves exact non-negative integers without coercing missing or malformed values", () => {
     expect(normalizeParticipantCount(0)).toBe(0);
     expect(normalizeParticipantCount(37)).toBe(37);

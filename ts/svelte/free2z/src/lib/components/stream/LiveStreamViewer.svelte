@@ -151,7 +151,7 @@
     return $t("stream.types.payPerView", "Pay per view");
   }
 
-  function viewerCount(count: number | undefined) {
+  function viewerCount(count: number | null | undefined) {
     if (count == null) {
       return $t("stream.viewerCountUnknown", "Viewer count unavailable");
     }
