@@ -64,7 +64,7 @@ export function BalanceHero() {
           <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <Badge variant="zec">spendable</Badge>
             <ArrowRight className="rtl:-scale-x-100 h-3 w-3" aria-hidden />
-            <span>fund 2Zs instantly</span>
+            <span>2Z after payment processing</span>
           </div>
         </div>
       </div>

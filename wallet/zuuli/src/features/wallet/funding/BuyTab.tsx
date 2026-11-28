@@ -56,6 +56,7 @@ import {
   openCardCheckout,
   startCardCheckout,
 } from "./card-checkout";
+import { AccountBilling } from "./AccountBilling";
 import { checkoutReturnMode } from "@/lib/checkout/native-return";
 
 type QuoteState =
@@ -64,7 +65,22 @@ type QuoteState =
   | { status: "ready"; quote: PricingQuote }
   | { status: "error" };
 
+/** Real runtimes buy on the account site; only explicit browser dev runs the demo. */
 export function BuyTab() {
+  const username = useSession((s) => s.user?.username);
+  const runtime: ZecTopUpDemoRuntime = {
+    explicitMock: useMock(),
+    development: Boolean(
+      (import.meta as unknown as { env?: { DEV?: boolean } }).env?.DEV,
+    ),
+    tauri: isTauri(),
+  };
+  return canRunZecTopUpDemo(runtime)
+    ? <DemoBuyTab />
+    : <AccountBilling key={username ?? "guest"} />;
+}
+
+function DemoBuyTab() {
   const navigate = useNavigate();
   const user = useSession((s) => s.user);
   const sessionLoading = useSession((s) => s.loading);

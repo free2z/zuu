@@ -22,6 +22,7 @@ import {
   IDEMPOTENT_DONATION_ROUTE,
   isDonationIdempotencyKey,
   normalizeDonationResult,
+  parseBalanceTuzis,
   type DonationResult,
 } from "./donation";
 import {
@@ -252,6 +253,8 @@ export const auth = {
       avatar_image?: RawImage | null;
       banner_image?: RawImage | null;
     }>("/api/auth/user/", { cache: "no-store", authToken, signal });
+    const balance = parseBalanceTuzis(u.tuzis);
+    if (balance === null) throw new Error("Account balance is unavailable.");
     return {
       username: u.username,
       email: u.email,
@@ -267,7 +270,7 @@ export const auth = {
       member_price: parsePrice(u.member_price),
       can_stream: u.can_stream ?? false,
       is_verified: u.is_verified ?? false,
-      tuzis: u.tuzis ? Math.floor(Number(u.tuzis)) : 0,
+      tuzis: balance,
     };
   },
 
