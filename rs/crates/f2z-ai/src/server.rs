@@ -432,12 +432,71 @@ fn public_router(
         );
     Router::new()
         .route("/v1/chat", post(chat::handle))
+        .route("/v1/chat/completions", post(chat::handle))
         .route("/v1/chat/estimate", post(chat::handle))
         .route("/v1/models", get(chat::read_handle))
+        .route("/v1/models/{id}", get(chat::read_handle))
         .route("/v1/calls/{id}", get(chat::read_handle))
         .fallback(not_found)
         .with_state(chat_state)
         .layer(stack)
+        .layer(axum::middleware::from_fn(cors))
+}
+
+// The gateway owns preflight: no ingress CORS policy is defined in this repository.
+async fn cors(request: axum::http::Request<Body>, next: axum::middleware::Next) -> Response<Body> {
+    let preflight = request.method() == axum::http::Method::OPTIONS
+        && request
+            .headers()
+            .contains_key("access-control-request-method");
+    let requested = request
+        .headers()
+        .get("access-control-request-headers")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|headers| {
+            let allowed = headers.split(',').map(str::trim).all(|name| {
+                let name = name.to_ascii_lowercase();
+                name.starts_with("x-f2z-")
+                    || name.starts_with("x-stainless-")
+                    || matches!(
+                        name.as_str(),
+                        "authorization"
+                            | "content-type"
+                            | "idempotency-key"
+                            | "openai-organization"
+                            | "openai-project"
+                    )
+            });
+            allowed
+                .then(|| axum::http::HeaderValue::from_str(headers).ok())
+                .flatten()
+        });
+    let mut response = if preflight {
+        axum::http::StatusCode::NO_CONTENT.into_response()
+    } else {
+        next.run(request).await
+    };
+    let headers = response.headers_mut();
+    headers.insert(
+        "access-control-allow-origin",
+        axum::http::HeaderValue::from_static("*"),
+    );
+    headers.insert(
+        "access-control-allow-methods",
+        axum::http::HeaderValue::from_static("GET, POST, OPTIONS"),
+    );
+    headers.insert(
+        "access-control-allow-headers",
+        axum::http::HeaderValue::from_static("Authorization, Content-Type, Idempotency-Key, X-F2Z-Max-Output-Tokens-Strict, X-F2Z-Max-Charge-2z, X-F2Z-Fallback, X-F2Z-Estimate, OpenAI-Organization, OpenAI-Project, X-Stainless-Arch, X-Stainless-Lang, X-Stainless-OS, X-Stainless-Package-Version, X-Stainless-Retry-Count, X-Stainless-Runtime, X-Stainless-Runtime-Version, X-Stainless-Timeout"),
+    );
+    if let Some(requested) = requested {
+        headers.insert("access-control-allow-headers", requested);
+    }
+    headers.insert(
+        "access-control-expose-headers",
+        axum::http::HeaderValue::from_static("*"),
+    );
+    response
 }
 
 async fn not_found() -> ApiFailure {

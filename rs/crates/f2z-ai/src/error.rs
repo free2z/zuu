@@ -134,6 +134,56 @@ impl ApiFailure {
         self.details.as_ref().and_then(|d| d.get(key))
     }
 
+    /// Convert native dotted field paths into JSON pointers for compatibility clients.
+    pub(crate) fn compat_fields(mut self, token_alias: &str) -> Self {
+        if let Some(details) = self.details.as_mut()
+            && let Some(field) = details.get_mut("field")
+            && let Some(text) = field.as_str()
+            && !text.starts_with('/')
+        {
+            let path = text
+                .replace('~', "~0")
+                .replace('/', "~1")
+                .replace('[', "/")
+                .replace(']', "")
+                .replace('.', "/");
+            let mut segments: Vec<&str> = path.split('/').collect();
+            if segments.len() >= 3
+                && segments.first() == Some(&"tools")
+                && segments
+                    .get(1)
+                    .is_some_and(|segment| segment.parse::<usize>().is_ok())
+            {
+                segments.insert(2, "function");
+            }
+            if let Some(first) = segments.first_mut()
+                && *first == "max_output_tokens"
+            {
+                *first = token_alias;
+            }
+            if segments.first() == Some(&"max_output_tokens_strict") {
+                segments.insert(0, "f2z");
+            }
+            if segments.first() == Some(&"messages")
+                && segments.get(2) == Some(&"content")
+                && segments.len() >= 5
+                && matches!(segments.get(4), Some(&"data" | &"media_type"))
+            {
+                segments.truncate(4);
+                segments.extend(["image_url", "url"]);
+            }
+            if segments.first() == Some(&"messages")
+                && segments.get(2) == Some(&"tool_calls")
+                && segments.len() >= 5
+                && matches!(segments.get(4), Some(&"name" | &"arguments"))
+            {
+                segments.insert(4, "function");
+            }
+            *field = format!("/{}", segments.join("/")).into();
+        }
+        self
+    }
+
     /// The human-readable message.
     #[must_use]
     pub fn message(&self) -> &str {
@@ -153,6 +203,26 @@ impl ApiFailure {
     }
 }
 
+pub(crate) fn compat_error_type(code: &str) -> &'static str {
+    match code {
+        "invalid_request"
+        | "context_length_exceeded"
+        | "idempotency_conflict"
+        | "too_many_holds"
+        | "payload_too_large"
+        | "completion_not_retained" => "invalid_request_error",
+        "invalid_token" | "token_revoked" | "insufficient_user_authentication" => {
+            "authentication_error"
+        }
+        "insufficient_balance" => "insufficient_quota",
+        "insufficient_scope" | "app_disabled" | "account_frozen" | "account_in_debt"
+        | "cap_exceeded" | "model_disabled" => "permission_error",
+        "model_not_found" | "call_not_found" | "purchase_not_found" => "not_found_error",
+        "rate_limited" | "concurrency_limit" => "rate_limit_error",
+        _ => "server_error",
+    }
+}
+
 impl IntoResponse for ApiFailure {
     fn into_response(self) -> Response {
         let mut error = Map::new();
@@ -161,6 +231,14 @@ impl IntoResponse for ApiFailure {
         if let Some(details) = self.details {
             error.insert("details".to_owned(), Value::Object(details));
         }
+        let kind = compat_error_type(self.code);
+        let param = error
+            .get("details")
+            .and_then(|d| d.get("field"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        error.insert("type".into(), kind.into());
+        error.insert("param".into(), param);
         let mut envelope = Map::new();
         envelope.insert("error".to_owned(), Value::Object(error));
         let body = Value::Object(envelope).to_string();
@@ -178,6 +256,15 @@ impl IntoResponse for ApiFailure {
             headers.insert(header::CONNECTION, HeaderValue::from_static("close"));
         }
         for (name, value) in self.headers {
+            let alias = match name.as_str() {
+                "x-f2z-ratelimit-limit" => Some("x-ratelimit-limit-requests"),
+                "x-f2z-ratelimit-remaining" => Some("x-ratelimit-remaining-requests"),
+                "x-f2z-ratelimit-reset" => Some("x-ratelimit-reset-requests"),
+                _ => None,
+            };
+            if let Some(alias) = alias {
+                headers.insert(alias, value.clone());
+            }
             headers.insert(name, value);
         }
         response
@@ -211,5 +298,53 @@ mod tests {
             ApiFailure::not_implemented().status(),
             StatusCode::NOT_IMPLEMENTED
         );
+    }
+    #[test]
+    fn compatibility_policy_errors_reverse_transformed_request_paths() {
+        for alias in ["max_tokens", "max_completion_tokens"] {
+            for (native, pointer) in [
+                ("max_output_tokens", format!("/{alias}")),
+                (
+                    "max_output_tokens_strict",
+                    "/f2z/max_output_tokens_strict".into(),
+                ),
+                ("tools[1].strict", "/tools/1/function/strict".into()),
+                (
+                    "messages[2].tool_calls[0].arguments",
+                    "/messages/2/tool_calls/0/function/arguments".into(),
+                ),
+                (
+                    "messages[2].tool_calls[0].id",
+                    "/messages/2/tool_calls/0/id".into(),
+                ),
+                (
+                    "messages[0].content[1].data",
+                    "/messages/0/content/1/image_url/url".into(),
+                ),
+                (
+                    "messages[0].content[1].media_type",
+                    "/messages/0/content/1/image_url/url".into(),
+                ),
+                ("/tools/0/function/name", "/tools/0/function/name".into()),
+            ] {
+                let error = ApiFailure::new(ErrorCode::InvalidRequest, "invalid request")
+                    .detail("field", native)
+                    .compat_fields(alias);
+                assert_eq!(error.detail_of("field"), Some(&Value::String(pointer)));
+            }
+        }
+    }
+    #[test]
+    fn request_rate_headers_have_openai_aliases() {
+        let response = ApiFailure::new(ErrorCode::RateLimited, "rate limited")
+            .header(HeaderName::from_static("x-f2z-ratelimit-limit"), "12")
+            .header(HeaderName::from_static("x-f2z-ratelimit-remaining"), "0")
+            .header(HeaderName::from_static("x-f2z-ratelimit-reset"), "5")
+            .retry_after(5)
+            .into_response();
+        assert_eq!(response.headers()["x-ratelimit-limit-requests"], "12");
+        assert_eq!(response.headers()["x-ratelimit-remaining-requests"], "0");
+        assert_eq!(response.headers()["x-ratelimit-reset-requests"], "5");
+        assert_eq!(response.headers()[header::RETRY_AFTER], "5");
     }
 }

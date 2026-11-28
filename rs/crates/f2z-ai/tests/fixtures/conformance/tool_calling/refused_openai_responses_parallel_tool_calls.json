@@ -41,6 +41,29 @@
         "field": "parallel_tool_calls"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "reason": "tools_unsupported",
+            "field": "/parallel_tool_calls"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "this model does not support parallel_tool_calls",
+              "details": {
+                "reason": "tools_unsupported",
+                "field": "/parallel_tool_calls"
+              },
+              "type": "invalid_request_error",
+              "param": "/parallel_tool_calls"
+            }
+          }
+        }
+      }
+    }
   }
 }

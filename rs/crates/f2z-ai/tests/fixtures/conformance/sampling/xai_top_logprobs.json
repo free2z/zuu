@@ -121,7 +121,154 @@
       "reasoning_tokens": 30,
       "tool_calls": 0
     },
-    "encodings": {},
+    "encodings": {
+      "chat_completions": {
+        "chunks": [
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-xai",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant",
+                  "content": ""
+                },
+                "finish_reason": null
+              }
+            ],
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-xai",
+              "hold_2z": 25,
+              "requested_model": "m-xai",
+              "provider": "xai",
+              "max_output_tokens": 128,
+              "input_tokens_estimate": 138
+            }
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-xai",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "1/2"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-xai",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 40,
+              "completion_tokens": 3,
+              "total_tokens": 43,
+              "prompt_tokens_details": {
+                "cached_tokens": 8
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 30
+              }
+            },
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-xai",
+              "hold_2z": 25,
+              "requested_model": "m-xai",
+              "provider": "xai",
+              "max_output_tokens": 128,
+              "input_tokens_estimate": 138,
+              "charged_2z": 1,
+              "receipt_id": "$RECEIPT_ID",
+              "finish_reason": "stop",
+              "settlement": "settled",
+              "released_2z": 24,
+              "collected_milli_2z": 1000,
+              "shortfall_milli_2z": 0,
+              "cap_remaining_milli_2z": null,
+              "usage_source": "provider"
+            }
+          }
+        ],
+        "response": {
+          "id": "$CALL_ID",
+          "object": "chat.completion",
+          "created": "$CREATED",
+          "model": "m-xai",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "1/2"
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 40,
+            "completion_tokens": 3,
+            "total_tokens": 43,
+            "prompt_tokens_details": {
+              "cached_tokens": 8
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 30
+            }
+          },
+          "f2z": {
+            "call_id": "$CALL_ID",
+            "model": "m-xai",
+            "message": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "1/2"
+                }
+              ]
+            },
+            "finish_reason": "stop",
+            "usage": {
+              "input_tokens": 32,
+              "cached_input_tokens": 8,
+              "cache_write_tokens": 0,
+              "output_tokens": 33,
+              "reasoning_tokens": 30,
+              "images": 0,
+              "tool_calls": 0
+            },
+            "usage_source": "provider",
+            "requested_model": "m-xai",
+            "provider": "xai",
+            "charged_2z": 1,
+            "receipt_id": "$RECEIPT_ID",
+            "settlement": "settled",
+            "hold_2z": 25,
+            "released_2z": 24,
+            "collected_milli_2z": 1000,
+            "shortfall_milli_2z": 0,
+            "cap_remaining_milli_2z": null
+          }
+        }
+      }
+    },
     "hold_extends": 0
   }
 }

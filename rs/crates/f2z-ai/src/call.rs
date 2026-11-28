@@ -120,6 +120,10 @@ pub trait Upstream: Send + 'static {
     fn call_id(&self) -> Option<String> {
         None
     }
+    /// Reservation and catalogue revision known at the response head.
+    fn hold_headers(&self) -> Option<(u64, u64)> {
+        None
+    }
     /// The next event, or `None` at the end of the stream.
     async fn next(&mut self) -> Option<Event>;
 
@@ -446,6 +450,7 @@ impl std::error::Error for DeliveryEnded {}
 pub struct DeliveryBody {
     pub(crate) replay: Option<serde_json::Value>,
     pub(crate) call_id: Option<String>,
+    pub(crate) hold_headers: Option<(u64, u64)>,
     shared: Arc<Shared>,
 }
 
@@ -650,6 +655,7 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
     drop(head.send(Ok(DeliveryBody {
         replay: upstream.replay_record(),
         call_id: upstream.call_id(),
+        hold_headers: upstream.hold_headers(),
         shared: Arc::clone(&shared),
     })));
 
@@ -682,7 +688,8 @@ pub(crate) async fn run(start: Start, head: oneshot::Sender<Result<DeliveryBody,
                     Event::Delta(_) | Event::ToolCallDelta(_) | Event::ToolCall(_)
                 );
                 if let Ok(frame) = event.to_sse() {
-                    let optional = matches!(event, Event::ToolCallDelta(_));
+                    // Compat clients reconstruct calls from fragments, so never silently drop one.
+                    let optional = !call.is_compat() && matches!(event, Event::ToolCallDelta(_));
                     shared.push(
                         Bytes::from(frame),
                         output,

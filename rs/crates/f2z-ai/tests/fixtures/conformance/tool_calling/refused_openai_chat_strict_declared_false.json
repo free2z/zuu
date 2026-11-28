@@ -65,6 +65,29 @@
         "field": "tools[0].strict"
       }
     },
-    "encodings": {}
+    "encodings": {
+      "chat_completions": {
+        "refusal": {
+          "status": 400,
+          "code": "invalid_request",
+          "details": {
+            "reason": "tools_unsupported",
+            "field": "/tools/0/function/strict"
+          },
+          "body": {
+            "error": {
+              "code": "invalid_request",
+              "message": "this model does not support strict tools",
+              "details": {
+                "reason": "tools_unsupported",
+                "field": "/tools/0/function/strict"
+              },
+              "type": "invalid_request_error",
+              "param": "/tools/0/function/strict"
+            }
+          }
+        }
+      }
+    }
   }
 }

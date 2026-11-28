@@ -244,6 +244,7 @@ pub struct ChatState {
 /// (`crate::server`'s observe layer). It never reaches the client.
 pub async fn handle(State(state): State<ChatState>, request: Request) -> Response {
     let mut logged = None;
+    let compat = request.uri().path() == "/v1/chat/completions";
     let handle = request.extensions().get::<CallHandle>().cloned();
     let (mut response, failed_call) = match serve(&state, request, &mut logged).await {
         Ok(response) => (response, None),
@@ -252,7 +253,19 @@ pub async fn handle(State(state): State<ChatState>, request: Request) -> Respons
                 .detail_of("call_id")
                 .and_then(serde_json::Value::as_str)
                 .and_then(|id| id.parse::<uuid::Uuid>().ok());
-            (failure.into_response(), call)
+            (
+                if compat {
+                    failure.compat_fields(
+                        handle
+                            .as_ref()
+                            .map_or("max_completion_tokens", CallHandle::compat_token_alias),
+                    )
+                } else {
+                    failure
+                }
+                .into_response(),
+                call,
+            )
         }
     };
     if let Some(mut logged) = logged {
@@ -286,11 +299,47 @@ pub async fn read_handle(State(state): State<ChatState>, request: Request) -> Re
         )?;
         let admitted = state.gate.admit(request.headers()).await?;
         drop(permit);
-        let value = if request.uri().path() == "/v1/models" {
+        let path = request.uri().path();
+        let models_route = path == "/v1/models" || path.starts_with("/v1/models/");
+        let value = if models_route {
             let catalog = state.catalog.current(catalog::now_unix()).ok_or_else(|| {
                 ApiFailure::new(ErrorCode::CatalogUnavailable, "no verified catalogue")
             })?;
-            state.backend.models(catalog, &admitted.principal).await?
+            let mut value = state.backend.models(catalog, &admitted.principal).await?;
+            if let Some(models) = value
+                .get_mut("models")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for model in models.iter_mut() {
+                    if let Some(model) = model.as_object_mut() {
+                        model.insert("object".into(), "model".into());
+                        // The signed catalogue has no per-model creation time.
+                        // Zero is a stable unknown timestamp sentinel, not a claim
+                        // about when this model or catalogue was created.
+                        model.insert("created".into(), 0.into());
+                        model.insert(
+                            "owned_by".into(),
+                            model
+                                .get("provider")
+                                .cloned()
+                                .unwrap_or_else(|| "free2z".into()),
+                        );
+                    }
+                }
+                let models = models.clone();
+                if let Some(id) = path.strip_prefix("/v1/models/") {
+                    return models
+                        .into_iter()
+                        .find(|m| m.get("id").and_then(serde_json::Value::as_str) == Some(id))
+                        .map(|m| axum::Json(m).into_response())
+                        .ok_or_else(|| ApiFailure::new(ErrorCode::ModelNotFound, "no such model"));
+                }
+                if let Some(object) = value.as_object_mut() {
+                    object.insert("object".into(), "list".into());
+                    object.insert("data".into(), models.into());
+                }
+            }
+            value
         } else {
             let id = request
                 .uri()
@@ -348,6 +397,7 @@ async fn serve(
     logged: &mut Option<Logged>,
 ) -> Result<Response, ApiFailure> {
     let estimating = request.uri().path() == "/v1/chat/estimate";
+    let compat = request.uri().path() == "/v1/chat/completions";
     let (parts, body) = request.into_parts();
     let Some(call) = parts.extensions.get::<CallHandle>().cloned() else {
         // Only reachable if the router is assembled without admission, which
@@ -357,6 +407,9 @@ async fn serve(
             "request reached /v1/chat without admission",
         ));
     };
+    if compat {
+        call.set_compat();
+    }
     let peer = parts
         .extensions
         .get::<std::net::SocketAddr>()
@@ -415,7 +468,85 @@ async fn serve(
             .retry_after(state.retry_after_secs)
         })?;
     upload.merge(decoded);
-    let request = decode(&bytes, state.max_body_bytes)?;
+    let include_usage = compat
+        && serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .and_then(|v| {
+                v.pointer("/stream_options/include_usage")
+                    .and_then(serde_json::Value::as_bool)
+            })
+            .unwrap_or(false);
+    if compat {
+        if serde_json::from_slice::<serde_json::Value>(&bytes)
+            .ok()
+            .is_some_and(|v| {
+                v.get("max_tokens").is_some() && v.get("max_completion_tokens").is_none()
+            })
+        {
+            call.set_compat_token_alias("max_tokens");
+        }
+        call.set_compat_include_usage(include_usage);
+    }
+    let mut request = if compat {
+        let decoded = crate::compat::decode_chat_completions(&bytes);
+        let request = match decoded {
+            Ok(request) => request,
+            Err(_) if bytes.len() > state.max_body_bytes => {
+                return Err(too_large(state.max_body_bytes));
+            }
+            Err(error) => {
+                return Err(invalid(
+                    &error.param,
+                    error.reason,
+                    "unsupported compatibility request",
+                ));
+            }
+        };
+        if bytes.len() > state.max_body_bytes && image_count(&request) == 0 {
+            return Err(too_large(state.max_body_bytes));
+        }
+        request
+    } else {
+        decode(&bytes, state.max_body_bytes)?
+    };
+    if compat {
+        for name in parts.headers.keys() {
+            if name.as_str().starts_with("x-f2z-")
+                && name.as_str() != "x-f2z-max-output-tokens-strict"
+            {
+                return Err(invalid(
+                    name.as_str(),
+                    "unsupported",
+                    "unsupported extension header",
+                ));
+            }
+        }
+    }
+    if compat && let Some(value) = parts.headers.get("x-f2z-max-output-tokens-strict") {
+        let strict = match value.to_str() {
+            Ok("true") => true,
+            Ok("false") => false,
+            _ => {
+                return Err(invalid(
+                    "/f2z/max_output_tokens_strict",
+                    "invalid_field",
+                    "invalid extension header",
+                ));
+            }
+        };
+        let body: serde_json::Value = serde_json::from_slice(&bytes)
+            .map_err(|_| invalid("/", "invalid_json", "invalid JSON"))?;
+        if let Some(existing) = body.pointer("/f2z/max_output_tokens_strict")
+            && existing != strict
+        {
+            return Err(invalid(
+                "/f2z/max_output_tokens_strict",
+                "extension_conflict",
+                "conflicting extension values",
+            ));
+        }
+        request.max_output_tokens_strict = strict;
+    }
     validate(&request)?;
     validate_retained(&request)?;
     *logged = Some(Logged {
@@ -502,6 +633,18 @@ async fn serve(
     match body.await {
         Ok(Ok(mut body)) => {
             if let Some(record) = body.replay.take() {
+                if compat {
+                    let mut failure = ApiFailure::new(
+                        ErrorCode::CompletionNotRetained,
+                        "completion is not retained",
+                    );
+                    if let Some(fields) = record.as_object() {
+                        for (key, value) in fields {
+                            failure = failure.detail(key, value.clone());
+                        }
+                    }
+                    return Err(failure);
+                }
                 if let Some(logged) = logged.as_mut() {
                     logged.call_id = record
                         .get("call_id")
@@ -518,13 +661,32 @@ async fn serve(
                 return Ok(response);
             }
             if let Some(reservation) = aggregation {
-                return Ok(crate::nonstream::collect(body, reservation, response_deadline).await);
+                return Ok(
+                    crate::nonstream::collect(body, reservation, response_deadline, compat).await,
+                );
             }
             let call_id = body.call_id.clone();
-            let mut response = Body::new(body).into_response();
+            let hold_headers = body.hold_headers;
+            let mut response = if compat {
+                Body::new(crate::compat::ChatStream::new(body, include_usage)).into_response()
+            } else {
+                Body::new(body).into_response()
+            };
             let headers = response.headers_mut();
             if let Some(id) = call_id.and_then(|id| HeaderValue::from_str(&id).ok()) {
+                if compat {
+                    headers.insert("x-request-id", id.clone());
+                    headers.insert("request-id", id.clone());
+                }
                 headers.insert("x-f2z-call-id", id);
+            }
+            if let Some((hold, version)) = hold_headers {
+                if let Ok(v) = HeaderValue::from_str(&hold.to_string()) {
+                    headers.insert("x-f2z-hold-2z", v);
+                }
+                if let Ok(v) = HeaderValue::from_str(&version.to_string()) {
+                    headers.insert("x-f2z-catalog-version", v);
+                }
             }
             headers.insert(
                 header::CONTENT_TYPE,
