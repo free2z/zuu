@@ -837,7 +837,7 @@ jobs:
           [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one Android AAB" >&2; exit 1; }
           artifact=${artifacts[0]}
           node scripts/artifact-sbom.mjs prepare --artifact="$artifact" --root=artifact-sbom-work/android/root
-      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           syft-version: v1.50.0
           path: wallet/zuuli/artifact-sbom-work/android/root
@@ -1492,7 +1492,7 @@ jobs:
           [[ ${#artifacts[@]} -eq 1 && -f "${artifacts[0]}" ]] || { echo "expected exactly one iOS IPA" >&2; exit 1; }
           artifact=${artifacts[0]}
           node scripts/artifact-sbom.mjs prepare --artifact="$artifact" --root=artifact-sbom-work/ios/root
-      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           syft-version: v1.50.0
           path: wallet/zuuli/artifact-sbom-work/ios/root
@@ -1635,7 +1635,7 @@ jobs:
           node scripts/artifact-sbom.mjs prepare --artifact="${debs[0]}" --root=artifact-sbom-work/linux-deb/root
           node scripts/artifact-sbom.mjs prepare --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root
       - name: Scan Linux AppImage shipped artifact
-        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           syft-version: v1.50.0
           path: wallet/zuuli/artifact-sbom-work/linux-appimage/root
@@ -1644,7 +1644,7 @@ jobs:
           output-file: wallet/zuuli/artifact-sbom-work/linux-appimage/syft.raw.sbom.cdx.json
           upload-artifact: false
       - name: Scan Linux deb shipped artifact
-        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           syft-version: v1.50.0
           path: wallet/zuuli/artifact-sbom-work/linux-deb/root
@@ -1653,7 +1653,7 @@ jobs:
           output-file: wallet/zuuli/artifact-sbom-work/linux-deb/syft.raw.sbom.cdx.json
           upload-artifact: false
       - name: Scan Linux rpm shipped artifact
-        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           syft-version: v1.50.0
           path: wallet/zuuli/artifact-sbom-work/linux-rpm/root
@@ -1671,7 +1671,7 @@ jobs:
           node scripts/artifact-sbom.mjs finalize-artifact --artifact="${rpms[0]}" --root=artifact-sbom-work/linux-rpm/root --raw-sbom=artifact-sbom-work/linux-rpm/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-linux-rpm.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-linux-rpm.artifact.sbom-binding.json --cargo-lock=src-tauri/Cargo.lock --cargo-manifest=src-tauri/Cargo.toml --cargo-target=x86_64-unknown-linux-gnu --cargo-features=custom-protocol
       - name: Prepare explicitly labeled source inventory
         run: mkdir -p artifact-sbom-work
-      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           {
             syft-version: v1.50.0,
@@ -2409,7 +2409,7 @@ jobs:
           node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos.dmg" --root=artifact-sbom-work/macos-dmg/root
           node scripts/artifact-sbom.mjs prepare --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root
       - name: Scan macOS DMG shipped artifact
-        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           {
             syft-version: v1.50.0,
@@ -2420,7 +2420,7 @@ jobs:
             upload-artifact: false,
           }
       - name: Scan macOS app ZIP shipped artifact
-        uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           {
             syft-version: v1.50.0,
@@ -2438,7 +2438,7 @@ jobs:
           node scripts/artifact-sbom.mjs finalize-artifact --artifact="release-artifacts/ZUULI-${RELEASE_IDENTITY}-macos-universal.zip" --root=artifact-sbom-work/macos-zip/root --raw-sbom=artifact-sbom-work/macos-zip/syft.raw.sbom.cdx.json --sbom=release-artifacts/ZUULI-macos-zip.artifact.sbom.cdx.json --binding=release-artifacts/ZUULI-macos-zip.artifact.sbom-binding.json
       - name: Prepare explicitly labeled source inventory
         run: mkdir -p artifact-sbom-work
-      - uses: anchore/sbom-action@fbfd9c6c189226748411491745178e0c2017392d # v0.20.10
+      - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           {
             syft-version: v1.50.0,
