@@ -84,6 +84,7 @@ Inside an SSE stream, the terminal `error` event carries `code` and
 | 404 | `purchase_not_found` | no | No such purchase for this (user, app) | — |
 | 409 | `idempotency_conflict` | no | The `Idempotency-Key` was used with a different body, or names a call that is still streaming | `call_id` |
 | 409 | `too_many_holds` | yes | The account already has 16 open holds (the limit); this would be the seventeenth | — |
+| 410 | `completion_not_retained` | no | A completed compatibility call cannot replay its response body | Call record, including receipt where available |
 | 413 | `payload_too_large` | no | Over the 4 MiB / 20 MiB body limit | `limit_bytes` |
 | 429 | `rate_limited` | yes, after `Retry-After` | Requests per minute for this (app, user), or an explicitly configured aggregate application admission limit, exceeded | — |
 | 429 | `concurrency_limit` | yes, after `Retry-After` | A fifth simultaneous stream for this user | `limit` |

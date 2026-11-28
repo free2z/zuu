@@ -355,3 +355,27 @@ async fn a_body_sent_as_one_byte_chunks_is_read_into_one_buffer_and_decodes() {
     let response = send(running.public, chat_request(Body::new(ChannelBody(rx)))).await;
     assert_eq!(response.status(), StatusCode::NOT_IMPLEMENTED);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn compatibility_text_limit_and_image_allowance_match_native() {
+    let running = gateway(&[]).await;
+    let send_compat = |body: Vec<u8>| async {
+        let req = axum::http::Request::post("/v1/chat/completions")
+            .header("host", "gateway")
+            .header("content-type", "application/json")
+            .body(Body::from(body))
+            .unwrap();
+        let response = send(running.public, req).await;
+        let status = response.status();
+        (status, error_of(response).await)
+    };
+    let (status, error) = send_compat(text_request_of_size(4 * MIB + 1)).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{error}");
+    let mut invalid = text_request_of_size(4 * MIB + 2);
+    invalid.pop();
+    let (status, _) = send_compat(invalid).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    let body = json!({"model":"example-large","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":format!("data:image/png;base64,{}", "A".repeat(6 * MIB))}}]}]}).to_string().into_bytes();
+    let (status, error) = send_compat(body).await;
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{error}");
+}

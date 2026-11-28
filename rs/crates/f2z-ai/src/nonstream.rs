@@ -208,7 +208,7 @@ impl Aggregate {
 
 // DeliveryBody emits exactly one Event::to_sse frame per body frame. This is
 // an internal typed boundary, not a parser for arbitrary provider SSE chunks.
-fn event(frame: &[u8]) -> Result<Event, ()> {
+pub(crate) fn event(frame: &[u8]) -> Result<Event, ()> {
     let text = std::str::from_utf8(frame).map_err(|_| ())?;
     let (name, data) = text
         .strip_prefix("event: ")
@@ -222,8 +222,10 @@ pub(crate) async fn collect(
     mut body: DeliveryBody,
     reservation: Reservation,
     deadline: tokio::time::Instant,
+    compat: bool,
 ) -> Response {
     let call_id = body.call_id.clone();
+    let hold_headers = body.hold_headers;
     let mut aggregate = Aggregate::default();
     let mut used = 0usize;
     let mut failure_reason = None;
@@ -267,10 +269,30 @@ pub(crate) async fn collect(
     } else {
         aggregate.finish(call_id.as_deref())
     };
+    let value = if compat {
+        crate::compat::render_nonstream(value, status.is_success())
+    } else {
+        value
+    };
     let mut response = (status, axum::Json(value)).into_response();
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if let Some((hold, version)) = hold_headers {
+        if let Ok(v) = HeaderValue::from_str(&hold.to_string()) {
+            headers.insert("x-f2z-hold-2z", v);
+        }
+        if let Ok(v) = HeaderValue::from_str(&version.to_string()) {
+            headers.insert("x-f2z-catalog-version", v);
+        }
+    }
+    if compat && !status.is_success() {
+        headers.insert("x-should-retry", HeaderValue::from_static("false"));
+    }
     if let Some(id) = call_id.and_then(|id| HeaderValue::from_str(&id).ok()) {
+        if compat {
+            headers.insert("x-request-id", id.clone());
+            headers.insert("request-id", id.clone());
+        }
         headers.insert("x-f2z-call-id", id);
     }
     let (parts, body) = response.into_parts();

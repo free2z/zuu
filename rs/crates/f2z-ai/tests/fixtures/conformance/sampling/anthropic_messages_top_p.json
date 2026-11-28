@@ -79,7 +79,169 @@
       "reasoning_tokens": 0,
       "tool_calls": 0
     },
-    "encodings": {},
+    "encodings": {
+      "chat_completions": {
+        "chunks": [
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "role": "assistant",
+                  "content": ""
+                },
+                "finish_reason": null
+              }
+            ],
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-anthropic",
+              "hold_2z": 25,
+              "requested_model": "m-anthropic",
+              "provider": "anthropic",
+              "max_output_tokens": 300,
+              "input_tokens_estimate": 203
+            }
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": "A half"
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {
+                  "content": " is 1/2."
+                },
+                "finish_reason": null
+              }
+            ]
+          },
+          {
+            "id": "$CALL_ID",
+            "object": "chat.completion.chunk",
+            "created": "$CREATED",
+            "model": "m-anthropic",
+            "choices": [
+              {
+                "index": 0,
+                "delta": {},
+                "finish_reason": "stop"
+              }
+            ],
+            "usage": {
+              "prompt_tokens": 525,
+              "completion_tokens": 8,
+              "total_tokens": 533,
+              "prompt_tokens_details": {
+                "cached_tokens": 400
+              },
+              "completion_tokens_details": {
+                "reasoning_tokens": 0
+              }
+            },
+            "f2z": {
+              "call_id": "$CALL_ID",
+              "model": "m-anthropic",
+              "hold_2z": 25,
+              "requested_model": "m-anthropic",
+              "provider": "anthropic",
+              "max_output_tokens": 300,
+              "input_tokens_estimate": 203,
+              "charged_2z": 1,
+              "receipt_id": "$RECEIPT_ID",
+              "finish_reason": "stop",
+              "settlement": "settled",
+              "released_2z": 24,
+              "collected_milli_2z": 1000,
+              "shortfall_milli_2z": 0,
+              "cap_remaining_milli_2z": null,
+              "usage_source": "provider"
+            }
+          }
+        ],
+        "response": {
+          "id": "$CALL_ID",
+          "object": "chat.completion",
+          "created": "$CREATED",
+          "model": "m-anthropic",
+          "choices": [
+            {
+              "index": 0,
+              "message": {
+                "role": "assistant",
+                "content": "A half is 1/2."
+              },
+              "finish_reason": "stop"
+            }
+          ],
+          "usage": {
+            "prompt_tokens": 525,
+            "completion_tokens": 8,
+            "total_tokens": 533,
+            "prompt_tokens_details": {
+              "cached_tokens": 400
+            },
+            "completion_tokens_details": {
+              "reasoning_tokens": 0
+            }
+          },
+          "f2z": {
+            "call_id": "$CALL_ID",
+            "model": "m-anthropic",
+            "message": {
+              "content": [
+                {
+                  "type": "text",
+                  "text": "A half is 1/2."
+                }
+              ]
+            },
+            "finish_reason": "stop",
+            "usage": {
+              "input_tokens": 25,
+              "cached_input_tokens": 400,
+              "cache_write_tokens": 100,
+              "output_tokens": 8,
+              "reasoning_tokens": 0,
+              "images": 0,
+              "tool_calls": 0
+            },
+            "usage_source": "provider",
+            "requested_model": "m-anthropic",
+            "provider": "anthropic",
+            "charged_2z": 1,
+            "receipt_id": "$RECEIPT_ID",
+            "settlement": "settled",
+            "hold_2z": 25,
+            "released_2z": 24,
+            "collected_milli_2z": 1000,
+            "shortfall_milli_2z": 0,
+            "cap_remaining_milli_2z": null
+          }
+        }
+      }
+    },
     "hold_extends": 0
   }
 }
