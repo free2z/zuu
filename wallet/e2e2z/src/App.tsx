@@ -1,3 +1,5 @@
+import { useEffect } from "react";
+import { diagnostics } from "./lib/diagnostics";
 import { useTranslation } from "react-i18next";
 import DiagnosticsFeature from "./features/diagnostics";
 import MessagesFeature from "./features/messages";
@@ -12,6 +14,10 @@ import MessagesFeature from "./features/messages";
  */
 export default function App() {
   const { t } = useTranslation();
+  useEffect(() => {
+    diagnostics.breadcrumb("navigation", "route-enter");
+    return () => diagnostics.breadcrumb("navigation", "route-leave");
+  }, []);
   return (
     <div className="app-viewport overflow-y-auto">
       <main className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 sm:py-8">

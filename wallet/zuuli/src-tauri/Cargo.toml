@@ -19,6 +19,7 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+f2z-diagnostics = { path = "../../../rs/crates/f2z-diagnostics", version = "0.1.0" }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"

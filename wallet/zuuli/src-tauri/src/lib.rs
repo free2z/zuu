@@ -1,3 +1,5 @@
+use tauri::Manager as _;
+
 mod bridge;
 mod directory_publish;
 pub mod intent;
@@ -26,8 +28,26 @@ fn app_context<R: tauri::Runtime>() -> tauri::Context<R> {
 /// the other application.
 const WRAP_KEY_NAMESPACE: &str = "cash.free2z.zuuli.f2zmsg.wrap.v1";
 
+struct NativeDiagnostics(Option<std::sync::Arc<f2z_diagnostics::Store>>);
+
+#[tauri::command]
+fn native_diagnostics_report(
+    state: tauri::State<'_, NativeDiagnostics>,
+) -> Result<String, &'static str> {
+    state
+        .inner()
+        .0
+        .as_ref()
+        .ok_or("native diagnostics unavailable")?
+        .report()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Install before plugins or filesystem access: even startup/storage failures
+    // must not fall back to a hook that formats an unredacted panic payload.
+    let diagnostics = std::sync::Arc::new(f2z_diagnostics::Store::memory());
+    let installed = f2z_diagnostics::install(std::sync::Arc::clone(&diagnostics)).is_ok();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         // Native payment confirmation is intentionally available only to Rust.
@@ -104,6 +124,7 @@ pub fn run() {
         .manage(oauth::OauthLoopbackState::default())
         .manage(oauth::OauthMobileState::default())
         .invoke_handler(tauri::generate_handler![
+            native_diagnostics_report,
             oauth::oauth_loopback_start,
             oauth::oauth_loopback_wait,
             oauth::oauth_loopback_cancel,
@@ -131,7 +152,14 @@ pub fn run() {
         // the privileged WebView. A command that turned caller-supplied bytes
         // into a wallet confirmation would be #367's confused deputy with an
         // IPC name.
-        .setup(|app| {
+        .setup(move |app| {
+            // Full/read-only storage loses persistence, never the bounded hook.
+            if let Ok(directory) = app.path().app_data_dir() {
+                let _ = std::fs::create_dir_all(&directory).and_then(|()| {
+                    diagnostics.attach_file(&directory.join("native-diagnostics-v1.log"))
+                });
+            }
+            app.manage(NativeDiagnostics(installed.then_some(diagnostics)));
             bridge::install(app.handle());
             Ok(())
         })

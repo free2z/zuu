@@ -44,9 +44,6 @@ export const ABOUT_MESSAGES = Object.freeze({
     "Do not include wallet secrets, passwords, tokens, addresses, transaction details, balances, device details, or local files.",
   feedbackMnemonicLanguageScope:
     "Automatic screening for recovery phrases only recognizes the English BIP-39 wordlist. A recovery phrase in another language (for example Japanese, Spanish, French, Italian, Korean, Czech, or Portuguese) will not be detected or removed automatically — never paste a recovery phrase here yourself, in any language.",
-  feedbackDiagnosticsLabel: "Include sanitized diagnostics",
-  feedbackDiagnosticsUnavailable:
-    "Off. This build does not collect logs or tracebacks for feedback because their privacy safety is not proven.",
   feedbackReviewAction: "Review report",
   feedbackPreviewTitle: "Review the complete outgoing draft",
   feedbackPreviewDescription:

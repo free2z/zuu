@@ -44,5 +44,18 @@
       "label": "Preserved legacy wallet",
       "title": "Earlier wallet preserved"
     }
+  },
+  "diagnostics": {
+    "title": "Diagnostics",
+    "description": "Local frontend report. Review before copying or sharing; nothing is uploaded automatically.",
+    "copy": "Copy report",
+    "share": "Share report",
+    "refresh": "Refresh",
+    "clear": "Clear frontend records",
+    "copied": "Report copied.",
+    "failed": "The action could not be completed. You can select the report below.",
+    "nativeUnavailable": "Native panic readback is unavailable in this runtime.",
+    "feedback": "Include reduced diagnostics",
+    "feedbackDescription": "Include failure kinds and counts only. Full reports, filenames and stack frames stay out of feedback."
   }
 }
