@@ -618,10 +618,13 @@ def test_the_seeded_lineup_publishes_on_the_seeded_card(db):
     c = catalog.build_catalog(SAMPLE_NOW)
     assert c["rate_card_version"] == RateCard.objects.filter(active=True).order_by("-version")[0].version
     ids = {m["id"] for m in c["models"]}
+    from f2z.ai.retirements import retirement_for
     expected = set(
         row.model for row in AIModel.objects.enabled().filter(is_ga=True)
         if (row.provider, row.model) not in catalog.GATEWAY_MODEL_EXCLUSIONS
         and (row.price_valid_until is None or row.price_valid_until.timestamp() > SAMPLE_NOW)
+        and ((notice := retirement_for(row.provider, row.model, row.provider_model_id)) is None
+             or notice.cutoff.timestamp() > SAMPLE_NOW + catalog.VALIDITY_SECONDS)
     )
     assert ids == expected and ids
     assert not any(m["provider"] == "kimi" for m in c["models"])
@@ -1430,7 +1433,7 @@ def test_a_card_row_below_the_models_recorded_cost_is_excluded(sample_dataset, c
     assert "grok-4.5" not in _ids(catalog.build_catalog(SAMPLE_NOW))
 
 
-def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
+def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db, monkeypatch):
     """Every permitted lineup row has a price at the Django cost floor and
     every tiered window is below its threshold. Historical prices for retired
     models stay on the immutable card without admitting new calls."""
@@ -1439,6 +1442,13 @@ def test_the_seeded_lineup_passes_the_cost_floor_and_the_caps(db):
     from dj.apps.openai.management.commands import seed_ai_models
     from dj.apps.openai.models import ProviderModel
 
+    # This test qualifies capabilities, using a synthetic year-2096 clock.
+    # Future shutdowns have their own boundary test; retain past retirements.
+    from f2z.ai import retirements
+    from datetime import datetime, timezone
+    monkeypatch.setattr(retirements, "RETIREMENTS", tuple(
+        entry for entry in retirements.RETIREMENTS
+        if entry.cutoff <= datetime(2026, 11, 10, tzinfo=timezone.utc)))
     ProviderModel.objects.all().delete()
     call_command("seed_ai_models", stdout=io.StringIO())
     card = catalog.active_rate_card()
@@ -1711,3 +1721,54 @@ def test_promotional_price_covers_catalog_expiry_even_with_accepted_clock_skew(s
     assert document["issued_at"] == SAMPLE_NOW + 120
     assert "gpt-5.6-luna" not in {row["id"] for row in document["models"]}
     assert document["expires_at"] == document["issued_at"] + catalog.VALIDITY_SECONDS
+
+
+@pytest.mark.parametrize("identity", ["public", "pin", "finetune"])
+def test_shutdown_withdraws_before_signed_validity_and_advances_revision(sample_dataset, monkeypatch, identity):
+    from f2z.ai import retirements, providers
+    from datetime import datetime, timezone
+    # One second separates two builds in the same normal reissue window.
+    withdrawal = SAMPLE_NOW + 1
+    cutoff = withdrawal + catalog.VALIDITY_SECONDS
+    base = 'gpt-5.6-luna' if identity == 'public' else 'reviewed-pinned-base'
+    if identity != 'public':
+        upstream = base if identity == 'pin' else f'ft:{base}:org:custom:id'
+        AIModel.objects.filter(model='gpt-5.6-luna').update(provider_model_id=upstream)
+    notice = retirements.Retirement('openai', datetime.fromtimestamp(
+        cutoff, tz=timezone.utc).isoformat(), (base,), retirements.OPENAI_SOURCE)
+    monkeypatch.setattr(retirements, 'RETIREMENTS', (*retirements.RETIREMENTS, notice))
+    before = catalog.build_catalog(SAMPLE_NOW)
+    after = catalog.build_catalog(withdrawal)
+    later = catalog.build_catalog(withdrawal + 1)
+    assert 'gpt-5.6-luna' in _ids(before)
+    assert 'gpt-5.6-luna' not in _ids(after)
+    assert after['version'] > before['version']
+    assert later['version'] >= after['version']
+    assert after['expires_at'] - after['issued_at'] == catalog.VALIDITY_SECONDS
+    # Dispatch and SQL selection interpret that exact same identity at cutoff.
+    row = AIModel.objects.get(model='gpt-5.6-luna')
+    class Clock(datetime):
+        instant = datetime.fromtimestamp(cutoff - 1, tz=timezone.utc)
+        @classmethod
+        def now(cls, tz=None):
+            return cls.instant
+    monkeypatch.setattr(retirements, 'datetime', Clock)
+    providers.refuse_retired_model(row.provider, row.model, row.provider_model_id)
+    assert AIModel.objects.enabled().filter(pk=row.pk).exists()
+    Clock.instant = datetime.fromtimestamp(cutoff, tz=timezone.utc)
+    with pytest.raises(providers.ModelDisabled):
+        providers.refuse_retired_model(row.provider, row.model, row.provider_model_id)
+    assert not AIModel.objects.enabled().filter(pk=row.pk).exists()
+
+
+def test_shutdown_horizon_accounts_for_future_issued_at(sample_dataset, monkeypatch):
+    from f2z.ai import retirements
+    cutoff = SAMPLE_NOW + catalog.VALIDITY_SECONDS + 60
+    notice = retirements.Retirement('openai', _at(cutoff).isoformat(),
+                                   ('gpt-5.6-luna',), retirements.OPENAI_SOURCE)
+    monkeypatch.setattr(retirements, 'RETIREMENTS', (*retirements.RETIREMENTS, notice))
+    assert 'gpt-5.6-luna' in _ids(catalog.build_catalog(SAMPLE_NOW))
+    AIModel.objects.filter(model='gpt-5.6-luna').update(updated_at=_at(SAMPLE_NOW + 120))
+    document = catalog.build_catalog(SAMPLE_NOW)
+    assert document['issued_at'] == SAMPLE_NOW + 120
+    assert 'gpt-5.6-luna' not in _ids(document)

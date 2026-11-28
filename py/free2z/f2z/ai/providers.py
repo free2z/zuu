@@ -17,6 +17,8 @@ Django, e.g. from ``f2z/openai/example.py``).
 
 import logging
 import os
+
+from .retirements import model_is_retired
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -193,26 +195,10 @@ class ModelDisabled(RuntimeError):
     """
 
 
-# Exact aliases and snapshots in the October 23, 2026 retirement cohort used
-# by our catalog. Keep historical prices/receipts; only new work is refused.
-# https://developers.openai.com/api/docs/deprecations (verified 2026-10-17).
-RETIRED_OPENAI_MODEL_IDS = frozenset({
-    "gpt-4.1-nano", "gpt-4.1-nano-2025-04-14",
-    "gpt-4o-2024-05-13",
-    "o1", "o1-2024-12-17",
-    "o3-mini", "o3-mini-2025-01-31",
-    "o4-mini", "o4-mini-2025-04-16",
-})
-
-
-def model_is_retired(provider, model, provider_model_id=""):
-    """A reviewed retirement cannot be undone by a flag or upstream pin."""
-    return provider == OPENAI and (
-        model in RETIRED_OPENAI_MODEL_IDS or provider_model_id in RETIRED_OPENAI_MODEL_IDS
-    )
-
-
 def refuse_retired_model(provider, model, provider_model_id=""):
+    if (not isinstance(model, str) or not model.strip() or model != model.strip()
+            or not isinstance(provider_model_id, str)):
+        raise ModelDisabled("Invalid AI model identity; refusing new generation.")
     if model_is_retired(provider, model, provider_model_id):
         raise ModelDisabled(f"AI model {provider}/{model} is retired; refusing new generation.")
 
@@ -1089,8 +1075,8 @@ def _stream_anthropic(
       before this parameter existed, and it is one of the things the SSE
       transport in  §3.2 removes rather than patches.
     """
+    refuse_retired_model(ANTHROPIC, model)
     client = _bind_options(get_client(ANTHROPIC), timeout, max_retries)
-
     system_parts = [
         m["content"] for m in messages if m.get("role") == "system" and m.get("content")
     ]

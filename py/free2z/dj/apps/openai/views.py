@@ -170,6 +170,9 @@ def _cover_choice_snapshot(choice_id="openai-image"):
     model = settings.OPENAI_IMAGE_MODEL
     if oai_client is None or not isinstance(model, str) or not model.strip():
         return None
+    from f2z.ai.retirements import model_is_retired
+    if model_is_retired("openai", model):
+        return None
     return {
         "id": "openai-image",
         "provider": "openai",
@@ -3225,6 +3228,12 @@ class ImageView(views.APIView):
         provider_request_started = False
         try:
             if hosted_image:
+                from f2z.ai.retirements import model_is_retired
+                if model_is_retired("openai", selected_model):
+                    ledger.release_reservation(reservation)
+                    idempotency.release(claim)
+                    return Response({"detail": IMAGE_UNAVAILABLE_DETAIL},
+                                    status=status.HTTP_503_SERVICE_UNAVAILABLE)
                 if not _mark_image_provider_request_started(claim):
                     return Response(
                         {"code": "request_in_progress", "detail": "The original provider operation is still being resolved."},

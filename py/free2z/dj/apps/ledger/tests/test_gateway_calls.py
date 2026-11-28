@@ -545,3 +545,34 @@ def test_maximum_metadata_characters_survive_multibyte_and_json_escaping(holder,
     first = claim(holder, third_party, request=request_meta)
     assert first['status'] == 'claimed'
     assert read(holder, third_party, first['call_id'])['record']['request']['metadata'] == metadata
+
+
+def test_retired_catalogue_identity_does_not_block_pending_recovery(holder, third_party):
+    from dj.apps.openai.models import AIModel
+    from f2z.ai.providers import model_is_retired
+    from dj.apps.pricing.models import RateCard, RateCardModel
+    from django.utils import timezone
+    card = RateCard.objects.create(version=100000)
+    RateCardModel.objects.create(rate_card=card, model_id='gpt-4-turbo', **{
+        field.name: 1 for field in RateCardModel._meta.fields if 'nusd' in field.name})
+    RateCard.objects.filter(pk=card.pk).update(active=True, published_at=timezone.now())
+    request = dict(REQUEST, provider='openai', model='gpt-4-turbo',
+                   requested_model='gpt-4-turbo', catalog_version=card.version)
+    completion = dict(COMPLETE, provider='openai', model='gpt-4-turbo')
+    first = claim(holder, third_party, request=request)
+    held = call('hold', holder.public_id, third_party, 10000, f"{first['call_id']}:0",
+                str(first['call_id']), 0, 300, holder.kt_account_epoch, 4,
+                'gpt-4-turbo', card.version, str(card.version), 0, json.dumps({'provider': 'openai'}))
+    assert held['status'] == 'held'
+    assert model_is_retired('openai', request['model'])
+    assert not AIModel.objects.enabled().filter(provider='openai', model=request['model']).exists()
+    assert read(holder, third_party, first['call_id'])['record']['request'] == request
+    assert claim(holder, third_party, request=request)['status'] == 'pending'
+    assert complete(holder, third_party, first['call_id'], completion=completion)['status'] == 'recorded'
+    settled = call('settle', held['hold_id'], 10_000_000, json.dumps(completion))
+    assert settled['status'] == 'settled'
+    receipt = read(holder, third_party, first['call_id'])['record']
+    assert receipt['status'] == 'settled'
+    assert receipt['request'] == request
+    assert receipt['settlement']['transfer_id'] == settled['transfer_id']
+    assert claim(holder, third_party, request=request)['status'] == 'replayed'

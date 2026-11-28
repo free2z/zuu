@@ -3,6 +3,8 @@ import re
 
 from django.utils import timezone
 
+from f2z.ai.retirements import model_is_retired
+
 from .models import AIModel, ProviderModel
 from f2z.ai.providers import configured_providers
 
@@ -39,7 +41,9 @@ def provider_inventory():
         provider, model = key
         row, listing = models.get(key), listings.get(key)
         reason = None
-        if listing and listing.metadata.get("lifecycle") in ("deprecated", "retired"):
+        if model_is_retired(provider, model, row.provider_model_id if row else ""):
+            reason = "provider_retired"
+        elif listing and listing.metadata.get("lifecycle") in ("deprecated", "retired"):
             reason = "provider_" + listing.metadata["lifecycle"]
         elif row is None:
             reason = unreviewed_reason(provider, model)
