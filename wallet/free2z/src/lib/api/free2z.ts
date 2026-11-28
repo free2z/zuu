@@ -223,12 +223,14 @@ interface RawZPage {
   get_url?: string;
 }
 interface RawDyteMeeting {
+  title?: string;
   id: number;
   creator: RawCreator;
   meeting_id: string;
   meeting_type: unknown;
   live_now: boolean;
   price_per_minute?: unknown;
+  admission_minimum_tuzis?: unknown;
 }
 
 // ─── Mappers ────────────────────────────────────────────────────────────────
@@ -730,22 +732,45 @@ export function ppvPrice(pricePerMinute: unknown): number {
 function mapLivestream(m: RawDyteMeeting): Livestream {
   const kind = streamKindFromType(m.meeting_type);
   const creator = mapCreator(m.creator);
+  const rate = kind === "ppv" ? parsePpvRate(m.price_per_minute) : undefined;
+  const admissionMinimum =
+    kind === "ppv" ? parseAdmissionMinimum(m.admission_minimum_tuzis) : null;
   return {
     id: String(m.id),
     meetingId: m.meeting_id,
     username: m.creator.username,
     creator,
-    title: `${creator.display_name} is live`,
+    title: m.title?.trim() || `${creator.display_name} is live`,
     kind,
     live: !!m.live_now,
     // The public meeting listing does not carry an authoritative count. #265
     // will hydrate one; until then the only truthful client value is unknown.
     participants: null,
-    price_tuzis: kind === "ppv" ? ppvPrice(m.price_per_minute) : 0,
+    price_tuzis: admissionMinimum ?? 0,
+    ...(rate !== undefined ? { price_per_minute: rate } : {}),
+    admission_minimum_tuzis: admissionMinimum,
     thumbnail: creator.image ?? null,
     started_at: undefined,
     category: undefined,
   };
+}
+
+function parsePpvRate(value: unknown): string {
+  if (
+    typeof value !== "string" ||
+    !/^\d{1,4}\.\d{2}$/.test(value) ||
+    Number(value) <= 0
+  ) {
+    throw new LivestreamPriceContractError();
+  }
+  return value;
+}
+
+function parseAdmissionMinimum(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    throw new LivestreamPriceContractError();
+  }
+  return value;
 }
 
 function inferProvider(model: string): AIModel["provider"] {
@@ -1903,7 +1928,18 @@ export const live = {
   },
 
   /** Creator starts/ensures their stream and receives its host ticket. */
-  async start(kind: StreamKind, pricePerMinute?: number): Promise<LiveStartResult> {
+  async start(
+    kind: StreamKind,
+    priceOrMetadata?: number | { title?: string; pricePerMinute?: number | string },
+  ): Promise<LiveStartResult> {
+    const metadata =
+      typeof priceOrMetadata === "object" && priceOrMetadata !== null
+        ? priceOrMetadata
+        : undefined;
+    const rawPrice =
+      typeof priceOrMetadata === "number" ? priceOrMetadata : metadata?.pricePerMinute;
+    const pricePerMinute = typeof rawPrice === "string" ? Number(rawPrice) : rawPrice;
+    const title = metadata?.title?.trim();
     const meetingType = typeFromStreamKind(kind);
     if (kind === "ppv" && (!Number.isSafeInteger(pricePerMinute) || !pricePerMinute ||
       pricePerMinute < 1 || pricePerMinute > MAX_PPV_PRICE_TUZIS))
@@ -1950,6 +1986,7 @@ export const live = {
         `/api/dyte/${encodeURIComponent(me.username)}/${meetingType}`,
         { method: "POST", authToken: originalAuth.token, signal: controller.signal,
           body: { role: "host", host_session: hostSeat.session, expected_actor_id: me.id,
+            ...(title ? { title } : {}),
             ...(kind === "ppv" ? { price_per_minute: `${pricePerMinute}.00` } : {}) } },
       );
       if (!isCurrentHostSeat(hostSeat) || r.host_session !== hostSeat.session)
@@ -1985,6 +2022,8 @@ export const live = {
       expectedMeetingId?: string;
       expectedEnvironmentId?: string;
       previousAuthToken?: string;
+      expectedActorId?: number;
+      admissionIdempotencyKey?: string;
     } = {},
   ): Promise<DyteJoinTicket> {
     const meetingType = typeFromStreamKind(kind);
@@ -2013,7 +2052,26 @@ export const live = {
     try {
       const r = await request<unknown>(path, {
         method: "POST",
-        ...(kind !== "private" ? { body: { role: "viewer" } } : {}),
+        ...(kind !== "private"
+          ? {
+              body: {
+                role: "viewer",
+                ...(kind === "ppv" && as === "participant"
+                  ? {
+                      ...(constraints.expectedActorId !== undefined
+                        ? { expected_actor_id: constraints.expectedActorId }
+                        : {}),
+                      ...(constraints.admissionIdempotencyKey
+                        ? {
+                            admission_idempotency_key:
+                              constraints.admissionIdempotencyKey,
+                          }
+                        : {}),
+                    }
+                  : {}),
+              },
+            }
+          : {}),
       });
       return parseJoinTicketResponse(r, {
         as,
