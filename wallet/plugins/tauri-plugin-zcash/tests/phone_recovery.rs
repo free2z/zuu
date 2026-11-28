@@ -349,10 +349,16 @@ async fn real_received_note_history_cannot_be_mistaken_for_an_empty_restore() {
     for id in fixture.wallet().get_account_ids().unwrap() {
         let account = fixture.wallet().get_account(id).unwrap().unwrap();
         let index = u32::from(account.source().key_derivation().unwrap().account_index());
+        // `UnifiedFullViewingKey::encode` returns `Result`; bind the string, not the Result.
+        let encoded_ufvk = account
+            .ufvk()
+            .unwrap()
+            .encode(&Network::TestNetwork)
+            .unwrap();
         native_connection
             .execute(
                 "UPDATE accounts SET ufvk = ?1 WHERE hd_account_index = ?2",
-                rusqlite::params![account.ufvk().unwrap().encode(&Network::TestNetwork), index],
+                rusqlite::params![encoded_ufvk, index],
             )
             .unwrap();
     }
